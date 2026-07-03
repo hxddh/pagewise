@@ -1,0 +1,25 @@
+import { useToast, type Toast } from "../hooks/useToast";
+
+function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+  return (
+    <div className={`toast toast-${toast.tone ?? "default"}`} role="status">
+      <span>{toast.message}</span>
+      <button type="button" className="toast-close" onClick={onDismiss} aria-label="Dismiss">
+        ×
+      </button>
+    </div>
+  );
+}
+
+export function ToastViewport() {
+  const { toasts, dismissToast } = useToast();
+  if (toasts.length === 0) return null;
+
+  return (
+    <div className="toast-viewport">
+      {toasts.map((t) => (
+        <ToastItem key={t.id} toast={t} onDismiss={() => dismissToast(t.id)} />
+      ))}
+    </div>
+  );
+}
