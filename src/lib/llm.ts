@@ -1,5 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { APICallError, generateText, type LanguageModel } from "ai";
+import { APICallError, generateText, tool, type LanguageModel } from "ai";
+import { z } from "zod";
 import { isToolModel } from "./model-capabilities";
 import {
   allProviderModels,
@@ -180,6 +181,15 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
         t?.("llm.invalidApiKey") ?? "Invalid API key — check Settings → AI Provider."
       );
     }
+    if (
+      msg.toLowerCase().includes("no endpoints found that support tool use") ||
+      msg.toLowerCase().includes("support tool use")
+    ) {
+      return (
+        t?.("llm.toolsNotSupportedOpenRouter") ??
+        "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → AI Provider."
+      );
+    }
     if (statusCode === 404 || (!hasStatus && msg.includes("404"))) {
       return (
         t?.("llm.notFound") ??
@@ -198,15 +208,6 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
       msg.toLowerCase().includes("failed to fetch")
     ) {
       return t?.("llm.networkError") ?? "Network error — check your connection.";
-    }
-    if (
-      msg.toLowerCase().includes("no endpoints found that support tool use") ||
-      msg.toLowerCase().includes("support tool use")
-    ) {
-      return (
-        t?.("llm.toolsNotSupportedOpenRouter") ??
-        "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → AI Provider."
-      );
     }
     if (msg === "An error occurred.") {
       return t?.("agent.errorGeneric") ?? "Request failed — check Settings → AI Provider.";
@@ -234,14 +235,21 @@ export async function testConnection(
   settings: LlmSettings,
   t?: TranslateFn,
 ): Promise<string> {
-  const modelError = validateModel(settings, t);
+  const modelError = validateAgentModel(settings, t);
   if (modelError) throw new Error(modelError);
   assertApiKey(settings, t);
 
   try {
     const { text } = await generateText({
       model: resolveModel(settings),
-      prompt: "Reply with exactly: OK",
+      tools: {
+        ping: tool({
+          description: "Health check — reply with pong",
+          inputSchema: z.object({}),
+          execute: async () => "pong",
+        }),
+      },
+      prompt: "Call the ping tool once, then reply OK.",
     });
     return text.trim();
   } catch (e) {

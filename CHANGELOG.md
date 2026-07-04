@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-04
+
+### Fixed
+
+- PDF index badge false failures: wait for pdf.js text extraction, sync docCache to UI, recover from stale failed state
+- Agent 404 misreported as “model/endpoint not found” when OpenRouter lacks tool-use routes; correct error ordering
+- OpenRouter VL models no longer used as agent model; auto-migrate to split agent + vision models
+- Startup keychain password prompt: defer API key read until settings/agent need it
+- Logo: Dock / app bundle icons regenerated to match in-app document mark (stacked pages + green dot)
+
+### Changed
+
+- Settings: separate **Agent model** and **Indexing model (vision)**; test connection probes tool calling
+- Vision indexing uses dedicated vision model settings
+
 ## [0.2.2] - 2026-07-04
 
 ### Added

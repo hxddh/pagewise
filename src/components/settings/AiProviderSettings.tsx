@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { useDebouncedSave, type SaveStatus } from "../../hooks/useDebouncedSave";
-import { testConnection, validateModel, formatLlmError } from "../../lib/llm";
+import { testConnection, validateAgentModel, validateModel, formatLlmError } from "../../lib/llm";
 import {
   loadLlmStore,
   loadProviderSettings,
@@ -13,7 +13,9 @@ import {
 import {
   allProviderModels,
   DEFAULT_SETTINGS,
+  defaultVisionModel,
   PROVIDER_PRESETS,
+  visionModelsForProvider,
   type LlmSettings,
   type ProviderId,
   type ProviderProfile,
@@ -81,6 +83,8 @@ export function AiProviderSettings({
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [customModel, setCustomModel] = useState(false);
+  const [customVisionModel, setCustomVisionModel] = useState(false);
+  const [visionModel, setVisionModel] = useState("");
   const [migratedNotice, setMigratedNotice] = useState(false);
 
   const profileCacheRef = useRef<Map<ProviderId, LlmSettings>>(new Map());
@@ -100,12 +104,22 @@ export function AiProviderSettings({
       if (cancelled) return;
       profileCacheRef.current.set(store.activeProvider, active);
       setSettings(active);
+      const profile = store.profiles[store.activeProvider];
+      const vm =
+        profile?.visionModel?.trim() ||
+        (store.activeProvider !== "custom"
+          ? defaultVisionModel(store.activeProvider as Exclude<ProviderId, "custom">)
+          : "");
+      setVisionModel(vm);
       setApiKeyDraft("");
       setApiKeyTouched(false);
       setDirty(false);
       const presetModels =
         active.provider !== "custom" ? allProviderModels(active.provider) : [];
       setCustomModel(active.provider === "custom" || !presetModels.includes(active.model));
+      const visionPresets =
+        active.provider !== "custom" ? visionModelsForProvider(active.provider) : [];
+      setCustomVisionModel(active.provider === "custom" || !visionPresets.includes(vm));
       setMigratedNotice(
         active.model.includes("v4") &&
           localStorage.getItem("pagewise.modelMigrated") !== "1",
@@ -124,15 +138,26 @@ export function AiProviderSettings({
     );
   }, [previewProvider, settings, apiKeyTouched, apiKeyDraft]);
 
-  const applyLoadedSettings = useCallback((next: LlmSettings) => {
-    setSettings(next);
-    setApiKeyDraft("");
-    setApiKeyTouched(false);
-    setTestError(null);
-    const presetModels =
-      next.provider !== "custom" ? allProviderModels(next.provider) : [];
-    setCustomModel(next.provider === "custom" || !presetModels.includes(next.model));
-  }, []);
+  const applyLoadedSettings = useCallback(
+    (next: LlmSettings, nextVisionModel?: string) => {
+      setSettings(next);
+      setApiKeyDraft("");
+      setApiKeyTouched(false);
+      setTestError(null);
+      const presetModels =
+        next.provider !== "custom" ? allProviderModels(next.provider) : [];
+      setCustomModel(next.provider === "custom" || !presetModels.includes(next.model));
+      if (nextVisionModel !== undefined) {
+        setVisionModel(nextVisionModel);
+        const visionPresets =
+          next.provider !== "custom" ? visionModelsForProvider(next.provider) : [];
+        setCustomVisionModel(
+          next.provider === "custom" || !visionPresets.includes(nextVisionModel),
+        );
+      }
+    },
+    [],
+  );
 
   const handlePersisted = useCallback(
     (saved: LlmSettings) => {
@@ -141,6 +166,7 @@ export function AiProviderSettings({
         ...prev,
         [saved.provider]: {
           model: saved.model,
+          visionModel,
           baseURL: saved.baseURL,
           thinkingEnabled: saved.thinkingEnabled,
           connectionVerified: saved.connectionVerified,
@@ -156,11 +182,12 @@ export function AiProviderSettings({
         onLlmSettingsSaved?.();
       }
     },
-    [previewProvider, activeProvider, onLlmSettingsSaved],
+    [previewProvider, activeProvider, onLlmSettingsSaved, visionModel],
   );
 
   const { persistNow, markSaved } = useDebouncedSave({
     settings,
+    visionModel,
     apiKeyDraft,
     apiKeyTouched,
     loaded,
@@ -201,7 +228,13 @@ export function AiProviderSettings({
     void loadProviderSettings(provider).then((loadedSettings) => {
       if (seq !== loadSeqRef.current) return;
       profileCacheRef.current.set(provider, loadedSettings);
-      applyLoadedSettings(loadedSettings);
+      const profile = providerProfiles[provider];
+      const vm =
+        profile?.visionModel?.trim() ||
+        (provider !== "custom"
+          ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
+          : "");
+      applyLoadedSettings(loadedSettings, vm);
       setDirty(false);
       setSaveStatus("idle");
     });
@@ -217,9 +250,19 @@ export function AiProviderSettings({
     if (saved) markSaved(saved);
   }
 
+  function onVisionModelSelect(value: string) {
+    setCustomVisionModel(false);
+    setVisionModel(value);
+    markDirty();
+  }
+
   const handleSetActive = useCallback(async () => {
     setSettingActive(true);
     try {
+      const draft = resolveDraftSettings(settings, apiKeyTouched, apiKeyDraft);
+      const agentError = validateAgentModel(draft, t);
+      if (agentError) throw new Error(agentError);
+
       await persistNow();
       const next = await setActiveProvider(previewProvider);
       profileCacheRef.current.set(previewProvider, next);
@@ -240,6 +283,10 @@ export function AiProviderSettings({
   }, [
     persistNow,
     previewProvider,
+    settings,
+    apiKeyTouched,
+    apiKeyDraft,
+    t,
     markSaved,
     onLlmSettingsSaved,
     onReindexDoc,
@@ -259,6 +306,7 @@ export function AiProviderSettings({
         toTest.provider,
         {
           model: toTest.model,
+          visionModel,
           baseURL: toTest.baseURL,
           thinkingEnabled: toTest.thinkingEnabled,
           connectionVerified: false,
@@ -281,6 +329,7 @@ export function AiProviderSettings({
         ...prev,
         [verified.provider]: {
           model: verified.model,
+          visionModel,
           baseURL: verified.baseURL,
           thinkingEnabled: verified.thinkingEnabled,
           connectionVerified: true,
@@ -507,8 +556,20 @@ export function AiProviderSettings({
             provider={settings.provider}
             model={settings.model}
             customModel={customModel}
+            purpose="agent"
             onSelect={onModelSelect}
             onCustom={() => setCustomModel(true)}
+          />
+
+          <div className="settings-card-divider" />
+
+          <ModelSelect
+            provider={settings.provider}
+            model={visionModel}
+            customModel={customVisionModel}
+            purpose="vision"
+            onSelect={onVisionModelSelect}
+            onCustom={() => setCustomVisionModel(true)}
           />
 
           {showThinking && (

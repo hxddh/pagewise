@@ -47,10 +47,19 @@ export function useDocumentWorkspace(
 
   useEffect(() => {
     return subscribePageIndex((state) => {
-      if (state.status !== "done") return;
+      if (state.status !== "done" && state.status !== "failed") return;
       setActiveDoc((doc) => {
         if (!doc || doc.path !== state.path) return doc;
         return { ...doc, pages: docCache.getPages(doc.path) };
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    return docCache.subscribe((path) => {
+      setActiveDoc((doc) => {
+        if (!doc || doc.path !== path) return doc;
+        return { ...doc, pages: docCache.getPages(path) };
       });
     });
   }, []);

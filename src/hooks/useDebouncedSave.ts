@@ -7,6 +7,7 @@ export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface UseDebouncedSaveOptions {
   settings: LlmSettings;
+  visionModel?: string;
   apiKeyDraft: string;
   apiKeyTouched: boolean;
   loaded: boolean;
@@ -17,6 +18,7 @@ interface UseDebouncedSaveOptions {
 
 export function useDebouncedSave({
   settings,
+  visionModel = "",
   apiKeyDraft,
   apiKeyTouched,
   loaded,
@@ -25,6 +27,8 @@ export function useDebouncedSave({
   onStatus,
 }: UseDebouncedSaveOptions) {
   const settingsRef = useRef(settings);
+  const visionModelRef = useRef(visionModel);
+  visionModelRef.current = visionModel;
   const draftRef = useRef(apiKeyDraft);
   const touchedRef = useRef(apiKeyTouched);
   const loadedRef = useRef(loaded);
@@ -58,7 +62,7 @@ export function useDebouncedSave({
 
     onStatusRef.current?.("saving");
     try {
-      await saveSettings(toSave);
+      await saveSettings(toSave, visionModelRef.current);
       lastSavedRef.current = snap;
       onStatusRef.current?.("saved");
       onPersistedRef.current?.(toSave);
@@ -75,7 +79,7 @@ export function useDebouncedSave({
       void persist();
     }, 400);
     return () => window.clearTimeout(id);
-  }, [settings, apiKeyDraft, apiKeyTouched, loaded, dirty, persist]);
+  }, [settings, visionModel, apiKeyDraft, apiKeyTouched, loaded, dirty, persist]);
 
   useEffect(() => {
     if (!loaded) return;

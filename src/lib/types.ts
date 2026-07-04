@@ -10,7 +10,10 @@ export const ALL_PROVIDER_IDS: ProviderId[] = [
 
 /** Per-provider config persisted in settings.json (apiKey lives in keychain). */
 export interface ProviderProfile {
+  /** Agent model — must support tool calling. */
   model: string;
+  /** Vision model for PDF/image indexing (may differ from agent model). */
+  visionModel?: string;
   baseURL?: string;
   thinkingEnabled?: boolean;
   connectionVerified?: boolean;
@@ -152,4 +155,28 @@ export const LEGACY_MODEL_MAP: Record<string, { model: string; thinkingEnabled: 
 
 export function allProviderModels(provider: Exclude<ProviderId, "custom">): string[] {
   return PROVIDER_MODEL_GROUPS[provider].flatMap((g) => g.models);
+}
+
+/** Default agent (tool-capable) model per provider. */
+export function defaultAgentModel(provider: Exclude<ProviderId, "custom">): string {
+  return PROVIDER_PRESETS[provider].defaultModel;
+}
+
+/** Default vision model for background page indexing. */
+export function defaultVisionModel(provider: Exclude<ProviderId, "custom">): string {
+  if (provider === "openai") return "gpt-4o-mini";
+  if (provider === "openrouter") return "openai/gpt-4o-mini";
+  if (provider === "ollama") return "qwen2.5vl";
+  return "";
+}
+
+export function visionModelsForProvider(provider: Exclude<ProviderId, "custom">): string[] {
+  const visionGroups = PROVIDER_MODEL_GROUPS[provider].filter((g) =>
+    g.labelKey.includes("Vision") || g.labelKey.includes("vision"),
+  );
+  const fromGroups = visionGroups.flatMap((g) => g.models);
+  const agentDefault = defaultAgentModel(provider);
+  const merged = new Set(fromGroups);
+  if (agentDefault) merged.add(agentDefault);
+  return [...merged];
 }

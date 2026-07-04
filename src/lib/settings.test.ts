@@ -92,6 +92,7 @@ describe("defaultProviderProfile", () => {
   it("starts custom provider empty", () => {
     expect(defaultProviderProfile("custom")).toEqual({
       model: "",
+      visionModel: "",
       baseURL: "",
       thinkingEnabled: false,
       connectionVerified: false,
@@ -182,6 +183,30 @@ describe("store I/O — keychain fallback (no working keychain)", () => {
 
     expect((await loadProviderSettings("openai")).apiKey).toBe("");
     expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBeUndefined();
+  });
+});
+
+describe("migrateProviderProfile", () => {
+  it("splits a vision-only OpenRouter model into agent + vision models", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openrouter",
+        profiles: {
+          openrouter: {
+            model: "qwen/qwen2.5-vl-72b-instruct",
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+
+    const store = await loadLlmStore();
+    const profile = store.profiles.openrouter!;
+    expect(profile.model).toBe("openai/gpt-4o-mini");
+    expect(profile.visionModel).toBe("qwen/qwen2.5-vl-72b-instruct");
+    expect(profile.connectionVerified).toBe(false);
   });
 });
 

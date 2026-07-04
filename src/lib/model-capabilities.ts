@@ -25,8 +25,9 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
 
   "openai/gpt-4o-mini": cap(true, true),
   "openai/gpt-4o": cap(true, true),
-  "qwen/qwen2.5-vl-72b-instruct": cap(true, true),
-  "qwen/qwen2.5-vl-7b-instruct": cap(true, true),
+  /** OpenRouter VL routes support vision but not reliable tool calling. */
+  "qwen/qwen2.5-vl-72b-instruct": cap(true, false),
+  "qwen/qwen2.5-vl-7b-instruct": cap(true, false),
   "google/gemini-2.5-flash-lite": cap(true, true),
   "google/gemini-2.5-flash": cap(true, true),
   "anthropic/claude-3.5-sonnet": cap(true, true),

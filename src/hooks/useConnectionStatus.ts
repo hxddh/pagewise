@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadSettings } from "../lib/settings";
+import { loadSettingsMeta, type LlmSettingsMeta } from "../lib/settings";
 import { isToolModel } from "../lib/model-capabilities";
 import { useI18n } from "../i18n";
 import { PROVIDER_PRESETS, type LlmSettings } from "../lib/types";
 
-export function isApiKeyConfigured(settings: LlmSettings): boolean {
+export function isApiKeyConfigured(settings: LlmSettings | LlmSettingsMeta): boolean {
   if (settings.provider === "ollama") return true;
-  return settings.apiKey.trim().length > 0;
+  if ("hasStoredKey" in settings) return settings.hasStoredKey;
+  return settings.apiKey.trim().length > 0 || settings.connectionVerified === true;
 }
 
 export function useConnectionStatus() {
   const { t } = useI18n();
-  const [settings, setSettings] = useState<LlmSettings | null>(null);
+  const [settings, setSettings] = useState<LlmSettingsMeta | null>(null);
   // Guard against out-of-order resolution of overlapping refresh() calls and
   // setState after unmount.
   const refreshSeqRef = useRef(0);
@@ -26,7 +27,7 @@ export function useConnectionStatus() {
 
   const refresh = useCallback(() => {
     const seq = ++refreshSeqRef.current;
-    loadSettings().then((s) => {
+    loadSettingsMeta().then((s) => {
       if (!mountedRef.current || seq !== refreshSeqRef.current) return;
       setSettings(s);
     });
