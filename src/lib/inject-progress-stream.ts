@@ -16,11 +16,12 @@ export type AgentProgressDataPart = {
 /** Inject transient progress data parts into a UI message chunk stream. */
 export function wrapStreamWithAgentProgress(
   stream: ReadableStream<UIMessageChunk>,
+  initialProgress: AgentProgressPayload[] = [],
 ): ReadableStream<UIMessageChunk> {
   let streamController: ReadableStreamDefaultController<UIMessageChunk> | null =
     null;
   let closed = false;
-  const pendingProgress: AgentProgressPayload[] = [];
+  const pendingProgress: AgentProgressPayload[] = [...initialProgress];
 
   const enqueueProgress = (payload: AgentProgressPayload) => {
     if (closed) return;

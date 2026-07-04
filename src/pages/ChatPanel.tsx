@@ -21,7 +21,7 @@ import type { SendDocumentMessageOptions, RegenerateDocumentMessageOptions } fro
 import {
   findLastMessage,
   getInFlightAssistantMessage,
-  hasSubstantialAssistantText,
+  hasSubstantialAnswerText,
 } from "../lib/messages-utils";
 
 export interface ChatPanelHandle {
@@ -111,7 +111,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     () => findLastMessage(messages, (m) => m.role === "user"),
     [messages],
   );
-  const showProgress = busy && !hasSubstantialAssistantText(inFlightAssistant);
+  const showProgress = busy && !hasSubstantialAnswerText(inFlightAssistant);
 
   const composerDraftRef = useRef(composerDraft);
   composerDraftRef.current = composerDraft;

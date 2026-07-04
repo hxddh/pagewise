@@ -75,6 +75,18 @@ export function hasSubstantialAssistantText(
   });
 }
 
+/** True when the assistant is visibly streaming answer text (not reasoning-only). */
+export function hasSubstantialAnswerText(
+  message: UIMessage | undefined,
+  minChars = 8,
+): boolean {
+  if (!message) return false;
+  return message.parts.some((p) => {
+    if (p.type !== "text") return false;
+    return (p.text?.trim().length ?? 0) >= minChars;
+  });
+}
+
 /** Find the last message matching predicate without allocating a reversed copy. */
 export function findLastMessage(
   messages: UIMessage[],

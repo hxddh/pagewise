@@ -4,6 +4,14 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-07-04
+
+### Fixed
+
+- Agent: wire targeted factual queries to a real 6-step cap (`stopWhen` + `prepareStep`) instead of display-only
+- UI: show step progress from step 1 with elapsed time at 0s; keep progress bar visible during reasoning-only phases
+- Streaming: replay agent progress emitted before the UI stream subscribes (search-hit preview no longer dropped)
+
 ## [0.2.18] - 2026-07-04
 
 ### Changed
@@ -305,7 +313,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.18...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.19...HEAD
+[0.2.19]: https://github.com/hxddh/pagewise/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/hxddh/pagewise/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/hxddh/pagewise/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/hxddh/pagewise/compare/v0.2.15...v0.2.16
