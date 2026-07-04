@@ -114,7 +114,7 @@ export function MessageAssistantFooter({
       <div className="message-assistant-actions" role="toolbar" aria-label={t("agent.messageActions")}>
         <button
           type="button"
-          className="btn icon-btn message-action-btn"
+          className="icon-btn message-action-btn"
           onClick={() => void handleCopy()}
           disabled={!hasCopyable}
           title={copied ? t("agent.copied") : t("agent.copy")}
@@ -125,7 +125,7 @@ export function MessageAssistantFooter({
         {canRegenerate && onRegenerate && (
           <button
             type="button"
-            className="btn icon-btn message-action-btn"
+            className="icon-btn message-action-btn"
             onClick={onRegenerate}
             title={t("agent.regenerate")}
             aria-label={t("agent.regenerate")}
@@ -136,7 +136,7 @@ export function MessageAssistantFooter({
         <button
           ref={statsBtnRef}
           type="button"
-          className={`btn icon-btn message-action-btn${statsOpen ? " active" : ""}`}
+          className={`icon-btn message-action-btn${statsOpen ? " active" : ""}`}
           onClick={() => setStatsOpen((o) => !o)}
           title={t("agent.usageStats")}
           aria-label={t("agent.usageStats")}
@@ -157,11 +157,11 @@ export function MessageAssistantFooter({
         <div className="usage-stats-panel" role="presentation">
           <dl className="usage-stats-list">
             <div className="usage-stats-row">
-              <dt>{t("agent.usageInputTokens")}</dt>
+              <dt>{t("agent.usageTotalInput")}</dt>
               <dd>{formatTokenCount(metadata?.inputTokens)}</dd>
             </div>
             <div className="usage-stats-row">
-              <dt>{t("agent.usageOutputTokens")}</dt>
+              <dt>{t("agent.usageTotalOutput")}</dt>
               <dd>{formatTokenCount(metadata?.outputTokens)}</dd>
             </div>
             {(metadata?.indexInputTokens ?? 0) > 0 || (metadata?.indexOutputTokens ?? 0) > 0 ? (
@@ -181,6 +181,17 @@ export function MessageAssistantFooter({
                 <div className="usage-stats-row usage-stats-sub">
                   <dt>{t("agent.usageIndexOutput")}</dt>
                   <dd>{formatTokenCount(metadata?.indexOutputTokens)}</dd>
+                </div>
+              </>
+            ) : (metadata?.stepUsage?.length ?? 0) > 1 ? (
+              <>
+                <div className="usage-stats-row usage-stats-sub">
+                  <dt>{t("agent.usageAgentInput")}</dt>
+                  <dd>{formatTokenCount(agentIn)}</dd>
+                </div>
+                <div className="usage-stats-row usage-stats-sub">
+                  <dt>{t("agent.usageAgentOutput")}</dt>
+                  <dd>{formatTokenCount(agentOut)}</dd>
                 </div>
               </>
             ) : null}

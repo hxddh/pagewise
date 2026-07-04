@@ -101,8 +101,8 @@ export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string
 
 Whole-document request (${pages} pages in "${name}"):
 1. Call get_document_index once — do not skip this for large documents or when page count is unknown.
-2. If totalChars ≤ 12000: read_pdf_range(path, 1, ${rangeEnd}) in one call.
-3. If totalChars > 12000: read_pdf_range with maxChars=12000; when truncated=true, call again with start=nextStart (and offset=nextOffset when it is non-null) until truncated=false.
+2. If totalChars ≤ 8000: read_pdf_range(path, 1, ${rangeEnd}) in one call.
+3. If totalChars > 8000: read_pdf_range with maxChars=8000; when truncated=true, call again with start=nextStart (and offset=nextOffset when it is non-null) until truncated=false.
 4. Do NOT use search_in_document. Do NOT answer from only page ${ctx.viewingPage}.
 5. After all chunks are read, write one synthesized answer.`;
 }

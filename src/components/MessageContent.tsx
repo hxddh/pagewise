@@ -73,7 +73,7 @@ function ToolStepsBlock({
 
   return (
     <div className="tool-fold-wrap">
-      <details className="tool-fold" open={anyRunning || undefined}>
+      <details className="tool-fold" open={live || anyRunning || undefined}>
         <summary className="tool-fold-summary">
           <span
             className={`tool-dot ${anyRunning ? "running" : "done"}`}
@@ -145,7 +145,7 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
         );
       }
       return (
-        <details key={index} className="reasoning-block">
+        <details key={index} className="reasoning-block" open={live || undefined}>
           <summary>{t("agent.reasoningSummary")}</summary>
           <pre>{part.text}</pre>
         </details>
@@ -155,14 +155,30 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
     return null;
   });
 
+  const toolParts = parts.filter((p) => isToolUIPart(p));
+  const allToolsDone =
+    toolParts.length > 0 &&
+    toolParts.every((p) => p.state === "output-available" || p.state === "output-error");
+  const showGenerating = live && !sawAnswerBody && allToolsDone;
   const showEmptyReply =
     message.role === "assistant" &&
     !sawAnswerBody &&
+    !live &&
     parts.some((p) => isToolUIPart(p) && p.state === "output-available");
 
   return (
     <div className="message-parts">
       {body}
+      {showGenerating && (
+        <p className="agent-generating-line" aria-live="polite">
+          <span className="typing-dots" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </span>
+          {t("agent.generatingAnswer")}
+        </p>
+      )}
       {showEmptyReply && (
         <p className="message-empty-reply">{t("agent.noReply")}</p>
       )}

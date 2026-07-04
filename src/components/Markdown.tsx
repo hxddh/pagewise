@@ -116,7 +116,12 @@ function MarkdownInner({ children, live = false }: MarkdownProps) {
   return (
     <div className="markdown">
       {stable ? <ParsedMarkdown text={stable} /> : null}
-      {tail ? <ParsedMarkdown text={tail} /> : null}
+      {tail ? (
+        <span className="markdown-stream-tail">
+          <ParsedMarkdown text={tail} />
+          <span className="markdown-stream-caret" aria-hidden />
+        </span>
+      ) : null}
     </div>
   );
 }
