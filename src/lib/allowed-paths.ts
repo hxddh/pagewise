@@ -15,7 +15,8 @@ async function getStore(): Promise<LazyStore> {
 function parentPath(path: string): string | null {
   const normalized = path.replace(/\\/g, "/");
   const idx = normalized.lastIndexOf("/");
-  if (idx <= 0) return null;
+  if (idx < 0) return null;
+  if (idx === 0) return "/";
   return path.slice(0, path.length - (normalized.length - idx));
 }
 

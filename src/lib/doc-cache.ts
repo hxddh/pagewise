@@ -3,11 +3,17 @@ import { searchDocumentPages } from "./document-search";
 
 type DocCacheListener = (path: string) => void;
 
+const MAX_CACHED_DOCS = 12;
+
 class DocCache {
   private docs = new Map<string, LoadedDocument>();
   private listeners = new Set<DocCacheListener>();
 
   set(doc: LoadedDocument): void {
+    if (!this.docs.has(doc.path) && this.docs.size >= MAX_CACHED_DOCS) {
+      const oldest = this.docs.keys().next().value;
+      if (oldest) this.docs.delete(oldest);
+    }
     this.docs.set(doc.path, doc);
     this.notify(doc.path);
   }

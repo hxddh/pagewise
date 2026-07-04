@@ -29,6 +29,8 @@ type StoredLlmV1 = Omit<LlmSettings, "apiKey"> & { apiKey?: string; version?: nu
 type StoredPayload = LlmStoreV2 & {
   apiKey?: string;
   apiKeys?: Partial<Record<ProviderId, string>>;
+  /** Providers whose keys were explicitly cleared — skip keychain re-import. */
+  apiKeysCleared?: Partial<Record<ProviderId, true>>;
   /** One-time migration: copy any OS keychain keys into the local mirror. */
   apiKeysMigratedFromKeychain?: boolean;
 };
@@ -253,6 +255,7 @@ async function writeStoreV2(
   const prior = await s.get<RawStored>(SETTINGS_KEY);
 
   const fallbackKeys: Partial<Record<ProviderId, string>> = { ...(prior?.apiKeys ?? {}) };
+  const clearedKeys: Partial<Record<ProviderId, true>> = { ...(prior?.apiKeysCleared ?? {}) };
 
   // Fold any legacy single-slot key into the per-provider map before rewriting.
   if (prior?.apiKey?.trim()) {
@@ -265,8 +268,10 @@ async function writeStoreV2(
   if (keyUpdate) {
     if (keyUpdate.apiKey.trim()) {
       fallbackKeys[keyUpdate.provider] = keyUpdate.apiKey;
+      delete clearedKeys[keyUpdate.provider];
     } else {
       delete fallbackKeys[keyUpdate.provider];
+      clearedKeys[keyUpdate.provider] = true;
     }
   }
 
@@ -277,6 +282,9 @@ async function writeStoreV2(
   const entries = Object.entries(fallbackKeys).filter(([, v]) => v?.trim());
   if (entries.length > 0) {
     payload.apiKeys = Object.fromEntries(entries) as Partial<Record<ProviderId, string>>;
+  }
+  if (Object.keys(clearedKeys).length > 0) {
+    payload.apiKeysCleared = clearedKeys;
   }
 
   await s.set(SETTINGS_KEY, payload);
@@ -310,8 +318,9 @@ async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
   }
 
   let keychainBlocked = false;
+  const cleared = raw?.apiKeysCleared ?? {};
   for (const provider of ALL_PROVIDER_IDS) {
-    if (provider === "ollama" || fallbackKeys[provider]?.trim()) continue;
+    if (provider === "ollama" || fallbackKeys[provider]?.trim() || cleared[provider]) continue;
     try {
       const fromKeychain = await keychainGet(provider);
       if (fromKeychain.trim()) fallbackKeys[provider] = fromKeychain.trim();

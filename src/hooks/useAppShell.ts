@@ -4,7 +4,7 @@ import { useAppCommands } from "./useAppCommands";
 import { useToast } from "./useToast";
 import { useI18n } from "../i18n";
 import { applyTheme, loadPreferences, resolveTheme, type SettingsTab } from "../lib/preferences";
-import { getRecentFiles, type RecentFile } from "../lib/recent-files";
+import { getRecentFiles, removeRecentFiles, type RecentFile } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { clearAgentMessageContext } from "../lib/agent-view-context";
 import { useDocumentWorkspace } from "./useDocumentWorkspace";
@@ -49,11 +49,18 @@ export function useAppShell() {
 
   useEffect(() => {
     void (async () => {
-      const recents = await getRecentFiles();
-      const { failed } = await restoreAllowedPaths(recents.map((f) => f.path));
-      setRecentFiles(recents);
-      if (failed.length > 0) {
-        showToast(t("toast.pathRestoreFailed", { count: failed.length }), "error");
+      try {
+        const recents = await getRecentFiles();
+        const { failed } = await restoreAllowedPaths(recents.map((f) => f.path));
+        if (failed.length > 0) {
+          const updated = await removeRecentFiles(failed);
+          setRecentFiles(updated);
+          showToast(t("toast.pathRestoreFailed", { count: failed.length }), "error");
+        } else {
+          setRecentFiles(recents);
+        }
+      } catch {
+        showToast(t("toast.pathRestoreFailed", { count: 1 }), "error");
       }
     })();
   }, [showToast, t]);

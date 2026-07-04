@@ -8,6 +8,10 @@ export function redactSettings(settings: LlmSettings): LlmSettings {
   };
 }
 
+export function settingsPersistSnapshot(settings: LlmSettings, visionModel = ""): string {
+  return JSON.stringify({ ...redactSettings(settings), visionModel });
+}
+
 export function settingsSnapshot(settings: LlmSettings): string {
   return JSON.stringify(redactSettings(settings));
 }

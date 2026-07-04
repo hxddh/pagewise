@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DirectChatTransport } from "ai";
-import { beginAgentMessage } from "../lib/agent-view-context";
+import { beginAgentMessage, rollbackLastAgentMessage } from "../lib/agent-view-context";
 import { createDocAgent } from "../lib/agent";
 import { formatAgentError, validateAgentModel, assertApiKeyForAgent } from "../lib/llm";
 import { loadSettings } from "../lib/settings";
@@ -57,6 +57,7 @@ export function useDocAgent() {
   });
 
   const prevStatusRef = useRef(chat.status);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     const wasBusy =
@@ -77,38 +78,59 @@ export function useDocAgent() {
 
   const sendDocumentMessage = useCallback(
     async (opts: SendDocumentMessageOptions): Promise<boolean> => {
-      chat.clearError();
-      setSendError(undefined);
-      chat.setMessages(
-        (prev) =>
-          sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)) as typeof prev,
-      );
-
-      const settings = await loadSettings();
-      const modelError = validateAgentModel(settings, t);
-      if (modelError) {
-        setSendError(new Error(modelError));
+      if (
+        sendingRef.current ||
+        chat.status === "streaming" ||
+        chat.status === "submitted"
+      ) {
         return false;
       }
+
+      sendingRef.current = true;
       try {
-        assertApiKeyForAgent(settings, t);
-      } catch (e) {
-        setSendError(e instanceof Error ? e : new Error(String(e)));
-        return false;
-      }
+        chat.clearError();
+        setSendError(undefined);
+        chat.setMessages(
+          (prev) =>
+            sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)) as typeof prev,
+        );
 
-      beginAgentMessage({
-        path: opts.path,
-        docName: opts.docName,
-        viewingPage: opts.viewingPage,
-        totalPages: opts.totalPages,
-        userText: opts.text,
-        includeViewingPage: opts.includeViewingPage,
-      });
-      await chat.sendMessage({ text: opts.text });
-      return true;
+        const settings = await loadSettings();
+        const modelError = validateAgentModel(settings, t);
+        if (modelError) {
+          setSendError(new Error(modelError));
+          return false;
+        }
+        try {
+          assertApiKeyForAgent(settings, t);
+        } catch (e) {
+          setSendError(e instanceof Error ? e : new Error(String(e)));
+          return false;
+        }
+
+        beginAgentMessage({
+          path: opts.path,
+          docName: opts.docName,
+          viewingPage: opts.viewingPage,
+          totalPages: opts.totalPages,
+          userText: opts.text,
+          includeViewingPage: opts.includeViewingPage,
+        });
+
+        try {
+          await chat.sendMessage({ text: opts.text });
+          return true;
+        } catch (e) {
+          rollbackLastAgentMessage();
+          const err = e instanceof Error ? e : new Error(String(e));
+          setSendError(err);
+          return false;
+        }
+      } finally {
+        sendingRef.current = false;
+      }
     },
-    [chat.sendMessage, chat.setMessages, chat.clearError, t],
+    [chat.sendMessage, chat.setMessages, chat.clearError, chat.status, t],
   );
 
   const clearChat = useCallback(() => {

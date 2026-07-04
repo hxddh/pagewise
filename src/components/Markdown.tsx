@@ -6,12 +6,12 @@ import type { AnchorHTMLAttributes, ImgHTMLAttributes } from "react";
 
 interface MarkdownProps {
   children: string;
-  /** When true, completed paragraphs are parsed once; the tail streams as plain text. */
+  /** When true, completed paragraphs are parsed once; the tail re-parses on each update. */
   live?: boolean;
 }
 
 const SAFE_LINK_SCHEMES = ["http:", "https:", "mailto:"];
-const SAFE_IMG_SCHEMES = ["https:", "asset:", "data:"];
+const SAFE_IMG_SCHEMES = ["https:", "http:", "asset:", "data:"];
 
 const remarkPlugins = [remarkGfm];
 const markdownComponents = {
@@ -57,11 +57,37 @@ function SafeImg({ src, ...rest }: ImgHTMLAttributes<HTMLImageElement>) {
   return <img {...rest} src={target} referrerPolicy="no-referrer" loading="lazy" />;
 }
 
-/** Split at the last completed paragraph so streaming only re-renders the tail. */
+/**
+ * Split at the last completed paragraph outside fenced code blocks so streaming
+ * only re-parses the tail.
+ */
 export function splitStreamingMarkdown(text: string): { stable: string; tail: string } {
-  const idx = text.lastIndexOf("\n\n");
-  if (idx === -1) return { stable: "", tail: text };
-  return { stable: text.slice(0, idx), tail: text.slice(idx + 2) };
+  let inFence = false;
+  let lastSafeSplit = -1;
+  let offset = 0;
+
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith("```")) {
+      inFence = !inFence;
+    }
+
+    offset += line.length;
+    if (i < lines.length - 1) {
+      if (!inFence && line === "" && i > 0 && lines[i - 1] !== "") {
+        lastSafeSplit = offset;
+      }
+      offset += 1;
+    }
+  }
+
+  if (lastSafeSplit === -1) return { stable: "", tail: text };
+  return {
+    stable: text.slice(0, lastSafeSplit).replace(/\n+$/, ""),
+    tail: text.slice(lastSafeSplit).replace(/^\n+/, ""),
+  };
 }
 
 const ParsedMarkdown = memo(function ParsedMarkdown({ text }: { text: string }) {
@@ -90,7 +116,7 @@ function MarkdownInner({ children, live = false }: MarkdownProps) {
   return (
     <div className="markdown">
       {stable ? <ParsedMarkdown text={stable} /> : null}
-      {tail ? <div className="message-stream-tail">{tail}</div> : null}
+      {tail ? <ParsedMarkdown text={tail} /> : null}
     </div>
   );
 }
