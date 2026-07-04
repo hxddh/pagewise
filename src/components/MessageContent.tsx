@@ -116,7 +116,9 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
       if (!part.text) return null;
       sawAnswerBody = true;
       return markdown ? (
-        <Markdown key={index}>{part.text}</Markdown>
+        <Markdown key={index} live={live}>
+          {part.text}
+        </Markdown>
       ) : (
         <div key={index} className="message-body">
           {part.text}
@@ -129,7 +131,9 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
       if (showReasoningAsAnswer) {
         sawAnswerBody = true;
         return markdown ? (
-          <Markdown key={index}>{part.text}</Markdown>
+          <Markdown key={index} live={live}>
+            {part.text}
+          </Markdown>
         ) : (
           <div key={index} className="message-body">
             {part.text}

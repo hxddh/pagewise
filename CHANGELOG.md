@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-07-04
+
+### Fixed
+
+- Dock / bundle icon: brand dark background with accent stacked pages (matches in-app LogoMark colors)
+- Logo geometry and palette centralized in `logo-mark-assets.json`; `app-icon.svg` generated from it
+- Saved file paths that fail to restore on launch are pruned and surfaced via toast
+- Streaming assistant replies: completed paragraphs are parsed once; only the tail re-renders during stream
+- `verify-bundle-version` uses filesystem lookup instead of shell glob
+
+### Changed
+
+- `beforeBuildCommand` runs `icons:generate` so bundle icons stay in sync with logo assets
+- `icons:generate` now regenerates `app-icon.svg` before rasterizing platform icons
+
 ## [0.2.8] - 2026-07-04
 
 ### Fixed
@@ -172,7 +187,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/hxddh/pagewise/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/hxddh/pagewise/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/hxddh/pagewise/compare/v0.2.6...v0.2.7
 [0.2.1]: https://github.com/hxddh/pagewise/compare/v0.2.0...v0.2.1

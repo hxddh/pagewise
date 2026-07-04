@@ -1,0 +1,18 @@
+{
+  "viewBox": "0 0 28 28",
+  "shapes": {
+    "backPage": { "x": 4, "y": 7, "width": 14, "height": 17, "rx": 2, "opacity": 0.22 },
+    "frontPage": { "x": 8, "y": 4, "width": 14, "height": 17, "rx": 2 },
+    "dot": { "cx": 18, "cy": 17, "r": 2.5 }
+  },
+  "appIcon": {
+    "size": 1024,
+    "cornerRadius": 224,
+    "scale": 24,
+    "center": 512,
+    "markCenter": 14,
+    "background": "#09090b",
+    "accent": "#5e6ad2",
+    "success": "#3dd68c"
+  }
+}

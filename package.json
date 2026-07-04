@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "Local desktop document agent — PDF, OCR, page-wise AI analysis",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,8 @@
     "test": "vitest run",
     "check:secrets": "node scripts/check-secrets.mjs",
     "version:sync": "node scripts/sync-version.mjs",
-    "icons:generate": "tauri icon app-icon.svg -o src-tauri/icons",
+    "icons:sync-svg": "node scripts/generate-app-icon.mjs",
+    "icons:generate": "npm run icons:sync-svg && tauri icon app-icon.svg -o src-tauri/icons",
     "verify:bundle-version": "node scripts/verify-bundle-version.mjs",
     "prebuild": "npm run prepare:pdfjs && npm run check:secrets",
     "tauri": "tauri"

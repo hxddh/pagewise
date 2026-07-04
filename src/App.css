@@ -824,6 +824,13 @@ body {
   line-height: 1.55;
 }
 
+.message-stream-tail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  line-height: 1.55;
+}
+
 .message-empty-reply {
   margin: 8px 0 0;
   font-size: 13px;

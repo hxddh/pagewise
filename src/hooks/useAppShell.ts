@@ -50,10 +50,13 @@ export function useAppShell() {
   useEffect(() => {
     void (async () => {
       const recents = await getRecentFiles();
-      await restoreAllowedPaths(recents.map((f) => f.path));
+      const { failed } = await restoreAllowedPaths(recents.map((f) => f.path));
       setRecentFiles(recents);
+      if (failed.length > 0) {
+        showToast(t("toast.pathRestoreFailed", { count: failed.length }), "error");
+      }
     })();
-  }, []);
+  }, [showToast, t]);
 
   const focusComposerRef = useRef(agent.focusComposer);
   focusComposerRef.current = agent.focusComposer;

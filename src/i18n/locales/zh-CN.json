@@ -322,6 +322,7 @@
     "aiReady": "AI 已就绪 — 打开文档即可开始",
     "collapseHint": "助手已收起 · ⌘\\ 可展开",
     "opened": "已打开 {{name}}",
+    "pathRestoreFailed": "{{count}} 个已保存路径无法恢复访问，请重新打开文件",
     "dismiss": "关闭"
   },
   "errors": {
