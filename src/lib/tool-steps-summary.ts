@@ -188,9 +188,15 @@ export function summarizeToolSteps(steps: ToolStepInfo[], t: TranslateFn): ToolS
   };
 }
 
-/** Agent loop inserts step-start between tool rounds — skip when batching tool UI. */
+/** Agent loop inserts step-start / reasoning between tool rounds — batch tools across them. */
 function isStructuralPart(part: MessagePart): boolean {
   return part.type === "step-start";
+}
+
+function isIgnorableBetweenTools(part: MessagePart): boolean {
+  if (isStructuralPart(part)) return true;
+  if (part.type === "text" && !part.text?.trim()) return true;
+  return false;
 }
 
 export type MessageRenderSegment =
@@ -200,23 +206,35 @@ export type MessageRenderSegment =
 export function segmentMessageParts(parts: UIMessage["parts"]): MessageRenderSegment[] {
   const segments: MessageRenderSegment[] = [];
   let toolBatch: Array<{ part: ToolPart; index: number }> = [];
+  let deferredReasoning: Array<{ part: MessagePart; index: number }> = [];
 
   const flushTools = () => {
-    if (toolBatch.length === 0) return;
-    segments.push({ kind: "tools", parts: toolBatch });
-    toolBatch = [];
+    if (toolBatch.length === 0 && deferredReasoning.length === 0) return;
+    if (toolBatch.length > 0) {
+      segments.push({ kind: "tools", parts: toolBatch });
+      toolBatch = [];
+    }
+    for (const item of deferredReasoning) {
+      segments.push({ kind: "part", part: item.part, index: item.index });
+    }
+    deferredReasoning = [];
   };
 
   for (let index = 0; index < parts.length; index++) {
     const part = parts[index]!;
-    if (isStructuralPart(part)) continue;
     if (isToolUIPart(part)) {
       toolBatch.push({ part: part as ToolPart, index });
+      continue;
+    }
+    if (isIgnorableBetweenTools(part)) continue;
+    if (part.type === "reasoning" && toolBatch.length > 0) {
+      deferredReasoning.push({ part, index });
       continue;
     }
     flushTools();
     segments.push({ kind: "part", part, index });
   }
+
   flushTools();
   return segments;
 }

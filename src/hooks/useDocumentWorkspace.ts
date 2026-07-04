@@ -102,6 +102,7 @@ export function useDocumentWorkspace(
     try {
       selected = await open({
         multiple: false,
+        fileAccessMode: "scoped",
         filters: [
           {
             name: t("dialog.documentsFilter"),

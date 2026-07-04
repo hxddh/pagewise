@@ -5,6 +5,7 @@ import { useToast } from "./useToast";
 import { useI18n } from "../i18n";
 import { applyTheme, loadPreferences, resolveTheme, type SettingsTab } from "../lib/preferences";
 import { getRecentFiles, type RecentFile } from "../lib/recent-files";
+import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { clearAgentMessageContext } from "../lib/agent-view-context";
 import { useDocumentWorkspace } from "./useDocumentWorkspace";
 import { useLibraryState } from "./useLibraryState";
@@ -47,7 +48,11 @@ export function useAppShell() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   useEffect(() => {
-    getRecentFiles().then(setRecentFiles);
+    void (async () => {
+      const recents = await getRecentFiles();
+      await restoreAllowedPaths(recents.map((f) => f.path));
+      setRecentFiles(recents);
+    })();
   }, []);
 
   const focusComposerRef = useRef(agent.focusComposer);

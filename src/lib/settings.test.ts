@@ -9,6 +9,7 @@ import {
   migrateLlmSettings,
   migrateV1ToV2,
   saveProviderProfile,
+  saveSettings,
   setActiveProvider,
 } from "./settings";
 import { DEFAULT_SETTINGS, PROVIDER_PRESETS, type ProviderId } from "./types";
@@ -231,12 +232,74 @@ describe("store I/O — working keychain", () => {
         activeProvider: "openai",
         profiles: { openai: defaultProviderProfile("openai") },
         apiKeys: { openai: "sk-from-disk" },
+        apiKeysMigratedFromKeychain: true,
       },
       keychain,
     });
     await keychain.set("openai", "sk-from-keychain");
 
     expect((await loadProviderSettings("openai")).apiKey).toBe("sk-from-disk");
+  });
+
+  it("migrates all provider keys from keychain into local mirror once", async () => {
+    const keychain = memoryKeychain();
+    await keychain.set("openai", "sk-openai");
+    await keychain.set("openrouter", "sk-router");
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openai",
+        profiles: {
+          openai: defaultProviderProfile("openai"),
+          openrouter: defaultProviderProfile("openrouter"),
+        },
+      },
+      keychain,
+    });
+
+    expect((await loadProviderSettings("openrouter")).apiKey).toBe("sk-router");
+    expect((await loadProviderSettings("openai")).apiKey).toBe("sk-openai");
+    expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBe(true);
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBe("sk-router");
+  });
+
+  it("retries keychain migration after access is denied", async () => {
+    let denyKeychain = true;
+    const keychain = {
+      get: async (provider: ProviderId): Promise<string> => {
+        if (denyKeychain) throw new Error("denied");
+        return provider === "openrouter" ? "sk-router" : "";
+      },
+      set: async (): Promise<void> => {},
+    };
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openrouter",
+        profiles: { openrouter: defaultProviderProfile("openrouter") },
+      },
+      keychain,
+    });
+
+    expect((await loadProviderSettings("openrouter")).apiKey).toBe("");
+    expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBeUndefined();
+
+    denyKeychain = false;
+    expect((await loadProviderSettings("openrouter")).apiKey).toBe("sk-router");
+    expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBe(true);
+  });
+
+  it("saveSettings with unchanged apiKey does not touch the key mirror", async () => {
+    const keychain = memoryKeychain();
+    __resetSettingsStoreForTests({ keychain });
+    await saveProviderProfile("openai", { model: "gpt-4o-mini" }, "sk-openai");
+
+    const before = __peekSettingsStoreForTests()?.apiKeys?.openai;
+    const loaded = await loadProviderSettings("openai");
+    await saveSettings({ ...loaded, thinkingEnabled: true });
+
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBe(before);
+    expect(await keychain.get("openai")).toBe("sk-openai");
   });
 
   it("migrates a legacy V1 store and stores the key in the keychain", async () => {

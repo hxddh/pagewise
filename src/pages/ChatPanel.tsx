@@ -94,7 +94,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     [messages],
   );
   const hasAnswerText = lastAssistant?.parts.some(
-    (p) => p.type === "text" && !!p.text?.trim(),
+    (p) =>
+      (p.type === "text" && !!p.text?.trim()) ||
+      (p.type === "reasoning" && !!p.text?.trim()),
   );
   const showProgress = busy && !hasAnswerText;
 

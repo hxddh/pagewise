@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { allowPathPersisted } from "./allowed-paths";
 
 /**
  * Authorize a single absolute path with the Rust backend's path allowlist.
@@ -10,7 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
  * it (see write_text_file in the Rust backend).
  */
 export async function allowPath(path: string): Promise<void> {
-  await invoke("register_allowed_path", { path });
+  await allowPathPersisted(path);
 }
 
 /**

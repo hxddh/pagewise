@@ -4,6 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-07-04
+
+### Fixed
+
+- Agent tool steps: aggregate searches/tools across `reasoning` and `step-start` boundaries while preserving intro text before the tool block
+- Agent streaming: yield to WebKit between tool steps; live message re-renders on part updates without full memo bypass
+- API key migration: only mark Keychain migration complete when reads succeed; retry on next launch if access was denied
+- Provider switch / autosave: stop rewriting Keychain when the API key did not change
+- File access after restart: persist allowed paths (and parent directories) across launches; restore on startup with recent files
+- Opening a document fails fast when path registration fails instead of a late opaque error
+- Chat progress bar no longer overlaps when the assistant is streaming `reasoning` before text
+
+### Changed
+
+- File picker uses scoped access mode on macOS for better document permission handling
+
 ## [0.2.6] - 2026-07-04
 
 ### Fixed
