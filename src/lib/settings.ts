@@ -218,8 +218,12 @@ function isLlmStoreV2(raw: unknown): raw is LlmStoreV2 {
 
 function normalizeStore(raw: LlmStoreV2): LlmStoreV2 {
   const profiles: Partial<Record<ProviderId, ProviderProfile>> = {};
+  const sourceProfiles =
+    raw.profiles && typeof raw.profiles === "object" && !Array.isArray(raw.profiles)
+      ? raw.profiles
+      : {};
   for (const id of ALL_PROVIDER_IDS) {
-    const existing = raw.profiles[id];
+    const existing = sourceProfiles[id];
     if (existing) {
       profiles[id] = migrateProviderProfile(id, existing);
     }

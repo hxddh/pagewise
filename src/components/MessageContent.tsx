@@ -33,7 +33,8 @@ function toolChipLabel(toolName: string, input: unknown, t: TranslateFn): string
   }
 }
 
-function partsSignature(parts: UIMessage["parts"]): string {
+function partsSignature(parts: UIMessage["parts"] | undefined): string {
+  if (!Array.isArray(parts)) return "0:";
   let sig = `${parts.length}:`;
   for (const p of parts) {
     if (p.type === "text") sig += `t${p.text.length}:${p.text.slice(-24)};`;
@@ -48,7 +49,8 @@ function MessageContentInner({ message, markdown = false }: MessageContentProps)
 
   return (
     <div className="message-parts">
-      {message.parts.map((part, index) => {
+      {Array.isArray(message.parts) &&
+        message.parts.map((part, index) => {
         if (part.type === "text") {
           if (!part.text) return null;
           return markdown ? (

@@ -13,6 +13,7 @@ import {
 } from "../../lib/pdf";
 import { loadPreferences } from "../../lib/preferences";
 import { registerPreviewActions } from "../../lib/preview-actions";
+import { isTauriRuntime } from "../../lib/runtime";
 import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
 import { isSameZoom, stepZoom, type ZoomMode } from "../../lib/zoom";
@@ -403,7 +404,8 @@ export function usePdfViewer({
       const raster = isRasterHeavyPage(currentPageTextLen);
       const baseQuality = effectiveRenderQuality(userQuality, raster);
       const quality = navBurst ? "performance" : baseQuality;
-      const wantTextLayer = !navBurst && !raster && currentPageTextLen > 0;
+      const wantTextLayer =
+        !isTauriRuntime() && !navBurst && !raster && currentPageTextLen > 0;
 
       const scale =
         zoom === "fit-width"

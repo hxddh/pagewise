@@ -22,7 +22,7 @@ import { sanitizeDanglingToolParts } from "../lib/prune-chat-history";
 function messagesSignature(messages: UIMessage[]): string {
   let sig = `${messages.length}:`;
   for (const m of messages) {
-    sig += `${m.id}#${m.parts.length};`;
+    sig += `${m.id}#${Array.isArray(m.parts) ? m.parts.length : 0};`;
   }
   return sig;
 }

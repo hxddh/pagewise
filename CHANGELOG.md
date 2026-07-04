@@ -4,6 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-04
+
+### Fixed
+
+- PDF open/preview crash in Tauri WebView (`undefined is not a function`): restore Rust text extraction on open; pdf.js used for canvas render only
+- pdf.js cMap / standard font assets copied at build time; runtime URLs resolved against webview origin
+- `read_file_bytes` returns `Vec<u8>` for reliable IPC byte loading
+- Chat messages without `parts` normalized on load; guards against iterator errors in agent sync and rendering
+- `Promise.withResolvers` polyfill for pdf.js on older WebKit builds
+
+### Changed
+
+- Agent page reads use Rust `extract_pdf_text_cmd` instead of pdf.js text layer
+- Text selection layer disabled in Tauri desktop (preview canvas only)
+- Preview error banner shows the underlying message for easier diagnosis
+
 ## [0.2.3] - 2026-07-04
 
 ### Fixed
