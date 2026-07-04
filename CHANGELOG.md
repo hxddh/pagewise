@@ -4,6 +4,13 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.20] - 2026-07-04
+
+### Fixed
+
+- UI: move agent progress inline below the current turn (inside the assistant bubble / pending reply), not fixed at panel top
+- Streaming: client-side segment reveal during live answers so text animates even when the provider batches one large delta
+
 ## [0.2.19] - 2026-07-04
 
 ### Fixed
@@ -313,7 +320,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.19...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.20...HEAD
+[0.2.20]: https://github.com/hxddh/pagewise/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/hxddh/pagewise/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/hxddh/pagewise/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/hxddh/pagewise/compare/v0.2.16...v0.2.17
