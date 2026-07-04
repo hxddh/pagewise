@@ -155,7 +155,16 @@
     "toolReadRange": "已读取第 {{start}}–{{end}} 页",
     "toolSearch": "已搜索“{{query}}”",
     "toolIndex": "已浏览文档",
-    "toolWorking": "已调用工具"
+    "toolWorking": "已调用工具",
+    "toolsSummarySearch": "已搜索 {{count}} 次",
+    "toolsSummaryRead": "已读取 {{count}} 次",
+    "toolsSummaryIndex": "已浏览文档 {{count}} 次",
+    "toolsSummaryOther": "已调用工具 {{count}} 次",
+    "toolsSummarySep": " · ",
+    "toolsSummarySteps": "已完成 {{count}} 个步骤",
+    "toolStepRepeat": "{{label}}（×{{count}}）",
+    "reasoningSummary": "思考过程",
+    "noReply": "助手未返回文字回答，请重试或检查 AI 设置中的模型。"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

@@ -30,8 +30,6 @@ function createTransport(
 export function useDocAgent() {
   const { t } = useI18n();
 
-  // Lazy init: construct the agent/transport exactly once instead of building
-  // (and immediately discarding) a fresh instance on every render.
   const agentRef = useRef<ReturnType<typeof createDocAgent> | null>(null);
   if (agentRef.current === null) {
     agentRef.current = createDocAgent();
@@ -51,7 +49,6 @@ export function useDocAgent() {
 
   const chat = useChat({
     transport: transportRef.current,
-    experimental_throttle: 100,
     onError: (error) => {
       if (import.meta.env.DEV) {
         console.error("[PageWise agent]", error);
@@ -66,8 +63,13 @@ export function useDocAgent() {
       prevStatusRef.current === "streaming" || prevStatusRef.current === "submitted";
     prevStatusRef.current = chat.status;
 
+    // Defer prune until after the final assistant message is flushed — avoids
+    // racing status=ready against the last streamed text update.
     if (wasBusy && chat.status === "ready") {
-      chat.setMessages((prev) => pruneToolOutputsForHistory(prev) as typeof prev);
+      const id = window.setTimeout(() => {
+        chat.setMessages((prev) => pruneToolOutputsForHistory(prev) as typeof prev);
+      }, 0);
+      return () => window.clearTimeout(id);
     }
   }, [chat.status, chat.setMessages]);
 
@@ -77,9 +79,6 @@ export function useDocAgent() {
     async (opts: SendDocumentMessageOptions): Promise<boolean> => {
       chat.clearError();
       setSendError(undefined);
-      // Prune bulky prior tool outputs AND drop any dangling tool parts
-      // (e.g. from a Stop mid-stream / reload) before sending, so history stays
-      // well-paired for the model.
       chat.setMessages(
         (prev) =>
           sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)) as typeof prev,
@@ -89,7 +88,6 @@ export function useDocAgent() {
       const modelError = validateAgentModel(settings, t);
       if (modelError) {
         setSendError(new Error(modelError));
-        // No user message was appended — signal the composer to restore the draft.
         return false;
       }
 
