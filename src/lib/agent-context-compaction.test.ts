@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "@ai-sdk/provider-utils";
+import { safeValidateTypes } from "@ai-sdk/provider-utils";
+import { modelMessageSchema } from "ai";
+import { z } from "zod/v4";
 import {
+  compactAgentMessages,
   COMPACT_AGGRESSIVE_ESTIMATED_TOKENS,
   COMPACT_AGGRESSIVE_STEP_INPUT_TOKENS,
-  compactAgentMessages,
   estimateMessageTokens,
   hasBudgetExceededInMessages,
   resolveCompactionLevel,
@@ -11,6 +14,14 @@ import {
   shouldReserveFinalSynthesis,
   sumStepInputTokens,
 } from "./agent-context-compaction";
+
+async function expectValidModelMessages(messages: ModelMessage[]) {
+  const validation = await safeValidateTypes({
+    value: messages,
+    schema: z.array(modelMessageSchema),
+  });
+  expect(validation.success).toBe(true);
+}
 
 describe("agent-context-compaction", () => {
   it("estimates tokens from message JSON size", () => {
@@ -93,7 +104,7 @@ describe("agent-context-compaction", () => {
     expect(hasBudgetExceededInMessages(messages)).toBe(true);
   });
 
-  it("prunes read tools more aggressively than search in normal mode", () => {
+  it("prunes read tools more aggressively than search in normal mode", async () => {
     const longText = "z".repeat(800);
     const messages = [
       { role: "user", content: "q" },
@@ -148,6 +159,7 @@ describe("agent-context-compaction", () => {
     const serialized = JSON.stringify(compacted);
     expect(serialized).not.toContain(longText);
     expect(serialized).toContain("search_in_document");
+    await expectValidModelMessages(compacted);
   });
 
   it("forces synthesis after budget exceeded tool result", () => {

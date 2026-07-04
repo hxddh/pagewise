@@ -4,6 +4,12 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-07-04
+
+### Fixed
+
+- Agent: `compactStaleToolResults` now preserves `ToolResultOutput` schema when truncating tool results, fixing `Invalid prompt: The messages do not match the ModelMessage[] schema` on multi-step runs
+
 ## [0.2.16] - 2026-07-04
 
 ### Fixed
@@ -290,7 +296,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.16...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.17...HEAD
+[0.2.17]: https://github.com/hxddh/pagewise/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/hxddh/pagewise/compare/v0.2.15...v0.2.16
 [0.2.15]: https://github.com/hxddh/pagewise/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/hxddh/pagewise/compare/v0.2.13...v0.2.14

@@ -7,29 +7,79 @@ const HEAVY_TOOLS = new Set([
   "get_document_index",
 ]);
 const STALE_TOOL_SNIPPET_CHARS = 360;
+const OMIT_SUFFIX = "… [omitted from earlier step]";
 
-function compactToolOutput(output: unknown): unknown {
-  if (typeof output === "string") {
-    if (output.length <= STALE_TOOL_SNIPPET_CHARS) return output;
-    return `${output.slice(0, STALE_TOOL_SNIPPET_CHARS)}… [omitted from earlier step]`;
-  }
-  if (output && typeof output === "object") {
-    const obj = output as Record<string, unknown>;
-    if (typeof obj.text === "string" && obj.text.length > STALE_TOOL_SNIPPET_CHARS) {
-      return {
-        ...obj,
-        text: `${obj.text.slice(0, STALE_TOOL_SNIPPET_CHARS)}… [omitted from earlier step]`,
-        truncated: true,
-      };
+function truncateText(text: string): string {
+  if (text.length <= STALE_TOOL_SNIPPET_CHARS) return text;
+  return `${text.slice(0, STALE_TOOL_SNIPPET_CHARS)}${OMIT_SUFFIX}`;
+}
+
+function isToolResultOutput(
+  output: unknown,
+): output is { type: string; value: unknown } {
+  return (
+    output != null &&
+    typeof output === "object" &&
+    "type" in output &&
+    "value" in output &&
+    typeof (output as { type: unknown }).type === "string"
+  );
+}
+
+function compactJsonValue(value: unknown): unknown {
+  if (typeof value === "string") return truncateText(value);
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.text === "string") {
+      const text = truncateText(obj.text);
+      if (text === obj.text) return value;
+      return { ...obj, text, truncated: true };
     }
     try {
-      const json = JSON.stringify(output);
-      if (json.length <= STALE_TOOL_SNIPPET_CHARS) return output;
-      return `${json.slice(0, STALE_TOOL_SNIPPET_CHARS)}… [omitted from earlier step]`;
+      const json = JSON.stringify(value);
+      if (json.length <= STALE_TOOL_SNIPPET_CHARS) return value;
+      return {
+        truncated: true,
+        preview: `${json.slice(0, STALE_TOOL_SNIPPET_CHARS)}${OMIT_SUFFIX}`,
+      };
     } catch {
-      return output;
+      return value;
     }
   }
+  return value;
+}
+
+/** Shrink a tool-result output while preserving the AI SDK ToolResultOutput envelope. */
+function compactToolOutput(output: unknown): unknown {
+  if (isToolResultOutput(output)) {
+    switch (output.type) {
+      case "text":
+      case "error-text":
+        if (typeof output.value === "string") {
+          const value = truncateText(output.value);
+          if (value === output.value) return output;
+          return { ...output, value };
+        }
+        return output;
+      case "json": {
+        const value = compactJsonValue(output.value);
+        if (value === output.value) return output;
+        return { type: "json", value };
+      }
+      default:
+        return output;
+    }
+  }
+
+  if (typeof output === "string") {
+    return { type: "text", value: truncateText(output) };
+  }
+
+  if (output && typeof output === "object") {
+    const compacted = compactJsonValue(output);
+    return { type: "json", value: compacted };
+  }
+
   return output;
 }
 
@@ -56,7 +106,7 @@ export function compactStaleToolResults(
       changed = true;
       return {
         ...message,
-        content: `${message.content.slice(0, STALE_TOOL_SNIPPET_CHARS)}… [omitted from earlier step]`,
+        content: truncateText(message.content),
       };
     }
 
