@@ -3,6 +3,7 @@ import {
   extractExplicitPageNumbers,
   hasCurrentPageIntent,
   hasWholeDocumentIntent,
+  isTargetedFactualQuery,
   shouldFollowAgentToPage,
 } from "./page-intent";
 
@@ -79,6 +80,14 @@ describe("hasWholeDocumentIntent", () => {
     expect(hasWholeDocumentIntent("全文总结")).toBe(true);
     expect(hasWholeDocumentIntent("entire document")).toBe(true);
     expect(hasWholeDocumentIntent("all pages")).toBe(true);
+  });
+});
+
+describe("isTargetedFactualQuery", () => {
+  it("matches targeted factual questions but not whole-document asks", () => {
+    expect(isTargetedFactualQuery("文中有哪些日期？")).toBe(true);
+    expect(isTargetedFactualQuery("list all names")).toBe(true);
+    expect(isTargetedFactualQuery("总结整份文档")).toBe(false);
   });
 });
 

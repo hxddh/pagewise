@@ -76,4 +76,14 @@ describe("normalizeUIMessages", () => {
   it("drops invalid rows", () => {
     expect(normalizeUIMessages([null, { id: "x", role: "nope" }])).toHaveLength(0);
   });
+
+  it("counts reasoning text toward substantial assistant output", () => {
+    const msg: UIMessage = {
+      id: "r1",
+      role: "assistant",
+      parts: [{ type: "reasoning", text: "short note" }],
+    };
+    expect(hasSubstantialAssistantText(msg)).toBe(true);
+    expect(hasSubstantialAssistantText(msg, 12)).toBe(false);
+  });
 });

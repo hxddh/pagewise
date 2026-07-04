@@ -22,7 +22,6 @@ import {
   findLastMessage,
   getInFlightAssistantMessage,
   hasSubstantialAssistantText,
-  isAwaitingAssistantReply,
 } from "../lib/messages-utils";
 
 export interface ChatPanelHandle {
@@ -45,6 +44,7 @@ interface ChatPanelProps {
   loadingDoc: boolean;
   chatLoading?: boolean;
   activity: string | null;
+  historySettling?: boolean;
   composerDraft: string;
   onComposerDraftChange: (value: string) => void;
   onConfigureApi: () => void;
@@ -74,6 +74,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     loadingDoc,
     chatLoading = false,
     activity,
+    historySettling = false,
     composerDraft,
     onComposerDraftChange,
     onConfigureApi,
@@ -106,19 +107,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     () => getInFlightAssistantMessage(messages, busy),
     [messages, busy],
   );
-  const awaitingAssistant = isAwaitingAssistantReply(messages, busy);
   const lastUser = useMemo(
     () => findLastMessage(messages, (m) => m.role === "user"),
     [messages],
   );
-  // The in-list pending bubble (awaitingAssistant) and this header strip both
-  // render the same "thinking" text with aria-live; keep them mutually exclusive
-  // so there's never a duplicate indicator or double announcement. The header
-  // strip covers the "streaming but no substantial text yet" window only.
-  const showProgress =
-    busy &&
-    !awaitingAssistant &&
-    !hasSubstantialAssistantText(inFlightAssistant);
+  const showProgress = busy && !hasSubstantialAssistantText(inFlightAssistant);
 
   const composerDraftRef = useRef(composerDraft);
   composerDraftRef.current = composerDraft;
@@ -326,6 +319,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       message={m}
                       markdown
                       live={busy && m.id === inFlightAssistant?.id}
+                      settling={historySettling && m.id === lastAssistant?.id && !busy}
                     />
                     <MessageAssistantFooter
                       message={m as PageWiseUIMessage}
@@ -344,18 +338,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 )}
               </div>
             ))}
-            {awaitingAssistant && (
-              <div className="message assistant message-pending" aria-live="polite">
-                <p className="agent-generating-line">
-                  <span className="typing-dots" aria-hidden>
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                  {activity ?? t("agent.thinking")}
-                </p>
-              </div>
-            )}
           </>
         )}
       </div>

@@ -155,6 +155,8 @@
     "activityFollowUp": "继续分析…",
     "activityWriting": "正在写入回答…",
     "activityThinking": "思考中…",
+    "stepProgress": "第 {{step}}/{{max}} 步 — {{action}}",
+    "elapsedSeconds": "{{seconds}} 秒",
     "generatingAnswer": "正在生成回答…",
     "toolReadPage": "已读取第 {{page}} 页",
     "toolReadRange": "已读取第 {{start}}–{{end}} 页",

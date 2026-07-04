@@ -155,6 +155,8 @@
     "activityFollowUp": "Continuing analysis…",
     "activityWriting": "Writing answer…",
     "activityThinking": "Thinking…",
+    "stepProgress": "Step {{step}}/{{max}} — {{action}}",
+    "elapsedSeconds": "{{seconds}}s",
     "generatingAnswer": "Generating answer…",
     "toolReadPage": "Read page {{page}}",
     "toolReadRange": "Read pages {{start}}–{{end}}",

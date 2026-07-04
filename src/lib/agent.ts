@@ -8,6 +8,7 @@ import {
   type PageWiseDocToolContext,
 } from "./agent-runtime-context";
 import { emitAgentProgress } from "./agent-progress";
+import { formatSearchPreview } from "./search-preview";
 import {
   buildViewContextInstructions,
   buildWholeDocumentInstructions,
@@ -381,7 +382,10 @@ function createDocumentTools(budget: ReadBudget) {
           const path = resolvePathInput(inputPath, options);
           requireLoadedDoc(path);
           const pages = docCache.getPages(path);
-          return semanticSearchPages(path, pages, query);
+          const hits = await semanticSearchPages(path, pages, query);
+          const preview = formatSearchPreview(hits);
+          if (preview) emitAgentProgress(preview, "search");
+          return hits;
         },
       ),
     }),
@@ -410,7 +414,9 @@ Rules:
 - When the user refers to the current page (这一页, 当前页, this page), use read_pdf_page for that page.
 - For targeted questions, use search_in_document first, then read only the pages you need.
 - Cite page numbers when quoting document content.
-- If no document is loaded, ask the user to open a file first.`;
+- If no document is loaded, ask the user to open a file first.
+- You may output one brief status sentence in the user's language before calling tools (e.g. 正在搜索文档中的日期…). Final answers should be concise and cite pages.
+- Stream the final answer as you write it; do not wait to dump the full reply at once.`;
 
 function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
   const docCtx = buildDocToolContext(runtime);

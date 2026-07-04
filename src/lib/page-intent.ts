@@ -12,6 +12,14 @@ export function hasWholeDocumentIntent(text: string): boolean {
   );
 }
 
+/** Targeted factual question (dates, lists, counts) — not whole-document analysis. */
+export function isTargetedFactualQuery(text: string): boolean {
+  if (hasWholeDocumentIntent(text)) return false;
+  return /有哪些|是什么|多少|几个|哪些|列出|日期|时间|谁|何时|何地|where|when|what|which|how many|list all|find all/i.test(
+    text,
+  );
+}
+
 const CN_DIGIT: Record<string, number> = {
   "零": 0,
   "〇": 0,

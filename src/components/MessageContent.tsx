@@ -15,6 +15,8 @@ interface MessageContentProps {
   markdown?: boolean;
   /** True for the in-flight assistant reply — enables live tool progress UI. */
   live?: boolean;
+  /** Brief transition after stream ends while history is compacted. */
+  settling?: boolean;
 }
 
 function partsSignature(parts: UIMessage["parts"] | undefined): string {
@@ -55,10 +57,12 @@ function ToolStepsBlock({
   parts,
   t,
   live = false,
+  settling = false,
 }: {
   parts: Array<{ part: Parameters<typeof toolStepFromPart>[0]; index: number }>;
   t: (key: string, vars?: Record<string, string | number>) => string;
   live?: boolean;
+  settling?: boolean;
 }) {
   const steps = parts.map(({ part }) => toolStepFromPart(part, t));
   const { aggregate, summary, details, anyRunning } = summarizeToolSteps(steps, t);
@@ -76,8 +80,8 @@ function ToolStepsBlock({
   }
 
   return (
-    <div className="tool-fold-wrap">
-      <details className="tool-fold" open={live || anyRunning || undefined}>
+    <div className={`tool-fold-wrap${settling ? " tool-fold-wrap--settling" : ""}`}>
+      <details className="tool-fold" open={live && anyRunning}>
         <summary className="tool-fold-summary">
           <span
             className={`tool-dot ${anyRunning ? "running" : "done"}`}
@@ -97,7 +101,12 @@ function ToolStepsBlock({
   );
 }
 
-function MessageContentInner({ message, markdown = false, live = false }: MessageContentProps) {
+function MessageContentInner({
+  message,
+  markdown = false,
+  live = false,
+  settling = false,
+}: MessageContentProps) {
   const { t } = useI18n();
   const parts = messageParts(message);
   const showReasoningAsAnswer = message.role === "assistant" && !hasAnswerText(parts);
@@ -113,6 +122,7 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
           parts={segment.parts}
           t={t}
           live={live}
+          settling={settling}
         />
       );
     }
@@ -155,7 +165,7 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
       }
       return (
         <details key={index} className="reasoning-block" open={live || undefined}>
-          <summary>{t("agent.reasoningSummary")}</summary>
+          <summary>{live ? t("agent.activityThinking") : t("agent.reasoningSummary")}</summary>
           <pre>{part.text}</pre>
         </details>
       );
@@ -164,11 +174,6 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
     return null;
   });
 
-  const toolParts = parts.filter((p) => isToolUIPart(p));
-  const allToolsDone =
-    toolParts.length > 0 &&
-    toolParts.every((p) => p.state === "output-available" || p.state === "output-error");
-  const showGenerating = live && !sawAnswerBody && allToolsDone;
   const showEmptyReply =
     message.role === "assistant" &&
     !sawAnswerBody &&
@@ -176,18 +181,8 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
     parts.some((p) => isToolUIPart(p) && p.state === "output-available");
 
   return (
-    <div className="message-parts">
+    <div className={`message-parts${settling ? " message-parts--settling" : ""}`}>
       {body}
-      {showGenerating && (
-        <p className="agent-generating-line" aria-live="polite">
-          <span className="typing-dots" aria-hidden>
-            <span />
-            <span />
-            <span />
-          </span>
-          {t("agent.generatingAnswer")}
-        </p>
-      )}
       {showEmptyReply && (
         <p className="message-empty-reply">{t("agent.noReply")}</p>
       )}
@@ -199,6 +194,7 @@ export const MessageContent = memo(
   MessageContentInner,
   (prev, next) => {
     if (prev.live !== next.live) return false;
+    if (prev.settling !== next.settling) return false;
     if (prev.markdown !== next.markdown) return false;
     if (prev.message.id !== next.message.id) return false;
     return partsSignature(prev.message.parts) === partsSignature(next.message.parts);
