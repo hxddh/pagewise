@@ -1,15 +1,24 @@
 import { extractPageText } from "./pdf";
-import { ToolLoopAgent, stepCountIs, tool } from "ai";
+import { ToolLoopAgent, pruneMessages, stepCountIs, tool } from "ai";
 import { z } from "zod";
+import {
+  buildDocToolContext,
+  buildRuntimeContext,
+  resolveDocPath,
+  type PageWiseDocToolContext,
+} from "./agent-runtime-context";
+import { emitAgentProgress } from "./agent-progress";
 import {
   buildViewContextInstructions,
   buildWholeDocumentInstructions,
   consumePendingAgentContext,
 } from "./agent-view-context";
 import { docCache } from "./doc-cache";
-import { resolveModel } from "./llm";
+import { resolveModel, resolveReasoning } from "./llm";
+import { pickFastModelId, resolveFastModel, shouldUseFastModelForStep } from "./model-routing";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
+import { semanticSearchPages } from "./semantic-index";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { indexPageText } from "./vision-index";
 import { yieldToUi } from "./yield-to-ui";
@@ -22,6 +31,10 @@ export const DEFAULT_PAGE_MAX_CHARS = 12_000;
 const MAX_AGENT_STEPS = 24;
 /** Cumulative characters a single run may read before it must synthesize. */
 const RUN_CHAR_BUDGET = 120_000;
+
+const docToolContextSchema = z.object({
+  defaultDocPath: z.string().nullable(),
+});
 
 /** Mutable per-run read budget shared between a run's tools and prepareCall. */
 interface ReadBudget {
@@ -42,7 +55,6 @@ function requireLoadedDoc(path: string): LoadedDocument {
 
 /** Validate a 1-based page against the document's page count. */
 function assertPageInBounds(doc: LoadedDocument, page: number): void {
-  // totalPages === 0 means the count is unknown; allow and let extraction cope.
   if (doc.totalPages > 0 && page > doc.totalPages) {
     throw new Error(
       `page ${page} is out of range: "${doc.name}" has ${doc.totalPages} page(s).`,
@@ -58,6 +70,8 @@ async function readPageText(path: string, page: number) {
   if (cached?.text.trim()) {
     return { page, text: cached.text, source: "cache" as const };
   }
+
+  emitAgentProgress(`Indexing page ${page}…`, "index");
 
   if (kind === "pdf") {
     const text = await extractPageText(path, page);
@@ -78,16 +92,30 @@ async function readPageText(path: string, page: number) {
 const BUDGET_NOTE =
   "Cumulative read budget for this turn reached; synthesize your answer from the pages already read instead of reading more.";
 
+type ToolExecuteOptions = { context?: PageWiseDocToolContext };
+
 /** Wrap tool execution so WebKit can paint streaming UI between agent steps. */
-function bindToolExecute<T, R>(fn: (input: T) => Promise<R>): (input: T) => Promise<R> {
-  return async (input) => {
+function bindToolExecute<T extends { path?: string }, R>(
+  label: string,
+  phase: "tool" | "index" | "search" | "read",
+  fn: (input: T, options: ToolExecuteOptions) => Promise<R>,
+): (input: T, options?: ToolExecuteOptions) => Promise<R> {
+  return async (input, options) => {
+    emitAgentProgress(label, phase);
     await yieldToUi();
     try {
-      return await fn(input);
+      return await fn(input, options ?? {});
     } finally {
       await yieldToUi();
     }
   };
+}
+
+function resolvePathInput(
+  inputPath: string | undefined,
+  options: ToolExecuteOptions,
+): string {
+  return resolveDocPath(inputPath, options.context?.defaultDocPath ?? null);
 }
 
 function createDocumentTools(budget: ReadBudget) {
@@ -95,15 +123,21 @@ function createDocumentTools(budget: ReadBudget) {
     list_documents: tool({
       description: "List all documents currently loaded in the session",
       inputSchema: z.object({}),
-      execute: bindToolExecute(async () =>
-        docCache.list().map((d) => ({
-          path: d.path,
-          name: d.name,
-          kind: d.kind,
-          totalPages: d.totalPages,
-          totalChars: d.pages.reduce((sum, p) => sum + p.text.length, 0),
-        })),
-      ),
+      execute: async () => {
+        emitAgentProgress("Checking documents…", "tool");
+        await yieldToUi();
+        try {
+          return docCache.list().map((d) => ({
+            path: d.path,
+            name: d.name,
+            kind: d.kind,
+            totalPages: d.totalPages,
+            totalChars: d.pages.reduce((sum, p) => sum + p.text.length, 0),
+          }));
+        } finally {
+          await yieldToUi();
+        }
+      },
     }),
 
     get_document_index: tool({
@@ -111,25 +145,34 @@ function createDocumentTools(budget: ReadBudget) {
         "Lightweight document overview: per-page character counts and short previews. " +
         "Use before reading large documents to plan chunked reads.",
       inputSchema: z.object({
-        path: z.string().describe("Path of a loaded document (from list_documents)"),
+        path: z
+          .string()
+          .optional()
+          .describe("Loaded document path; defaults to the active document"),
       }),
-      execute: bindToolExecute(async ({ path }) => {
-        const doc = requireLoadedDoc(path);
-        const pages = docCache.getPages(path);
-        const pageStats = pages.map((p) => ({
-          page: p.page,
-          chars: p.text.length,
-          preview: p.text.trim().slice(0, 160),
-        }));
-        const totalChars = pageStats.reduce((sum, p) => sum + p.chars, 0);
-        return {
-          totalPages: doc.totalPages || pages.length,
-          totalChars,
-          suggestedChunkSize: DEFAULT_RANGE_MAX_CHARS,
-          needsChunking: totalChars > DEFAULT_RANGE_MAX_CHARS,
-          pages: pageStats,
-        };
-      }),
+      contextSchema: docToolContextSchema,
+      execute: bindToolExecute(
+        "Scanning document…",
+        "tool",
+        async ({ path: inputPath }, options) => {
+          const path = resolvePathInput(inputPath, options);
+          const doc = requireLoadedDoc(path);
+          const pages = docCache.getPages(path);
+          const pageStats = pages.map((p) => ({
+            page: p.page,
+            chars: p.text.length,
+            preview: p.text.trim().slice(0, 160),
+          }));
+          const totalChars = pageStats.reduce((sum, p) => sum + p.chars, 0);
+          return {
+            totalPages: doc.totalPages || pages.length,
+            totalChars,
+            suggestedChunkSize: DEFAULT_RANGE_MAX_CHARS,
+            needsChunking: totalChars > DEFAULT_RANGE_MAX_CHARS,
+            pages: pageStats,
+          };
+        },
+      ),
     }),
 
     read_pdf_page: tool({
@@ -138,7 +181,10 @@ function createDocumentTools(budget: ReadBudget) {
         "For very long pages the output is capped at maxChars; when truncated=true, call again " +
         "with offset=nextOffset to continue the same page.",
       inputSchema: z.object({
-        path: z.string().describe("Path of a loaded document (from list_documents)"),
+        path: z
+          .string()
+          .optional()
+          .describe("Loaded document path; defaults to the active document"),
         page: z.number().int().min(1),
         offset: z
           .number()
@@ -154,46 +200,52 @@ function createDocumentTools(budget: ReadBudget) {
           .optional()
           .describe(`Max characters to return (default ${DEFAULT_PAGE_MAX_CHARS})`),
       }),
-      execute: bindToolExecute(async ({ path, page, offset = 0, maxChars = DEFAULT_PAGE_MAX_CHARS }) => {
-        const doc = requireLoadedDoc(path);
-        assertPageInBounds(doc, page);
+      contextSchema: docToolContextSchema,
+      execute: bindToolExecute(
+        "Reading page…",
+        "read",
+        async ({ path: inputPath, page, offset = 0, maxChars = DEFAULT_PAGE_MAX_CHARS }, options) => {
+          const path = resolvePathInput(inputPath, options);
+          const doc = requireLoadedDoc(path);
+          assertPageInBounds(doc, page);
 
-        if (budget.used >= budget.max) {
+          if (budget.used >= budget.max) {
+            return {
+              page,
+              text: "",
+              source: "cache" as const,
+              truncated: false,
+              nextOffset: null,
+              charCount: 0,
+              budgetExceeded: true,
+              note: BUDGET_NOTE,
+            };
+          }
+
+          const { text, source } = await readPageText(path, page);
+          let from = Math.min(offset, text.length);
+          if (text.length > 0 && offset > text.length) {
+            from = 0;
+          }
+          const room = Math.min(maxChars, budget.max - budget.used);
+          const slice = text.slice(from, from + room);
+          budget.used += slice.length;
+
+          const consumedEnd = from + slice.length;
+          const truncated = consumedEnd < text.length;
+          const limitedByBudget = truncated && budget.used >= budget.max;
+
           return {
             page,
-            text: "",
-            source: "cache" as const,
-            truncated: false,
-            nextOffset: null,
-            charCount: 0,
-            budgetExceeded: true,
-            note: BUDGET_NOTE,
+            text: slice,
+            source,
+            truncated,
+            nextOffset: truncated ? consumedEnd : null,
+            charCount: slice.length,
+            ...(limitedByBudget ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
           };
-        }
-
-        const { text, source } = await readPageText(path, page);
-        let from = Math.min(offset, text.length);
-        if (text.length > 0 && offset > text.length) {
-          from = 0;
-        }
-        const room = Math.min(maxChars, budget.max - budget.used);
-        const slice = text.slice(from, from + room);
-        budget.used += slice.length;
-
-        const consumedEnd = from + slice.length;
-        const truncated = consumedEnd < text.length;
-        const limitedByBudget = truncated && budget.used >= budget.max;
-
-        return {
-          page,
-          text: slice,
-          source,
-          truncated,
-          nextOffset: truncated ? consumedEnd : null,
-          charCount: slice.length,
-          ...(limitedByBudget ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
-        };
-      }),
+        },
+      ),
     }),
 
     read_pdf_range: tool({
@@ -203,7 +255,10 @@ function createDocumentTools(budget: ReadBudget) {
         "with start=nextStart, and pass offset=nextOffset when it is non-null (the same page has more text). " +
         "truncated=false (with nextStart=null) means the range is fully read.",
       inputSchema: z.object({
-        path: z.string().describe("Path of a loaded document (from list_documents)"),
+        path: z
+          .string()
+          .optional()
+          .describe("Loaded document path; defaults to the active document"),
         start: z.number().int().min(1),
         end: z.number().int().min(1),
         offset: z
@@ -220,100 +275,115 @@ function createDocumentTools(budget: ReadBudget) {
           .optional()
           .describe(`Max characters to return (default ${DEFAULT_RANGE_MAX_CHARS})`),
       }),
-      execute: bindToolExecute(async ({
-        path,
-        start,
-        end,
-        offset = 0,
-        maxChars = DEFAULT_RANGE_MAX_CHARS,
-      }) => {
-        const doc = requireLoadedDoc(path);
-        const from = Math.min(start, end);
-        const to = Math.max(start, end);
-        assertPageInBounds(doc, from);
+      contextSchema: docToolContextSchema,
+      execute: bindToolExecute(
+        "Reading pages…",
+        "read",
+        async ({
+          path: inputPath,
+          start,
+          end,
+          offset = 0,
+          maxChars = DEFAULT_RANGE_MAX_CHARS,
+        }, options) => {
+          const path = resolvePathInput(inputPath, options);
+          const doc = requireLoadedDoc(path);
+          const from = Math.min(start, end);
+          const to = Math.max(start, end);
+          assertPageInBounds(doc, from);
 
-        const pageLimit = doc.totalPages > 0 ? Math.min(to, doc.totalPages) : to;
+          const pageLimit = doc.totalPages > 0 ? Math.min(to, doc.totalPages) : to;
 
-        const parts: string[] = [];
-        let charCount = 0;
-        let lastPage = from;
-        let truncated = false;
-        let nextStart: number | null = null;
-        let nextOffset: number | null = null;
-        let budgetExceeded = false;
+          const parts: string[] = [];
+          let charCount = 0;
+          let lastPage = from;
+          let truncated = false;
+          let nextStart: number | null = null;
+          let nextOffset: number | null = null;
+          let budgetExceeded = false;
 
-        for (let page = from; page <= pageLimit; page++) {
-          // Fast path: stop before reading if the run budget is already spent.
-          if (budget.used >= budget.max) {
-            truncated = true;
-            nextStart = page;
-            nextOffset = page === from ? offset : 0;
-            budgetExceeded = true;
-            break;
-          }
+          for (let page = from; page <= pageLimit; page++) {
+            if (budget.used >= budget.max) {
+              truncated = true;
+              nextStart = page;
+              nextOffset = page === from ? offset : 0;
+              budgetExceeded = true;
+              break;
+            }
 
-          const { text } = await readPageText(path, page);
-          const pageOffset = page === from ? Math.min(offset, text.length) : 0;
-          const remainingText = text.slice(pageOffset);
-          const header = `--- Page ${page}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
-          const separator = parts.length > 0 ? 2 : 0;
+            const { text } = await readPageText(path, page);
+            const pageOffset = page === from ? Math.min(offset, text.length) : 0;
+            const remainingText = text.slice(pageOffset);
+            const header = `--- Page ${page}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
+            const separator = parts.length > 0 ? 2 : 0;
 
-          const maxRoom = maxChars - charCount - separator - header.length;
-          const budgetRoom = budget.max - budget.used - separator - header.length;
-          const room = Math.min(maxRoom, budgetRoom);
-          const limitedByBudget = budgetRoom <= maxRoom;
+            const maxRoom = maxChars - charCount - separator - header.length;
+            const budgetRoom = budget.max - budget.used - separator - header.length;
+            const room = Math.min(maxRoom, budgetRoom);
+            const limitedByBudget = budgetRoom <= maxRoom;
 
-          if (room <= 0) {
-            // No room for this page's header+content in this call; resume here.
-            truncated = true;
-            nextStart = page;
-            nextOffset = pageOffset;
-            budgetExceeded = limitedByBudget;
-            break;
-          }
+            if (room <= 0) {
+              truncated = true;
+              nextStart = page;
+              nextOffset = pageOffset;
+              budgetExceeded = limitedByBudget;
+              break;
+            }
 
-          if (remainingText.length > room) {
-            const slice = remainingText.slice(0, room);
-            parts.push(header + slice);
-            charCount += separator + header.length + slice.length;
-            budget.used += slice.length;
+            if (remainingText.length > room) {
+              const slice = remainingText.slice(0, room);
+              parts.push(header + slice);
+              charCount += separator + header.length + slice.length;
+              budget.used += slice.length;
+              lastPage = page;
+              truncated = true;
+              nextStart = page;
+              nextOffset = pageOffset + slice.length;
+              budgetExceeded = limitedByBudget;
+              break;
+            }
+
+            parts.push(header + remainingText);
+            charCount += separator + header.length + remainingText.length;
+            budget.used += remainingText.length;
             lastPage = page;
-            truncated = true;
-            nextStart = page;
-            nextOffset = pageOffset + slice.length;
-            budgetExceeded = limitedByBudget;
-            break;
           }
 
-          parts.push(header + remainingText);
-          charCount += separator + header.length + remainingText.length;
-          budget.used += remainingText.length;
-          lastPage = page;
-        }
-
-        return {
-          text: parts.join("\n\n"),
-          truncated,
-          nextStart,
-          nextOffset,
-          startPage: from,
-          endPage: lastPage,
-          charCount,
-          ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
-        };
-      }),
+          return {
+            text: parts.join("\n\n"),
+            truncated,
+            nextStart,
+            nextOffset,
+            startPage: from,
+            endPage: lastPage,
+            charCount,
+            ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
+          };
+        },
+      ),
     }),
 
     search_in_document: tool({
-      description: "Search for a keyword or phrase in a loaded document",
+      description:
+        "Search for a keyword or phrase in a loaded document (keyword + semantic)",
       inputSchema: z.object({
-        path: z.string().describe("Path of a loaded document (from list_documents)"),
+        path: z
+          .string()
+          .optional()
+          .describe("Loaded document path; defaults to the active document"),
         query: z.string().min(1),
       }),
-      execute: bindToolExecute(async ({ path, query }) => {
-        requireLoadedDoc(path);
-        return docCache.search(path, query);
-      }),
+      contextSchema: docToolContextSchema,
+      execute: bindToolExecute(
+        "Searching document…",
+        "search",
+        async ({ path: inputPath, query }, options) => {
+          const path = resolvePathInput(inputPath, options);
+          requireLoadedDoc(path);
+          const pages = docCache.getPages(path);
+          return semanticSearchPages(path, pages, query);
+        },
+      ),
     }),
   };
 }
@@ -323,7 +393,8 @@ You help users understand PDFs and images stored on their machine.
 
 Rules:
 - Always use tools to read document content; never invent page text.
-- Only read documents returned by list_documents; pass their exact path. Never invent file paths.
+- Only read documents returned by list_documents. When a single document is active, omit path to use the default.
+- Never invent file paths.
 - Document pages are pre-indexed from images and scans. Use read_pdf_page / read_pdf_range on indexed text.
 - If a page returns empty text, indexing may still be running, or the user may need a multimodal model in Settings → AI Provider (e.g. gpt-4o-mini, Qwen2.5-VL). Do not ask them to install Tesseract.
 - For whole-document summary or analysis (全文, 总结, 分析整份文档): call get_document_index first.
@@ -337,21 +408,34 @@ Rules:
 - Cite page numbers when quoting document content.
 - If no document is loaded, ask the user to open a file first.`;
 
+function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
+  const docCtx = buildDocToolContext(runtime);
+  return {
+    list_documents: {},
+    get_document_index: docCtx,
+    read_pdf_page: docCtx,
+    read_pdf_range: docCtx,
+    search_in_document: docCtx,
+  };
+}
+
 export function createDocAgent() {
   const budget: ReadBudget = { used: 0, max: RUN_CHAR_BUDGET };
   const tools = createDocumentTools(budget);
+  const defaultRuntime = buildRuntimeContext(null);
 
   return new ToolLoopAgent({
     model: resolveModel(DEFAULT_SETTINGS),
     instructions: SYSTEM_INSTRUCTIONS,
     tools,
+    toolsContext: buildToolsContext(defaultRuntime),
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     prepareCall: async ({ toolsContext, ...rest }) => {
-      // Reset the per-run read budget at the start of each run.
       budget.used = 0;
 
       const settings = await loadSettings();
       const viewCtx = consumePendingAgentContext();
+      const runtimeContext = buildRuntimeContext(viewCtx);
       let viewHint = viewCtx ? buildViewContextInstructions(viewCtx) : "";
 
       if (viewCtx && hasWholeDocumentIntent(viewCtx.userText)) {
@@ -361,9 +445,37 @@ export function createDocAgent() {
       return {
         ...rest,
         model: resolveModel(settings),
+        reasoning: resolveReasoning(settings),
         instructions: SYSTEM_INSTRUCTIONS + viewHint,
-        toolsContext,
+        runtimeContext,
+        toolsContext: {
+          ...toolsContext,
+          ...buildToolsContext(runtimeContext),
+        },
       };
+    },
+    prepareStep: async ({ stepNumber, steps, messages }) => {
+      const settings = await loadSettings();
+      const prunedMessages =
+        messages.length > 12
+          ? pruneMessages({
+              messages,
+              reasoning: "before-last-message",
+              toolCalls: "before-last-3-messages",
+            })
+          : messages;
+
+      if (shouldUseFastModelForStep(stepNumber, steps)) {
+        const fast = resolveFastModel(settings);
+        if (fast) {
+          const fastId = pickFastModelId(settings);
+          if (fastId) {
+            emitAgentProgress(`Routing step ${stepNumber + 1} to ${fastId}…`, "tool");
+          }
+          return { model: fast, messages: prunedMessages };
+        }
+      }
+      return { model: resolveModel(settings), messages: prunedMessages };
     },
   });
 }

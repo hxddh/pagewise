@@ -4,6 +4,7 @@ import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
 import { indexPageInBackground, MIN_INDEX_CHARS } from "./vision-index";
 import { allowPath } from "./fs-access";
+import { ensureSemanticIndex } from "./semantic-index";
 
 const SUPPORTED_EXT = new Set([
   "pdf",
@@ -68,6 +69,7 @@ export async function loadDocument(
 
     docCache.set(doc);
     maybeIndexSparsePage(path, 1, "pdf");
+    void ensureSemanticIndex(path, doc.pages);
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
     doc = {
@@ -79,6 +81,7 @@ export async function loadDocument(
     };
     docCache.set(doc);
     maybeIndexSparsePage(path, 1, "image");
+    void ensureSemanticIndex(path, doc.pages);
   }
 
   report(onProgress, { stage: "done", message: "load.ready", percent: 100 });

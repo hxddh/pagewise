@@ -811,6 +811,137 @@ body {
   padding: 0;
 }
 
+.message-assistant-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 6px;
+}
+
+.message-assistant-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.message-action-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted);
+}
+
+.message-action-btn:hover:not(:disabled) {
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+}
+
+.message-action-btn.active {
+  color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+.usage-stats-popover {
+  min-width: 220px;
+  padding: 10px 12px;
+}
+
+.usage-stats-popover .usage-stats-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.usage-stats-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.usage-stats-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.usage-stats-row dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.usage-stats-row dd {
+  margin: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.usage-stats-row.usage-stats-sub dt {
+  padding-left: 8px;
+  font-size: 11px;
+}
+
+.usage-stats-row.usage-stats-sub dd {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.usage-stats-row.usage-stats-section dt {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.structured-citations {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.structured-citations li {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+}
+
+.structured-citation-page {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.structured-citation-quote {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-stats-footnote {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.usage-stats-model {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
 .message-parts {
   display: flex;
   flex-direction: column;

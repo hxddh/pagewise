@@ -1,4 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { APICallError, generateText, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import { isToolModel } from "./model-capabilities";
@@ -17,48 +18,32 @@ function isDeepseekModel(settings: LlmSettings): boolean {
   return false;
 }
 
-function providerFetch(settings: LlmSettings): typeof fetch | undefined {
-  const isOpenRouter = settings.provider === "openrouter";
-  const thinking = settings.thinkingEnabled === true;
-  // DeepSeek's proprietary `thinking` body is only valid for DeepSeek models.
-  const injectDeepseekThinking = thinking && isDeepseekModel(settings);
-  // Non-DeepSeek OpenRouter routes use OpenRouter's own `reasoning` parameter shape.
-  const injectOpenRouterReasoning = thinking && isOpenRouter && !isDeepseekModel(settings);
+/** Portable reasoning control for generate/stream/agent calls. */
+export function resolveReasoning(
+  settings: LlmSettings,
+): LanguageModelV4CallOptions["reasoning"] | undefined {
+  if (!settings.thinkingEnabled) return "none";
 
-  if (!isOpenRouter && !injectDeepseekThinking) return undefined;
+  const model = settings.model.toLowerCase();
+  if (
+    model.includes("pro") ||
+    model.includes("opus") ||
+    model.includes("v4-pro") ||
+    (isDeepseekModel(settings) && model.includes("reasoner"))
+  ) {
+    return "high";
+  }
+  return "medium";
+}
+
+function providerFetch(settings: LlmSettings): typeof fetch | undefined {
+  if (settings.provider !== "openrouter") return undefined;
 
   return async (input, init) => {
     const headers = new Headers(init?.headers);
-
-    if (isOpenRouter) {
-      headers.set("HTTP-Referer", "https://pagewise.app");
-      headers.set("X-Title", "PageWise");
-    }
-
-    let nextInit = { ...init, headers };
-
-    if (
-      (injectDeepseekThinking || injectOpenRouterReasoning) &&
-      nextInit.body &&
-      typeof nextInit.body === "string"
-    ) {
-      try {
-        const body = JSON.parse(nextInit.body) as Record<string, unknown>;
-        if (injectDeepseekThinking) {
-          body.thinking = { type: "enabled" };
-          if (settings.model.includes("v4-pro")) {
-            body.reasoning_effort = "high";
-          }
-        } else if (injectOpenRouterReasoning) {
-          body.reasoning = { effort: settings.model.includes("pro") ? "high" : "medium" };
-        }
-        nextInit = { ...nextInit, body: JSON.stringify(body) };
-      } catch {
-        /* keep original body */
-      }
-    }
-
-    return fetch(input, nextInit);
+    headers.set("HTTP-Referer", "https://pagewise.app");
+    headers.set("X-Title", "PageWise");
+    return fetch(input, { ...init, headers });
   };
 }
 
@@ -247,6 +232,7 @@ export async function testConnection(
   try {
     const { text } = await generateText({
       model: resolveModel(settings),
+      reasoning: resolveReasoning(settings),
       tools: {
         ping: tool({
           description: "Health check — reply with pong",

@@ -20,6 +20,16 @@ describe("normalizeUIMessages", () => {
     expect(msg?.parts[0]).toMatchObject({ type: "text", text: "hello" });
   });
 
+  it("preserves message metadata", () => {
+    const msg = normalizeUIMessage({
+      id: "3",
+      role: "assistant",
+      parts: [{ type: "text", text: "ok" }],
+      metadata: { inputTokens: 10, outputTokens: 5, model: "gpt-4o-mini" },
+    });
+    expect(msg?.metadata).toMatchObject({ inputTokens: 10, model: "gpt-4o-mini" });
+  });
+
   it("drops invalid rows", () => {
     expect(normalizeUIMessages([null, { id: "x", role: "nope" }])).toHaveLength(0);
   });

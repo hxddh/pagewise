@@ -4,6 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-07-04
+
+### Added
+
+- Assistant message footer: copy, regenerate, and usage stats popover (input/output tokens, TTFT, speed, index vs chat split)
+- Agent: `smoothStream` word chunking, structured citations via `generateObject`, and live tool-progress data parts
+- Search: hybrid keyword + semantic retrieval with embedding index and lexical `rerank` pass
+- Agent loop: `runtimeContext` default doc path, `prepareStep` fast-model routing, and `pruneMessages` for long contexts
+- Export summary: `streamObject` structured Markdown export with streaming generation
+- Debug: per-step token usage in stats popover (`onStepEnd` metadata)
+- Tests: `ai/test` mocks for transport metadata, rerank, and export summary
+
+### Changed
+
+- Thinking/reasoning: top-level AI SDK `reasoning` parameter replaces custom fetch body injection (OpenRouter headers only)
+
 ## [0.2.10] - 2026-07-04
 
 ### Fixed
@@ -203,7 +219,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.10...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.11...HEAD
+[0.2.11]: https://github.com/hxddh/pagewise/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/hxddh/pagewise/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/hxddh/pagewise/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/hxddh/pagewise/compare/v0.2.7...v0.2.8
