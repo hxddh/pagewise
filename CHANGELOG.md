@@ -4,6 +4,27 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-07-04
+
+### Fixed
+
+- Save/export: saving to a new file name no longer fails (`write_text_file` canonicalized a not-yet-existing target)
+- Settings: editing an existing API key value is now persisted (dedup no longer collapses every key to a constant); explicitly-cleared keys are not resurrected when the keychain becomes available
+- Storage: `recent-files` and `allowed-paths` serialize read-modify-write, preventing dropped entries under concurrent startup restore and user actions
+- Semantic search: gate embeddings on provider capability instead of silently degrading to keyword; invalidate the index when OCR/vision text lands so scanned pages become searchable; bounded-batch embedding with per-batch failure isolation, page cap, 429 backoff, and abort; rebuild on embedding model/dimension drift
+- Search ranking: fuse keyword + semantic results (Reciprocal Rank Fusion) instead of ranking purely by lexical term count
+- Agent usage: per-step token counts are no longer double-counted (single-step replies showed "2 steps" and ~2× tokens)
+- Agent: aggressive context compaction no longer forces synthesis on the same step it prunes; fast-model routing only applies to intermediate steps so the final answer uses the configured model; the final step is reserved for synthesis so a run cannot end without an answer
+- PDF preview: thumbnails no longer stay permanently blank after a page turn cancels them; quality toggle keeps the loaded document instead of re-reading the whole file
+- Citations: hallucinated pages beyond the document length are dropped; inverted ranges normalized
+
+### Changed
+
+- `read_file_bytes` returns raw bytes over IPC instead of a JSON number array (faster, less memory for large PDFs)
+- Rust PDF text cache releases its lock during extraction and is bounded to 12 documents
+- Vite build target set to `safari15` to match the WKWebView runtime baseline
+- Usage-stats popover is keyboard/Escape dismissable; a single streaming status indicator is shown while awaiting the first reply
+
 ## [0.2.14] - 2026-07-04
 
 ### Fixed
@@ -259,7 +280,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.14...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.15...HEAD
+[0.2.15]: https://github.com/hxddh/pagewise/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/hxddh/pagewise/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/hxddh/pagewise/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/hxddh/pagewise/compare/v0.2.11...v0.2.12
