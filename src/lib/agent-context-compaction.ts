@@ -2,6 +2,15 @@ import type { LanguageModel } from "ai";
 import { pruneMessages, type ModelMessage } from "ai";
 import { compactStaleToolResults } from "./compact-agent-messages";
 import { emitAgentProgress } from "./agent-progress";
+import {
+  AGENT_TOOL_NAMES,
+  getBlockedMetaTools,
+  isMetaToolOnlyLoop,
+  READ_TOOL_NAMES,
+  shouldForceReadTools,
+  type AgentStepSnapshot,
+  type AgentToolName,
+} from "./agent-loop-guards";
 import { resolveModel } from "./llm";
 import { pickFastModelId, resolveFastModel, shouldUseFastModelForStep } from "./model-routing";
 import type { LlmSettings } from "./types";
@@ -14,13 +23,11 @@ export const ESTIMATED_CHARS_PER_TOKEN = 4;
 
 export const COMPACT_NORMAL_ESTIMATED_TOKENS = 18_000;
 export const COMPACT_AGGRESSIVE_ESTIMATED_TOKENS = 28_000;
-export const COMPACT_AGGRESSIVE_STEP_INPUT_TOKENS = 24_000;
+export const COMPACT_AGGRESSIVE_STEP_INPUT_TOKENS = 20_000;
 
 export type CompactionLevel = "none" | "normal" | "aggressive";
 
-type AgentStep = {
-  toolCalls?: unknown[];
-  text?: string;
+type AgentStep = AgentStepSnapshot & {
   usage?: { inputTokens?: number };
 };
 
@@ -140,8 +147,8 @@ export interface PrepareStepContext {
 export interface PrepareStepOverrides {
   model: LanguageModel;
   messages: ModelMessage[];
-  activeTools?: [];
-  toolChoice?: "none";
+  activeTools?: readonly AgentToolName[];
+  toolChoice?: "none" | "required" | "auto";
 }
 
 export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepOverrides {
@@ -156,6 +163,16 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
 
   const baseModel = resolveModel(settings);
 
+  if (isMetaToolOnlyLoop(steps)) {
+    emitAgentProgress("Stopping repeated scans — synthesizing answer…", "tool");
+    return {
+      model: baseModel,
+      messages: prunedMessages,
+      activeTools: [],
+      toolChoice: "none",
+    };
+  }
+
   if (shouldForceSynthesisStep(steps, messages, compactionLevel, budgetUsed, budgetMax)) {
     emitAgentProgress("Synthesizing answer from gathered context…", "tool");
     return {
@@ -163,6 +180,27 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
       messages: prunedMessages,
       activeTools: [],
       toolChoice: "none",
+    };
+  }
+
+  if (shouldForceReadTools(steps)) {
+    emitAgentProgress("Reading matched pages…", "read");
+    return {
+      model: baseModel,
+      messages: prunedMessages,
+      activeTools: [...READ_TOOL_NAMES],
+      toolChoice: "required",
+    };
+  }
+
+  const blocked = getBlockedMetaTools(steps);
+  if (blocked.length > 0) {
+    return {
+      model: baseModel,
+      messages: prunedMessages,
+      activeTools: AGENT_TOOL_NAMES.filter(
+        (name) => !blocked.includes(name),
+      ) as AgentToolName[],
     };
   }
 

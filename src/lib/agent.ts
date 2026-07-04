@@ -28,7 +28,7 @@ export const DEFAULT_RANGE_MAX_CHARS = 6_000;
 /** Default cap per read_pdf_page call. */
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
 /** Explicit ceiling on tool-loop steps so a run always terminates. */
-const MAX_AGENT_STEPS = 24;
+const MAX_AGENT_STEPS = 14;
 /** Cumulative characters a single run may read before it must synthesize. */
 const RUN_CHAR_BUDGET = 120_000;
 
@@ -397,6 +397,10 @@ Rules:
 - Never invent file paths.
 - Document pages are pre-indexed from images and scans. Use read_pdf_page / read_pdf_range on indexed text.
 - If a page returns empty text, indexing may still be running, or the user may need a multimodal model in Settings → AI Provider (e.g. gpt-4o-mini, Qwen2.5-VL). Do not ask them to install Tesseract.
+- For targeted questions (dates, names, keywords, 日期, 有哪些): call search_in_document once,
+  then read_pdf_page on the top matching pages. Do NOT call list_documents or get_document_index repeatedly.
+- Call get_document_index at most once per user question. Call list_documents at most once when a document is already open.
+- Never output tool calls as XML, DSML, or markdown code — only use the native tool calling API.
 - For whole-document summary or analysis (全文, 总结, 分析整份文档): call get_document_index first.
   If totalChars ≤ 6000, one read_pdf_range is enough. Otherwise read in chunks with maxChars=6000,
   continuing from nextStart (and pass offset=nextOffset when it is non-null — the same page still has text)

@@ -4,7 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
-## [0.2.13] - 2026-07-04
+## [0.2.14] - 2026-07-04
+
+### Fixed
+
+- Agent: stop meta-tool loops (`list_documents` / `get_document_index` / `search_in_document` without reading pages)
+- UI: strip DSML tool-call markup leaked as plain text by some providers (e.g. DeepSeek)
+
+### Changed
+
+- Agent: force `read_pdf_*` after search; block repeat list/index calls; cap steps at 14
+- Agent: lower aggressive compaction threshold (20k cumulative step input tokens)
+
 
 ### Fixed
 
@@ -248,7 +259,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.13...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.14...HEAD
+[0.2.14]: https://github.com/hxddh/pagewise/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/hxddh/pagewise/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/hxddh/pagewise/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/hxddh/pagewise/compare/v0.2.10...v0.2.11
