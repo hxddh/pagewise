@@ -14,6 +14,12 @@ import {
 } from "./agent-loop-guards";
 import { resolveModel } from "./llm";
 import { pickFastModelId, resolveFastModel, shouldUseFastModelForStep } from "./model-routing";
+import {
+  extractLastUserTextFromMessages,
+  resolveMaxAgentSteps,
+  shouldReserveFinalSynthesis,
+  shouldSynthesizeAfterTools,
+} from "./agent-run-plan";
 import type { LlmSettings } from "./types";
 
 const READ_TOOLS = ["read_pdf_page", "read_pdf_range"] as const;
@@ -146,17 +152,7 @@ export function shouldForceSynthesisStep(
   return false;
 }
 
-/**
- * Reserve the last allowed step for synthesis: on the final step the run may
- * take, force a text answer (`toolChoice:"none"`) so a `stepCountIs` cap can
- * never terminate the run on a tool call with no user-visible reply.
- */
-export function shouldReserveFinalSynthesis(
-  stepNumber: number,
-  maxSteps: number,
-): boolean {
-  return maxSteps > 0 && stepNumber >= maxSteps - 1;
-}
+export { shouldReserveFinalSynthesis } from "./agent-run-plan";
 
 export interface PrepareStepContext {
   settings: LlmSettings;
@@ -178,6 +174,8 @@ export interface PrepareStepOverrides {
 
 export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepOverrides {
   const { settings, stepNumber, steps, messages, budgetUsed, budgetMax, maxSteps } = ctx;
+  const userText = extractLastUserTextFromMessages(messages);
+  const effectiveMaxSteps = maxSteps > 0 ? maxSteps : resolveMaxAgentSteps(userText);
   const compactionLevel = resolveCompactionLevel(messages, steps, stepNumber);
   const prunedMessages = compactAgentMessages(
     messages,
@@ -209,9 +207,18 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
     };
   }
 
-  // Reserve the final allowed step for a text answer so the run never ends on a
-  // dead-end tool call with no reply. Always uses the base model (final answer).
-  if (shouldReserveFinalSynthesis(stepNumber, maxSteps)) {
+  if (shouldSynthesizeAfterTools(steps)) {
+    emitAgentProgress("Synthesizing answer from gathered context…", "tool");
+    return {
+      model: baseModel,
+      messages: prunedMessages,
+      activeTools: [],
+      toolChoice: "none",
+    };
+  }
+
+  // Reserve the final allowed step for a text answer so a hard cap never ends on tools.
+  if (shouldReserveFinalSynthesis(stepNumber, effectiveMaxSteps)) {
     emitAgentProgress("Synthesizing final answer…", "tool");
     return {
       model: baseModel,

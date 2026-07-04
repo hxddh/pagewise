@@ -2905,6 +2905,21 @@ body {
   height: 4px;
 }
 
+.message-body-plain {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-parts--settling {
+  opacity: 0.92;
+  transition: opacity 0.25s ease;
+}
+
+.tool-fold-wrap--settling {
+  opacity: 0.85;
+  transition: opacity 0.25s ease;
+}
+
 .message.assistant {
   background: transparent;
   border: none;

@@ -5,6 +5,7 @@ import { useResizeWidth } from "./useResizeWidth";
 import { useConnectionStatus } from "./useConnectionStatus";
 import { useI18n } from "../i18n";
 import { getAgentActivity } from "../lib/citations";
+import { formatAgentActivityLine } from "../lib/agent-activity-line";
 
 export function useAgentWorkspace() {
   const { t } = useI18n();
@@ -35,6 +36,7 @@ export function useAgentWorkspace() {
     setMessages,
     clearChat,
     resetForDocumentSwitch,
+    historySettling,
   } = useDocAgent();
 
   useEffect(() => {
@@ -42,10 +44,24 @@ export function useAgentWorkspace() {
   }, [agentOpen]);
 
   const busy = status === "streaming" || status === "submitted";
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!busy) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [busy]);
+
   const activity = useMemo(() => {
-    if (streamProgress?.trim()) return streamProgress;
-    return getAgentActivity(messages, busy, t);
-  }, [streamProgress, busy, messages, t]);
+    const raw =
+      streamProgress?.trim() ? streamProgress : getAgentActivity(messages, busy, t);
+    return formatAgentActivityLine({
+      messages,
+      busy,
+      activity: raw,
+      nowMs,
+      t,
+    });
+  }, [streamProgress, busy, messages, t, nowMs]);
 
   const focusComposer = useCallback(() => {
     chatPanelRef.current?.focusComposer();
@@ -80,6 +96,7 @@ export function useAgentWorkspace() {
       resetForDocumentSwitch,
       busy,
       activity,
+      historySettling,
       focusComposer,
     }),
     [
@@ -107,6 +124,7 @@ export function useAgentWorkspace() {
       resetForDocumentSwitch,
       busy,
       activity,
+      historySettling,
       focusComposer,
     ],
   );

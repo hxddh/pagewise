@@ -66,12 +66,13 @@ export function getInFlightAssistantMessage(
 
 export function hasSubstantialAssistantText(
   message: UIMessage | undefined,
-  minChars = 48,
+  minChars = 8,
 ): boolean {
   if (!message) return false;
-  return message.parts.some(
-    (p) => p.type === "text" && (p.text?.trim().length ?? 0) > minChars,
-  );
+  return message.parts.some((p) => {
+    if (p.type !== "text" && p.type !== "reasoning") return false;
+    return (p.text?.trim().length ?? 0) >= minChars;
+  });
 }
 
 /** Find the last message matching predicate without allocating a reversed copy. */

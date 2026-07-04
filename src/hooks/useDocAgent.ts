@@ -137,6 +137,7 @@ export function useDocAgent() {
 
   const prevStatusRef = useRef(chat.status);
   const sendingRef = useRef(false);
+  const [historySettling, setHistorySettling] = useState(false);
   // Total page count of the document the in-flight message is about, used to
   // bound structured citations (drop hallucinated pages > totalPages).
   const lastTotalPagesRef = useRef<number | undefined>(undefined);
@@ -153,8 +154,10 @@ export function useDocAgent() {
     }
 
     if (wasBusy && chat.status === "ready") {
+      setHistorySettling(true);
       const id = window.setTimeout(() => {
         chat.setMessages((prev) => pruneToolOutputsForHistory(prev) as typeof prev);
+        window.setTimeout(() => setHistorySettling(false), 300);
       }, 0);
       return () => window.clearTimeout(id);
     }
@@ -296,6 +299,7 @@ export function useDocAgent() {
       setMessages: chat.setMessages,
       clearError: chat.clearError,
       clearChat,
+      historySettling,
       resetForDocumentSwitch: () => {
         chat.stop();
         chat.clearError();
@@ -315,6 +319,7 @@ export function useDocAgent() {
       sendDocumentMessage,
       regenerateDocumentMessage,
       streamProgress,
+      historySettling,
     ],
   );
 }

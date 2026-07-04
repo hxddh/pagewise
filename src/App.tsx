@@ -173,6 +173,7 @@ function AppShell() {
                     loadingDoc={document.loading}
                     chatLoading={library.chatLoading}
                     activity={agent.busy ? agent.activity : null}
+                    historySettling={agent.historySettling}
                     composerDraft={agent.composerDraft}
                     onComposerDraftChange={agent.setComposerDraft}
                     onConfigureApi={() => shell.openSettings("ai")}

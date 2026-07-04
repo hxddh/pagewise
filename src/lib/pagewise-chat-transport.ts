@@ -2,12 +2,12 @@ import type { Context, ToolSet } from "@ai-sdk/provider-utils";
 import type { Agent } from "ai";
 import {
   convertToModelMessages,
-  smoothStream,
   toUIMessageStream,
   validateUIMessages,
   type ChatTransport,
   type UIMessageChunk,
 } from "ai";
+import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
 import {
@@ -70,7 +70,7 @@ export class PagewiseChatTransport<
     const result = await this.agent.stream({
       prompt: modelMessages,
       abortSignal,
-      experimental_transform: smoothStream({ chunking: "word" }),
+      experimental_transform: resolveStreamingTransform(),
       onStepEnd: tracker.onStepEnd,
     } as Parameters<Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>["stream"]>[0]);
 

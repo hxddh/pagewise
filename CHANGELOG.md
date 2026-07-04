@@ -4,6 +4,15 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.18] - 2026-07-04
+
+### Changed
+
+- Streaming UX: CJK-friendly `Intl.Segmenter` chunking without artificial delay; plain-text tail while live, full markdown when done
+- UI: single unified progress bar with step index, elapsed time, and search-hit preview; tool fold collapses when idle
+- Agent: targeted factual queries cap at 6 steps; synthesize immediately after read/search tools; brief status sentences in system prompt
+- UI: lower substantial-text threshold (8 chars, includes reasoning); reasoning expanded during live stream; settling transition after history prune
+
 ## [0.2.17] - 2026-07-04
 
 ### Fixed
@@ -296,7 +305,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.17...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.18...HEAD
+[0.2.18]: https://github.com/hxddh/pagewise/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/hxddh/pagewise/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/hxddh/pagewise/compare/v0.2.15...v0.2.16
 [0.2.15]: https://github.com/hxddh/pagewise/compare/v0.2.14...v0.2.15
