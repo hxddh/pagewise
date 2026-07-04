@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
-import { APP_VERSION } from "../../lib/app-version";
+import { APP_VERSION_FALLBACK, resolveAppVersion } from "../../lib/app-version";
 import { LogoMark } from "../LogoMark";
 
 const GITHUB_URL = "https://github.com/hxddh/pagewise";
 
 export function AboutSettings() {
   const { t } = useI18n();
+  const [appVersion, setAppVersion] = useState(APP_VERSION_FALLBACK);
   const [tesseractOk, setTesseractOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void resolveAppVersion().then(setAppVersion);
+  }, []);
 
   useEffect(() => {
     invoke<{ installed: boolean; chi_sim: boolean }>("check_tesseract")
@@ -28,7 +33,7 @@ export function AboutSettings() {
           <div>
             <span className="about-brand-name">PageWise</span>
             <span className="about-brand-version">
-              {t("settings.version")} {APP_VERSION}
+              {t("settings.version")} {appVersion}
             </span>
           </div>
         </div>
