@@ -142,7 +142,7 @@ export function useDocumentWorkspace(
         : null;
 
       const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
-      if (!lastAssistant) return;
+      if (!lastAssistant?.parts) return;
       for (const part of lastAssistant.parts) {
         if (!isToolUIPart(part) || part.state !== "output-available") continue;
         if (part.toolCallId === lastSyncedToolRef.current) continue;

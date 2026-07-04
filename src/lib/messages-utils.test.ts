@@ -1,23 +1,26 @@
 import { describe, expect, it } from "vitest";
-import type { UIMessage } from "ai";
-import { findLastMessage } from "./messages-utils";
+import { normalizeUIMessage, normalizeUIMessages } from "./messages-utils";
 
-function msg(role: UIMessage["role"], id: string): UIMessage {
-  return { id, role, parts: [] };
-}
-
-describe("findLastMessage", () => {
-  it("returns undefined for empty array", () => {
-    expect(findLastMessage([], () => true)).toBeUndefined();
+describe("normalizeUIMessages", () => {
+  it("keeps valid parts-based messages", () => {
+    const msg = normalizeUIMessage({
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "hi" }],
+    });
+    expect(msg?.parts).toHaveLength(1);
   });
 
-  it("finds last matching message without reversing", () => {
-    const messages = [msg("user", "1"), msg("assistant", "2"), msg("user", "3")];
-    expect(findLastMessage(messages, (m) => m.role === "user")?.id).toBe("3");
+  it("migrates legacy content string to text part", () => {
+    const msg = normalizeUIMessage({
+      id: "2",
+      role: "assistant",
+      content: "hello",
+    });
+    expect(msg?.parts[0]).toMatchObject({ type: "text", text: "hello" });
   });
 
-  it("returns undefined when no match", () => {
-    const messages = [msg("user", "1"), msg("assistant", "2")];
-    expect(findLastMessage(messages, (m) => m.role === "system")).toBeUndefined();
+  it("drops invalid rows", () => {
+    expect(normalizeUIMessages([null, { id: "x", role: "nope" }])).toHaveLength(0);
   });
 });

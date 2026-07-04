@@ -1,5 +1,5 @@
 import { docCache } from "./doc-cache";
-import { extractAllPageTexts, getPdfPageCount } from "./pdf";
+import { extractPdfFromRust } from "./pdf";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
 import { indexPageInBackground, MIN_INDEX_CHARS } from "./vision-index";
@@ -48,36 +48,25 @@ export async function loadDocument(
   if (ext === "pdf") {
     report(onProgress, { stage: "extracting", message: "load.extracting", percent: 20 });
 
-    const pageCount = await getPdfPageCount(path);
+    // Rust extract on open — pdf.js text layer is unreliable in Tauri WebView.
+    const extracted = await extractPdfFromRust(path);
 
     report(onProgress, {
       stage: "extracting",
       message: "load.extractedPages",
-      messageParams: { count: pageCount },
-      percent: 40,
+      messageParams: { count: extracted.total_pages },
+      percent: 55,
     });
 
     doc = {
       path,
       name,
       kind: "pdf",
-      pages: Array.from({ length: pageCount }, (_, i) => ({ page: i + 1, text: "" })),
-      totalPages: pageCount,
+      pages: extracted.pages,
+      totalPages: extracted.total_pages,
     };
 
     docCache.set(doc);
-
-    report(onProgress, { stage: "indexing", message: "load.extracting", percent: 55 });
-
-    await extractAllPageTexts(path, (page, text) => {
-      docCache.upsertPageText(path, page, text);
-    });
-
-    const cached = docCache.get(path);
-    if (cached) {
-      docCache.set({ ...cached, pages: cached.pages });
-    }
-
     maybeIndexSparsePage(path, 1, "pdf");
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });

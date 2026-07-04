@@ -1,8 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { installPromiseWithResolversPolyfill } from "./lib/polyfills";
 import { I18nProvider, resolveLocale } from "./i18n";
 import { applyTheme, loadPreferences, resolveTheme } from "./lib/preferences";
 import App from "./App";
+
+installPromiseWithResolversPolyfill();
 
 void loadPreferences().then((prefs) => {
   applyTheme(resolveTheme(prefs.theme));

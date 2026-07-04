@@ -8,7 +8,6 @@ use std::sync::Mutex;
 
 use pdf::{extract_pdf_text, PdfCache, PdfExtractResult};
 use serde::Serialize;
-use tauri::ipc::Response;
 use tauri::State;
 
 #[derive(Default)]
@@ -63,14 +62,13 @@ async fn extract_pdf_text_cmd(
 }
 
 #[tauri::command]
-async fn read_file_bytes(path: String, allowed: State<'_, AllowedPaths>) -> Result<Response, String> {
+async fn read_file_bytes(path: String, allowed: State<'_, AllowedPaths>) -> Result<Vec<u8>, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::read(&canon).map_err(|e| format!("Read failed: {e}"))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
-    .map(Response::new)
 }
 
 #[tauri::command]

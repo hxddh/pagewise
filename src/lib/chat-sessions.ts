@@ -1,5 +1,6 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import type { UIMessage } from "ai";
+import { normalizeUIMessages } from "./messages-utils";
 
 const STORE_PATH = "sessions.json";
 const STORE_KEY = "data";
@@ -95,7 +96,7 @@ function sanitizeDoc(raw: unknown): DocSessions | null {
     threads.push({
       id: tt.id,
       name: typeof tt.name === "string" ? tt.name : "Default",
-      messages: Array.isArray(tt.messages) ? (tt.messages as UIMessage[]) : [],
+      messages: normalizeUIMessages(tt.messages),
       updatedAt: typeof tt.updatedAt === "number" ? tt.updatedAt : Date.now(),
     });
   }
@@ -138,7 +139,7 @@ function migrate(raw: unknown): SessionStoreV2 {
           {
             id: DEFAULT_THREAD_ID,
             name: "Default",
-            messages: Array.isArray(entry.messages) ? entry.messages : [],
+            messages: normalizeUIMessages(entry.messages),
             updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : Date.now(),
           },
         ],

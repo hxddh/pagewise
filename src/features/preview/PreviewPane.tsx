@@ -105,7 +105,7 @@ function PreviewPaneInner({
         ))}
       {viewer.renderError && (
         <div className="preview-error-banner" role="alert">
-          {t("preview.renderFailed")}
+          {viewer.renderError}
         </div>
       )}
       {viewer.showLoading && (

@@ -2,8 +2,8 @@ import type { PDFPageProxy, RenderTask } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import {
   getPdfJs,
-  PDF_CMAP_URL,
-  PDF_STANDARD_FONT_URL,
+  pdfCMapUrl,
+  pdfStandardFontUrl,
   type PDFDocumentProxy,
 } from "./pdf-loader";
 import type { PreviewQuality } from "./types";
@@ -246,6 +246,34 @@ export async function extractPdfFromRust(path: string): Promise<PdfExtractResult
   return invoke<PdfExtractResult>("extract_pdf_text_cmd", { path, page: null });
 }
 
+export async function extractPageTextFromRust(path: string, pageNumber: number): Promise<string> {
+  const result = await invoke<PdfExtractResult>("extract_pdf_text_cmd", {
+    path,
+    page: pageNumber,
+  });
+  return result.pages[0]?.text?.trim() ?? "";
+}
+
+function coerceInvokeBytes(raw: unknown): Uint8Array {
+  if (raw instanceof Uint8Array) return raw;
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (Array.isArray(raw)) return new Uint8Array(raw);
+  throw new Error("read_file_bytes returned unexpected payload");
+}
+
+function pdfDocumentInit(data: Uint8Array) {
+  return {
+    data,
+    useSystemFonts: true,
+    disableRange: true,
+    disableStream: true,
+    disableAutoFetch: true,
+    cMapUrl: pdfCMapUrl(),
+    cMapPacked: true,
+    standardFontDataUrl: pdfStandardFontUrl(),
+  };
+}
+
 async function loadPdfBytesViaAsset(path: string): Promise<Uint8Array> {
   const url = convertFileSrc(path);
   const buf = await fetch(url).then((r) => {
@@ -258,21 +286,20 @@ async function loadPdfBytesViaAsset(path: string): Promise<Uint8Array> {
 }
 
 async function loadPdfBytesViaIpc(path: string): Promise<Uint8Array> {
-  const raw = await invoke<ArrayBuffer | Uint8Array | number[]>("read_file_bytes", { path });
-  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
-  if (raw instanceof Uint8Array) return raw;
-  return new Uint8Array(Array.isArray(raw) ? raw : []);
+  const raw = await invoke<unknown>("read_file_bytes", { path });
+  return coerceInvokeBytes(raw);
 }
 
 async function loadPdfBytes(path: string): Promise<Uint8Array> {
   const cached = pdfBytesCache.get(path);
   if (cached) return cached;
 
+  // Prefer IPC in Tauri — asset:// fetch can lack ReadableStream / iterator support.
   let data: Uint8Array;
   try {
-    data = await loadPdfBytesViaAsset(path);
-  } catch {
     data = await loadPdfBytesViaIpc(path);
+  } catch {
+    data = await loadPdfBytesViaAsset(path);
   }
 
   if (data.byteLength === 0) throw new Error("Empty PDF file");
@@ -288,27 +315,8 @@ export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
 
   const load = (async () => {
     const pdfjs = await getPdfJs();
-    let doc: PDFDocumentProxy;
-
-    try {
-      const url = convertFileSrc(path);
-      doc = await pdfjs.getDocument({
-        url,
-        useSystemFonts: true,
-        cMapUrl: PDF_CMAP_URL,
-        cMapPacked: true,
-        standardFontDataUrl: PDF_STANDARD_FONT_URL,
-      }).promise;
-    } catch {
-      const data = await loadPdfBytes(path);
-      doc = await pdfjs.getDocument({
-        data,
-        useSystemFonts: true,
-        cMapUrl: PDF_CMAP_URL,
-        cMapPacked: true,
-        standardFontDataUrl: PDF_STANDARD_FONT_URL,
-      }).promise;
-    }
+    const data = await loadPdfBytes(path);
+    const doc = await pdfjs.getDocument(pdfDocumentInit(data)).promise;
 
     if (pdfDocCache && pdfDocCache.path !== path) {
       void pdfDocCache.doc.loadingTask.destroy();
@@ -326,20 +334,14 @@ export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
 }
 
 export async function getPdfPageCount(path: string): Promise<number> {
-  const doc = await getPdfDocument(path);
-  return doc.numPages;
+  if (pdfDocCache?.path === path) return pdfDocCache.doc.numPages;
+  const extracted = await extractPdfFromRust(path);
+  return extracted.total_pages;
 }
 
-/** Extract plain text for one page via pdf.js (no Rust pdf-extract). */
+/** Extract plain text for one page — Rust pdf-extract (reliable in Tauri). */
 export async function extractPageText(path: string, pageNumber: number): Promise<string> {
-  const doc = await getPdfDocument(path);
-  const page = await doc.getPage(pageNumber);
-  const content = await page.getTextContent();
-  return content.items
-    .map((item) => ("str" in item ? item.str : ""))
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return extractPageTextFromRust(path, pageNumber);
 }
 
 /** Background-fill sparse page texts after open. */

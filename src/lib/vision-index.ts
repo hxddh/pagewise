@@ -77,14 +77,16 @@ export class VisionNotSupportedError extends Error {
 
 async function readImageBytes(path: string): Promise<Uint8Array> {
   try {
-    const url = convertFileSrc(path);
-    const buf = await fetch(url).then((r) => r.arrayBuffer());
-    return new Uint8Array(buf);
-  } catch {
-    const raw = await invoke<ArrayBuffer | Uint8Array>("read_file_bytes", { path });
+    const raw = await invoke<unknown>("read_file_bytes", { path });
+    if (raw instanceof Uint8Array) return raw;
     if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
-    return raw instanceof Uint8Array ? raw : new Uint8Array();
+    if (Array.isArray(raw)) return new Uint8Array(raw);
+  } catch {
+    /* fall through */
   }
+  const url = convertFileSrc(path);
+  const buf = await fetch(url).then((r) => r.arrayBuffer());
+  return new Uint8Array(buf);
 }
 
 export async function compressImageForVision(bytes: Uint8Array): Promise<Uint8Array> {
