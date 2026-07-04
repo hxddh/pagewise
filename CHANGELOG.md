@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-07-04
+
+### Fixed
+
+- About screen version now reads the macOS bundle version at runtime (matches Finder / Get Info)
+- Release builds verify `Info.plist` `CFBundleShortVersionString` matches `VERSION`
+
+### Changed
+
+- Dock / app bundle icons regenerated to match in-app LogoMark (stacked pages + green dot, no black background)
+- Tauri `version` reads from `package.json`; `beforeBuildCommand` runs `version:sync` before each build
+- Added `npm run icons:generate` and `npm run verify:bundle-version` scripts
+
 ## [0.2.7] - 2026-07-04
 
 ### Fixed
@@ -159,7 +172,9 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/hxddh/pagewise/compare/v0.2.7...v0.2.8
+[0.2.7]: https://github.com/hxddh/pagewise/compare/v0.2.6...v0.2.7
 [0.2.1]: https://github.com/hxddh/pagewise/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/hxddh/pagewise/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hxddh/pagewise/releases/tag/v0.1.0

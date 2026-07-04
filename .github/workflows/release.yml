@@ -58,8 +58,14 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: Sync version manifests
+        run: npm run version:sync
+
       - name: Build macOS bundle
         run: npm run tauri build
+
+      - name: Verify bundle Info.plist version
+        run: npm run verify:bundle-version
 
       - name: Collect artifacts
         run: |
