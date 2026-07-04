@@ -25,6 +25,7 @@ settings.json
 
 # macOS / build artifacts
 .DS_Store
+.preview/
 src-tauri/target
 
 # Editor directories and files

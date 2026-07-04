@@ -54,7 +54,7 @@ function ToolStepsBlock({
 }) {
   const steps = parts.map(({ part }) => toolStepFromPart(part, t));
   const { aggregate, summary, details, anyRunning } = summarizeToolSteps(steps, t);
-  const useFold = aggregate || (live && anyRunning);
+  const useFold = aggregate || live;
 
   if (!useFold) {
     return (
@@ -164,9 +164,21 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
 
 export const MessageContent = memo(
   MessageContentInner,
-  (prev, next) =>
-    prev.markdown === next.markdown &&
-    prev.live === next.live &&
-    prev.message.id === next.message.id &&
-    partsSignature(prev.message.parts) === partsSignature(next.message.parts),
+  (prev, next) => {
+    const partsEqual =
+      partsSignature(prev.message.parts) === partsSignature(next.message.parts);
+    if (next.live) {
+      return (
+        prev.markdown === next.markdown &&
+        prev.message.id === next.message.id &&
+        partsEqual
+      );
+    }
+    return (
+      prev.markdown === next.markdown &&
+      prev.live === next.live &&
+      prev.message.id === next.message.id &&
+      partsEqual
+    );
+  },
 );

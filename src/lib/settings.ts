@@ -29,6 +29,8 @@ type StoredLlmV1 = Omit<LlmSettings, "apiKey"> & { apiKey?: string; version?: nu
 type StoredPayload = LlmStoreV2 & {
   apiKey?: string;
   apiKeys?: Partial<Record<ProviderId, string>>;
+  /** One-time migration: copy any OS keychain keys into the local mirror. */
+  apiKeysMigratedFromKeychain?: boolean;
 };
 
 type RawStored = StoredLlmV1 & Partial<StoredPayload>;
@@ -37,6 +39,7 @@ type KeychainGet = (provider: ProviderId) => Promise<string>;
 type KeychainSet = (provider: ProviderId, key: string) => Promise<void>;
 
 let store: LazyStore | null = null;
+let migrationPromise: Promise<void> | null = null;
 
 /** In-memory store + injectable keychain for unit tests (mirrors chat-sessions.ts). */
 let memoryStore: { value: StoredPayload | null } | null = null;
@@ -53,6 +56,7 @@ export function __resetSettingsStoreForTests(opts?: {
 }): void {
   memoryStore = { value: opts?.store ?? null };
   store = null;
+  migrationPromise = null;
   keychainGet = opts?.keychain?.get ?? getApiKey;
   keychainSet = opts?.keychain?.set ?? setApiKey;
 }
@@ -267,6 +271,9 @@ async function writeStoreV2(
   }
 
   const payload: StoredPayload = { ...normalizeStore(storeData) };
+  if (prior?.apiKeysMigratedFromKeychain) {
+    payload.apiKeysMigratedFromKeychain = true;
+  }
   const entries = Object.entries(fallbackKeys).filter(([, v]) => v?.trim());
   if (entries.length > 0) {
     payload.apiKeys = Object.fromEntries(entries) as Partial<Record<ProviderId, string>>;
@@ -276,42 +283,72 @@ async function writeStoreV2(
   await s.save();
 }
 
-/** Write to keychain and verify read-back. Returns true when keychain holds the key. */
 async function persistApiKey(provider: ProviderId, apiKey: string): Promise<boolean> {
   try {
     await keychainSet(provider, apiKey);
-    const verified = await keychainGet(provider);
-    return verified === apiKey;
+    return true;
   } catch {
     return false;
   }
 }
 
-async function backfillFallbackKey(provider: ProviderId, apiKey: string): Promise<void> {
-  if (!(await getFallbackKey(provider)).trim()) {
-    const storeData = await readStoreV2();
-    await writeStoreV2(storeData, { provider, apiKey });
+/** Copy keychain keys into settings.json once so routine reads never touch Keychain. */
+async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
+  const s = await getStore();
+  const raw = await s.get<RawStored>(SETTINGS_KEY);
+  if (raw?.apiKeysMigratedFromKeychain) return;
+
+  const storeData = isLlmStoreV2(raw) ? normalizeStore(raw) : migrateV1ToV2(raw);
+  const fallbackKeys: Partial<Record<ProviderId, string>> = { ...(raw?.apiKeys ?? {}) };
+
+  if (raw?.apiKey?.trim()) {
+    const legacyProvider = isLlmStoreV2(raw) ? raw.activeProvider : storeData.activeProvider;
+    if (!fallbackKeys[legacyProvider]?.trim()) {
+      fallbackKeys[legacyProvider] = raw.apiKey.trim();
+      await persistApiKey(legacyProvider, raw.apiKey.trim());
+    }
+  }
+
+  let keychainBlocked = false;
+  for (const provider of ALL_PROVIDER_IDS) {
+    if (provider === "ollama" || fallbackKeys[provider]?.trim()) continue;
+    try {
+      const fromKeychain = await keychainGet(provider);
+      if (fromKeychain.trim()) fallbackKeys[provider] = fromKeychain.trim();
+    } catch {
+      keychainBlocked = true;
+    }
+  }
+
+  const payload: StoredPayload = { ...normalizeStore(storeData) };
+  const entries = Object.entries(fallbackKeys).filter(([, v]) => v?.trim());
+  if (entries.length > 0) {
+    payload.apiKeys = Object.fromEntries(entries) as Partial<Record<ProviderId, string>>;
+  }
+  if (!keychainBlocked) {
+    payload.apiKeysMigratedFromKeychain = true;
+  }
+
+  await s.set(SETTINGS_KEY, payload);
+  await s.save();
+
+  if (keychainBlocked) {
+    migrationPromise = null;
   }
 }
 
-/**
- * Load API key for a provider. Prefer the local settings.json mirror to avoid macOS
- * Keychain access prompts on every agent/settings read; fall back to Keychain when empty.
- */
-async function loadApiKey(provider: ProviderId, jsonFallback?: string): Promise<string> {
-  const fallback = (jsonFallback ?? (await getFallbackKey(provider))).trim();
-  if (fallback) return fallback;
+function ensureApiKeysMigrated(): Promise<void> {
+  if (!migrationPromise) migrationPromise = migrateKeychainApiKeysIfNeeded();
+  return migrationPromise;
+}
 
-  try {
-    const fromKeychain = await keychainGet(provider);
-    if (fromKeychain.trim()) {
-      await backfillFallbackKey(provider, fromKeychain);
-      return fromKeychain;
-    }
-  } catch {
-    // ignore — treat as missing key
-  }
-  return "";
+/**
+ * Load API key for a provider from the local settings.json mirror only.
+ * Keychain is consulted once during {@link ensureApiKeysMigrated}, not on every read.
+ */
+async function loadApiKey(provider: ProviderId): Promise<string> {
+  await ensureApiKeysMigrated();
+  return (await getFallbackKey(provider)).trim();
 }
 
 /** The plaintext fallback key stored in settings.json for a provider (keychain-less machines). */
@@ -328,7 +365,7 @@ async function getFallbackKey(provider: ProviderId): Promise<string> {
   return "";
 }
 
-async function readStoreV2(): Promise<LlmStoreV2> {
+async function readStoreV2Raw(): Promise<LlmStoreV2> {
   const s = await getStore();
   const raw = await s.get<RawStored>(SETTINGS_KEY);
 
@@ -350,9 +387,15 @@ async function readStoreV2(): Promise<LlmStoreV2> {
   return migrated;
 }
 
+async function readStoreV2(): Promise<LlmStoreV2> {
+  await ensureApiKeysMigrated();
+  return readStoreV2Raw();
+}
+
 async function hasStoredApiKey(provider: ProviderId): Promise<boolean> {
   if (provider === "ollama") return true;
-  return (await loadApiKey(provider, await getFallbackKey(provider))).trim().length > 0;
+  await ensureApiKeysMigrated();
+  return (await getFallbackKey(provider)).trim().length > 0;
 }
 
 function metaFromProfile(
@@ -398,7 +441,7 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
   const storeData = await readStoreV2();
   const provider = storeData.activeProvider;
   const profile = getProfileFromStore(storeData, provider);
-  const apiKey = await loadApiKey(provider, await getFallbackKey(provider));
+  const apiKey = await loadApiKey(provider);
   const visionModel =
     profile.visionModel?.trim() ||
     (provider !== "custom"
@@ -410,12 +453,12 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
 export async function loadProviderSettings(provider: ProviderId): Promise<LlmSettings> {
   const storeData = await readStoreV2();
   const profile = getProfileFromStore(storeData, provider);
-  const apiKey = await loadApiKey(provider, await getFallbackKey(provider));
+  const apiKey = await loadApiKey(provider);
   return profileToSettings(provider, profile, apiKey);
 }
 
 export async function loadApiKeyForProvider(provider: ProviderId): Promise<string> {
-  return loadApiKey(provider, await getFallbackKey(provider));
+  return loadApiKey(provider);
 }
 
 /** Active provider + profile — used by Agent and connection status. */
@@ -444,9 +487,9 @@ export async function saveProviderProfile(
     await persistApiKey(provider, resolvedKey);
     await writeStoreV2(storeData, { provider, apiKey: resolvedKey });
   } else if (resolvedKey === undefined) {
-    // No key change requested — preserve existing keychain/fallback state.
+    // No key change requested — preserve existing local mirror.
     await writeStoreV2(storeData);
-    resolvedKey = await loadApiKey(provider, await getFallbackKey(provider));
+    resolvedKey = await loadApiKey(provider);
   } else {
     // Explicit clear of the key.
     try {
@@ -484,14 +527,17 @@ export async function saveSettings(
   visionModel?: string,
 ): Promise<void> {
   const profile = settingsToProfile(migrateLlmSettings(settings), visionModel);
-  const priorKey = await loadApiKey(settings.provider, await getFallbackKey(settings.provider));
-  let apiKey: string | undefined = settings.apiKey;
-  if (!apiKey.trim() && priorKey.trim()) {
-    apiKey = priorKey;
+  const storedKey = await loadApiKey(settings.provider);
+  const draftKey = settings.apiKey.trim();
+
+  let keyArg: string | undefined;
+  if (!draftKey) {
+    keyArg = storedKey ? "" : undefined;
+  } else if (draftKey !== storedKey) {
+    keyArg = draftKey;
+  } else {
+    keyArg = undefined;
   }
-  await saveProviderProfile(
-    settings.provider,
-    profile,
-    settings.apiKey.trim() ? apiKey : undefined,
-  );
+
+  await saveProviderProfile(settings.provider, profile, keyArg);
 }

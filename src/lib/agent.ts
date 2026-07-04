@@ -12,6 +12,7 @@ import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { indexPageText } from "./vision-index";
+import { yieldToUi } from "./yield-to-ui";
 
 /** Default cap per read_pdf_range call — keeps tool results out of context blowups. */
 export const DEFAULT_RANGE_MAX_CHARS = 12_000;
@@ -77,12 +78,24 @@ async function readPageText(path: string, page: number) {
 const BUDGET_NOTE =
   "Cumulative read budget for this turn reached; synthesize your answer from the pages already read instead of reading more.";
 
+/** Wrap tool execution so WebKit can paint streaming UI between agent steps. */
+function bindToolExecute<T, R>(fn: (input: T) => Promise<R>): (input: T) => Promise<R> {
+  return async (input) => {
+    await yieldToUi();
+    try {
+      return await fn(input);
+    } finally {
+      await yieldToUi();
+    }
+  };
+}
+
 function createDocumentTools(budget: ReadBudget) {
   return {
     list_documents: tool({
       description: "List all documents currently loaded in the session",
       inputSchema: z.object({}),
-      execute: async () =>
+      execute: bindToolExecute(async () =>
         docCache.list().map((d) => ({
           path: d.path,
           name: d.name,
@@ -90,6 +103,7 @@ function createDocumentTools(budget: ReadBudget) {
           totalPages: d.totalPages,
           totalChars: d.pages.reduce((sum, p) => sum + p.text.length, 0),
         })),
+      ),
     }),
 
     get_document_index: tool({
@@ -99,7 +113,7 @@ function createDocumentTools(budget: ReadBudget) {
       inputSchema: z.object({
         path: z.string().describe("Path of a loaded document (from list_documents)"),
       }),
-      execute: async ({ path }) => {
+      execute: bindToolExecute(async ({ path }) => {
         const doc = requireLoadedDoc(path);
         const pages = docCache.getPages(path);
         const pageStats = pages.map((p) => ({
@@ -115,7 +129,7 @@ function createDocumentTools(budget: ReadBudget) {
           needsChunking: totalChars > DEFAULT_RANGE_MAX_CHARS,
           pages: pageStats,
         };
-      },
+      }),
     }),
 
     read_pdf_page: tool({
@@ -140,7 +154,7 @@ function createDocumentTools(budget: ReadBudget) {
           .optional()
           .describe(`Max characters to return (default ${DEFAULT_PAGE_MAX_CHARS})`),
       }),
-      execute: async ({ path, page, offset = 0, maxChars = DEFAULT_PAGE_MAX_CHARS }) => {
+      execute: bindToolExecute(async ({ path, page, offset = 0, maxChars = DEFAULT_PAGE_MAX_CHARS }) => {
         const doc = requireLoadedDoc(path);
         assertPageInBounds(doc, page);
 
@@ -176,7 +190,7 @@ function createDocumentTools(budget: ReadBudget) {
           charCount: slice.length,
           ...(limitedByBudget ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
         };
-      },
+      }),
     }),
 
     read_pdf_range: tool({
@@ -203,7 +217,7 @@ function createDocumentTools(budget: ReadBudget) {
           .optional()
           .describe(`Max characters to return (default ${DEFAULT_RANGE_MAX_CHARS})`),
       }),
-      execute: async ({
+      execute: bindToolExecute(async ({
         path,
         start,
         end,
@@ -284,7 +298,7 @@ function createDocumentTools(budget: ReadBudget) {
           charCount,
           ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
         };
-      },
+      }),
     }),
 
     search_in_document: tool({
@@ -293,10 +307,10 @@ function createDocumentTools(budget: ReadBudget) {
         path: z.string().describe("Path of a loaded document (from list_documents)"),
         query: z.string().min(1),
       }),
-      execute: async ({ path, query }) => {
+      execute: bindToolExecute(async ({ path, query }) => {
         requireLoadedDoc(path);
         return docCache.search(path, query);
-      },
+      }),
     }),
   };
 }

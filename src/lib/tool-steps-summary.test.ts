@@ -159,6 +159,65 @@ describe("segmentMessageParts", () => {
       expect(segments[0].parts).toHaveLength(2);
     }
   });
+
+  it("groups tools separated by reasoning parts", () => {
+    const parts = [
+      {
+        type: "tool-search_in_document",
+        toolCallId: "1",
+        state: "output-available",
+        input: { query: "江南春" },
+      },
+      { type: "reasoning", text: "planning next search" },
+      {
+        type: "tool-search_in_document",
+        toolCallId: "2",
+        state: "output-available",
+        input: { query: "江南春" },
+      },
+      { type: "tool-list_documents", toolCallId: "3", state: "output-available" },
+      {
+        type: "tool-get_document_index",
+        toolCallId: "4",
+        state: "output-available",
+      },
+      { type: "text", text: "answer" },
+    ] as unknown as UIMessage["parts"];
+
+    const segments = segmentMessageParts(parts);
+    expect(segments).toHaveLength(3);
+    expect(segments[0]?.kind).toBe("tools");
+    if (segments[0]?.kind === "tools") {
+      expect(segments[0].parts).toHaveLength(4);
+    }
+    expect(segments[1]?.kind).toBe("part");
+    if (segments[1]?.kind === "part") {
+      expect(segments[1].part.type).toBe("reasoning");
+    }
+    expect(segments[2]?.kind).toBe("part");
+  });
+
+  it("keeps intro text before the tool block", () => {
+    const parts = [
+      { type: "text", text: "让我搜索一下" },
+      {
+        type: "tool-search_in_document",
+        toolCallId: "1",
+        state: "output-available",
+        input: { query: "江南春" },
+      },
+      { type: "text", text: "answer" },
+    ] as unknown as UIMessage["parts"];
+
+    const segments = segmentMessageParts(parts);
+    expect(segments).toHaveLength(3);
+    expect(segments[0]?.kind).toBe("part");
+    if (segments[0]?.kind === "part") {
+      expect(segments[0].part.type).toBe("text");
+    }
+    expect(segments[1]?.kind).toBe("tools");
+    expect(segments[2]?.kind).toBe("part");
+  });
 });
 
 describe("toolStepLabel", () => {
