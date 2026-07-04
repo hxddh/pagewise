@@ -132,11 +132,19 @@ export function AiProviderSettings({
   }, []);
 
   const cacheCurrentPreview = useCallback(() => {
-    profileCacheRef.current.set(
-      previewProvider,
-      resolveDraftSettings(settings, apiKeyTouched, apiKeyDraft),
-    );
-  }, [previewProvider, settings, apiKeyTouched, apiKeyDraft]);
+    const draft = resolveDraftSettings(settings, apiKeyTouched, apiKeyDraft);
+    profileCacheRef.current.set(previewProvider, draft);
+    setProviderProfiles((prev) => ({
+      ...prev,
+      [previewProvider]: {
+        model: draft.model,
+        visionModel,
+        baseURL: draft.baseURL,
+        thinkingEnabled: draft.thinkingEnabled,
+        connectionVerified: draft.connectionVerified,
+      },
+    }));
+  }, [previewProvider, settings, apiKeyTouched, apiKeyDraft, visionModel]);
 
   const applyLoadedSettings = useCallback(
     (next: LlmSettings, nextVisionModel?: string) => {
@@ -219,7 +227,13 @@ export function AiProviderSettings({
 
     const cached = profileCacheRef.current.get(provider);
     if (cached) {
-      applyLoadedSettings(cached);
+      const profile = providerProfiles[provider];
+      const vm =
+        profile?.visionModel?.trim() ||
+        (provider !== "custom"
+          ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
+          : "");
+      applyLoadedSettings(cached, vm);
       setDirty(false);
       setSaveStatus("idle");
       return;
@@ -362,6 +376,7 @@ export function AiProviderSettings({
     onLlmSettingsSaved,
     onTestResult,
     onApiReady,
+    visionModel,
   ]);
 
   const preset =

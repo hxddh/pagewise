@@ -4,6 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-07-04
+
+### Fixed
+
+- Agent: prevent overlapping sends during settings load; rollback view context on send failure; restore composer draft on errors
+- Settings: vision model restores correctly when switching providers; vision-only edits persist via debounced save
+- Settings: explicitly cleared API keys are not re-imported from Keychain on migration retry
+- PDF preview: cancelled renders are no longer cached as valid frames
+- Indexing: clear stale index state on document reopen/reindex; require MIN_INDEX_CHARS before marking done; honor abort before OCR
+- Path restore: prune missing paths from recents (no repeated startup toasts); register `/` parent for root-level files
+- Security: `write_text_file` canonicalizes target path and rejects symlink escapes
+- Streaming markdown: fence-aware paragraph split; tail renders markdown during live stream
+- MessageContent: stronger parts signature and live prop memo; unique tool detail keys
+- Follow agent: sync to the latest read tool page; re-scan when re-enabled
+- docCache: evict oldest documents when cache exceeds 12 entries
+
 ## [0.2.9] - 2026-07-04
 
 ### Fixed
@@ -187,7 +203,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.9...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.10...HEAD
+[0.2.10]: https://github.com/hxddh/pagewise/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/hxddh/pagewise/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/hxddh/pagewise/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/hxddh/pagewise/compare/v0.2.6...v0.2.7

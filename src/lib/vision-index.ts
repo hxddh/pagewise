@@ -85,7 +85,9 @@ async function readImageBytes(path: string): Promise<Uint8Array> {
     /* fall through */
   }
   const url = convertFileSrc(path);
-  const buf = await fetch(url).then((r) => r.arrayBuffer());
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to read image: ${res.status}`);
+  const buf = await res.arrayBuffer();
   return new Uint8Array(buf);
 }
 
@@ -253,7 +255,7 @@ export async function indexPageText(
           { path, page, kind, focus },
           { signal, timeoutMs },
         );
-        if (text.trim().length > 0) {
+        if (text.trim().length >= MIN_INDEX_CHARS) {
           docCache.upsertPageText(path, page, text);
           emitPageIndex({ path, page, status: "done", source: "vision" });
           return { text, source: "vision" };
@@ -276,9 +278,13 @@ export async function indexPageText(
       }
     }
 
+    if (signal?.aborted) {
+      return { text: cached?.text ?? "", source: "ocr" };
+    }
+
     try {
       const text = await localOcrPage(path, page, kind);
-      if (text.trim().length > 0) {
+      if (text.trim().length >= MIN_INDEX_CHARS) {
         docCache.upsertPageText(path, page, text);
         emitPageIndex({ path, page, status: "done", source: "ocr" });
         return { text, source: "ocr" };

@@ -400,6 +400,8 @@ export function usePdfViewer({
   useEffect(() => {
     if (doc.kind !== "pdf" || !canvasRef.current || viewportWidth < 80) return;
 
+    setTextLayerActive(false);
+
     let cancelled = false;
     let cleanupTextLayer: (() => void) | undefined;
     const generation = ++renderGenRef.current;

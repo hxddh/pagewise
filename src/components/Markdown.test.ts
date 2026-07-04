@@ -16,11 +16,11 @@ describe("splitStreamingMarkdown", () => {
     });
   });
 
-  it("uses the last paragraph boundary for long streams", () => {
-    const text = "A\n\nB\n\nC streaming";
+  it("does not split inside fenced code blocks", () => {
+    const text = "```python\nline1\n\nline2\n```\n\nAfter";
     expect(splitStreamingMarkdown(text)).toEqual({
-      stable: "A\n\nB",
-      tail: "C streaming",
+      stable: "```python\nline1\n\nline2\n```",
+      tail: "After",
     });
   });
 });

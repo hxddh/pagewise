@@ -115,9 +115,16 @@ async fn write_text_file(
     }
 
     let resolved = canon_parent.join(file_name);
+    let canon_resolved =
+        std::fs::canonicalize(&resolved).map_err(|e| format!("Invalid path: {e}"))?;
+
+    if !canon_resolved.starts_with(&canon_parent) {
+        return Err("path not authorized".to_string());
+    }
+
     let content = content;
     tauri::async_runtime::spawn_blocking(move || {
-        std::fs::write(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
+        std::fs::write(&canon_resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?

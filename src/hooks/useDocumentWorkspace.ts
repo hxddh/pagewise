@@ -7,7 +7,7 @@ import { useTauriFileDrop } from "./useTauriFileDrop";
 import { useI18n } from "../i18n";
 import { clearPdfCache } from "../lib/pdf";
 import { docCache } from "../lib/doc-cache";
-import { subscribePageIndex, clearDocumentIndexState } from "../lib/index-events";
+import { subscribePageIndex, clearDocumentIndexState, clearPageIndexState } from "../lib/index-events";
 import { isSupportedDocument } from "../lib/load-document";
 import { loadPreferences } from "../lib/preferences";
 import { getLastAgentMessageContext } from "../lib/agent-view-context";
@@ -65,14 +65,14 @@ export function useDocumentWorkspace(
   }, []);
 
   const handleDocumentLoaded = useCallback((doc: LoadedDocument) => {
-    // Cancel indexing for the outgoing document and drop its per-page index
-    // state so the events map doesn't grow unbounded across a session.
     indexAbortRef.current?.abort();
     indexAbortRef.current = null;
     const prevPath = prevDocPathRef.current;
     if (prevPath && prevPath !== doc.path) {
       clearDocumentIndexState(prevPath);
+      docCache.remove(prevPath);
     }
+    clearDocumentIndexState(doc.path);
     prevDocPathRef.current = doc.path;
     clearPdfCache();
     setActiveDoc(doc);
@@ -144,9 +144,12 @@ export function useDocumentWorkspace(
 
       const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
       if (!lastAssistant?.parts) return;
+
+      let syncPage: number | null = null;
+      let syncToolId: string | null = null;
+
       for (const part of lastAssistant.parts) {
         if (!isToolUIPart(part) || part.state !== "output-available") continue;
-        if (part.toolCallId === lastSyncedToolRef.current) continue;
 
         const name = getToolName(part);
         const input = part.input as { page?: number; start?: number } | undefined;
@@ -158,27 +161,35 @@ export function useDocumentWorkspace(
           targetPage = input.start;
         }
 
-        // Non-read tool outputs (search_in_document, get_document_index, …) carry
-        // no page to follow. Skip past them instead of breaking, otherwise one
-        // sitting here would stall syncing to a later read tool output.
         if (targetPage === null) continue;
 
         if (shouldFollowAgentToPage(targetPage, followCtx)) {
-          lastSyncedToolRef.current = part.toolCallId;
-          setPreviewPage((prev) => (prev === targetPage ? prev : targetPage!));
+          syncPage = targetPage;
+          syncToolId = part.toolCallId;
         }
-        break;
+      }
+
+      if (syncPage !== null && syncToolId !== lastSyncedToolRef.current) {
+        lastSyncedToolRef.current = syncToolId;
+        setPreviewPage((prev) => (prev === syncPage ? prev : syncPage!));
       }
     },
     [followAgent],
   );
 
+  useEffect(() => {
+    if (!followAgent) return;
+    lastSyncedToolRef.current = null;
+  }, [followAgent]);
+
   const reindexActiveDoc = useCallback((pages?: number[]) => {
-    // indexSparsePages is a side effect (paid vision/OCR calls). It must run
-    // OUTSIDE any setState updater — StrictMode double-invokes updaters, which
-    // would double-fire the index work.
     const doc = activeDocRef.current;
     if (!doc) return;
+    if (pages?.length) {
+      for (const p of pages) clearPageIndexState(doc.path, p);
+    } else {
+      clearDocumentIndexState(doc.path);
+    }
     indexAbortRef.current?.abort();
     const controller = new AbortController();
     indexAbortRef.current = controller;

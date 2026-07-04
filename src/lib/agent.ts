@@ -172,7 +172,10 @@ function createDocumentTools(budget: ReadBudget) {
         }
 
         const { text, source } = await readPageText(path, page);
-        const from = Math.min(offset, text.length);
+        let from = Math.min(offset, text.length);
+        if (text.length > 0 && offset > text.length) {
+          from = 0;
+        }
         const room = Math.min(maxChars, budget.max - budget.used);
         const slice = text.slice(from, from + room);
         budget.used += slice.length;

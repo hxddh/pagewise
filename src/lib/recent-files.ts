@@ -53,6 +53,17 @@ export async function addRecentFile(entry: Omit<RecentFile, "openedAt">): Promis
   return updated;
 }
 
+export async function removeRecentFiles(paths: string[]): Promise<RecentFile[]> {
+  if (paths.length === 0) return getRecentFiles();
+  const removeSet = new Set(paths);
+  const s = await getStore();
+  const existing = sanitizeRecentFiles(await s.get<unknown>(KEY));
+  const updated = existing.filter((f) => !removeSet.has(f.path));
+  await s.set(KEY, updated);
+  await s.save();
+  return updated;
+}
+
 export async function removeRecentFile(path: string): Promise<RecentFile[]> {
   const s = await getStore();
   const existing = sanitizeRecentFiles(await s.get<unknown>(KEY));

@@ -20,10 +20,14 @@ function partsSignature(parts: UIMessage["parts"] | undefined): string {
   if (!Array.isArray(parts)) return "0:";
   let sig = `${parts.length}:`;
   for (const p of parts) {
-    if (p.type === "text") sig += `t${p.text.length}:${p.text.slice(-24)};`;
-    else if (p.type === "reasoning") sig += `r${p.text.length}:${p.text.slice(-24)};`;
-    else if (isToolUIPart(p)) sig += `${p.type}:${p.state};`;
-    else sig += `${p.type};`;
+    if (p.type === "text") {
+      sig += `t${p.text.length}:${p.text.slice(0, 16)}:${p.text.slice(-24)};`;
+    } else if (p.type === "reasoning") {
+      sig += `r${p.text.length}:${p.text.slice(0, 16)}:${p.text.slice(-24)};`;
+    } else if (isToolUIPart(p)) {
+      const id = (p as { toolCallId?: string }).toolCallId ?? "";
+      sig += `${p.type}:${p.state}:${id};`;
+    } else sig += `${p.type};`;
   }
   return sig;
 }
@@ -78,8 +82,8 @@ function ToolStepsBlock({
           <span className="tool-fold-label">{summary}</span>
         </summary>
         <ul className="tool-steps-list">
-          {details.map(({ label, count }) => (
-            <li key={label}>
+          {details.map(({ label, count }, detailIndex) => (
+            <li key={`${label}-${detailIndex}`}>
               {count > 1 ? t("agent.toolStepRepeat", { label, count }) : label}
             </li>
           ))}
@@ -169,20 +173,9 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
 export const MessageContent = memo(
   MessageContentInner,
   (prev, next) => {
-    const partsEqual =
-      partsSignature(prev.message.parts) === partsSignature(next.message.parts);
-    if (next.live) {
-      return (
-        prev.markdown === next.markdown &&
-        prev.message.id === next.message.id &&
-        partsEqual
-      );
-    }
-    return (
-      prev.markdown === next.markdown &&
-      prev.live === next.live &&
-      prev.message.id === next.message.id &&
-      partsEqual
-    );
+    if (prev.live !== next.live) return false;
+    if (prev.markdown !== next.markdown) return false;
+    if (prev.message.id !== next.message.id) return false;
+    return partsSignature(prev.message.parts) === partsSignature(next.message.parts);
   },
 );

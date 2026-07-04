@@ -13,7 +13,9 @@ const expected = readFileSync(join(root, "VERSION"), "utf8").trim();
 const bundleDir = join(root, "src-tauri/target/release/bundle/macos");
 let appName;
 try {
-  appName = readdirSync(bundleDir).find((name) => name.endsWith(".app"));
+  appName = readdirSync(bundleDir).find(
+    (name) => name === "PageWise.app" || name.endsWith(".app"),
+  );
 } catch {
   console.error(`Bundle directory not found: ${bundleDir}`);
   process.exit(1);

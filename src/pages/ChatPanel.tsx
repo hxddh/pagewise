@@ -128,17 +128,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     }
     if (!activeDoc) return;
     stickToBottomRef.current = true;
-    // Clear optimistically; restore the draft if the send did not go through.
     onComposerDraftChange("");
-    const sent = await sendDocumentMessage({
-      text,
-      path: activeDoc.path,
-      docName: activeDoc.name,
-      viewingPage: previewPage,
-      totalPages: activeDoc.totalPages,
-      includeViewingPage,
-    });
-    if (!sent) {
+    try {
+      const sent = await sendDocumentMessage({
+        text,
+        path: activeDoc.path,
+        docName: activeDoc.name,
+        viewingPage: previewPage,
+        totalPages: activeDoc.totalPages,
+        includeViewingPage,
+      });
+      if (!sent) {
+        onComposerDraftChange(text);
+      }
+    } catch {
       onComposerDraftChange(text);
     }
   }, [

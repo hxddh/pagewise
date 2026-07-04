@@ -49,6 +49,7 @@ interface PaintResult {
   cssWidth: number;
   cssHeight: number;
   cancel: () => void;
+  cancelled?: boolean;
 }
 
 const pageCache = new Map<string, PageRenderSnapshot>();
@@ -405,7 +406,7 @@ async function paintPage(
     await task.promise;
   } catch (e) {
     if ((e as { name?: string })?.name === "RenderingCancelledException") {
-      return { cssWidth, cssHeight, cancel: () => task.cancel() };
+      return { cssWidth, cssHeight, cancel: () => task.cancel(), cancelled: true };
     }
     throw e;
   } finally {
@@ -464,7 +465,7 @@ async function renderAndCache(
   canvas: HTMLCanvasElement,
   intent: RenderIntent,
   isStale: () => boolean,
-): Promise<{ totalPages: number; cacheHit: boolean }> {
+): Promise<RenderResult> {
   const existingKey = findCachedPageKey(path, pageNumber, scaleKey, quality);
   if (existingKey) {
     const cached = getCachedPage(existingKey);
@@ -484,9 +485,9 @@ async function renderAndCache(
   const page = await doc.getPage(pageNumber);
   const paint = await paintPage(page, scale, quality, canvas, intent);
 
-  if (isStale()) {
+  if (paint.cancelled || isStale()) {
     paint.cancel();
-    return { totalPages: doc.numPages, cacheHit: false };
+    return { totalPages: doc.numPages, cacheHit: false, cancelled: true };
   }
 
   const bitmap = await createImageBitmap(canvas);

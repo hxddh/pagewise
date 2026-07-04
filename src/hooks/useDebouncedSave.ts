@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { saveSettings } from "../lib/settings";
-import { settingsSnapshot } from "../lib/redact-settings";
+import { settingsPersistSnapshot } from "../lib/redact-settings";
 import type { LlmSettings } from "../lib/types";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -57,7 +57,7 @@ export function useDebouncedSave({
     if (!loadedRef.current) return null;
 
     const toSave = buildToSave();
-    const snap = settingsSnapshot(toSave);
+    const snap = settingsPersistSnapshot(toSave, visionModelRef.current);
     if (snap === lastSavedRef.current) return toSave;
 
     onStatusRef.current?.("saving");
@@ -83,7 +83,7 @@ export function useDebouncedSave({
 
   useEffect(() => {
     if (!loaded) return;
-    lastSavedRef.current = settingsSnapshot(buildToSave());
+    lastSavedRef.current = settingsPersistSnapshot(buildToSave(), visionModelRef.current);
   }, [loaded, buildToSave]);
 
   useEffect(() => {
@@ -95,6 +95,6 @@ export function useDebouncedSave({
   }, [persist]);
 
   return { persistNow: persist, markSaved: (saved: LlmSettings) => {
-    lastSavedRef.current = settingsSnapshot(saved);
+    lastSavedRef.current = settingsPersistSnapshot(saved, visionModelRef.current);
   } };
 }
