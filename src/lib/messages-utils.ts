@@ -17,7 +17,13 @@ export function normalizeUIMessage(raw: unknown): UIMessage | null {
     }
   }
 
-  return { id: m.id, role, parts: parts as UIMessage["parts"] };
+  const metadata = m.metadata;
+  return {
+    id: m.id,
+    role,
+    parts: parts as UIMessage["parts"],
+    ...(metadata != null && typeof metadata === "object" ? { metadata } : {}),
+  };
 }
 
 export function normalizeUIMessages(raw: unknown): UIMessage[] {
@@ -40,4 +46,33 @@ export function findLastMessage(
     if (m && predicate(m)) return m;
   }
   return undefined;
+}
+
+export function extractUserText(message: UIMessage): string {
+  const parts: string[] = [];
+  for (const part of message.parts) {
+    if (part.type === "text" && part.text?.trim()) parts.push(part.text.trim());
+  }
+  return parts.join("\n");
+}
+
+export function extractAssistantText(message: UIMessage): string {
+  const parts: string[] = [];
+  for (const part of message.parts) {
+    if (part.type === "text" && part.text?.trim()) parts.push(part.text.trim());
+    else if (part.type === "reasoning" && part.text?.trim()) parts.push(part.text.trim());
+  }
+  return parts.join("\n\n").trim();
+}
+
+export function extractToolExcerpts(message: UIMessage, max = 6000): string {
+  const chunks: string[] = [];
+  for (const part of message.parts) {
+    if (part.type.startsWith("tool-") && "output" in part && part.output) {
+      const out =
+        typeof part.output === "string" ? part.output : JSON.stringify(part.output);
+      if (out.trim()) chunks.push(out.trim().slice(0, 1200));
+    }
+  }
+  return chunks.join("\n---\n").slice(0, max);
 }

@@ -26,6 +26,8 @@ export function useAgentWorkspace() {
   const {
     messages,
     sendDocumentMessage,
+    regenerateDocumentMessage,
+    streamProgress,
     status,
     error,
     errorMessage,
@@ -40,10 +42,10 @@ export function useAgentWorkspace() {
   }, [agentOpen]);
 
   const busy = status === "streaming" || status === "submitted";
-  const activity = useMemo(
-    () => getAgentActivity(messages, busy, t),
-    [busy, messages, t],
-  );
+  const activity = useMemo(() => {
+    if (streamProgress?.trim()) return streamProgress;
+    return getAgentActivity(messages, busy, t);
+  }, [streamProgress, busy, messages, t]);
 
   const focusComposer = useCallback(() => {
     chatPanelRef.current?.focusComposer();
@@ -68,6 +70,7 @@ export function useAgentWorkspace() {
       maxWidth,
       messages,
       sendDocumentMessage,
+      regenerateDocumentMessage,
       status,
       error,
       errorMessage,
@@ -94,6 +97,7 @@ export function useAgentWorkspace() {
       maxWidth,
       messages,
       sendDocumentMessage,
+      regenerateDocumentMessage,
       status,
       error,
       errorMessage,

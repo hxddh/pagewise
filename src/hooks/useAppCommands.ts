@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { UIMessage } from "ai";
 import { findLastMessage } from "../lib/messages-utils";
 import { useI18n } from "../i18n";
-import { chatToMarkdown, summaryToMarkdown } from "../lib/export-markdown";
+import { chatToMarkdown } from "../lib/export-markdown";
+import { ExportSummaryError, streamExportSummary } from "../lib/export-summary";
 import { saveMarkdownFile } from "../lib/save-markdown";
 import type { CommandItem } from "../lib/commands";
 import { requestOpenDocSearch } from "../lib/events";
@@ -81,12 +82,19 @@ export function useAppCommands({
       showToast(t("toast.noSummary"), "error");
       return;
     }
-    const md = summaryToMarkdown(messages, activeDocName ?? undefined);
+    showToast(t("toast.exportSummaryProgress"), "default");
     const name = (activeDocName ?? "summary").replace(/\.[^.]+$/, "") + "-summary.md";
     try {
+      const md = await streamExportSummary(messages, {
+        docName: activeDocName ?? undefined,
+      });
       const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
       if (ok) showToast(t("toast.summaryExported"), "success");
-    } catch {
+    } catch (error) {
+      if (error instanceof ExportSummaryError && error.message === "NO_SUMMARY") {
+        showToast(t("toast.noSummary"), "error");
+        return;
+      }
       showToast(t("toast.exportFailed"), "error");
     }
   }, [messages, activeDocName, showToast, t]);

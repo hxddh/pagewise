@@ -163,6 +163,7 @@ function AppShell() {
                     includeViewingPage={document.includeViewingPage}
                     messages={agent.messages}
                     sendDocumentMessage={agent.sendDocumentMessage}
+                    regenerateDocumentMessage={agent.regenerateDocumentMessage}
                     status={agent.status}
                     error={agent.error}
                     errorMessage={agent.errorMessage}

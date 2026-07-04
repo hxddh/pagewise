@@ -1,5 +1,6 @@
 import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
+import { clearSemanticIndex } from "./semantic-index";
 
 type DocCacheListener = (path: string) => void;
 
@@ -53,7 +54,10 @@ class DocCache {
 
   /** Evict a closed document so its pages don't leak across the session. */
   remove(path: string): void {
-    if (this.docs.delete(path)) this.notify(path);
+    if (this.docs.delete(path)) {
+      clearSemanticIndex(path);
+      this.notify(path);
+    }
   }
 
   clear(): void {

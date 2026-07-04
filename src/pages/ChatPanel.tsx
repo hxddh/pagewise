@@ -11,11 +11,13 @@ import type { ChatStatus, UIMessage } from "ai";
 import { MoreHorizontal, PanelRightClose } from "lucide-react";
 import { useI18n } from "../i18n";
 import { AnchoredMenu } from "../components/AnchoredMenu";
+import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
 import { MessageContent } from "../components/MessageContent";
+import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
 
-import type { SendDocumentMessageOptions } from "../hooks/useDocAgent";
+import type { SendDocumentMessageOptions, RegenerateDocumentMessageOptions } from "../hooks/useDocAgent";
 import { findLastMessage } from "../lib/messages-utils";
 
 export interface ChatPanelHandle {
@@ -28,6 +30,7 @@ interface ChatPanelProps {
   includeViewingPage: boolean;
   messages: UIMessage[];
   sendDocumentMessage: (opts: SendDocumentMessageOptions) => Promise<boolean>;
+  regenerateDocumentMessage?: (opts: RegenerateDocumentMessageOptions) => Promise<boolean>;
   status: ChatStatus;
   error: Error | undefined;
   errorMessage?: string;
@@ -56,6 +59,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     includeViewingPage,
     messages,
     sendDocumentMessage,
+    regenerateDocumentMessage,
     status,
     error,
     errorMessage,
@@ -91,6 +95,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const lastAssistant = useMemo(
     () => findLastMessage(messages, (m) => m.role === "assistant"),
+    [messages],
+  );
+  const lastUser = useMemo(
+    () => findLastMessage(messages, (m) => m.role === "user"),
     [messages],
   );
   const hasAnswerText = lastAssistant?.parts.some(
@@ -155,6 +163,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onConfigureApi,
     onComposerDraftChange,
     sendDocumentMessage,
+  ]);
+
+  const handleRegenerate = useCallback(async () => {
+    if (!activeDoc || !regenerateDocumentMessage || busy) return;
+    stickToBottomRef.current = true;
+    await regenerateDocumentMessage({
+      path: activeDoc.path,
+      docName: activeDoc.name,
+      viewingPage: previewPage,
+      totalPages: activeDoc.totalPages,
+      includeViewingPage,
+    });
+  }, [
+    activeDoc,
+    regenerateDocumentMessage,
+    busy,
+    previewPage,
+    includeViewingPage,
   ]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -275,11 +301,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           messages.map((m) => (
             <div key={m.id} className={`message ${m.role}`}>
               {m.role === "assistant" ? (
-                <MessageContent
-                  message={m}
-                  markdown
-                  live={busy && m.id === lastAssistant?.id}
-                />
+                <>
+                  <MessageContent
+                    message={m}
+                    markdown
+                    live={busy && m.id === lastAssistant?.id}
+                  />
+                  <MessageAssistantFooter
+                    message={m as PageWiseUIMessage}
+                    live={busy && m.id === lastAssistant?.id}
+                    canRegenerate={
+                      !busy &&
+                      m.id === lastAssistant?.id &&
+                      !!lastUser &&
+                      !!regenerateDocumentMessage
+                    }
+                    onRegenerate={() => void handleRegenerate()}
+                  />
+                </>
               ) : (
                 <MessageContent message={m} />
               )}

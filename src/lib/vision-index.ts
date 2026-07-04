@@ -13,6 +13,7 @@ import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
 import { loadVisionSettings } from "./settings";
 import type { LoadedDocument } from "./types";
 import type { LlmSettings } from "./types";
+import { addIndexUsage } from "./usage-tracker";
 
 export const MIN_INDEX_CHARS = 20;
 
@@ -159,6 +160,7 @@ export async function visionExtractPage(
         ],
       },
     ],
+    onEnd: ({ usage }) => addIndexUsage(usage),
   });
 
   return { text: text.trim() };
