@@ -135,3 +135,30 @@ export function getLatestAgentActivity(
 
   return null;
 }
+
+/** Activity line while the agent is busy (includes gaps between tool steps). */
+export function getAgentActivity(
+  messages: UIMessage[],
+  busy: boolean,
+  t?: (key: string, vars?: Record<string, string | number>) => string,
+): string | null {
+  if (!busy) return null;
+
+  const inFlight = getLatestAgentActivity(messages, t);
+  if (inFlight) return inFlight;
+
+  const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
+  if (!lastAssistant) return t ? t("agent.thinking") : "Thinking…";
+
+  const hasAnswer = lastAssistant.parts.some(
+    (p) => p.type === "text" && !!p.text?.trim(),
+  );
+  if (hasAnswer) return null;
+
+  const hasTools = lastAssistant.parts.some((p) => isToolUIPart(p));
+  if (hasTools) {
+    return t ? t("agent.activityFollowUp") : "Continuing analysis…";
+  }
+
+  return t ? t("agent.thinking") : "Thinking…";
+}

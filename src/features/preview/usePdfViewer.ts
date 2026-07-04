@@ -18,7 +18,9 @@ import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
 import { isSameZoom, stepZoom, type ZoomMode } from "../../lib/zoom";
 import {
+  isPageVerticallyScrollable,
   normalizeWheelDelta,
+  shouldScrollWithinPage,
   WHEEL_GESTURE,
   wheelFlipReady,
 } from "../../lib/wheel-gesture";
@@ -179,18 +181,12 @@ export function usePdfViewer({
         const fitWidth = zoomRef.current === "fit-width";
         const atTop = node.scrollTop <= 1;
         const atBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 2;
+        const scrollable = isPageVerticallyScrollable(node.scrollHeight, node.clientHeight);
 
-        if (!fitWidth) {
-          if (dy > 0 && !atBottom) {
-            resetAccum();
-            window.clearTimeout(gestureTimer);
-            return;
-          }
-          if (dy < 0 && !atTop) {
-            resetAccum();
-            window.clearTimeout(gestureTimer);
-            return;
-          }
+        if (shouldScrollWithinPage(dy, atTop, atBottom, scrollable)) {
+          resetAccum();
+          window.clearTimeout(gestureTimer);
+          return;
         }
 
         const now = Date.now();
@@ -209,10 +205,7 @@ export function usePdfViewer({
           commitGesture();
         } else {
           gestureTimer = window.setTimeout(commitGesture, WHEEL_GESTURE.endMs);
-        }
-
-        if (fitWidth || (!fitWidth && (atTop || atBottom))) {
-          if (Math.abs(accum) >= threshold * 0.3) e.preventDefault();
+          if (Math.abs(accum) >= threshold * 0.35) e.preventDefault();
         }
       };
 

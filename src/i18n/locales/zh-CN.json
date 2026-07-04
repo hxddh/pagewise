@@ -151,6 +151,7 @@
     "activityOcr": "正在 OCR…",
     "activityList": "正在检查文档…",
     "activityWorking": "处理中…",
+    "activityFollowUp": "继续分析…",
     "toolReadPage": "已读取第 {{page}} 页",
     "toolReadRange": "已读取第 {{start}}–{{end}} 页",
     "toolSearch": "已搜索“{{query}}”",

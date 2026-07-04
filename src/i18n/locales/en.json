@@ -151,6 +151,7 @@
     "activityOcr": "Running OCR…",
     "activityList": "Checking documents…",
     "activityWorking": "Working…",
+    "activityFollowUp": "Continuing analysis…",
     "toolReadPage": "Read page {{page}}",
     "toolReadRange": "Read pages {{start}}–{{end}}",
     "toolSearch": "Searched “{{query}}”",

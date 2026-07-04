@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  isPageVerticallyScrollable,
   normalizeWheelDelta,
+  shouldScrollWithinPage,
   WHEEL_GESTURE,
   wheelFlipReady,
 } from "./wheel-gesture";
@@ -19,8 +21,28 @@ describe("normalizeWheelDelta", () => {
 
 describe("wheelFlipReady", () => {
   it("flips when accumulation crosses threshold", () => {
-    expect(wheelFlipReady(71, WHEEL_GESTURE.thresholdFit)).toBe(false);
-    expect(wheelFlipReady(72, WHEEL_GESTURE.thresholdFit)).toBe(true);
-    expect(wheelFlipReady(-80, WHEEL_GESTURE.thresholdFit)).toBe(true);
+    expect(wheelFlipReady(87, WHEEL_GESTURE.thresholdFit)).toBe(false);
+    expect(wheelFlipReady(88, WHEEL_GESTURE.thresholdFit)).toBe(true);
+    expect(wheelFlipReady(-90, WHEEL_GESTURE.thresholdFit)).toBe(true);
+  });
+});
+
+describe("shouldScrollWithinPage", () => {
+  it("allows in-page scroll when content is taller than viewport", () => {
+    expect(shouldScrollWithinPage(10, false, false, true)).toBe(true);
+    expect(shouldScrollWithinPage(-10, false, false, true)).toBe(true);
+    expect(shouldScrollWithinPage(10, false, true, true)).toBe(false);
+    expect(shouldScrollWithinPage(-10, true, false, true)).toBe(false);
+  });
+
+  it("does not defer when page fits on screen", () => {
+    expect(shouldScrollWithinPage(10, true, true, false)).toBe(false);
+  });
+});
+
+describe("isPageVerticallyScrollable", () => {
+  it("detects overflow with slack", () => {
+    expect(isPageVerticallyScrollable(900, 800)).toBe(true);
+    expect(isPageVerticallyScrollable(801, 800)).toBe(false);
   });
 });

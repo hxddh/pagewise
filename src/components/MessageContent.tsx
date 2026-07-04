@@ -12,6 +12,8 @@ import { Markdown } from "./Markdown";
 interface MessageContentProps {
   message: UIMessage;
   markdown?: boolean;
+  /** True for the in-flight assistant reply — enables live tool progress UI. */
+  live?: boolean;
 }
 
 function partsSignature(parts: UIMessage["parts"] | undefined): string {
@@ -44,14 +46,17 @@ function hasAnswerText(parts: UIMessage["parts"]): boolean {
 function ToolStepsBlock({
   parts,
   t,
+  live = false,
 }: {
   parts: Array<{ part: Parameters<typeof toolStepFromPart>[0]; index: number }>;
   t: (key: string, vars?: Record<string, string | number>) => string;
+  live?: boolean;
 }) {
   const steps = parts.map(({ part }) => toolStepFromPart(part, t));
   const { aggregate, summary, details, anyRunning } = summarizeToolSteps(steps, t);
+  const useFold = aggregate || (live && anyRunning);
 
-  if (!aggregate) {
+  if (!useFold) {
     return (
       <span className="tool-chip">
         <span className="tool-chip-dot" aria-hidden>
@@ -64,7 +69,7 @@ function ToolStepsBlock({
 
   return (
     <div className="tool-fold-wrap">
-      <details className="tool-fold">
+      <details className="tool-fold" open={anyRunning || undefined}>
         <summary className="tool-fold-summary">
           <span
             className={`tool-dot ${anyRunning ? "running" : "done"}`}
@@ -84,7 +89,7 @@ function ToolStepsBlock({
   );
 }
 
-function MessageContentInner({ message, markdown = false }: MessageContentProps) {
+function MessageContentInner({ message, markdown = false, live = false }: MessageContentProps) {
   const { t } = useI18n();
   const parts = messageParts(message);
   const showReasoningAsAnswer = message.role === "assistant" && !hasAnswerText(parts);
@@ -99,6 +104,7 @@ function MessageContentInner({ message, markdown = false }: MessageContentProps)
           key={`tools-${segmentIndex}`}
           parts={segment.parts}
           t={t}
+          live={live}
         />
       );
     }
@@ -106,7 +112,8 @@ function MessageContentInner({ message, markdown = false }: MessageContentProps)
     const { part, index } = segment;
 
     if (part.type === "text") {
-      if (!part.text?.trim()) return null;
+      if (!part.text?.trim() && !live) return null;
+      if (!part.text) return null;
       sawAnswerBody = true;
       return markdown ? (
         <Markdown key={index}>{part.text}</Markdown>
@@ -159,6 +166,7 @@ export const MessageContent = memo(
   MessageContentInner,
   (prev, next) =>
     prev.markdown === next.markdown &&
+    prev.live === next.live &&
     prev.message.id === next.message.id &&
     partsSignature(prev.message.parts) === partsSignature(next.message.parts),
 );

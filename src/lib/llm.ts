@@ -90,6 +90,11 @@ function assertApiKey(settings: LlmSettings, t?: TranslateFn): void {
   }
 }
 
+/** Validate API key before agent send (surfaces error in chat instead of hanging). */
+export function assertApiKeyForAgent(settings: LlmSettings, t?: TranslateFn): void {
+  assertApiKey(settings, t);
+}
+
 /**
  * All PageWise providers speak the OpenAI Chat Completions API.
  * createOpenAI()(id) targets the Responses API (/responses) — wrong for DeepSeek etc.

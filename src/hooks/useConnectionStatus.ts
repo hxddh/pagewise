@@ -7,7 +7,7 @@ import { PROVIDER_PRESETS, type LlmSettings } from "../lib/types";
 export function isApiKeyConfigured(settings: LlmSettings | LlmSettingsMeta): boolean {
   if (settings.provider === "ollama") return true;
   if ("hasStoredKey" in settings) return settings.hasStoredKey;
-  return settings.apiKey.trim().length > 0 || settings.connectionVerified === true;
+  return settings.apiKey.trim().length > 0;
 }
 
 export function useConnectionStatus() {

@@ -1,5 +1,5 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
-import { getApiKey, setApiKey } from "./api-key-store";
+import { getApiKey, setApiKey, deleteApiKey } from "./api-key-store";
 import {
   ALL_PROVIDER_IDS,
   DEFAULT_SETTINGS,
@@ -17,13 +17,13 @@ import { isToolModel, isVisionModel } from "./model-capabilities";
 const STORE_PATH = "settings.json";
 const SETTINGS_KEY = "llm";
 
-/** Fields persisted in settings.json — apiKey lives in the OS keychain when available. */
+/** Fields persisted in settings.json — apiKey also mirrored in `apiKeys` for reliable reads. */
 type StoredLlmV1 = Omit<LlmSettings, "apiKey"> & { apiKey?: string; version?: number };
 
 /**
- * On-disk payload. When the OS keychain is unavailable (e.g. Linux without a Secret
- * Service), API keys are kept here as a per-provider plaintext fallback (`apiKeys`) so a
- * saved key survives restarts and unrelated setting saves. `apiKey` is the legacy
+ * On-disk payload. API keys are mirrored in `apiKeys` (per provider) inside the local
+ * Tauri app data directory so keys survive unsigned macOS rebuilds where Keychain access
+ * prompts or fails. The OS keychain is still updated when available. `apiKey` is the legacy
  * single-slot fallback (associated with the active provider), read for backward compat.
  */
 type StoredPayload = LlmStoreV2 & {
@@ -287,14 +287,31 @@ async function persistApiKey(provider: ProviderId, apiKey: string): Promise<bool
   }
 }
 
+async function backfillFallbackKey(provider: ProviderId, apiKey: string): Promise<void> {
+  if (!(await getFallbackKey(provider)).trim()) {
+    const storeData = await readStoreV2();
+    await writeStoreV2(storeData, { provider, apiKey });
+  }
+}
+
+/**
+ * Load API key for a provider. Prefer the local settings.json mirror to avoid macOS
+ * Keychain access prompts on every agent/settings read; fall back to Keychain when empty.
+ */
 async function loadApiKey(provider: ProviderId, jsonFallback?: string): Promise<string> {
+  const fallback = (jsonFallback ?? (await getFallbackKey(provider))).trim();
+  if (fallback) return fallback;
+
   try {
     const fromKeychain = await keychainGet(provider);
-    if (fromKeychain.trim()) return fromKeychain;
+    if (fromKeychain.trim()) {
+      await backfillFallbackKey(provider, fromKeychain);
+      return fromKeychain;
+    }
   } catch {
-    // fall through to json backup
+    // ignore — treat as missing key
   }
-  return jsonFallback?.trim() ?? "";
+  return "";
 }
 
 /** The plaintext fallback key stored in settings.json for a provider (keychain-less machines). */
@@ -322,11 +339,10 @@ async function readStoreV2(): Promise<LlmStoreV2> {
   const migrated = migrateV1ToV2(raw);
   const legacyKey = raw?.apiKey?.trim() ?? "";
   if (legacyKey) {
-    const keychainOk = await persistApiKey(migrated.activeProvider, legacyKey);
-    // If the keychain accepted the key, drop the plaintext copy; otherwise keep it as fallback.
+    await persistApiKey(migrated.activeProvider, legacyKey);
     await writeStoreV2(migrated, {
       provider: migrated.activeProvider,
-      apiKey: keychainOk ? "" : legacyKey,
+      apiKey: legacyKey,
     });
   } else {
     await writeStoreV2(migrated);
@@ -336,11 +352,7 @@ async function readStoreV2(): Promise<LlmStoreV2> {
 
 async function hasStoredApiKey(provider: ProviderId): Promise<boolean> {
   if (provider === "ollama") return true;
-  const fallback = await getFallbackKey(provider);
-  if (fallback.trim()) return true;
-  const storeData = await readStoreV2();
-  const profile = getProfileFromStore(storeData, provider);
-  return profile.connectionVerified === true;
+  return (await loadApiKey(provider, await getFallbackKey(provider))).trim().length > 0;
 }
 
 function metaFromProfile(
@@ -429,15 +441,19 @@ export async function saveProviderProfile(
 
   let resolvedKey = apiKey;
   if (resolvedKey !== undefined && resolvedKey.trim()) {
-    const migrated = await persistApiKey(provider, resolvedKey);
-    // Keychain holds it -> clear any plaintext fallback; otherwise persist the fallback.
-    await writeStoreV2(storeData, { provider, apiKey: migrated ? "" : resolvedKey });
+    await persistApiKey(provider, resolvedKey);
+    await writeStoreV2(storeData, { provider, apiKey: resolvedKey });
   } else if (resolvedKey === undefined) {
     // No key change requested — preserve existing keychain/fallback state.
     await writeStoreV2(storeData);
     resolvedKey = await loadApiKey(provider, await getFallbackKey(provider));
   } else {
     // Explicit clear of the key.
+    try {
+      await deleteApiKey(provider);
+    } catch {
+      /* keychain may be unavailable */
+    }
     await writeStoreV2(storeData, { provider, apiKey: "" });
     resolvedKey = "";
   }

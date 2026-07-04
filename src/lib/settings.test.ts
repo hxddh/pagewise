@@ -215,12 +215,28 @@ describe("store I/O — working keychain", () => {
     __resetSettingsStoreForTests();
   });
 
-  it("does not write plaintext to settings.json when the keychain works", async () => {
+  it("mirrors plaintext to settings.json even when the keychain works", async () => {
     __resetSettingsStoreForTests({ keychain: memoryKeychain() });
     await saveProviderProfile("openai", { model: "gpt-4o-mini" }, "sk-openai");
 
     expect((await loadProviderSettings("openai")).apiKey).toBe("sk-openai");
-    expect(__peekSettingsStoreForTests()?.apiKeys).toBeUndefined();
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBe("sk-openai");
+  });
+
+  it("prefers settings.json mirror over keychain reads", async () => {
+    const keychain = memoryKeychain();
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openai",
+        profiles: { openai: defaultProviderProfile("openai") },
+        apiKeys: { openai: "sk-from-disk" },
+      },
+      keychain,
+    });
+    await keychain.set("openai", "sk-from-keychain");
+
+    expect((await loadProviderSettings("openai")).apiKey).toBe("sk-from-disk");
   });
 
   it("migrates a legacy V1 store and stores the key in the keychain", async () => {
@@ -238,8 +254,7 @@ describe("store I/O — working keychain", () => {
     // V1 -> V2 migration also remaps the model.
     expect(loaded.model).toBe("openai/gpt-4o-mini");
     expect(loaded.apiKey).toBe("sk-legacy");
-    // Keychain accepted it -> no plaintext copy left behind.
-    expect(__peekSettingsStoreForTests()?.apiKey).toBeUndefined();
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBe("sk-legacy");
     expect(await keychain.get("openrouter")).toBe("sk-legacy");
   });
 });
