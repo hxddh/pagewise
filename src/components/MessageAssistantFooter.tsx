@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import { Copy, Gauge, RotateCcw } from "lucide-react";
 import { AnchoredMenu } from "./AnchoredMenu";
 import { useI18n } from "../i18n";
+import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
 import {
   computeGenerationSpeed,
   computeTimeToFirstTokenMs,
@@ -10,7 +11,6 @@ import {
   formatDuration,
   formatGenerationSpeed,
   formatTokenCount,
-  formatUsageSummaryLine,
   getPageWiseMetadata,
   resolveAgentTokenTotals,
   type PageWiseUIMessage,
@@ -27,8 +27,11 @@ interface MessageAssistantFooterProps {
 function extractCopyableText(message: UIMessage): string {
   const parts: string[] = [];
   for (const part of message.parts) {
-    if (part.type === "text" && part.text?.trim()) parts.push(part.text);
-    else if (part.type === "reasoning" && part.text?.trim()) parts.push(part.text);
+    if (part.type === "text" && part.text?.trim()) {
+      parts.push(stripDsmlToolMarkup(part.text));
+    } else if (part.type === "reasoning" && part.text?.trim()) {
+      parts.push(part.text);
+    }
   }
   return parts.join("\n\n").trim();
 }
@@ -112,9 +115,6 @@ function MessageAssistantFooterInner({
   const agentIn = resolveAgentTokenTotals(metadata).input;
   const agentOut = resolveAgentTokenTotals(metadata).output;
   const citations = metadata?.structuredCitations ?? [];
-  const usageSummary = formatUsageSummaryLine(metadata, t);
-  const stepUsage = metadata?.stepUsage ?? [];
-  const showStepBreakdown = stepUsage.length > 1;
 
   return (
     <div className="message-assistant-footer">
@@ -133,11 +133,6 @@ function MessageAssistantFooterInner({
       )}
 
       <div className="message-assistant-toolbar">
-        {usageSummary && (
-          <span className="message-usage-summary" title={t("agent.usageStats")}>
-            {usageSummary}
-          </span>
-        )}
         <div className="message-assistant-actions" role="toolbar" aria-label={t("agent.messageActions")}>
         <button
           type="button"
@@ -173,25 +168,6 @@ function MessageAssistantFooterInner({
         </button>
         </div>
       </div>
-
-      {showStepBreakdown && (
-        <details className="usage-steps-inline">
-          <summary>{t("agent.usageSteps")}</summary>
-          <dl className="usage-steps-list">
-            {stepUsage.map((step) => (
-              <div key={step.step} className="usage-steps-row">
-                <dt>{t("agent.usageStep", { n: step.step + 1 })}</dt>
-                <dd>
-                  {formatTokenCount(step.inputTokens)} / {formatTokenCount(step.outputTokens)}
-                  {step.toolNames && step.toolNames.length > 0
-                    ? ` · ${step.toolNames.join(", ")}`
-                    : ""}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </details>
-      )}
 
       <AnchoredMenu
         open={statsOpen}

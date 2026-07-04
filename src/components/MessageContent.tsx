@@ -45,7 +45,10 @@ function messageParts(message: UIMessage): UIMessage["parts"] {
 }
 
 function hasAnswerText(parts: UIMessage["parts"]): boolean {
-  return parts.some((p) => p.type === "text" && !!p.text?.trim());
+  return parts.some((p) => {
+    if (p.type !== "text" && p.type !== "reasoning") return false;
+    return !!stripDsmlToolMarkup(p.text ?? "").trim();
+  });
 }
 
 function ToolStepsBlock({
@@ -138,13 +141,15 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
       if (!part.text?.trim()) return null;
       if (showReasoningAsAnswer) {
         sawAnswerBody = true;
+        const displayText = stripDsmlToolMarkup(part.text);
+        if (!displayText.trim() && !live) return null;
         return markdown ? (
           <Markdown key={index} live={live}>
-            {part.text}
+            {displayText}
           </Markdown>
         ) : (
           <div key={index} className="message-body">
-            {part.text}
+            {displayText}
           </div>
         );
       }

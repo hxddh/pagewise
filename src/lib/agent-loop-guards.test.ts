@@ -3,6 +3,7 @@ import {
   countToolCalls,
   getBlockedMetaTools,
   isDsmlToolLeak,
+  isDsmlOnlyAssistantText,
   isMetaToolOnlyLoop,
   shouldForceReadTools,
   stripDsmlToolMarkup,
@@ -42,11 +43,17 @@ describe("agent-loop-guards", () => {
     expect(stripDsmlToolMarkup(raw)).toBe("让我先读取整份文档");
   });
 
+  it("strips spaced-pipe DSML markup (DeepSeek tokenization)", () => {
+    const raw =
+      '< | | DSML | | tool_calls> < | | DSML | | invoke name="list_documents">\n</ | | DSML | | invoke></ | | DSML | | tool_calls>';
+    expect(isDsmlToolLeak(raw)).toBe(true);
+    expect(stripDsmlToolMarkup(raw)).toBe("");
+    expect(isDsmlOnlyAssistantText(raw)).toBe(true);
+  });
+
   it("does not truncate legitimate prose mentioning DSML and invoke name=", () => {
-    // Both "DSML" and "invoke name=" appear, but only as independent substrings
-    // in explanatory text — not the real `<|DSML|invoke name=` delimiter.
     const legit =
-      "The DSML format is a leaked markup where a model writes <invoke name=\"foo\"> " +
+      "The DSML format is a leaked markup where a model writes " +
       "instead of using the native tool API. We strip it so users never see it.";
     expect(isDsmlToolLeak(legit)).toBe(false);
     expect(stripDsmlToolMarkup(legit)).toBe(legit);

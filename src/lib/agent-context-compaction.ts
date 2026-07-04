@@ -5,6 +5,7 @@ import { emitAgentProgress } from "./agent-progress";
 import {
   AGENT_TOOL_NAMES,
   getBlockedMetaTools,
+  isDsmlOnlyAssistantText,
   isMetaToolOnlyLoop,
   READ_TOOL_NAMES,
   shouldForceReadTools,
@@ -121,7 +122,9 @@ export function compactAgentMessages(
 export function isPostToolStep(steps: AgentStep[]): boolean {
   const last = steps[steps.length - 1];
   if (!last) return false;
-  return (last.toolCalls?.length ?? 0) > 0 && !last.text?.trim();
+  const text = last.text?.trim();
+  if (text && isDsmlOnlyAssistantText(text)) return true;
+  return (last.toolCalls?.length ?? 0) > 0 && !text;
 }
 
 export function shouldForceSynthesisStep(
@@ -184,6 +187,17 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
   );
 
   const baseModel = resolveModel(settings);
+
+  const lastStep = steps[steps.length - 1];
+  if (lastStep && isDsmlOnlyAssistantText(lastStep.text)) {
+    emitAgentProgress("Tool call leaked as text — synthesizing answer…", "tool");
+    return {
+      model: baseModel,
+      messages: prunedMessages,
+      activeTools: [],
+      toolChoice: "none",
+    };
+  }
 
   if (isMetaToolOnlyLoop(steps)) {
     emitAgentProgress("Stopping repeated scans — synthesizing answer…", "tool");

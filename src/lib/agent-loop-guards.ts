@@ -73,23 +73,26 @@ export function getBlockedMetaTools(steps: AgentStepSnapshot[]): AgentToolName[]
   return blocked;
 }
 
-const DSML_START_RE = /<\s*\|+\s*DSML/i;
 /**
- * The real leaked opening: a `<|DSML|` delimiter directly introducing an
- * `invoke name=` token, e.g. `<|DSML|invoke name="list_documents">`. Requiring
- * this actual adjacency (rather than two independent substrings) avoids cutting
- * legitimate prose that merely mentions "DSML" and "invoke name=" separately.
+ * Pipe-delimited DSML tags — compact `<|DSML|` or spaced `< | | DSML | |`.
+ * Some providers tokenize the delimiter with spaces between pipes.
  */
-const DSML_INVOKE_RE = /<\s*\|+\s*DSML\|*\s*invoke\s+name=/i;
+const DSML_TAG_OPEN = /<(?:\s*\|)+\s*DSML(?:\s*\|)+/i;
+
+/**
+ * Leaked tool-call opening: DSML delimiter directly introducing `invoke name=`.
+ * Requires adjacency so prose that merely mentions "DSML" and "invoke name=" is not stripped.
+ */
+const DSML_INVOKE_RE = /<(?:\s*\|)+\s*DSML(?:\s*\|)+\s*invoke\s+name=/i;
 
 /** DeepSeek / some providers leak tool XML as plain text — hide from chat UI. */
 export function stripDsmlToolMarkup(text: string): string {
   if (!isDsmlToolLeak(text)) return text;
-  const idx = text.search(DSML_START_RE);
+  const idx = text.search(DSML_TAG_OPEN);
   if (idx === -1) {
     return text
-      .replace(/<\s*\|+\s*DSML[\s\S]*$/gi, "")
-      .replace(/<\/\s*\|+\s*DSML[^>]*>/gi, "")
+      .replace(/<(?:\s*\|)+\s*DSML[\s\S]*$/gi, "")
+      .replace(/<\/(?:\s*\|)+\s*DSML[^>]*>/gi, "")
       .trim();
   }
   return text.slice(0, idx).trim();
@@ -97,4 +100,11 @@ export function stripDsmlToolMarkup(text: string): string {
 
 export function isDsmlToolLeak(text: string): boolean {
   return DSML_INVOKE_RE.test(text);
+}
+
+/** True when assistant text is only leaked DSML (no user-visible answer). */
+export function isDsmlOnlyAssistantText(text?: string): boolean {
+  const raw = text?.trim();
+  if (!raw) return false;
+  return isDsmlToolLeak(raw) && !stripDsmlToolMarkup(raw);
 }
