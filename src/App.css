@@ -824,6 +824,13 @@ body {
   line-height: 1.55;
 }
 
+.message-empty-reply {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 .tool-chip {
   display: inline-flex;
   align-items: center;
@@ -1010,6 +1017,19 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+}
+
+.tool-steps-list {
+  margin: 0;
+  padding: 0 10px 8px 24px;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.tool-steps-list li + li {
+  margin-top: 4px;
 }
 
 .tool-debug {

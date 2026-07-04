@@ -1,0 +1,119 @@
+import { describe, expect, it } from "vitest";
+import type { UIMessage } from "ai";
+import {
+  segmentMessageParts,
+  summarizeToolSteps,
+  toolStepLabel,
+  type ToolStepInfo,
+} from "./tool-steps-summary";
+
+const t = (key: string, vars?: Record<string, string | number>) => {
+  const map: Record<string, string> = {
+    "agent.toolSearch": `已搜索“${vars?.query ?? ""}”`,
+    "agent.toolWorking": "已调用工具",
+    "agent.toolReadPage": `已读取第 ${vars?.page} 页`,
+    "agent.toolIndex": "已浏览文档",
+    "agent.toolsSummarySearch": `已搜索 ${vars?.count} 次`,
+    "agent.toolsSummaryRead": `已读取 ${vars?.count} 次`,
+    "agent.toolsSummaryIndex": `已浏览文档 ${vars?.count} 次`,
+    "agent.toolsSummaryOther": `已调用工具 ${vars?.count} 次`,
+    "agent.toolsSummarySep": " · ",
+    "agent.toolsSummarySteps": `已完成 ${vars?.count} 个步骤`,
+  };
+  return map[key] ?? key;
+};
+
+describe("summarizeToolSteps", () => {
+  it("does not aggregate a single step", () => {
+    const steps: ToolStepInfo[] = [
+      {
+        toolName: "search_in_document",
+        bucket: "search",
+        label: "已搜索“foo”",
+        key: "search:foo",
+        running: false,
+      },
+    ];
+    const s = summarizeToolSteps(steps, t);
+    expect(s.aggregate).toBe(false);
+    expect(s.summary).toBe("已搜索“foo”");
+  });
+
+  it("aggregates repeated searches", () => {
+    const mk = (query: string): ToolStepInfo => ({
+      toolName: "search_in_document",
+      bucket: "search",
+      label: `已搜索“${query}”`,
+      key: `search:${query}`,
+      running: false,
+    });
+    const s = summarizeToolSteps(
+      [mk("庞莱臣"), mk("庞增和"), mk("庞叔令"), mk("庞莱臣")],
+      t,
+    );
+    expect(s.aggregate).toBe(true);
+    expect(s.summary).toBe("已搜索 4 次");
+    expect(s.details).toEqual([
+      { label: "已搜索“庞莱臣”", count: 2 },
+      { label: "已搜索“庞增和”", count: 1 },
+      { label: "已搜索“庞叔令”", count: 1 },
+    ]);
+  });
+
+  it("aggregates mixed tool types", () => {
+    const s = summarizeToolSteps(
+      [
+        {
+          toolName: "search_in_document",
+          bucket: "search",
+          label: "已搜索“a”",
+          key: "search:a",
+          running: false,
+        },
+        {
+          toolName: "read_pdf_page",
+          bucket: "read",
+          label: "已读取第 3 页",
+          key: "read:3",
+          running: false,
+        },
+        {
+          toolName: "list_documents",
+          bucket: "other",
+          label: "已调用工具",
+          key: "other:list_documents",
+          running: false,
+        },
+      ],
+      t,
+    );
+    expect(s.summary).toBe("已搜索 1 次 · 已读取 1 次 · 已调用工具 1 次");
+  });
+});
+
+describe("segmentMessageParts", () => {
+  it("groups consecutive tool parts", () => {
+    const parts = [
+      { type: "tool-search_in_document", toolCallId: "1", state: "output-available" },
+      { type: "tool-read_pdf_page", toolCallId: "2", state: "output-available" },
+      { type: "text", text: "answer" },
+    ] as unknown as UIMessage["parts"];
+
+    const segments = segmentMessageParts(parts);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]?.kind).toBe("tools");
+    expect(segments[1]?.kind).toBe("part");
+  });
+});
+
+describe("toolStepLabel", () => {
+  it("builds stable keys for search queries", () => {
+    const { key, bucket } = toolStepLabel(
+      "search_in_document",
+      { query: "测试" },
+      t,
+    );
+    expect(key).toBe("search:测试");
+    expect(bucket).toBe("search");
+  });
+});

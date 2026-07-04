@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-04
+
+### Fixed
+
+- Agent chat: tool-only replies no longer show only「已调用工具」— defer history prune until stream flush; surface reasoning when no text answer
+- Trackpad PDF page turns: flip on threshold instead of waiting for gesture end; faster cooldowns and instant performance rendering during swipe
+
+### Changed
+
+- Agent tool steps aggregated into a collapsible summary (e.g.「已搜索 6 次 · 已调用工具 1 次」) instead of stacking many chips
+- Touchpad flips skip page-turn animation; keyboard navigation keeps it
+- PDF preview checks page cache before async fit-width scale resolution
+
 ## [0.2.4] - 2026-07-04
 
 ### Fixed

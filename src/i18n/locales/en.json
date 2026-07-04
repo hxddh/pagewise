@@ -155,7 +155,16 @@
     "toolReadRange": "Read pages {{start}}–{{end}}",
     "toolSearch": "Searched “{{query}}”",
     "toolIndex": "Scanned the document",
-    "toolWorking": "Used a tool"
+    "toolWorking": "Used a tool",
+    "toolsSummarySearch": "Searched {{count}} time(s)",
+    "toolsSummaryRead": "Read {{count}} time(s)",
+    "toolsSummaryIndex": "Scanned document {{count}} time(s)",
+    "toolsSummaryOther": "Used tools {{count}} time(s)",
+    "toolsSummarySep": " · ",
+    "toolsSummarySteps": "Completed {{count}} step(s)",
+    "toolStepRepeat": "{{label}} (×{{count}})",
+    "reasoningSummary": "Reasoning",
+    "noReply": "The assistant did not return a text reply. Try again or check the model in AI settings."
   },
   "empty": {
     "lead": "Ask questions about your document",

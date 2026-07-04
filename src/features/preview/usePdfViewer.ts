@@ -17,7 +17,11 @@ import { isTauriRuntime } from "../../lib/runtime";
 import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
 import { isSameZoom, stepZoom, type ZoomMode } from "../../lib/zoom";
-import { normalizeWheelDelta, WHEEL_GESTURE } from "../../lib/wheel-gesture";
+import {
+  normalizeWheelDelta,
+  WHEEL_GESTURE,
+  wheelFlipReady,
+} from "../../lib/wheel-gesture";
 
 const ZOOM_KEY = "pagewise.zoom";
 const KEY_PAGE_COOLDOWN_MS = 320;
@@ -198,12 +202,17 @@ export function usePdfViewer({
         accumSign = sign;
         accum += dy;
 
-        window.clearTimeout(gestureTimer);
-        gestureTimer = window.setTimeout(commitGesture, WHEEL_GESTURE.endMs);
-
         const threshold = fitWidth ? WHEEL_GESTURE.thresholdFit : WHEEL_GESTURE.thresholdEdge;
-        if (fitWidth && Math.abs(accum) >= threshold * 0.4) {
+        window.clearTimeout(gestureTimer);
+        if (wheelFlipReady(accum, threshold)) {
           e.preventDefault();
+          commitGesture();
+        } else {
+          gestureTimer = window.setTimeout(commitGesture, WHEEL_GESTURE.endMs);
+        }
+
+        if (fitWidth || (!fitWidth && (atTop || atBottom))) {
+          if (Math.abs(accum) >= threshold * 0.3) e.preventDefault();
         }
       };
 
@@ -219,6 +228,15 @@ export function usePdfViewer({
 
   useEffect(() => () => wrapCleanupRef.current?.(), []);
 
+  const extendNavBurst = useCallback(() => {
+    setNavBurst(true);
+    window.clearTimeout(navIdleTimerRef.current);
+    navIdleTimerRef.current = window.setTimeout(() => {
+      setNavBurst(false);
+      navBurstCountRef.current = 0;
+    }, NAV_IDLE_MS);
+  }, []);
+
   const noteNavigation = useCallback(() => {
     const now = Date.now();
     if (now - lastNavAtRef.current < NAV_BURST_MS) {
@@ -227,14 +245,8 @@ export function usePdfViewer({
       navBurstCountRef.current = 1;
     }
     lastNavAtRef.current = now;
-    if (navBurstCountRef.current >= 2) setNavBurst(true);
-
-    window.clearTimeout(navIdleTimerRef.current);
-    navIdleTimerRef.current = window.setTimeout(() => {
-      setNavBurst(false);
-      navBurstCountRef.current = 0;
-    }, NAV_IDLE_MS);
-  }, []);
+    if (navBurstCountRef.current >= 2) extendNavBurst();
+  }, [extendNavBurst]);
 
   const goToPage = useCallback(
     (next: number) => {
@@ -260,6 +272,15 @@ export function usePdfViewer({
     if (el) el.scrollTop = 0;
   }, [goToPage]);
 
+  const flipInstant = useCallback(
+    (direction: -1 | 1) => {
+      extendNavBurst();
+      if (direction < 0) prevPage();
+      else nextPage();
+    },
+    [prevPage, nextPage, extendNavBurst],
+  );
+
   const flipWithAnim = useCallback(
     (direction: -1 | 1) => {
       setPageTurnAnim(direction > 0 ? "next" : "prev");
@@ -271,13 +292,13 @@ export function usePdfViewer({
 
   useEffect(() => {
     if (!pageTurnAnim) return;
-    const id = window.setTimeout(() => setPageTurnAnim(null), 280);
+    const id = window.setTimeout(() => setPageTurnAnim(null), 240);
     return () => window.clearTimeout(id);
   }, [page, pageTurnAnim]);
 
   useEffect(() => {
-    flipRef.current = flipWithAnim;
-  }, [flipWithAnim]);
+    flipRef.current = flipInstant;
+  }, [flipInstant]);
 
   const focusPreview = useCallback(() => {
     wrapNodeRef.current?.focus({ preventScroll: true });
@@ -307,9 +328,7 @@ export function usePdfViewer({
       const now = Date.now();
       if (now < keyPageLockUntilRef.current) return;
       keyPageLockUntilRef.current = now + KEY_PAGE_COOLDOWN_MS;
-
-      if (direction < 0) prevPage();
-      else nextPage();
+      flipWithAnim(direction);
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -339,7 +358,7 @@ export function usePdfViewer({
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [prevPage, nextPage]);
+  }, [flipWithAnim]);
 
   const persistZoom = useCallback((z: ZoomMode) => {
     localStorage.setItem(ZOOM_KEY, z === "fit-width" ? "fit-width" : String(z));
@@ -407,6 +426,29 @@ export function usePdfViewer({
       const wantTextLayer =
         !isTauriRuntime() && !navBurst && !raster && currentPageTextLen > 0;
 
+      const scaleKey = buildScaleKey(
+        zoom,
+        viewportWidth,
+        typeof zoom === "number" ? zoom : 1,
+      );
+
+      let cacheHit = false;
+      if (canvasRef.current) {
+        cacheHit = tryApplyCachedPage(
+          docPath,
+          page,
+          scaleKey,
+          quality,
+          canvasRef.current,
+        );
+        if (cacheHit) {
+          clearLoadingTimer();
+          setShowLoading(false);
+          setRenderError(null);
+          setTextLayerActive(false);
+        }
+      }
+
       const scale =
         zoom === "fit-width"
           ? await resolveFitWidthScale(docPath, page, viewportWidth)
@@ -414,27 +456,15 @@ export function usePdfViewer({
 
       if (isStale() || !canvasRef.current) return;
 
-      const scaleKey = buildScaleKey(zoom, viewportWidth, scale);
-      const cacheHit = tryApplyCachedPage(
-        docPath,
-        page,
-        scaleKey,
-        quality,
-        canvasRef.current,
-      );
-
       if (!cacheHit) {
         clearLoadingTimer();
         loadingTimerRef.current = window.setTimeout(() => {
           if (!isStale()) setShowLoading(true);
-        }, LOADING_DELAY_MS);
-      } else {
-        clearLoadingTimer();
-        setShowLoading(false);
+        }, navBurst ? 40 : LOADING_DELAY_MS);
       }
 
       setRenderError(null);
-      setTextLayerActive(false);
+      if (!cacheHit) setTextLayerActive(false);
 
       try {
         if (!cacheHit) {
