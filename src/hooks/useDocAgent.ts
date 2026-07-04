@@ -3,7 +3,7 @@ import { useChat } from "@ai-sdk/react";
 import { DirectChatTransport } from "ai";
 import { beginAgentMessage } from "../lib/agent-view-context";
 import { createDocAgent } from "../lib/agent";
-import { formatAgentError, validateAgentModel } from "../lib/llm";
+import { formatAgentError, validateAgentModel, assertApiKeyForAgent } from "../lib/llm";
 import { loadSettings } from "../lib/settings";
 import {
   pruneToolOutputsForHistory,
@@ -88,6 +88,12 @@ export function useDocAgent() {
       const modelError = validateAgentModel(settings, t);
       if (modelError) {
         setSendError(new Error(modelError));
+        return false;
+      }
+      try {
+        assertApiKeyForAgent(settings, t);
+      } catch (e) {
+        setSendError(e instanceof Error ? e : new Error(String(e)));
         return false;
       }
 

@@ -15,6 +15,7 @@ import { EmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
 
 import type { SendDocumentMessageOptions } from "../hooks/useDocAgent";
+import { findLastMessage } from "../lib/messages-utils";
 
 export interface ChatPanelHandle {
   focusComposer: () => void;
@@ -86,7 +87,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }));
 
   const busy = status === "streaming" || status === "submitted";
-  const waitingForReply = busy && !activity;
+
+  const lastAssistant = useMemo(
+    () => findLastMessage(messages, (m) => m.role === "assistant"),
+    [messages],
+  );
+  const hasAnswerText = lastAssistant?.parts.some(
+    (p) => p.type === "text" && !!p.text?.trim(),
+  );
+  const showProgress = busy && !hasAnswerText;
 
   useEffect(() => {
     const el = composerRef.current;
@@ -227,20 +236,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
       </header>
 
-      {activity && (
-        <div className="agent-activity" aria-live="polite">
-          {activity}
-        </div>
-      )}
-
-      {waitingForReply && (
+      {showProgress && (
         <div className="agent-activity agent-typing" aria-live="polite">
           <span className="typing-dots" aria-hidden>
             <span />
             <span />
             <span />
           </span>
-          {t("agent.thinking")}
+          {activity ?? t("agent.thinking")}
         </div>
       )}
 
@@ -266,7 +269,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           messages.map((m) => (
             <div key={m.id} className={`message ${m.role}`}>
               {m.role === "assistant" ? (
-                <MessageContent message={m} markdown />
+                <MessageContent
+                  message={m}
+                  markdown
+                  live={busy && m.id === lastAssistant?.id}
+                />
               ) : (
                 <MessageContent message={m} />
               )}

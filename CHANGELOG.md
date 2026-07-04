@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-07-04
+
+### Fixed
+
+- Agent chat stuck on「已调用工具」with no output until the end: group tool steps across agent `step-start` boundaries; show live in-progress labels and a persistent progress bar
+- Agent send no longer hangs silently when API key is missing; validate key before dispatch
+- API key re-entry after reinstall or provider switch: always mirror keys to local settings; read local copy first to avoid repeated macOS Keychain prompts
+- Trackpad page turns on tall pages: scroll within the page before flipping at top/bottom edge
+
+### Changed
+
+- Tool progress during streaming: aggregate completed steps and show current action (e.g.「已搜索 2 次 · 正在搜索文档…」)
+- Final answer text streams incrementally once generation starts
+- `connectionVerified` no longer treated as having a stored API key when the key is actually missing
+
 ## [0.2.5] - 2026-07-04
 
 ### Fixed

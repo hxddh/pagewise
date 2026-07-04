@@ -13,6 +13,9 @@ const t = (key: string, vars?: Record<string, string | number>) => {
     "agent.toolWorking": "已调用工具",
     "agent.toolReadPage": `已读取第 ${vars?.page} 页`,
     "agent.toolIndex": "已浏览文档",
+    "agent.activitySearch": "正在搜索文档…",
+    "agent.activityReadRange": "正在阅读页面…",
+    "agent.activityWorking": "处理中…",
     "agent.toolsSummarySearch": `已搜索 ${vars?.count} 次`,
     "agent.toolsSummaryRead": `已读取 ${vars?.count} 次`,
     "agent.toolsSummaryIndex": `已浏览文档 ${vars?.count} 次`,
@@ -89,6 +92,31 @@ describe("summarizeToolSteps", () => {
     );
     expect(s.summary).toBe("已搜索 1 次 · 已读取 1 次 · 已调用工具 1 次");
   });
+
+  it("shows live progress while a tool is running", () => {
+    const s = summarizeToolSteps(
+      [
+        {
+          toolName: "search_in_document",
+          bucket: "search",
+          label: "已搜索“南京博物院”",
+          key: "search:南京博物院",
+          running: false,
+        },
+        {
+          toolName: "read_pdf_page",
+          bucket: "read",
+          label: "正在阅读页面…",
+          key: "read_pdf_page:tc2",
+          running: true,
+        },
+      ],
+      t,
+    );
+    expect(s.aggregate).toBe(true);
+    expect(s.summary).toBe("已搜索 1 次 · 正在阅读页面…");
+    expect(s.anyRunning).toBe(true);
+  });
 });
 
 describe("segmentMessageParts", () => {
@@ -103,6 +131,33 @@ describe("segmentMessageParts", () => {
     expect(segments).toHaveLength(2);
     expect(segments[0]?.kind).toBe("tools");
     expect(segments[1]?.kind).toBe("part");
+  });
+
+  it("groups tools across step-start boundaries", () => {
+    const parts = [
+      { type: "step-start" },
+      {
+        type: "tool-search_in_document",
+        toolCallId: "1",
+        state: "output-available",
+        input: { query: "南京博物院" },
+      },
+      { type: "step-start" },
+      {
+        type: "tool-search_in_document",
+        toolCallId: "2",
+        state: "output-available",
+        input: { query: "南京博物院" },
+      },
+      { type: "text", text: "answer" },
+    ] as unknown as UIMessage["parts"];
+
+    const segments = segmentMessageParts(parts);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]?.kind).toBe("tools");
+    if (segments[0]?.kind === "tools") {
+      expect(segments[0].parts).toHaveLength(2);
+    }
   });
 });
 

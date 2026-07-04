@@ -21,8 +21,8 @@ export function normalizeWheelDelta(
 export const WHEEL_GESTURE = {
   /** Fallback wait when swipe stops before threshold (partial gesture). */
   endMs: 80,
-  /** Normalized px to flip in fit-width mode. */
-  thresholdFit: 72,
+  /** Normalized px to flip in fit-width mode (single-screen pages). */
+  thresholdFit: 88,
   /** Normalized px to flip when zoomed at scroll edge. */
   thresholdEdge: 56,
   /** Min ms between wheel-driven flips. */
@@ -34,4 +34,29 @@ export const WHEEL_GESTURE = {
 /** True when accumulated wheel delta is enough to flip immediately. */
 export function wheelFlipReady(accum: number, threshold: number): boolean {
   return Math.abs(accum) >= threshold;
+}
+
+/** True when the page content extends beyond the viewport (needs in-page scroll). */
+export function isPageVerticallyScrollable(
+  scrollHeight: number,
+  clientHeight: number,
+  slack = 2,
+): boolean {
+  return scrollHeight > clientHeight + slack;
+}
+
+/**
+ * True when wheel delta should scroll within the current page instead of
+ * accumulating toward a page flip (at scroll edges, delta flips pages).
+ */
+export function shouldScrollWithinPage(
+  dy: number,
+  atTop: boolean,
+  atBottom: boolean,
+  scrollable: boolean,
+): boolean {
+  if (!scrollable) return false;
+  if (dy > 0 && !atBottom) return true;
+  if (dy < 0 && !atTop) return true;
+  return false;
 }

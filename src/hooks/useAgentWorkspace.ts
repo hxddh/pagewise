@@ -4,7 +4,7 @@ import { useDocAgent } from "./useDocAgent";
 import { useResizeWidth } from "./useResizeWidth";
 import { useConnectionStatus } from "./useConnectionStatus";
 import { useI18n } from "../i18n";
-import { getLatestAgentActivity } from "../lib/citations";
+import { getAgentActivity } from "../lib/citations";
 
 export function useAgentWorkspace() {
   const { t } = useI18n();
@@ -41,7 +41,7 @@ export function useAgentWorkspace() {
 
   const busy = status === "streaming" || status === "submitted";
   const activity = useMemo(
-    () => (busy ? getLatestAgentActivity(messages, t) : null),
+    () => getAgentActivity(messages, busy, t),
     [busy, messages, t],
   );
 
