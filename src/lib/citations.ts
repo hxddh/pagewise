@@ -1,4 +1,5 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
+import { findLastMessage } from "./messages-utils";
 
 export interface PageCitation {
   page: number;
@@ -100,7 +101,7 @@ export function getLatestAgentActivity(
   messages: UIMessage[],
   t?: (key: string, vars?: Record<string, string | number>) => string,
 ): string | null {
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
   if (!lastAssistant) return null;
 
   for (let i = lastAssistant.parts.length - 1; i >= 0; i--) {

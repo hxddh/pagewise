@@ -8,10 +8,9 @@ use std::sync::Mutex;
 
 use pdf::{extract_pdf_text, PdfCache, PdfExtractResult};
 use serde::Serialize;
+use tauri::ipc::Response;
 use tauri::State;
 
-/// Managed state holding the set of authorized absolute (canonicalized) paths.
-/// Every file-touching command must verify the incoming path against this set.
 #[derive(Default)]
 struct AllowedPaths(Mutex<HashSet<PathBuf>>);
 
@@ -25,12 +24,10 @@ impl AllowedPaths {
     }
 }
 
-/// Canonicalize an existing path, mapping errors to a stable message.
 fn canonicalize(path: &str) -> Result<PathBuf, String> {
     std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {e}"))
 }
 
-/// Ensure `path` (which must already exist) is in the allowlist.
 fn ensure_allowed(allowed: &AllowedPaths, path: &str) -> Result<PathBuf, String> {
     let canon = canonicalize(path)?;
     if !allowed.contains(&canon)? {
@@ -39,9 +36,8 @@ fn ensure_allowed(allowed: &AllowedPaths, path: &str) -> Result<PathBuf, String>
     Ok(canon)
 }
 
-/// Register a path as authorized. Canonicalizes then inserts it into the set.
 #[tauri::command]
-fn register_allowed_path(path: String, state: State<AllowedPaths>) -> Result<(), String> {
+async fn register_allowed_path(path: String, state: State<'_, AllowedPaths>) -> Result<(), String> {
     let canon = canonicalize(&path)?;
     let mut set = state
         .0
@@ -52,43 +48,53 @@ fn register_allowed_path(path: String, state: State<AllowedPaths>) -> Result<(),
 }
 
 #[tauri::command]
-fn extract_pdf_text_cmd(
+async fn extract_pdf_text_cmd(
     path: String,
     page: Option<u32>,
-    allowed: State<AllowedPaths>,
-    cache: State<PdfCache>,
+    allowed: State<'_, AllowedPaths>,
+    cache: State<'_, PdfCache>,
 ) -> Result<PdfExtractResult, String> {
     let canon = ensure_allowed(&allowed, &path)?;
-    let canon_str = canon.to_str().ok_or("Invalid path encoding")?;
-    extract_pdf_text(canon_str, page, &cache)
+    let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
+    let cache = cache.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || extract_pdf_text(&canon_str, page, &cache))
+        .await
+        .map_err(|e| format!("Task join failed: {e}"))?
 }
 
 #[tauri::command]
-fn read_file_bytes(path: String, allowed: State<AllowedPaths>) -> Result<Vec<u8>, String> {
+async fn read_file_bytes(path: String, allowed: State<'_, AllowedPaths>) -> Result<Response, String> {
     let canon = ensure_allowed(&allowed, &path)?;
-    std::fs::read(&canon).map_err(|e| format!("Read failed: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::read(&canon).map_err(|e| format!("Read failed: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
+    .map(Response::new)
 }
 
 #[tauri::command]
-fn ocr_image(path: String, allowed: State<AllowedPaths>) -> Result<String, String> {
+async fn ocr_image(path: String, allowed: State<'_, AllowedPaths>) -> Result<String, String> {
     let canon = ensure_allowed(&allowed, &path)?;
-    let canon_str = canon.to_str().ok_or("Invalid path encoding")?;
-    ocr::ocr_image(canon_str)
+    let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
+    tauri::async_runtime::spawn_blocking(move || ocr::ocr_image(&canon_str))
+        .await
+        .map_err(|e| format!("Task join failed: {e}"))?
 }
 
 #[tauri::command]
-fn ocr_bytes(data: Vec<u8>) -> Result<String, String> {
-    ocr::ocr_bytes(data)
+async fn ocr_bytes(data: Vec<u8>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || ocr::ocr_bytes(data))
+        .await
+        .map_err(|e| format!("Task join failed: {e}"))?
 }
 
 #[tauri::command]
-fn write_text_file(
+async fn write_text_file(
     path: String,
     content: String,
-    allowed: State<AllowedPaths>,
+    allowed: State<'_, AllowedPaths>,
 ) -> Result<(), String> {
-    // Save-as picks a new (possibly non-existent) file, so allow either the
-    // file itself or its parent directory to be authorized.
     let target = PathBuf::from(&path);
     let parent = target
         .parent()
@@ -103,7 +109,6 @@ fn write_text_file(
             .0
             .lock()
             .map_err(|_| "allowlist lock poisoned".to_string())?;
-        // Parent dir authorized, OR the fully-resolved file path authorized.
         set.contains(&canon_parent) || set.contains(&canon_parent.join(file_name))
     };
 
@@ -111,30 +116,38 @@ fn write_text_file(
         return Err("path not authorized".to_string());
     }
 
-    // Write to the resolved path (parent is canonical, filename preserved).
     let resolved = canon_parent.join(file_name);
-    std::fs::write(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
+    let content = content;
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct TesseractStatus {
-    /// Whether the `tesseract` binary is installed and runnable.
     installed: bool,
-    /// Whether the `chi_sim` (Simplified Chinese) language pack is available.
     chi_sim: bool,
 }
 
 #[tauri::command]
-fn check_tesseract() -> TesseractStatus {
-    let installed = std::process::Command::new("tesseract")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+async fn check_tesseract() -> TesseractStatus {
+    tauri::async_runtime::spawn_blocking(|| {
+        let installed = std::process::Command::new("tesseract")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
 
-    let chi_sim = installed && ocr::has_chi_sim();
-
-    TesseractStatus { installed, chi_sim }
+        let chi_sim = installed && ocr::has_chi_sim();
+        TesseractStatus { installed, chi_sim }
+    })
+    .await
+    .unwrap_or(TesseractStatus {
+        installed: false,
+        chi_sim: false,
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

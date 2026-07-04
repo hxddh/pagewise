@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { isToolUIPart } from "ai";
+import { findLastMessage } from "./messages-utils";
 
 function messageText(message: UIMessage): string {
   return message.parts
@@ -36,7 +37,7 @@ export function chatToMarkdown(messages: UIMessage[], docName?: string): string 
 }
 
 export function summaryToMarkdown(messages: UIMessage[], docName?: string): string {
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
   const summary = lastAssistant ? messageText(lastAssistant) : "";
 
   const lines: string[] = ["# PageWise Summary", ""];

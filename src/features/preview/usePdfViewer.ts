@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   buildScaleKey,
   clearPdfCache,
@@ -55,7 +55,7 @@ export function usePdfViewer({
   const [showLoading, setShowLoading] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [userQuality, setUserQuality] = useState<PreviewQuality>("crisp");
-  const [showTextLayer, setShowTextLayer] = useState(false);
+  const [textLayerActive, setTextLayerActive] = useState(false);
   const [navBurst, setNavBurst] = useState(false);
   const [pageTurnAnim, setPageTurnAnim] = useState<"next" | "prev" | null>(null);
 
@@ -72,23 +72,25 @@ export function usePdfViewer({
   const renderGenRef = useRef(0);
   const zoomRef = useRef(zoom);
   const flipRef = useRef<(dir: -1 | 1) => void>(() => {});
+  const resizeRafRef = useRef<number | undefined>(undefined);
+  const pendingWidthRef = useRef(0);
 
   zoomRef.current = zoom;
-
   pageRef.current = page;
   totalRef.current = doc.kind === "pdf" ? doc.totalPages : 1;
+
+  const docPath = doc.path;
+  const docTotalPages = doc.kind === "pdf" ? doc.totalPages : 1;
+  const currentPageTextLen = doc.pages[page - 1]?.text.trim().length ?? 0;
 
   useEffect(() => {
     loadPreferences().then((p) => setUserQuality(p.previewQuality));
   }, [prefsRevision]);
 
-  // Per-document reset to fit-width for display. This is a *programmatic* reset
-  // and must NOT be persisted, otherwise it would clobber the user's remembered
-  // zoom (persistence happens only in the explicit user-action callbacks below).
   useEffect(() => {
     setZoom("fit-width");
     clearPdfCache();
-  }, [doc.path]);
+  }, [docPath]);
 
   useEffect(() => {
     clearPdfCache();
@@ -99,6 +101,18 @@ export function usePdfViewer({
     if (typeof initial === "number") lastNumericRef.current = initial;
   }, []);
 
+  const scheduleWidthUpdate = useCallback((width: number) => {
+    pendingWidthRef.current = width;
+    if (resizeRafRef.current !== undefined) return;
+    resizeRafRef.current = requestAnimationFrame(() => {
+      resizeRafRef.current = undefined;
+      setViewportWidth((prev) => {
+        const next = pendingWidthRef.current;
+        return Math.abs(prev - next) >= 32 ? next : prev;
+      });
+    });
+  }, []);
+
   const bindWrap = useCallback(
     (node: HTMLDivElement | null) => {
       wrapCleanupRef.current?.();
@@ -107,12 +121,11 @@ export function usePdfViewer({
 
       if (!node) return;
 
-      const updateWidth = () => setViewportWidth(node.clientWidth);
-      updateWidth();
-      const ro = new ResizeObserver(updateWidth);
+      scheduleWidthUpdate(node.clientWidth);
+      const ro = new ResizeObserver(() => scheduleWidthUpdate(node.clientWidth));
       ro.observe(node);
 
-      if (doc.kind !== "pdf" || doc.totalPages <= 1) {
+      if (doc.kind !== "pdf" || docTotalPages <= 1) {
         wrapCleanupRef.current = () => ro.disconnect();
         return;
       }
@@ -200,7 +213,7 @@ export function usePdfViewer({
         window.clearTimeout(gestureTimer);
       };
     },
-    [doc.kind, doc.path, doc.totalPages],
+    [doc.kind, docPath, docTotalPages, scheduleWidthUpdate],
   );
 
   useEffect(() => () => wrapCleanupRef.current?.(), []);
@@ -276,7 +289,7 @@ export function usePdfViewer({
 
   useEffect(() => {
     focusPreview();
-  }, [doc.path, focusPreview]);
+  }, [docPath, focusPreview]);
 
   useEffect(() => {
     if (!scrollToEndRef.current) return;
@@ -327,9 +340,6 @@ export function usePdfViewer({
     return () => window.removeEventListener("keydown", onKey);
   }, [prevPage, nextPage]);
 
-  // Persist only user-initiated zoom changes. `zoomRef` is kept current every
-  // render, so these callbacks read the live zoom without a stale closure and
-  // without putting side effects inside a setState updater (StrictMode-safe).
   const persistZoom = useCallback((z: ZoomMode) => {
     localStorage.setItem(ZOOM_KEY, z === "fit-width" ? "fit-width" : String(z));
   }, []);
@@ -380,6 +390,7 @@ export function usePdfViewer({
     let cancelled = false;
     let cleanupTextLayer: (() => void) | undefined;
     const generation = ++renderGenRef.current;
+    const isStale = () => cancelled || generation !== renderGenRef.current;
 
     const clearLoadingTimer = () => {
       if (loadingTimerRef.current !== undefined) {
@@ -389,22 +400,21 @@ export function usePdfViewer({
     };
 
     (async () => {
-      const pageText = doc.pages[page - 1]?.text.trim().length ?? 0;
-      const raster = isRasterHeavyPage(pageText);
+      const raster = isRasterHeavyPage(currentPageTextLen);
       const baseQuality = effectiveRenderQuality(userQuality, raster);
       const quality = navBurst ? "performance" : baseQuality;
-      const wantTextLayer = !navBurst && !raster && pageText > 0;
+      const wantTextLayer = !navBurst && !raster && currentPageTextLen > 0;
 
       const scale =
         zoom === "fit-width"
-          ? await resolveFitWidthScale(doc.path, page, viewportWidth)
+          ? await resolveFitWidthScale(docPath, page, viewportWidth)
           : zoom;
 
-      if (cancelled || !canvasRef.current || generation !== renderGenRef.current) return;
+      if (isStale() || !canvasRef.current) return;
 
       const scaleKey = buildScaleKey(zoom, viewportWidth, scale);
       const cacheHit = tryApplyCachedPage(
-        doc.path,
+        docPath,
         page,
         scaleKey,
         quality,
@@ -414,7 +424,7 @@ export function usePdfViewer({
       if (!cacheHit) {
         clearLoadingTimer();
         loadingTimerRef.current = window.setTimeout(() => {
-          if (!cancelled) setShowLoading(true);
+          if (!isStale()) setShowLoading(true);
         }, LOADING_DELAY_MS);
       } else {
         clearLoadingTimer();
@@ -422,73 +432,55 @@ export function usePdfViewer({
       }
 
       setRenderError(null);
-      setShowTextLayer(wantTextLayer && cacheHit);
+      setTextLayerActive(false);
 
       try {
         if (!cacheHit) {
           await renderPageToCanvas(
-            doc.path,
+            docPath,
             page,
             canvasRef.current,
             scale,
             "high",
             quality,
             scaleKey,
+            isStale,
           );
         }
 
-        if (cancelled || generation !== renderGenRef.current) return;
+        if (isStale()) return;
 
         clearLoadingTimer();
         setShowLoading(false);
 
-        if (wantTextLayer && textLayerRef.current) {
-          try {
-            const c = await renderTextLayer(
-              doc.path,
-              page,
-              scale,
-              textLayerRef.current,
-            );
-            // If cleanup ran (or a newer render started) while awaiting, the
-            // resolved text layer must be cancelled/removed immediately —
-            // otherwise it's orphaned and never torn down.
-            if (cancelled || generation !== renderGenRef.current) {
-              c();
-              return;
-            }
-            cleanupTextLayer = c;
-            setShowTextLayer(true);
-          } catch {
-            if (!cancelled) setShowTextLayer(false);
-          }
-        } else {
-          setShowTextLayer(false);
-        }
-
-        if (!cancelled && doc.totalPages > 1) {
-          const prefetch = async (targetPage: number) => {
-            const s =
-              zoom === "fit-width"
-                ? await resolveFitWidthScale(doc.path, targetPage, viewportWidth)
-                : scale;
-            const sk = buildScaleKey(zoom, viewportWidth, s);
-            if (!hasPageCache(doc.path, targetPage, sk, quality)) {
-              prefetchPage(doc.path, targetPage, s, quality, sk);
-            }
-          };
-          if (page > 1) void prefetch(page - 1);
-          if (page < doc.totalPages) void prefetch(page + 1);
+        if (wantTextLayer) {
+          setTextLayerActive(true);
         }
       } catch (e) {
-        if (!cancelled) {
+        if (!isStale()) {
           setRenderError(e instanceof Error ? e.message : "Failed to render page");
         }
       } finally {
-        if (!cancelled) {
+        if (!isStale()) {
           clearLoadingTimer();
           setShowLoading(false);
         }
+      }
+
+      if (!isStale() && docTotalPages > 1) {
+        const prefetchQuality = navBurst ? "performance" : baseQuality;
+        const prefetch = async (targetPage: number) => {
+          const s =
+            zoom === "fit-width"
+              ? await resolveFitWidthScale(docPath, targetPage, viewportWidth)
+              : scale;
+          const sk = buildScaleKey(zoom, viewportWidth, s);
+          if (!hasPageCache(docPath, targetPage, sk, prefetchQuality)) {
+            prefetchPage(docPath, targetPage, s, prefetchQuality, sk);
+          }
+        };
+        if (page > 1) void prefetch(page - 1);
+        if (page < docTotalPages) void prefetch(page + 1);
       }
     })();
 
@@ -497,7 +489,59 @@ export function usePdfViewer({
       clearLoadingTimer();
       cleanupTextLayer?.();
     };
-  }, [doc, page, zoom, refitToken, viewportWidth, userQuality, navBurst]);
+  }, [
+    doc.kind,
+    docPath,
+    docTotalPages,
+    currentPageTextLen,
+    page,
+    zoom,
+    refitToken,
+    viewportWidth,
+    userQuality,
+    navBurst,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!textLayerActive || !textLayerRef.current) return;
+
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+    const generation = renderGenRef.current;
+
+    const run = () => {
+      void (async () => {
+        const scale =
+          zoom === "fit-width"
+            ? await resolveFitWidthScale(docPath, page, viewportWidth)
+            : zoom;
+
+        if (cancelled || generation !== renderGenRef.current || !textLayerRef.current) return;
+
+        try {
+          cleanup = await renderTextLayer(docPath, page, scale, textLayerRef.current);
+        } catch {
+          /* text layer optional */
+        }
+      })();
+    };
+
+    if (typeof requestIdleCallback !== "undefined") {
+      const id = requestIdleCallback(run, { timeout: 200 });
+      return () => {
+        cancelled = true;
+        cancelIdleCallback(id);
+        cleanup?.();
+      };
+    }
+
+    const id = window.setTimeout(run, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+      cleanup?.();
+    };
+  }, [textLayerActive, docPath, page, zoom, viewportWidth]);
 
   return {
     zoom,
@@ -510,7 +554,7 @@ export function usePdfViewer({
     wrapRef: bindWrap,
     showLoading,
     renderError,
-    showTextLayer,
+    textLayerActive,
     pageTurnAnim,
     prevPage,
     nextPage,

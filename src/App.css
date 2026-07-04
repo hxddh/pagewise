@@ -542,6 +542,12 @@ body {
   line-height: 0;
 }
 
+.pdf-text-layer:not(.pdf-text-layer-active) {
+  pointer-events: none;
+  user-select: none;
+  visibility: hidden;
+}
+
 .pdf-text-layer {
   position: absolute;
   inset: 0;
@@ -595,6 +601,16 @@ body {
   position: absolute;
   top: 12px;
   font-size: 11px;
+  color: var(--text-muted);
+}
+
+.panel-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 120px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 

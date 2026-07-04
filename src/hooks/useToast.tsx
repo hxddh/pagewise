@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 export interface Toast {
   id: string;
@@ -30,8 +30,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [dismissToast],
   );
 
+  const value = useMemo(
+    () => ({ toasts, showToast, dismissToast }),
+    [toasts, showToast, dismissToast],
+  );
+
   return (
-    <ToastContext.Provider value={{ toasts, showToast, dismissToast }}>
+    <ToastContext.Provider value={value}>
       {children}
     </ToastContext.Provider>
   );

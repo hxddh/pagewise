@@ -34,6 +34,7 @@ interface UseChatPersistenceOptions {
   messages: UIMessage[];
   setMessages: (messages: UIMessage[]) => void;
   onDocumentSwitch?: (nextPath: string | null) => void;
+  isStreaming?: boolean;
 }
 
 export function useChatPersistence({
@@ -43,6 +44,7 @@ export function useChatPersistence({
   messages,
   setMessages,
   onDocumentSwitch,
+  isStreaming = false,
 }: UseChatPersistenceOptions) {
   const [sessions, setSessions] = useState<StoredChatSession[]>([]);
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -153,12 +155,12 @@ export function useChatPersistence({
   }, [docPath, docLoadSeq, loadKey, refreshSessions]);
 
   useEffect(() => {
-    if (!docPath || !docName || skipSaveRef.current || chatLoading) return;
+    if (!docPath || !docName || skipSaveRef.current || chatLoading || isStreaming) return;
 
     const savePath = docPath;
     const saveName = docName;
     const id = window.setTimeout(() => {
-      if (skipSaveRef.current || chatLoading) return;
+      if (skipSaveRef.current || chatLoading || isStreaming) return;
       if (docPathRef.current !== savePath || !docNameRef.current) return;
       const snapshot = messagesRef.current;
       if (snapshot.length === 0) return;
@@ -180,7 +182,7 @@ export function useChatPersistence({
     }, 600);
 
     return () => window.clearTimeout(id);
-  }, [docPath, docName, activeSessionId, messages, refreshSessions, chatLoading]);
+  }, [docPath, docName, activeSessionId, messages, refreshSessions, chatLoading, isStreaming]);
 
   const queueSessionForLoad = useCallback((path: string, sessionId: string) => {
     pendingSessionRef.current = { path, sessionId };

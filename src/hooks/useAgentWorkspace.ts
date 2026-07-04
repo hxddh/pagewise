@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatPanelHandle } from "../pages/ChatPanel";
 import { useDocAgent } from "./useDocAgent";
 import { useResizeWidth } from "./useResizeWidth";
@@ -40,39 +40,70 @@ export function useAgentWorkspace() {
   }, [agentOpen]);
 
   const busy = status === "streaming" || status === "submitted";
-  const activity = busy ? getLatestAgentActivity(messages, t) : null;
+  const activity = useMemo(
+    () => (busy ? getLatestAgentActivity(messages, t) : null),
+    [busy, messages, t],
+  );
 
   const focusComposer = useCallback(() => {
     chatPanelRef.current?.focusComposer();
   }, []);
 
-  return {
-    chatPanelRef,
-    agentOpen,
-    setAgentOpen,
-    composerDraft,
-    setComposerDraft,
-    canUseAgent,
-    hasApiKey,
-    agentToolsSupported,
-    settingsReady,
-    refreshConnection,
-    chatWidth,
-    onPointerDown,
-    nudgeWidth,
-    minWidth,
-    maxWidth,
-    messages,
-    sendDocumentMessage,
-    status,
-    error,
-    errorMessage,
-    stop,
-    setMessages,
-    clearChat,
-    resetForDocumentSwitch,
-    busy,
-    activity,
-    focusComposer,
-  };
+  return useMemo(
+    () => ({
+      chatPanelRef,
+      agentOpen,
+      setAgentOpen,
+      composerDraft,
+      setComposerDraft,
+      canUseAgent,
+      hasApiKey,
+      agentToolsSupported,
+      settingsReady,
+      refreshConnection,
+      chatWidth,
+      onPointerDown,
+      nudgeWidth,
+      minWidth,
+      maxWidth,
+      messages,
+      sendDocumentMessage,
+      status,
+      error,
+      errorMessage,
+      stop,
+      setMessages,
+      clearChat,
+      resetForDocumentSwitch,
+      busy,
+      activity,
+      focusComposer,
+    }),
+    [
+      agentOpen,
+      composerDraft,
+      canUseAgent,
+      hasApiKey,
+      agentToolsSupported,
+      settingsReady,
+      refreshConnection,
+      chatWidth,
+      onPointerDown,
+      nudgeWidth,
+      minWidth,
+      maxWidth,
+      messages,
+      sendDocumentMessage,
+      status,
+      error,
+      errorMessage,
+      stop,
+      setMessages,
+      clearChat,
+      resetForDocumentSwitch,
+      busy,
+      activity,
+      focusComposer,
+    ],
+  );
 }

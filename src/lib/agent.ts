@@ -1,6 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { ToolLoopAgent, stepCountIs } from "ai";
-import { tool } from "ai";
+import { extractPageText } from "./pdf";
+import { ToolLoopAgent, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import {
   buildViewContextInstructions,
@@ -12,7 +11,7 @@ import { resolveModel } from "./llm";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
-import { indexPageText, MIN_INDEX_CHARS } from "./vision-index";
+import { indexPageText } from "./vision-index";
 
 /** Default cap per read_pdf_range call — keeps tool results out of context blowups. */
 export const DEFAULT_RANGE_MAX_CHARS = 12_000;
@@ -55,17 +54,13 @@ async function readPageText(path: string, page: number) {
   const kind = doc?.kind ?? (path.split(".").pop()?.toLowerCase() === "pdf" ? "pdf" : "image");
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
-  if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
+  if (cached?.text.trim()) {
     return { page, text: cached.text, source: "cache" as const };
   }
 
   if (kind === "pdf") {
-    const result = await invoke<{ pages: { page: number; text: string }[] }>(
-      "extract_pdf_text_cmd",
-      { path, page },
-    );
-    const text = result.pages[0]?.text ?? "";
-    if (text.trim().length >= MIN_INDEX_CHARS) {
+    const text = await extractPageText(path, page);
+    if (text.trim()) {
       docCache.upsertPageText(path, page, text);
       return { page, text, source: "pdf-text" as const };
     }

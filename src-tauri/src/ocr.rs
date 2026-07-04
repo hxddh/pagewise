@@ -1,24 +1,23 @@
-use std::io::{Cursor, Write};
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 use image::{ImageReader, Limits};
 
 const TESSERACT_HINT: &str = "Install Tesseract: brew install tesseract tesseract-lang";
 
-// Decode guardrails to avoid OOM from decompression-bomb / maliciously huge
-// images. Dimensions cover typical scanned pages with wide headroom; the
-// allocation cap bounds total decode memory.
 const MAX_IMAGE_DIM: u32 = 20_000;
-const MAX_DECODE_ALLOC: u64 = 512 * 1024 * 1024; // 512 MiB
+const MAX_DECODE_ALLOC: u64 = 512 * 1024 * 1024;
 
-/// Return the list of tesseract language codes available on this machine.
+static OCR_LANG: OnceLock<String> = OnceLock::new();
+static CHI_SIM: OnceLock<bool> = OnceLock::new();
+
 fn available_langs() -> Vec<String> {
     let output = match Command::new("tesseract").arg("--list-langs").output() {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
     };
 
-    // First line is a header ("List of available languages ...").
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .skip(1)
@@ -27,29 +26,45 @@ fn available_langs() -> Vec<String> {
         .collect()
 }
 
-/// Whether the Simplified Chinese language pack is installed.
 pub fn has_chi_sim() -> bool {
-    available_langs().iter().any(|l| l == "chi_sim")
+    *CHI_SIM.get_or_init(|| available_langs().iter().any(|l| l == "chi_sim"))
 }
 
-/// Choose the OCR language string. Falls back to English only when the
-/// Simplified Chinese pack is missing, so OCR still works rather than failing.
 fn ocr_lang() -> &'static str {
-    if has_chi_sim() {
-        "eng+chi_sim"
-    } else {
-        "eng"
-    }
+    OCR_LANG.get_or_init(|| {
+        if has_chi_sim() {
+            "eng+chi_sim".to_string()
+        } else {
+            "eng".to_string()
+        }
+    })
 }
 
-fn run_tesseract_on_path(path: &str) -> Result<String, String> {
-    let output = Command::new("tesseract")
-        .arg(path)
+fn run_tesseract_stdin(data: &[u8]) -> Result<String, String> {
+    let mut child = Command::new("tesseract")
+        .arg("stdin")
         .arg("stdout")
         .arg("-l")
         .arg(ocr_lang())
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("{TESSERACT_HINT} ({e})"))?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| "Failed to open tesseract stdin".to_string())?;
+        stdin
+            .write_all(data)
+            .map_err(|e| format!("Failed to write tesseract stdin: {e}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Tesseract failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -59,9 +74,8 @@ fn run_tesseract_on_path(path: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// Decode image bytes with size/allocation limits enforced.
 fn decode_limited(data: &[u8]) -> Result<image::DynamicImage, String> {
-    let mut reader = ImageReader::new(Cursor::new(data))
+    let mut reader = ImageReader::new(std::io::Cursor::new(data))
         .with_guessed_format()
         .map_err(|e| format!("Invalid image bytes: {e}"))?;
 
@@ -85,20 +99,21 @@ pub fn ocr_image(path: &str) -> Result<String, String> {
 }
 
 pub fn ocr_bytes(data: Vec<u8>) -> Result<String, String> {
+    // Try stdin pipeline first (no temp file).
+    if let Ok(text) = run_tesseract_stdin(&data) {
+        if !text.is_empty() {
+            return Ok(text);
+        }
+    }
+
+    // Fallback: decode + temp PNG for formats tesseract stdin rejects.
     let img = decode_limited(&data)?;
+    let mut png_bytes: Vec<u8> = Vec::new();
+    img.write_to(
+        &mut std::io::Cursor::new(&mut png_bytes),
+        image::ImageFormat::Png,
+    )
+    .map_err(|e| format!("Failed to encode image: {e}"))?;
 
-    let mut tmp = tempfile::Builder::new()
-        .prefix("pagewise-ocr-")
-        .suffix(".png")
-        .tempfile()
-        .map_err(|e| format!("Failed to create temp file: {e}"))?;
-
-    img.write_to(&mut tmp, image::ImageFormat::Png)
-        .map_err(|e| format!("Failed to write temp image: {e}"))?;
-
-    tmp.flush()
-        .map_err(|e| format!("Failed to flush temp image: {e}"))?;
-
-    let path = tmp.path().to_string_lossy().to_string();
-    run_tesseract_on_path(&path)
+    run_tesseract_stdin(&png_bytes)
 }

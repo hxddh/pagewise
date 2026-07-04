@@ -1,9 +1,8 @@
+import { lazy, Suspense } from "react";
 import { ToastProvider } from "./hooks/useToast";
 import { useAppShell } from "./hooks/useAppShell";
 import { useI18n } from "./i18n";
 import { ShellProvider } from "./contexts/ShellContext";
-import { ChatPanel } from "./pages/ChatPanel";
-import { PreviewPane } from "./features/preview/PreviewPane";
 import { DropOverlay } from "./components/DropOverlay";
 import { SettingsDrawer } from "./components/SettingsDrawer";
 import { ResizeHandle } from "./components/ResizeHandle";
@@ -22,6 +21,21 @@ import "./styles/preview.css";
 import "./styles/settings.css";
 import "./App.css";
 import "./AppV3.css";
+
+const PreviewPane = lazy(() =>
+  import("./features/preview/PreviewPane").then((m) => ({ default: m.PreviewPane })),
+);
+const ChatPanel = lazy(() =>
+  import("./pages/ChatPanel").then((m) => ({ default: m.ChatPanel })),
+);
+
+function PanelFallback() {
+  return (
+    <div className="panel-loading" aria-live="polite">
+      <span className="preview-loading-spinner" aria-hidden />
+    </div>
+  );
+}
 
 function AppShell() {
   const { document, library, agent, shell } = useAppShell();
@@ -117,13 +131,15 @@ function AppShell() {
             />
           ) : (
             <div className={`v3-workspace ${agent.agentOpen ? "" : "agent-hidden"}`}>
-              <PreviewPane
-                doc={document.activeDoc}
-                page={document.previewPage}
-                onPageChange={document.setPreviewPage}
-                prefsRevision={shell.prefsRevision}
-                onOpenAiSettings={() => shell.openSettings("ai")}
-              />
+              <Suspense fallback={<PanelFallback />}>
+                <PreviewPane
+                  doc={document.activeDoc}
+                  page={document.previewPage}
+                  onPageChange={document.setPreviewPage}
+                  prefsRevision={shell.prefsRevision}
+                  onOpenAiSettings={() => shell.openSettings("ai")}
+                />
+              </Suspense>
 
               {agent.agentOpen && (
                 <ResizeHandle
@@ -139,31 +155,33 @@ function AppShell() {
                 style={agent.agentOpen ? { width: agent.chatWidth } : undefined}
                 aria-hidden={!agent.agentOpen}
               >
-                <ChatPanel
-                  ref={agent.chatPanelRef}
-                  activeDoc={document.activeDoc}
-                  previewPage={document.previewPage}
-                  includeViewingPage={document.includeViewingPage}
-                  messages={agent.messages}
-                  sendDocumentMessage={agent.sendDocumentMessage}
-                  status={agent.status}
-                  error={agent.error}
-                  errorMessage={agent.errorMessage}
-                  hasApiKey={agent.hasApiKey}
-                  agentToolsSupported={agent.agentToolsSupported}
-                  settingsReady={agent.settingsReady}
-                  loadingDoc={document.loading}
-                  chatLoading={library.chatLoading}
-                  activity={agent.busy ? agent.activity : null}
-                  composerDraft={agent.composerDraft}
-                  onComposerDraftChange={agent.setComposerDraft}
-                  onConfigureApi={() => shell.openSettings("ai")}
-                  onStop={agent.stop}
-                  onClearChat={shell.requestClearChat}
-                  onExportChat={shell.exportChat}
-                  onExportSummary={shell.exportSummary}
-                  onCollapse={() => shell.toggleAgent()}
-                />
+                <Suspense fallback={<PanelFallback />}>
+                  <ChatPanel
+                    ref={agent.chatPanelRef}
+                    activeDoc={document.activeDoc}
+                    previewPage={document.previewPage}
+                    includeViewingPage={document.includeViewingPage}
+                    messages={agent.messages}
+                    sendDocumentMessage={agent.sendDocumentMessage}
+                    status={agent.status}
+                    error={agent.error}
+                    errorMessage={agent.errorMessage}
+                    hasApiKey={agent.hasApiKey}
+                    agentToolsSupported={agent.agentToolsSupported}
+                    settingsReady={agent.settingsReady}
+                    loadingDoc={document.loading}
+                    chatLoading={library.chatLoading}
+                    activity={agent.busy ? agent.activity : null}
+                    composerDraft={agent.composerDraft}
+                    onComposerDraftChange={agent.setComposerDraft}
+                    onConfigureApi={() => shell.openSettings("ai")}
+                    onStop={agent.stop}
+                    onClearChat={shell.requestClearChat}
+                    onExportChat={shell.exportChat}
+                    onExportSummary={shell.exportSummary}
+                    onCollapse={() => shell.toggleAgent()}
+                  />
+                </Suspense>
               </div>
 
               {!agent.agentOpen && (

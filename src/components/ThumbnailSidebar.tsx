@@ -1,7 +1,10 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { renderThumbnail } from "../lib/pdf";
+
+const THUMB_ROW_HEIGHT = 112;
+const OVERSCAN = 4;
 
 interface ThumbnailSidebarProps {
   path: string;
@@ -12,46 +15,34 @@ interface ThumbnailSidebarProps {
   onPageSelect: (page: number) => void;
 }
 
-function ThumbnailItem({
+const ThumbnailItem = memo(function ThumbnailItem({
   path,
   page,
   active,
   onSelect,
   pageLabel,
+  visible,
 }: {
   path: string;
   page: number;
   active: boolean;
   onSelect: () => void;
   pageLabel: string;
+  visible: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLButtonElement>(null);
-  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     if (!active) return;
     const el = rootRef.current;
-    const container = el?.parentElement;
+    const container = el?.closest(".thumb-list");
     if (!el || !container) return;
-    // Only auto-scroll when the active thumb is actually out of view, so we
-    // don't fight the user's manual scrolling as follow-mode flips pages.
     const elRect = el.getBoundingClientRect();
     const boxRect = container.getBoundingClientRect();
     const outOfView = elRect.top < boxRect.top || elRect.bottom > boxRect.bottom;
     if (outOfView) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [active]);
-
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => setVisible(entry.isIntersecting),
-      { rootMargin: "120px" },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
 
   useEffect(() => {
     if (!visible || !canvasRef.current) return;
@@ -60,7 +51,6 @@ function ThumbnailItem({
       if (!cancelled && canvasRef.current) {
         const ctx = canvasRef.current.getContext("2d");
         if (ctx) {
-          // Resolve the theme token so the error fill matches light/dark.
           const fill =
             getComputedStyle(document.documentElement)
               .getPropertyValue("--bg-hover")
@@ -84,14 +74,15 @@ function ThumbnailItem({
       title={pageLabel}
       aria-label={pageLabel}
       aria-current={active ? "page" : undefined}
+      style={{ height: THUMB_ROW_HEIGHT }}
     >
       <canvas ref={canvasRef} className="thumb-canvas" />
       <span className="thumb-label">{page}</span>
     </button>
   );
-}
+});
 
-export function ThumbnailSidebar({
+export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   path,
   totalPages,
   currentPage,
@@ -100,6 +91,21 @@ export function ThumbnailSidebar({
   onPageSelect,
 }: ThumbnailSidebarProps) {
   const { t } = useI18n();
+  const listRef = useRef<HTMLDivElement>(null);
+  const [range, setRange] = useState({ start: 1, end: Math.min(totalPages, 12) });
+
+  const updateRange = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const start = Math.max(1, Math.floor(el.scrollTop / THUMB_ROW_HEIGHT) + 1 - OVERSCAN);
+    const visibleCount = Math.ceil(el.clientHeight / THUMB_ROW_HEIGHT) + OVERSCAN * 2;
+    const end = Math.min(totalPages, start + visibleCount);
+    setRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  }, [totalPages]);
+
+  useEffect(() => {
+    updateRange();
+  }, [totalPages, updateRange]);
 
   if (collapsed) {
     return (
@@ -115,6 +121,9 @@ export function ThumbnailSidebar({
     );
   }
 
+  const pages: number[] = [];
+  for (let p = range.start; p <= range.end; p++) pages.push(p);
+
   return (
     <aside className="thumb-sidebar" aria-label={t("preview.pages")}>
       <div className="thumb-sidebar-header">
@@ -129,14 +138,14 @@ export function ThumbnailSidebar({
           <ChevronLeft size={14} />
         </button>
       </div>
-      <div className="thumb-list">
-        {/*
-          NOTE: all page buttons are mounted eagerly. Thumbnail rendering itself
-          is deferred via IntersectionObserver (only visible canvases paint), so
-          the cost is DOM nodes rather than PDF work. For very large documents a
-          windowed/virtualized list would further reduce DOM overhead.
-        */}
-        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+      <div
+        className="thumb-list"
+        ref={listRef}
+        onScroll={updateRange}
+        style={{ position: "relative" }}
+      >
+        <div style={{ height: (range.start - 1) * THUMB_ROW_HEIGHT }} aria-hidden />
+        {pages.map((page) => (
           <ThumbnailItem
             key={page}
             path={path}
@@ -144,9 +153,14 @@ export function ThumbnailSidebar({
             active={page === currentPage}
             onSelect={() => onPageSelect(page)}
             pageLabel={t("preview.pageTitle", { page })}
+            visible
           />
         ))}
+        <div
+          style={{ height: Math.max(0, (totalPages - range.end) * THUMB_ROW_HEIGHT) }}
+          aria-hidden
+        />
       </div>
     </aside>
   );
-}
+});

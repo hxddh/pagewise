@@ -4,13 +4,26 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-04
+
 ### Added
+
+- Lazy-loaded preview and chat panels; thumbnail sidebar windowing; pdf.js lazy loader with bundled cMaps
+- Byte-budget PDF page cache; quality-aware cache lookup (fixes navBurst crisp miss); render-task cancellation
+- Asset-protocol PDF byte loading with IPC fallback; `renderPageToJpegBytes` for vision indexing
+- `findLastMessage` helper; unit tests for message search utilities
 
 ### Changed
 
+- PDF text extraction unified on pdf.js (no blocking Rust extract on open; agent tools use frontend extract)
+- Streaming throttle 50→100 ms; skip debounced chat save while streaming; memoized hot-path components
+- Rust commands async via `spawn_blocking`; OCR stdin pipeline with PNG fallback; release profile LTO/strip
+- Vite manual chunks, chrome110 target, drop console in production; `image` crate slimmed features
+
 ### Fixed
 
-### Security
+- Text layer always mounted with visibility toggle; resize observer debounced/quantized
+- Preview render effect deps narrowed; stale render guard; thumbnails routed through render queue
 
 ## [0.2.1] - 2026-07-04
 

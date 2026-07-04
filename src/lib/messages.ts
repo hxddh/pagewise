@@ -1,7 +1,8 @@
 import type { UIMessage } from "ai";
+import { findLastMessage } from "./messages-utils";
 
 export function lastAssistantSnippet(messages: UIMessage[], maxLen = 48): string | null {
-  const last = [...messages].reverse().find((m) => m.role === "assistant");
+  const last = findLastMessage(messages, (m) => m.role === "assistant");
   if (!last) return null;
 
   const text = last.parts
