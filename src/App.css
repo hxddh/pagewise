@@ -2905,6 +2905,14 @@ body {
   height: 4px;
 }
 
+.message-inline-progress {
+  margin: 6px 0 0;
+}
+
+.message-in-progress {
+  padding: 4px 0 8px;
+}
+
 .message-body-plain {
   white-space: pre-wrap;
   word-break: break-word;

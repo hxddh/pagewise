@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AnchorHTMLAttributes, ImgHTMLAttributes } from "react";
+import { useStreamingReveal } from "../hooks/useStreamingReveal";
 
 interface MarkdownProps {
   children: string;
@@ -100,9 +101,10 @@ const ParsedMarkdown = memo(function ParsedMarkdown({ text }: { text: string }) 
 });
 
 function MarkdownInner({ children, live = false }: MarkdownProps) {
+  const revealed = useStreamingReveal(children, live);
   const { stable, tail } = useMemo(
-    () => (live ? splitStreamingMarkdown(children) : { stable: "", tail: children }),
-    [children, live],
+    () => (live ? splitStreamingMarkdown(revealed) : { stable: "", tail: revealed }),
+    [revealed, live],
   );
 
   if (!live) {

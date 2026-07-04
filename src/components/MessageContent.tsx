@@ -17,6 +17,8 @@ interface MessageContentProps {
   live?: boolean;
   /** Brief transition after stream ends while history is compacted. */
   settling?: boolean;
+  /** Inline status while tools run or before answer text arrives. */
+  activity?: string | null;
 }
 
 function partsSignature(parts: UIMessage["parts"] | undefined): string {
@@ -50,6 +52,13 @@ function hasAnswerText(parts: UIMessage["parts"]): boolean {
   return parts.some((p) => {
     if (p.type !== "text" && p.type !== "reasoning") return false;
     return !!stripDsmlToolMarkup(p.text ?? "").trim();
+  });
+}
+
+function hasAnswerStream(parts: UIMessage["parts"], minChars = 8): boolean {
+  return parts.some((p) => {
+    if (p.type !== "text") return false;
+    return (stripDsmlToolMarkup(p.text ?? "").trim().length ?? 0) >= minChars;
   });
 }
 
@@ -106,6 +115,7 @@ function MessageContentInner({
   markdown = false,
   live = false,
   settling = false,
+  activity = null,
 }: MessageContentProps) {
   const { t } = useI18n();
   const parts = messageParts(message);
@@ -183,6 +193,16 @@ function MessageContentInner({
   return (
     <div className={`message-parts${settling ? " message-parts--settling" : ""}`}>
       {body}
+      {live && activity && !hasAnswerStream(parts) && (
+        <p className="agent-generating-line message-inline-progress" aria-live="polite">
+          <span className="typing-dots" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </span>
+          {activity}
+        </p>
+      )}
       {showEmptyReply && (
         <p className="message-empty-reply">{t("agent.noReply")}</p>
       )}
@@ -195,6 +215,7 @@ export const MessageContent = memo(
   (prev, next) => {
     if (prev.live !== next.live) return false;
     if (prev.settling !== next.settling) return false;
+    if (prev.activity !== next.activity) return false;
     if (prev.markdown !== next.markdown) return false;
     if (prev.message.id !== next.message.id) return false;
     return partsSignature(prev.message.parts) === partsSignature(next.message.parts);

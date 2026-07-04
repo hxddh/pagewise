@@ -280,17 +280,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
       </header>
 
-      {showProgress && (
-        <div className="agent-activity agent-typing">
-          <span className="typing-dots" aria-hidden>
-            <span />
-            <span />
-            <span />
-          </span>
-          {activity ?? t("agent.thinking")}
-        </div>
-      )}
-
       <div className="messages" ref={messagesRef} onScroll={onMessagesScroll}>
         {chatLoading && messages.length === 0 ? (
           <div className="chat-loading" aria-live="polite">
@@ -320,6 +309,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       markdown
                       live={busy && m.id === inFlightAssistant?.id}
                       settling={historySettling && m.id === lastAssistant?.id && !busy}
+                      activity={
+                        busy && m.id === inFlightAssistant?.id && showProgress
+                          ? (activity ?? t("agent.thinking"))
+                          : null
+                      }
                     />
                     <MessageAssistantFooter
                       message={m as PageWiseUIMessage}
@@ -338,6 +332,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 )}
               </div>
             ))}
+            {busy && showProgress && !inFlightAssistant && (
+              <div className="message assistant message-in-progress" aria-live="polite">
+                <p className="agent-generating-line message-inline-progress">
+                  <span className="typing-dots" aria-hidden>
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  {activity ?? t("agent.thinking")}
+                </p>
+              </div>
+            )}
           </>
         )}
       </div>
