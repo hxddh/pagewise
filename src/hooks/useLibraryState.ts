@@ -31,6 +31,7 @@ export function useLibraryState({
     deleteSession,
     selectThread,
     queueSessionForLoad,
+    clearQueuedSession,
     clearCurrentThread,
     activeSessionId,
     chatLoading,
@@ -45,14 +46,23 @@ export function useLibraryState({
 
   const openSessionFromLibrary = useCallback(
     async (path: string, sessionId?: string) => {
-      if (sessionId) queueSessionForLoad(sessionId);
+      // Same document already open: switch thread directly. Do NOT queue the
+      // session — the same-doc path never consumes a queued id, so a leftover
+      // would later be applied to a different doc.
       if (activeDoc?.path === path) {
         if (sessionId) await selectThread(sessionId);
         return;
       }
-      await openPath(path);
+      // Different doc: queue the session (bound to this path) for the upcoming
+      // load, but clear it if the open fails.
+      if (sessionId) queueSessionForLoad(path, sessionId);
+      try {
+        await openPath(path);
+      } catch {
+        clearQueuedSession();
+      }
     },
-    [activeDoc?.path, openPath, selectThread, queueSessionForLoad],
+    [activeDoc?.path, openPath, selectThread, queueSessionForLoad, clearQueuedSession],
   );
 
   return {

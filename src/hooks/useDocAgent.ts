@@ -5,7 +5,10 @@ import { beginAgentMessage } from "../lib/agent-view-context";
 import { createDocAgent } from "../lib/agent";
 import { formatAgentError, validateAgentModel } from "../lib/llm";
 import { loadSettings } from "../lib/settings";
-import { pruneToolOutputsForHistory } from "../lib/prune-chat-history";
+import {
+  pruneToolOutputsForHistory,
+  sanitizeDanglingToolParts,
+} from "../lib/prune-chat-history";
 import { useI18n } from "../i18n";
 
 export interface SendDocumentMessageOptions {
@@ -17,20 +20,34 @@ export interface SendDocumentMessageOptions {
   includeViewingPage: boolean;
 }
 
+function createTransport(
+  agent: ReturnType<typeof createDocAgent>,
+  onError: (error: unknown) => string,
+) {
+  return new DirectChatTransport({ agent, onError });
+}
+
 export function useDocAgent() {
   const { t } = useI18n();
-  const agentRef = useRef(createDocAgent());
+
+  // Lazy init: construct the agent/transport exactly once instead of building
+  // (and immediately discarding) a fresh instance on every render.
+  const agentRef = useRef<ReturnType<typeof createDocAgent> | null>(null);
+  if (agentRef.current === null) {
+    agentRef.current = createDocAgent();
+  }
+
   const formatErrorRef = useRef<(error: unknown) => string>((error) =>
     formatAgentError(error),
   );
   formatErrorRef.current = (error) => formatAgentError(error, t);
 
-  const transportRef = useRef(
-    new DirectChatTransport({
-      agent: agentRef.current,
-      onError: (error) => formatErrorRef.current(error),
-    }),
-  );
+  const transportRef = useRef<ReturnType<typeof createTransport> | null>(null);
+  if (transportRef.current === null) {
+    transportRef.current = createTransport(agentRef.current, (error) =>
+      formatErrorRef.current(error),
+    );
+  }
 
   const chat = useChat({
     transport: transportRef.current,
@@ -57,16 +74,23 @@ export function useDocAgent() {
   const [sendError, setSendError] = useState<Error | undefined>();
 
   const sendDocumentMessage = useCallback(
-    async (opts: SendDocumentMessageOptions) => {
+    async (opts: SendDocumentMessageOptions): Promise<boolean> => {
       chat.clearError();
       setSendError(undefined);
-      chat.setMessages((prev) => pruneToolOutputsForHistory(prev) as typeof prev);
+      // Prune bulky prior tool outputs AND drop any dangling tool parts
+      // (e.g. from a Stop mid-stream / reload) before sending, so history stays
+      // well-paired for the model.
+      chat.setMessages(
+        (prev) =>
+          sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)) as typeof prev,
+      );
 
       const settings = await loadSettings();
       const modelError = validateAgentModel(settings, t);
       if (modelError) {
         setSendError(new Error(modelError));
-        return;
+        // No user message was appended — signal the composer to restore the draft.
+        return false;
       }
 
       beginAgentMessage({
@@ -78,6 +102,7 @@ export function useDocAgent() {
         includeViewingPage: opts.includeViewingPage,
       });
       await chat.sendMessage({ text: opts.text });
+      return true;
     },
     [chat.sendMessage, chat.setMessages, chat.clearError, t],
   );

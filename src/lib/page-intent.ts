@@ -12,20 +12,100 @@ export function hasWholeDocumentIntent(text: string): boolean {
   );
 }
 
+const CN_DIGIT: Record<string, number> = {
+  "零": 0,
+  "〇": 0,
+  "一": 1,
+  "二": 2,
+  "两": 2,
+  "三": 3,
+  "四": 4,
+  "五": 5,
+  "六": 6,
+  "七": 7,
+  "八": 8,
+  "九": 9,
+};
+const CN_UNIT: Record<string, number> = { "十": 10, "百": 100, "千": 1000 };
+const CN_CHARS = "零〇一二两三四五六七八九十百千";
+
+/** Convert full-width digits (０-９) to their ASCII equivalents. */
+function normalizeDigits(s: string): string {
+  return s.replace(/[０-９]/g, (d) => String(d.charCodeAt(0) - 0xff10));
+}
+
+/** Parse a Chinese numeral string (e.g. 十二, 二十三, 一百二十三) to an int. */
+function chineseToInt(s: string): number | null {
+  let section = 0;
+  let number = 0;
+  let sawAny = false;
+  for (const ch of s) {
+    if (ch in CN_DIGIT) {
+      number = CN_DIGIT[ch]!;
+      sawAny = true;
+    } else if (ch in CN_UNIT) {
+      const unit = CN_UNIT[ch]!;
+      section += (number === 0 ? 1 : number) * unit;
+      number = 0;
+      sawAny = true;
+    } else {
+      return null;
+    }
+  }
+  return sawAny ? section + number : null;
+}
+
+/** Parse a token that may be ASCII/full-width digits or Chinese numerals. */
+function parseNumToken(tok: string): number | null {
+  const norm = normalizeDigits(tok);
+  if (/^\d+$/.test(norm)) {
+    const n = parseInt(norm, 10);
+    return Number.isFinite(n) ? n : null;
+  }
+  return chineseToInt(tok);
+}
+
+const MAX_RANGE_SPAN = 200;
+
 export function extractExplicitPageNumbers(text: string): number[] {
   const found = new Set<number>();
-  const patterns = [
-    /第\s*(\d{1,4})\s*页/g,
-    /page\s*(\d{1,4})/gi,
+
+  const addNum = (tok: string): void => {
+    const n = parseNumToken(tok);
+    if (n !== null && n > 0) found.add(n);
+  };
+  const addRange = (a: string, b: string): void => {
+    const lo = parseNumToken(a);
+    const hi = parseNumToken(b);
+    if (lo !== null && hi !== null && lo > 0 && hi >= lo && hi - lo <= MAX_RANGE_SPAN) {
+      for (let i = lo; i <= hi; i++) found.add(i);
+      return;
+    }
+    if (lo !== null && lo > 0) found.add(lo);
+    if (hi !== null && hi > 0) found.add(hi);
+  };
+
+  // Regexes are rebuilt per call so the /g lastIndex is never shared across calls.
+  const numTok = `[0-9０-９${CN_CHARS}]+`;
+
+  const rangePatterns = [
+    new RegExp(`第\\s*(${numTok})\\s*(?:到|至|-|~|—|－)\\s*(${numTok})\\s*页`, "g"),
+    /pages?\s*(\d{1,4})\s*(?:-|–|—|~|to)\s*(\d{1,4})/gi,
+  ];
+  for (const re of rangePatterns) {
+    for (const match of text.matchAll(re)) addRange(match[1]!, match[2]!);
+  }
+
+  const singlePatterns = [
+    new RegExp(`第\\s*(${numTok})\\s*页`, "g"),
+    /pages?\s*(\d{1,4})/gi,
     /\bp\.\s*(\d{1,4})\b/gi,
     /\bp\s*(\d{1,4})\b/gi,
   ];
-  for (const re of patterns) {
-    for (const match of text.matchAll(re)) {
-      const n = parseInt(match[1]!, 10);
-      if (Number.isFinite(n) && n > 0) found.add(n);
-    }
+  for (const re of singlePatterns) {
+    for (const match of text.matchAll(re)) addNum(match[1]!);
   }
+
   return [...found];
 }
 

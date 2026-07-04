@@ -11,6 +11,7 @@ export function lastAssistantSnippet(messages: UIMessage[], maxLen = 48): string
     .trim();
 
   if (!text) return null;
-  if (text.length <= maxLen) return text;
-  return `${text.slice(0, maxLen).trim()}…`;
+  const chars = [...text];
+  if (chars.length <= maxLen) return text;
+  return `${chars.slice(0, maxLen).join("").trim()}…`;
 }

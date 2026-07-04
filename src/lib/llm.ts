@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, type LanguageModel } from "ai";
+import { APICallError, generateText, type LanguageModel } from "ai";
 import { isToolModel } from "./model-capabilities";
 import {
   allProviderModels,
@@ -9,13 +9,22 @@ import {
   type ProviderId,
 } from "./types";
 
+/** A DeepSeek model (either the DeepSeek provider, or an OpenRouter `deepseek/*` route). */
+function isDeepseekModel(settings: LlmSettings): boolean {
+  if (settings.provider === "deepseek") return true;
+  if (settings.provider === "openrouter") return settings.model.startsWith("deepseek/");
+  return false;
+}
+
 function providerFetch(settings: LlmSettings): typeof fetch | undefined {
   const isOpenRouter = settings.provider === "openrouter";
-  const isDeepseekThinking =
-    (settings.provider === "deepseek" || settings.provider === "openrouter") &&
-    settings.thinkingEnabled;
+  const thinking = settings.thinkingEnabled === true;
+  // DeepSeek's proprietary `thinking` body is only valid for DeepSeek models.
+  const injectDeepseekThinking = thinking && isDeepseekModel(settings);
+  // Non-DeepSeek OpenRouter routes use OpenRouter's own `reasoning` parameter shape.
+  const injectOpenRouterReasoning = thinking && isOpenRouter && !isDeepseekModel(settings);
 
-  if (!isOpenRouter && !isDeepseekThinking) return undefined;
+  if (!isOpenRouter && !injectDeepseekThinking) return undefined;
 
   return async (input, init) => {
     const headers = new Headers(init?.headers);
@@ -27,12 +36,20 @@ function providerFetch(settings: LlmSettings): typeof fetch | undefined {
 
     let nextInit = { ...init, headers };
 
-    if (isDeepseekThinking && nextInit.body && typeof nextInit.body === "string") {
+    if (
+      (injectDeepseekThinking || injectOpenRouterReasoning) &&
+      nextInit.body &&
+      typeof nextInit.body === "string"
+    ) {
       try {
         const body = JSON.parse(nextInit.body) as Record<string, unknown>;
-        body.thinking = { type: "enabled" };
-        if (settings.model.includes("v4-pro")) {
-          body.reasoning_effort = "high";
+        if (injectDeepseekThinking) {
+          body.thinking = { type: "enabled" };
+          if (settings.model.includes("v4-pro")) {
+            body.reasoning_effort = "high";
+          }
+        } else if (injectOpenRouterReasoning) {
+          body.reasoning = { effort: settings.model.includes("pro") ? "high" : "medium" };
         }
         nextInit = { ...nextInit, body: JSON.stringify(body) };
       } catch {
@@ -46,11 +63,15 @@ function providerFetch(settings: LlmSettings): typeof fetch | undefined {
 
 /** Chat Completions base URL (no trailing slash). DeepSeek uses /chat/completions, not /v1. */
 export function resolveBaseURL(settings: LlmSettings): string {
-  const preset =
-    settings.provider !== "custom" ? PROVIDER_PRESETS[settings.provider] : undefined;
+  // Custom providers have no preset: an empty Base URL must stay empty (never silently
+  // fall back to OpenAI), so the "Base URL required" validation actually triggers and no
+  // request/key is ever sent to api.openai.com.
+  if (settings.provider === "custom") {
+    return (settings.baseURL?.trim() ?? "").replace(/\/+$/, "");
+  }
 
-  let baseURL =
-    settings.baseURL?.trim() || preset?.baseURL || PROVIDER_PRESETS.openai.baseURL;
+  const preset = PROVIDER_PRESETS[settings.provider];
+  let baseURL = settings.baseURL?.trim() || preset.baseURL;
 
   baseURL = baseURL.replace(/\/+$/, "");
 
@@ -133,6 +154,11 @@ export function validateAgentModel(
 }
 
 export function formatLlmError(error: unknown, t?: TranslateFn): string {
+  // Prefer the AI SDK's structured status code; substring digit matching (e.g. "429") is
+  // only a fallback, since a model id like "gpt-4-0429" would otherwise be misclassified.
+  const statusCode = APICallError.isInstance(error) ? error.statusCode : undefined;
+  const hasStatus = typeof statusCode === "number";
+
   if (error instanceof Error) {
     const msg = error.message;
     if (msg === "An error occurred.") {
@@ -145,18 +171,25 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
         "Provider misconfiguration: expected Chat Completions endpoint."
       );
     }
-    if (msg.includes("401") || msg.toLowerCase().includes("authentication")) {
+    if (
+      statusCode === 401 ||
+      statusCode === 403 ||
+      (!hasStatus && (msg.includes("401") || msg.toLowerCase().includes("authentication")))
+    ) {
       return (
         t?.("llm.invalidApiKey") ?? "Invalid API key — check Settings → AI Provider."
       );
     }
-    if (msg.includes("404")) {
+    if (statusCode === 404 || (!hasStatus && msg.includes("404"))) {
       return (
         t?.("llm.notFound") ??
         "Model or endpoint not found — verify base URL and model name."
       );
     }
-    if (msg.includes("429") || msg.toLowerCase().includes("rate limit")) {
+    if (
+      statusCode === 429 ||
+      (!hasStatus && (msg.includes("429") || msg.toLowerCase().includes("rate limit")))
+    ) {
       return t?.("llm.rateLimited") ?? "Rate limited — try again shortly.";
     }
     if (

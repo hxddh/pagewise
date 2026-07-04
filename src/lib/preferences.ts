@@ -34,10 +34,39 @@ async function getStore(): Promise<LazyStore> {
   return store;
 }
 
+const THEME_MODES: ThemeMode[] = ["dark", "light", "system"];
+const LOCALE_MODES: LocaleMode[] = ["en", "zh-CN", "system"];
+const SETTINGS_TABS: SettingsTab[] = ["general", "ai", "shortcuts", "about"];
+const PREVIEW_QUALITIES: PreviewQuality[] = ["auto", "crisp", "performance"];
+
+function pick<T>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function bool(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+/** Coerce arbitrary stored data into a valid AppPreferences, ignoring corrupt fields. */
+export function sanitizePreferences(raw: unknown): AppPreferences {
+  const saved = (raw && typeof raw === "object" ? raw : {}) as Partial<AppPreferences>;
+  return {
+    theme: pick(saved.theme, THEME_MODES, DEFAULT_PREFERENCES.theme),
+    locale: pick(saved.locale, LOCALE_MODES, DEFAULT_PREFERENCES.locale),
+    lastSettingsTab: pick(saved.lastSettingsTab, SETTINGS_TABS, DEFAULT_PREFERENCES.lastSettingsTab),
+    followAgentDefault: bool(saved.followAgentDefault, DEFAULT_PREFERENCES.followAgentDefault),
+    includeViewingPageDefault: bool(
+      saved.includeViewingPageDefault,
+      DEFAULT_PREFERENCES.includeViewingPageDefault,
+    ),
+    previewQuality: pick(saved.previewQuality, PREVIEW_QUALITIES, DEFAULT_PREFERENCES.previewQuality),
+  };
+}
+
 export async function loadPreferences(): Promise<AppPreferences> {
   const s = await getStore();
-  const saved = await s.get<Partial<AppPreferences>>(KEY);
-  return { ...DEFAULT_PREFERENCES, ...saved };
+  const saved = await s.get<unknown>(KEY);
+  return sanitizePreferences(saved);
 }
 
 export async function savePreferences(prefs: AppPreferences): Promise<void> {

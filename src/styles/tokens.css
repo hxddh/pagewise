@@ -7,6 +7,7 @@
   --bg-panel: var(--bg-surface);
   --border: #232329;
   --border-subtle: #1a1a1f;
+  --border-strong: #34343c;
   --text: #ededef;
   --text-secondary: #a1a1aa;
   --text-muted: #71717a;
@@ -31,9 +32,44 @@
   --text-base: 13px;
   --text-md: 14px;
   --transition-fast: 120ms ease;
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+
+  /* z-index scale — keep overlay ordering coherent across the app */
+  --z-doc-search: 30;
+  --z-library: 50;
+  --z-settings-drawer: 200;
+  --z-file-error: 300;
+  --z-drop: 1000;
+  --z-loading: 1500;
+  --z-palette: 2000;
+  --z-menu: 2500;
+  --z-toast: 3000;
 }
 
+/*
+ * Full light-theme token set. Kept here (not only in App.css "Phase C") so the
+ * light theme is correct regardless of stylesheet import order.
+ */
 [data-theme="light"] {
+  --bg-base: #fafafa;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f4f4f5;
+  --bg-hover: #ececee;
   --bg-canvas: #f0f0f2;
   --bg-panel: #ffffff;
+  --border: #e4e4e7;
+  --border-subtle: #f0f0f2;
+  --border-strong: #c7c7cf;
+  --text: #18181b;
+  --text-secondary: #52525b;
+  /* Darkened for >=4.5:1 contrast against white surfaces */
+  --text-muted: #6b6b74;
+  --accent: #5e6ad2;
+  --accent-hover: #4f5bc4;
+  --accent-muted: rgba(94, 106, 210, 0.1);
+  /* Status colors darkened so small text passes WCAG AA on light surfaces */
+  --success: #1a7f4e;
+  --warning: #9a6700;
+  --danger: #c0292e;
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
 }

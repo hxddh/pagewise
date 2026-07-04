@@ -29,8 +29,9 @@ export function ZoomStepper({
   const anchorRef = useRef<HTMLDivElement>(null);
 
   const label = formatZoomLabel(zoom, t);
-  const atMin = zoom === "fit-width";
-  const atMax = zoom === 2;
+  // Derive bounds from the preset range rather than hardcoding magic values.
+  const atMin = isSameZoom(zoom, ZOOM_PRESETS[0]!.value);
+  const atMax = isSameZoom(zoom, ZOOM_PRESETS[ZOOM_PRESETS.length - 1]!.value);
 
   return (
     <div

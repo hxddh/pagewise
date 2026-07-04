@@ -6,6 +6,11 @@ import type { RecentFile } from "../lib/recent-files";
 import { IconClose } from "./Icon";
 import { useOverlayLock } from "../hooks/useOverlayLock";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import {
+  isTopOverlayLayer,
+  popOverlayLayer,
+  pushOverlayLayer,
+} from "../lib/overlay-state";
 
 interface LibraryDrawerProps {
   open: boolean;
@@ -39,11 +44,15 @@ export function LibraryDrawer({
 
   useEffect(() => {
     if (!open) return;
+    const layerId = pushOverlayLayer();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && isTopOverlayLayer(layerId)) onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      popOverlayLayer(layerId);
+    };
   }, [open, onClose]);
 
   if (!open) return null;

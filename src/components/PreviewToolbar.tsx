@@ -76,6 +76,7 @@ function PageNav({
           onChange={(e) => setDraft(e.target.value.replace(/\D/g, ""))}
           onBlur={commit}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             if (e.key === "Enter") {
               e.preventDefault();
               commit();

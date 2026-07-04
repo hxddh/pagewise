@@ -3,6 +3,7 @@ import { extractPdfFromRust, getPdfPageCount } from "./pdf";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
 import { indexPageInBackground, MIN_INDEX_CHARS } from "./vision-index";
+import { allowPath } from "./fs-access";
 
 const SUPPORTED_EXT = new Set([
   "pdf",
@@ -32,6 +33,10 @@ export async function loadDocument(
   const name = path.split(/[/\\]/).pop() ?? path;
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
 
+  // Authorize this document's path with the backend allowlist before any
+  // file-touching command (extract/read/ocr) runs against it.
+  await allowPath(path);
+
   report(onProgress, { stage: "opening", message: "load.openingFile", percent: 5 });
 
   let doc: LoadedDocument;
@@ -57,7 +62,7 @@ export async function loadDocument(
       name,
       kind: "pdf",
       pages: result.pages.map((p) => ({ page: p.page, text: p.text })),
-      totalPages: result.total_pages,
+      totalPages: pageCount,
     };
 
     await new Promise((r) => setTimeout(r, 0));

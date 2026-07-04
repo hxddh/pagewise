@@ -49,6 +49,8 @@
     "savedChats": "已保存会话",
     "connected": "已连接",
     "notConfigured": "未配置",
+    "settingsConnected": "设置 — 已连接",
+    "settingsNotConfigured": "设置 — 未配置 AI",
     "settingsHint": "未配置 AI · 点击配置",
     "testOptional": "已就绪 · 测试可选",
     "commands": "命令"
@@ -94,6 +96,7 @@
     "zoomToggleFit": "切换适应宽度",
     "pageOf": "第 {{page}} / {{total}} 页",
     "pageHit": "第 {{page}} 页",
+    "pageRange": "第 {{page}}–{{pageEnd}} 页",
     "pageTitle": "第 {{page}} 页",
     "pages": "页面",
     "thumbnailsShow": "显示缩略图",
@@ -111,6 +114,7 @@
     "openingFile": "正在打开文件…",
     "extracting": "正在提取文本…",
     "extractedPages": "已提取 {{count}} 页",
+    "extractedPages_plural": "已提取 {{count}} 页",
     "indexing": "正在建立搜索索引…",
     "loadingImage": "正在加载图片…",
     "ready": "就绪",
@@ -146,7 +150,12 @@
     "activitySearch": "正在搜索文档…",
     "activityOcr": "正在 OCR…",
     "activityList": "正在检查文档…",
-    "activityWorking": "处理中…"
+    "activityWorking": "处理中…",
+    "toolReadPage": "已读取第 {{page}} 页",
+    "toolReadRange": "已读取第 {{start}}–{{end}} 页",
+    "toolSearch": "已搜索“{{query}}”",
+    "toolIndex": "已浏览文档",
+    "toolWorking": "已调用工具"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",
@@ -318,6 +327,8 @@
     "daysAgo": "{{n}} 天前",
     "remove": "移除",
     "deleteChat": "删除已保存会话",
+    "deleteChatConfirm": "确定删除此已保存会话？此操作无法撤销。",
+    "deleteChatConfirmAction": "删除会话",
     "close": "关闭书库"
   }
 }

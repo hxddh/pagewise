@@ -105,7 +105,7 @@
 .library-drawer-root {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-library);
   pointer-events: none;
 }
 
@@ -566,7 +566,7 @@
   top: 12px;
   left: calc(var(--rail-w) + 12px);
   right: 12px;
-  z-index: 150;
+  z-index: var(--z-file-error);
   display: flex;
   align-items: center;
   justify-content: space-between;

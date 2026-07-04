@@ -35,3 +35,17 @@ export function formatZoomLabel(zoom: ZoomMode, t?: TranslateFn): string {
 export function isSameZoom(a: ZoomMode, b: ZoomMode): boolean {
   return a === b || (typeof a === "number" && typeof b === "number" && a === b);
 }
+
+/** Lowest and highest zoom steps — single source of truth for step bounds. */
+export const ZOOM_MIN: ZoomMode = ZOOM_STEPS[0]!;
+export const ZOOM_MAX: ZoomMode = ZOOM_STEPS[ZOOM_STEPS.length - 1]!;
+
+/** True when stepping out (zoom-out) can no longer go lower. */
+export function atMinZoom(zoom: ZoomMode): boolean {
+  return isSameZoom(zoom, ZOOM_MIN);
+}
+
+/** True when stepping in (zoom-in) can no longer go higher. */
+export function atMaxZoom(zoom: ZoomMode): boolean {
+  return isSameZoom(zoom, ZOOM_MAX);
+}

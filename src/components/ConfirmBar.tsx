@@ -1,4 +1,10 @@
+import { useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
+import {
+  isTopOverlayLayer,
+  popOverlayLayer,
+  pushOverlayLayer,
+} from "../lib/overlay-state";
 
 interface ConfirmBarProps {
   message: string;
@@ -19,15 +25,39 @@ export function ConfirmBar({
 }: ConfirmBarProps) {
   const { t } = useI18n();
   const cancel = cancelLabel ?? t("common.cancel");
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Register as the topmost escape layer while mounted, and give it initial
+  // focus so the alertdialog is keyboard-operable. For destructive prompts the
+  // safe (cancel) action receives focus.
+  useEffect(() => {
+    const layerId = pushOverlayLayer();
+    (danger ? cancelRef.current : confirmRef.current)?.focus();
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      popOverlayLayer(layerId);
+    };
+  }, [danger, onCancel]);
 
   return (
     <div className="confirm-bar" role="alertdialog" aria-live="assertive">
       <p className="confirm-bar-message">{message}</p>
       <div className="confirm-bar-actions">
-        <button type="button" className="btn ghost" onClick={onCancel}>
+        <button ref={cancelRef} type="button" className="btn ghost" onClick={onCancel}>
           {cancel}
         </button>
         <button
+          ref={confirmRef}
           type="button"
           className={`btn ${danger ? "danger-btn" : "primary"}`}
           onClick={onConfirm}

@@ -13,6 +13,11 @@ import { AboutSettings } from "./settings/AboutSettings";
 import { loadPreferences, patchPreferences, type SettingsTab } from "../lib/preferences";
 import { useOverlayLock } from "../hooks/useOverlayLock";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import {
+  isTopOverlayLayer,
+  popOverlayLayer,
+  pushOverlayLayer,
+} from "../lib/overlay-state";
 
 interface SettingsDrawerProps {
   open: boolean;
@@ -60,6 +65,7 @@ export function SettingsDrawer({
   useOverlayLock(open);
   const panelRef = useRef<HTMLElement>(null);
   useFocusTrap(open, panelRef);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [tab, setTab] = useState<DrawerTab>("ai");
   const [visited, setVisited] = useState<Set<DrawerTab>>(() => new Set(["ai"]));
   const [aiFooter, setAiFooter] = useState<AiSettingsFooterState | null>(null);
@@ -91,23 +97,50 @@ export function SettingsDrawer({
 
   useEffect(() => {
     if (!open) return;
+    const layerId = pushOverlayLayer();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (closeConfirmOpen) {
-          setCloseConfirmOpen(false);
-          return;
-        }
+      // Only the topmost overlay layer reacts to Escape. When the close-confirm
+      // ConfirmBar is open it owns a higher layer and handles Escape itself.
+      if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
         requestClose();
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, closeConfirmOpen, requestClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      popOverlayLayer(layerId);
+    };
+  }, [open, requestClose]);
 
   async function selectTab(next: DrawerTab) {
     setTab(next);
     setVisited((prev) => new Set(prev).add(next));
     await patchPreferences({ lastSettingsTab: next });
+  }
+
+  function onTabKeyDown(e: React.KeyboardEvent, index: number) {
+    let next = index;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        next = (index + 1) % TABS.length;
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        next = (index - 1 + TABS.length) % TABS.length;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = TABS.length - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    void selectTab(TABS[next]!);
+    tabRefs.current[next]?.focus();
   }
 
   if (!open) return null;
@@ -157,18 +190,23 @@ export function SettingsDrawer({
 
         <div className="settings-layout">
           <nav className="settings-nav" role="tablist" aria-label={t("settings.title")}>
-            {TABS.map((id) => {
+            {TABS.map((id, index) => {
               const Icon = TAB_ICONS[id];
               return (
                 <button
                   key={id}
+                  ref={(el) => {
+                    tabRefs.current[index] = el;
+                  }}
                   type="button"
                   role="tab"
                   id={`settings-tab-${id}`}
                   aria-selected={tab === id}
                   aria-controls={`settings-panel-${id}`}
+                  tabIndex={tab === id ? 0 : -1}
                   className={`settings-nav-item ${tab === id ? "active" : ""}`}
                   onClick={() => void selectTab(id)}
+                  onKeyDown={(e) => onTabKeyDown(e, index)}
                 >
                   <Icon size={14} strokeWidth={1.75} />
                   {tabLabels[id]}

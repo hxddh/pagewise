@@ -30,8 +30,13 @@ function AppShell() {
   return (
     <ShellProvider value={shell}>
       <div className="app v3">
-        <DropOverlay visible={document.isDragging || (document.loading && !document.progress)} />
-        <LoadingOverlay visible={document.loading} progress={document.progress} />
+        <DropOverlay visible={document.isDragging} />
+        <LoadingOverlay
+          visible={document.loading}
+          progress={
+            document.progress ?? { stage: "opening" as const, message: "load.opening", percent: 0 }
+          }
+        />
         {document.fileError && (
           <FileErrorBanner message={document.fileError} onDismiss={document.clearFileError} />
         )}
@@ -121,7 +126,13 @@ function AppShell() {
               />
 
               {agent.agentOpen && (
-                <ResizeHandle onPointerDown={agent.onPointerDown} />
+                <ResizeHandle
+                  onPointerDown={agent.onPointerDown}
+                  onNudge={agent.nudgeWidth}
+                  value={agent.chatWidth}
+                  min={agent.minWidth}
+                  max={agent.maxWidth}
+                />
               )}
               <div
                 className={`chat-column ${agent.agentOpen ? "" : "chat-column-hidden"}`}

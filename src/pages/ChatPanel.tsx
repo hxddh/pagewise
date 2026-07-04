@@ -25,7 +25,7 @@ interface ChatPanelProps {
   previewPage: number;
   includeViewingPage: boolean;
   messages: UIMessage[];
-  sendDocumentMessage: (opts: SendDocumentMessageOptions) => Promise<void>;
+  sendDocumentMessage: (opts: SendDocumentMessageOptions) => Promise<boolean>;
   status: ChatStatus;
   error: Error | undefined;
   errorMessage?: string;
@@ -116,8 +116,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     }
     if (!activeDoc) return;
     stickToBottomRef.current = true;
+    // Clear optimistically; restore the draft if the send did not go through.
     onComposerDraftChange("");
-    await sendDocumentMessage({
+    const sent = await sendDocumentMessage({
       text,
       path: activeDoc.path,
       docName: activeDoc.name,
@@ -125,6 +126,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       totalPages: activeDoc.totalPages,
       includeViewingPage,
     });
+    if (!sent) {
+      onComposerDraftChange(text);
+    }
   }, [
     composerDraft,
     busy,
@@ -144,6 +148,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Ignore Enter while an IME composition is active (critical for CJK input).
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void submit();

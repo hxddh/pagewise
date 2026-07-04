@@ -72,6 +72,7 @@ export function ModelSelect({
             anchorRef={anchorRef}
             className="anchored-popover model-select-menu"
             align="start"
+            role="listbox"
           >
             {PROVIDER_MODEL_GROUPS[provider].map((group) => (
               <div key={group.labelKey} className="model-select-group">

@@ -9,6 +9,7 @@ import type { LocaleMode } from "../lib/preferences";
 import { recordCommand } from "../lib/onboarding-hints";
 import { previewNextPage, previewPrevPage } from "../lib/preview-actions";
 import { modKey } from "../lib/shortcut-display";
+import { isOverlayOpen } from "../lib/overlay-state";
 
 interface UseAppCommandsOptions {
   activeDocName: string | null;
@@ -226,12 +227,19 @@ export function useAppCommands({
 
       if (paletteOpen) return;
 
+      // When another overlay (settings drawer, library, confirm, etc.) is open,
+      // global document/agent shortcuts must not fire underneath it. (Cmd+, to
+      // open settings and Escape handling remain fine.)
+      const overlayOpen = isOverlayOpen();
+
       if (mod && e.key.toLowerCase() === "o") {
+        if (overlayOpen) return;
         e.preventDefault();
         recordCommand("open");
         void onOpenDocument();
       }
       if (mod && e.key === "\\") {
+        if (overlayOpen) return;
         e.preventDefault();
         if (activeDocName) {
           recordCommand("toggle-agent");

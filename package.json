@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.2.0",
   "description": "Local desktop document agent — PDF, OCR, page-wise AI analysis",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

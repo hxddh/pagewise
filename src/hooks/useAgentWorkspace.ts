@@ -16,7 +16,13 @@ export function useAgentWorkspace() {
 
   const { canUseAgent, hasApiKey, agentToolsSupported, settingsReady, refresh: refreshConnection } =
     useConnectionStatus();
-  const { width: chatWidth, onPointerDown } = useResizeWidth();
+  const {
+    width: chatWidth,
+    onPointerDown,
+    nudgeWidth,
+    min: minWidth,
+    max: maxWidth,
+  } = useResizeWidth();
   const {
     messages,
     sendDocumentMessage,
@@ -53,6 +59,9 @@ export function useAgentWorkspace() {
     refreshConnection,
     chatWidth,
     onPointerDown,
+    nudgeWidth,
+    minWidth,
+    maxWidth,
     messages,
     sendDocumentMessage,
     status,

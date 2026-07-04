@@ -3,20 +3,29 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const STORAGE_KEY = "pagewise.chatWidth";
 const MIN = 360;
 const MAX = 480;
+const DEFAULT_WIDTH = 360;
 
-function computeDefaultWidth(): number {
-  if (typeof window === "undefined") return 360;
-  return Math.min(MAX, Math.max(MIN, 360));
+function clampWidth(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
 }
 
 export function useResizeWidth(min = MIN, max = MAX) {
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    const n = saved ? Number(saved) : computeDefaultWidth();
-    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : computeDefaultWidth();
+    const n = saved ? Number(saved) : DEFAULT_WIDTH;
+    return Number.isFinite(n) ? clampWidth(n, min, max) : DEFAULT_WIDTH;
   });
 
   const dragging = useRef(false);
+  // Mirror of the latest width so drag-end / cancel can persist it without
+  // running localStorage.setItem inside a setState updater (impure; would
+  // double-write under StrictMode).
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  const persistWidth = useCallback((w: number) => {
+    localStorage.setItem(STORAGE_KEY, String(w));
+  }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -25,37 +34,38 @@ export function useResizeWidth(min = MIN, max = MAX) {
   }, []);
 
   useEffect(() => {
-    const onResize = () => {
-      if (localStorage.getItem(STORAGE_KEY)) return;
-      setWidth(computeDefaultWidth());
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
     const onMove = (e: PointerEvent) => {
       if (!dragging.current) return;
-      const next = Math.min(max, Math.max(min, window.innerWidth - e.clientX));
+      const next = clampWidth(window.innerWidth - e.clientX, min, max);
+      widthRef.current = next;
       setWidth(next);
     };
 
-    const onUp = () => {
+    const endDrag = () => {
       if (!dragging.current) return;
       dragging.current = false;
-      setWidth((w) => {
-        localStorage.setItem(STORAGE_KEY, String(w));
-        return w;
-      });
+      persistWidth(widthRef.current);
     };
 
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
     return () => {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
     };
-  }, [min, max]);
+  }, [min, max, persistWidth]);
 
-  return { width, onPointerDown };
+  const nudgeWidth = useCallback(
+    (deltaPx: number) => {
+      const next = clampWidth(widthRef.current + deltaPx, min, max);
+      widthRef.current = next;
+      setWidth(next);
+      persistWidth(next);
+    },
+    [min, max, persistWidth],
+  );
+
+  return { width, onPointerDown, nudgeWidth, min, max };
 }

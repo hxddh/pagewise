@@ -49,6 +49,8 @@
     "savedChats": "Saved chats",
     "connected": "Connected",
     "notConfigured": "Not configured",
+    "settingsConnected": "Settings — connected",
+    "settingsNotConfigured": "Settings — AI not configured",
     "settingsHint": "AI not configured · Tap to set up",
     "testOptional": "Ready · Test optional",
     "commands": "Commands"
@@ -94,6 +96,7 @@
     "zoomToggleFit": "Toggle fit width",
     "pageOf": "Page {{page}} of {{total}}",
     "pageHit": "p. {{page}}",
+    "pageRange": "pp. {{page}}–{{pageEnd}}",
     "pageTitle": "Page {{page}}",
     "pages": "Pages",
     "thumbnailsShow": "Show thumbnails",
@@ -110,7 +113,8 @@
     "opening": "Opening…",
     "openingFile": "Opening file…",
     "extracting": "Extracting text…",
-    "extractedPages": "Extracted {{count}} pages",
+    "extractedPages": "Extracted {{count}} page",
+    "extractedPages_plural": "Extracted {{count}} pages",
     "indexing": "Indexing for search…",
     "loadingImage": "Loading image…",
     "ready": "Ready",
@@ -125,7 +129,8 @@
     "resizePanel": "Resize assistant panel",
     "thinking": "Thinking…",
     "clearConfirm": "Clear this chat? This cannot be undone.",
-    "messageCount": "{{count}} messages",
+    "messageCount": "{{count}} message",
+    "messageCount_plural": "{{count}} messages",
     "clear": "Clear chat",
     "exportChat": "Export chat",
     "exportSummary": "Export summary",
@@ -145,7 +150,12 @@
     "activitySearch": "Searching document…",
     "activityOcr": "Running OCR…",
     "activityList": "Checking documents…",
-    "activityWorking": "Working…"
+    "activityWorking": "Working…",
+    "toolReadPage": "Read page {{page}}",
+    "toolReadRange": "Read pages {{start}}–{{end}}",
+    "toolSearch": "Searched “{{query}}”",
+    "toolIndex": "Scanned the document",
+    "toolWorking": "Used a tool"
   },
   "empty": {
     "lead": "Ask questions about your document",
@@ -317,6 +327,8 @@
     "daysAgo": "{{n}}d ago",
     "remove": "Remove",
     "deleteChat": "Delete saved chat",
+    "deleteChatConfirm": "Delete this saved chat? This cannot be undone.",
+    "deleteChatConfirmAction": "Delete chat",
     "close": "Close library"
   }
 }
