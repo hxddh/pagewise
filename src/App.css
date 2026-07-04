@@ -840,49 +840,6 @@ body {
   opacity: 1;
 }
 
-.message-usage-summary {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.usage-steps-inline {
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.usage-steps-inline summary {
-  cursor: pointer;
-  user-select: none;
-  color: var(--text-secondary);
-}
-
-.usage-steps-list {
-  margin: 6px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.usage-steps-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.usage-steps-row dt {
-  margin: 0;
-  font-weight: 400;
-}
-
-.usage-steps-row dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
 .message-action-btn {
   width: 26px;
   height: 26px;

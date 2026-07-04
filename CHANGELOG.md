@@ -4,7 +4,17 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
-## [0.2.15] - 2026-07-04
+## [0.2.16] - 2026-07-04
+
+### Fixed
+
+- UI: strip spaced-pipe DSML tool markup (`< | | DSML | | invoke …>`) leaked as plain text by some providers
+- Agent: force synthesis when a step’s answer text is DSML-only (tools ran but no user-visible reply)
+
+### Changed
+
+- Assistant footer: remove inline usage summary and per-step breakdown; full stats remain in the usage popover only
+
 
 ### Fixed
 
@@ -280,7 +290,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.15...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.16...HEAD
+[0.2.16]: https://github.com/hxddh/pagewise/compare/v0.2.15...v0.2.16
 [0.2.15]: https://github.com/hxddh/pagewise/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/hxddh/pagewise/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/hxddh/pagewise/compare/v0.2.12...v0.2.13
