@@ -10,7 +10,9 @@ import {
   formatDuration,
   formatGenerationSpeed,
   formatTokenCount,
+  formatUsageSummaryLine,
   getPageWiseMetadata,
+  resolveAgentTokenTotals,
   type PageWiseUIMessage,
 } from "../lib/message-metadata";
 
@@ -85,15 +87,12 @@ export function MessageAssistantFooter({
   const ttftMs = metadata ? computeTimeToFirstTokenMs(metadata) : undefined;
   const speed = metadata ? computeGenerationSpeed(metadata, nowMs) : undefined;
   const hasCopyable = extractCopyableText(message).length > 0;
-  const agentIn =
-    metadata?.inputTokens != null && metadata.indexInputTokens != null
-      ? Math.max(0, metadata.inputTokens - metadata.indexInputTokens)
-      : metadata?.inputTokens;
-  const agentOut =
-    metadata?.outputTokens != null && metadata.indexOutputTokens != null
-      ? Math.max(0, metadata.outputTokens - metadata.indexOutputTokens)
-      : metadata?.outputTokens;
+  const agentIn = resolveAgentTokenTotals(metadata).input;
+  const agentOut = resolveAgentTokenTotals(metadata).output;
   const citations = metadata?.structuredCitations ?? [];
+  const usageSummary = formatUsageSummaryLine(metadata, t);
+  const stepUsage = metadata?.stepUsage ?? [];
+  const showStepBreakdown = stepUsage.length > 1;
 
   return (
     <div className="message-assistant-footer">
@@ -111,7 +110,13 @@ export function MessageAssistantFooter({
         </ul>
       )}
 
-      <div className="message-assistant-actions" role="toolbar" aria-label={t("agent.messageActions")}>
+      <div className="message-assistant-toolbar">
+        {usageSummary && (
+          <span className="message-usage-summary" title={t("agent.usageStats")}>
+            {usageSummary}
+          </span>
+        )}
+        <div className="message-assistant-actions" role="toolbar" aria-label={t("agent.messageActions")}>
         <button
           type="button"
           className="icon-btn message-action-btn"
@@ -144,7 +149,27 @@ export function MessageAssistantFooter({
         >
           <Gauge size={14} />
         </button>
+        </div>
       </div>
+
+      {showStepBreakdown && (
+        <details className="usage-steps-inline">
+          <summary>{t("agent.usageSteps")}</summary>
+          <dl className="usage-steps-list">
+            {stepUsage.map((step) => (
+              <div key={step.step} className="usage-steps-row">
+                <dt>{t("agent.usageStep", { n: step.step + 1 })}</dt>
+                <dd>
+                  {formatTokenCount(step.inputTokens)} / {formatTokenCount(step.outputTokens)}
+                  {step.toolNames && step.toolNames.length > 0
+                    ? ` · ${step.toolNames.join(", ")}`
+                    : ""}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      )}
 
       <AnchoredMenu
         open={statsOpen}

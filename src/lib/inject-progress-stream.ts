@@ -17,11 +17,17 @@ export type AgentProgressDataPart = {
 export function wrapStreamWithAgentProgress(
   stream: ReadableStream<UIMessageChunk>,
 ): ReadableStream<UIMessageChunk> {
-  let streamController: ReadableStreamDefaultController<UIMessageChunk> | null = null;
+  let streamController: ReadableStreamDefaultController<UIMessageChunk> | null =
+    null;
   let closed = false;
+  const pendingProgress: AgentProgressPayload[] = [];
 
   const enqueueProgress = (payload: AgentProgressPayload) => {
-    if (closed || !streamController) return;
+    if (closed) return;
+    if (!streamController) {
+      pendingProgress.push(payload);
+      return;
+    }
     try {
       streamController.enqueue({
         type: PROGRESS_DATA_TYPE,
@@ -34,24 +40,14 @@ export function wrapStreamWithAgentProgress(
   };
 
   const unsubscribe = subscribeAgentProgress(enqueueProgress);
-
   const source = stream.getReader();
 
   return new ReadableStream<UIMessageChunk>({
-    async start(controller) {
+    start(controller) {
       streamController = controller;
-    },
-    async pull(controller) {
-      streamController = controller;
-      const { done, value } = await source.read();
-      if (done) {
-        closed = true;
-        unsubscribe();
-        clearAgentProgress();
-        controller.close();
-        return;
-      }
-      controller.enqueue(value);
+      for (const payload of pendingProgress) enqueueProgress(payload);
+      pendingProgress.length = 0;
+      void pump();
     },
     cancel() {
       closed = true;
@@ -60,6 +56,28 @@ export function wrapStreamWithAgentProgress(
       void source.cancel();
     },
   });
+
+  async function pump() {
+    const controller = streamController;
+    if (!controller) return;
+
+    try {
+      for (;;) {
+        const { done, value } = await source.read();
+        if (done) break;
+        controller.enqueue(value);
+      }
+      closed = true;
+      unsubscribe();
+      clearAgentProgress();
+      controller.close();
+    } catch (error) {
+      closed = true;
+      unsubscribe();
+      clearAgentProgress();
+      controller.error(error);
+    }
+  }
 }
 
 export function isAgentProgressDataPart(

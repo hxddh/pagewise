@@ -45,4 +45,40 @@ describe("compactStaleToolResults", () => {
       }
     }
   });
+
+  it("truncates search tool outputs in older messages", () => {
+    const hits = Array.from({ length: 20 }, (_, i) => ({
+      page: i + 1,
+      score: 0.9,
+      text: "x".repeat(200),
+    }));
+    const messages = [
+      { role: "user", content: "find revenue" },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "a",
+            toolName: "search_in_document",
+            output: hits,
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "next" }] },
+    ] as ModelMessage[];
+
+    const compacted = compactStaleToolResults(messages, 1);
+    const toolMsg = compacted[1];
+    expect(toolMsg?.role).toBe("tool");
+    if (toolMsg && Array.isArray(toolMsg.content)) {
+      const part = toolMsg.content[0];
+      expect(part?.type).toBe("tool-result");
+      if (part?.type === "tool-result") {
+        const serialized = JSON.stringify(part.output);
+        expect(serialized.length).toBeLessThan(JSON.stringify(hits).length);
+        expect(serialized).toContain("[omitted from earlier step]");
+      }
+    }
+  });
 });

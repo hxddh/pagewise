@@ -4,9 +4,11 @@ import {
   computeTimeToFirstTokenMs,
   computeTotalDurationMs,
   createUsageMetadataTracker,
+  formatCompactTokenCount,
   formatDuration,
   formatGenerationSpeed,
   formatTokenCount,
+  formatUsageSummaryLine,
 } from "./message-metadata";
 
 describe("message-metadata", () => {
@@ -43,6 +45,52 @@ describe("message-metadata", () => {
     };
     expect(computeGenerationSpeed(meta)).toBeCloseTo(472, 0);
     expect(formatGenerationSpeed(472)).toBe("472.0 T/s");
+  });
+
+  it("formats compact token counts", () => {
+    expect(formatCompactTokenCount(850)).toBe("850");
+    expect(formatCompactTokenCount(2500)).toBe("2.5k");
+    expect(formatCompactTokenCount(25000)).toBe("25k");
+  });
+
+  it("formats usage summary with step count", () => {
+    const line = formatUsageSummaryLine(
+      {
+        stepUsage: [
+          { step: 0, inputTokens: 1000, outputTokens: 50 },
+          { step: 1, inputTokens: 2000, outputTokens: 120 },
+        ],
+      },
+      (key, vars) => `${key}:${JSON.stringify(vars)}`,
+    );
+    expect(line).toContain("usageSummaryWithSteps");
+    expect(line).toContain('"steps":2');
+  });
+
+  it("emits live step totals on finish-step", () => {
+    const tracker = createUsageMetadataTracker("gpt-test");
+    const mid = tracker.messageMetadata({
+      part: {
+        type: "finish-step",
+        usage: { inputTokens: 120, outputTokens: 15 },
+      },
+    });
+    expect(mid?.inputTokens).toBe(120);
+    expect(mid?.outputTokens).toBe(15);
+    expect(mid?.stepUsage).toHaveLength(1);
+
+    tracker.onStepEnd({
+      stepNumber: 0,
+      toolCalls: [{ toolName: "read_pdf_page" }],
+    });
+
+    const finish = tracker.messageMetadata({
+      part: {
+        type: "finish",
+        totalUsage: { inputTokens: 120, outputTokens: 15, totalTokens: 135 },
+      },
+    });
+    expect(finish?.stepUsage?.[0]?.toolNames).toEqual(["read_pdf_page"]);
   });
 
   it("collects per-step usage via onStepEnd", () => {

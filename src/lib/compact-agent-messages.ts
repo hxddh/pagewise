@@ -1,7 +1,12 @@
 import type { ModelMessage } from "@ai-sdk/provider-utils";
 
-const READ_TOOLS = new Set(["read_pdf_page", "read_pdf_range"]);
-const STALE_TOOL_SNIPPET_CHARS = 480;
+const HEAVY_TOOLS = new Set([
+  "read_pdf_page",
+  "read_pdf_range",
+  "search_in_document",
+  "get_document_index",
+]);
+const STALE_TOOL_SNIPPET_CHARS = 360;
 
 function compactToolOutput(output: unknown): unknown {
   if (typeof output === "string") {
@@ -28,10 +33,14 @@ function compactToolOutput(output: unknown): unknown {
   return output;
 }
 
-/** Shrink read-tool outputs in older messages so multi-step runs send less context. */
+function shouldCompactToolResult(toolName: string): boolean {
+  return HEAVY_TOOLS.has(toolName);
+}
+
+/** Shrink heavy tool outputs in older messages so multi-step runs send less context. */
 export function compactStaleToolResults(
   messages: ModelMessage[],
-  keepRecentMessages = 2,
+  keepRecentMessages = 1,
 ): ModelMessage[] {
   const threshold = Math.max(0, messages.length - keepRecentMessages);
   let changed = false;
@@ -55,15 +64,12 @@ export function compactStaleToolResults(
 
     let partChanged = false;
     const content = message.content.map((part) => {
-      if (part.type === "tool-result" && READ_TOOLS.has(part.toolName)) {
+      if (part.type === "tool-result" && shouldCompactToolResult(part.toolName)) {
         const compact = compactToolOutput(part.output);
         if (compact !== part.output) {
           partChanged = true;
           return { ...part, output: compact };
         }
-      }
-      if (part.type === "tool-call" && READ_TOOLS.has(part.toolName)) {
-        return part;
       }
       return part;
     });

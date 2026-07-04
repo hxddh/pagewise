@@ -22,7 +22,7 @@ function isDeepseekModel(settings: LlmSettings): boolean {
 export function resolveReasoning(
   settings: LlmSettings,
 ): LanguageModelV4CallOptions["reasoning"] | undefined {
-  if (!settings.thinkingEnabled) return "none";
+  if (!settings.thinkingEnabled) return undefined;
 
   const model = settings.model.toLowerCase();
   if (
@@ -199,8 +199,14 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
     ) {
       return t?.("llm.networkError") ?? "Network error — check your connection.";
     }
-    if (msg === "An error occurred.") {
-      return t?.("agent.errorGeneric") ?? "Request failed — check Settings → AI Provider.";
+    if (
+      msg.toLowerCase().includes("reasoning_effort") ||
+      msg.toLowerCase().includes("unknown variant `none`")
+    ) {
+      return (
+        t?.("llm.reasoningNotSupported") ??
+        "This provider does not support the reasoning setting — turn off Extended thinking in Settings → AI Provider."
+      );
     }
     return msg;
   }

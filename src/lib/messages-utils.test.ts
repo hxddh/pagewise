@@ -1,5 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { normalizeUIMessage, normalizeUIMessages } from "./messages-utils";
+import {
+  getInFlightAssistantMessage,
+  hasSubstantialAssistantText,
+  isAwaitingAssistantReply,
+  normalizeUIMessage,
+  normalizeUIMessages,
+} from "./messages-utils";
+import type { UIMessage } from "ai";
+
+const userMsg = (id: string): UIMessage => ({
+  id,
+  role: "user",
+  parts: [{ type: "text", text: "question" }],
+});
+
+const assistantMsg = (id: string, text = ""): UIMessage => ({
+  id,
+  role: "assistant",
+  parts: [{ type: "text", text }],
+});
+
+describe("in-flight assistant helpers", () => {
+  it("detects awaiting assistant when last message is user", () => {
+    const messages = [assistantMsg("a1", "previous answer with lots of text"), userMsg("u2")];
+    expect(isAwaitingAssistantReply(messages, true)).toBe(true);
+    expect(getInFlightAssistantMessage(messages, true)).toBeUndefined();
+    expect(hasSubstantialAssistantText(getInFlightAssistantMessage(messages, true))).toBe(
+      false,
+    );
+  });
+
+  it("uses only the streaming assistant row, not the previous turn", () => {
+    const messages = [
+      assistantMsg("a1", "x".repeat(80)),
+      userMsg("u2"),
+      assistantMsg("a2", ""),
+    ];
+    expect(isAwaitingAssistantReply(messages, true)).toBe(false);
+    expect(getInFlightAssistantMessage(messages, true)?.id).toBe("a2");
+    expect(hasSubstantialAssistantText(getInFlightAssistantMessage(messages, true))).toBe(
+      false,
+    );
+  });
+});
 
 describe("normalizeUIMessages", () => {
   it("keeps valid parts-based messages", () => {

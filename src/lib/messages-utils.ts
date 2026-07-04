@@ -36,6 +36,44 @@ export function normalizeUIMessages(raw: unknown): UIMessage[] {
   return out;
 }
 
+/** Last message in the thread, if any. */
+export function getLastMessage(messages: UIMessage[]): UIMessage | undefined {
+  return messages.length > 0 ? messages[messages.length - 1] : undefined;
+}
+
+/** True while a user turn was sent but the assistant row is not in messages yet. */
+export function isAwaitingAssistantReply(
+  messages: UIMessage[],
+  busy: boolean,
+): boolean {
+  if (!busy) return false;
+  return getLastMessage(messages)?.role === "user";
+}
+
+/**
+ * The assistant message currently being streamed, if any.
+ * Avoids mistaking the previous turn's assistant message during a new run.
+ */
+export function getInFlightAssistantMessage(
+  messages: UIMessage[],
+  busy: boolean,
+): UIMessage | undefined {
+  if (!busy) return undefined;
+  const last = getLastMessage(messages);
+  if (!last || last.role !== "assistant") return undefined;
+  return last;
+}
+
+export function hasSubstantialAssistantText(
+  message: UIMessage | undefined,
+  minChars = 48,
+): boolean {
+  if (!message) return false;
+  return message.parts.some(
+    (p) => p.type === "text" && (p.text?.trim().length ?? 0) > minChars,
+  );
+}
+
 /** Find the last message matching predicate without allocating a reversed copy. */
 export function findLastMessage(
   messages: UIMessage[],

@@ -18,7 +18,12 @@ import { EmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
 
 import type { SendDocumentMessageOptions, RegenerateDocumentMessageOptions } from "../hooks/useDocAgent";
-import { findLastMessage } from "../lib/messages-utils";
+import {
+  findLastMessage,
+  getInFlightAssistantMessage,
+  hasSubstantialAssistantText,
+  isAwaitingAssistantReply,
+} from "../lib/messages-utils";
 
 export interface ChatPanelHandle {
   focusComposer: () => void;
@@ -97,15 +102,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     () => findLastMessage(messages, (m) => m.role === "assistant"),
     [messages],
   );
+  const inFlightAssistant = useMemo(
+    () => getInFlightAssistantMessage(messages, busy),
+    [messages, busy],
+  );
+  const awaitingAssistant = isAwaitingAssistantReply(messages, busy);
   const lastUser = useMemo(
     () => findLastMessage(messages, (m) => m.role === "user"),
     [messages],
   );
-  /** Hide the status bar only once the final answer is visibly streaming (not reasoning). */
-  const hasSubstantialAnswerText = lastAssistant?.parts.some(
-    (p) => p.type === "text" && (p.text?.trim().length ?? 0) > 48,
-  );
-  const showProgress = busy && !hasSubstantialAnswerText;
+  const showProgress =
+    busy &&
+    (awaitingAssistant || !hasSubstantialAssistantText(inFlightAssistant));
 
   useEffect(() => {
     const el = composerRef.current;
@@ -297,32 +305,46 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             }}
           />
         ) : (
-          messages.map((m) => (
-            <div key={m.id} className={`message ${m.role}`}>
-              {m.role === "assistant" ? (
-                <>
-                  <MessageContent
-                    message={m}
-                    markdown
-                    live={busy && m.id === lastAssistant?.id}
-                  />
-                  <MessageAssistantFooter
-                    message={m as PageWiseUIMessage}
-                    live={busy && m.id === lastAssistant?.id}
-                    canRegenerate={
-                      !busy &&
-                      m.id === lastAssistant?.id &&
-                      !!lastUser &&
-                      !!regenerateDocumentMessage
-                    }
-                    onRegenerate={() => void handleRegenerate()}
-                  />
-                </>
-              ) : (
-                <MessageContent message={m} />
-              )}
-            </div>
-          ))
+          <>
+            {messages.map((m) => (
+              <div key={m.id} className={`message ${m.role}`}>
+                {m.role === "assistant" ? (
+                  <>
+                    <MessageContent
+                      message={m}
+                      markdown
+                      live={busy && m.id === inFlightAssistant?.id}
+                    />
+                    <MessageAssistantFooter
+                      message={m as PageWiseUIMessage}
+                      live={busy && m.id === inFlightAssistant?.id}
+                      canRegenerate={
+                        !busy &&
+                        m.id === lastAssistant?.id &&
+                        !!lastUser &&
+                        !!regenerateDocumentMessage
+                      }
+                      onRegenerate={() => void handleRegenerate()}
+                    />
+                  </>
+                ) : (
+                  <MessageContent message={m} />
+                )}
+              </div>
+            ))}
+            {awaitingAssistant && (
+              <div className="message assistant message-pending" aria-live="polite">
+                <p className="agent-generating-line">
+                  <span className="typing-dots" aria-hidden>
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  {activity ?? t("agent.thinking")}
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

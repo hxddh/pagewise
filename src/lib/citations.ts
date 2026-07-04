@@ -1,5 +1,9 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
-import { findLastMessage } from "./messages-utils";
+import {
+  getInFlightAssistantMessage,
+  getLastMessage,
+  isAwaitingAssistantReply,
+} from "./messages-utils";
 
 export interface PageCitation {
   page: number;
@@ -100,8 +104,14 @@ export function extractCitationsFromMessage(
 export function getLatestAgentActivity(
   messages: UIMessage[],
   t?: (key: string, vars?: Record<string, string | number>) => string,
+  busy = false,
 ): string | null {
-  const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
+  const lastAssistant = busy
+    ? getInFlightAssistantMessage(messages, true)
+    : (() => {
+        const last = getLastMessage(messages);
+        return last?.role === "assistant" ? last : undefined;
+      })();
   if (!lastAssistant) return null;
 
   for (let i = lastAssistant.parts.length - 1; i >= 0; i--) {
@@ -144,10 +154,14 @@ export function getAgentActivity(
 ): string | null {
   if (!busy) return null;
 
-  const inFlight = getLatestAgentActivity(messages, t);
+  const inFlight = getLatestAgentActivity(messages, t, busy);
   if (inFlight) return inFlight;
 
-  const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
+  if (isAwaitingAssistantReply(messages, busy)) {
+    return t ? t("agent.thinking") : "Thinking…";
+  }
+
+  const lastAssistant = getInFlightAssistantMessage(messages, busy);
   if (!lastAssistant) return t ? t("agent.thinking") : "Thinking…";
 
   const textLen = lastAssistant.parts.reduce((sum, p) => {
