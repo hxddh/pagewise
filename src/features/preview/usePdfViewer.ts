@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   buildScaleKey,
+  clearPageBitmapCache,
   clearPdfCache,
   effectiveRenderQuality,
   hasPageCache,
@@ -100,7 +101,9 @@ export function usePdfViewer({
   }, [docPath]);
 
   useEffect(() => {
-    clearPdfCache();
+    // Quality only affects rendered bitmaps — drop those and re-render, but keep
+    // the loaded pdf.js document and cached PDF bytes to avoid a full reload.
+    clearPageBitmapCache();
   }, [userQuality]);
 
   useEffect(() => {

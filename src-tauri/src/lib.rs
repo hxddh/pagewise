@@ -62,13 +62,19 @@ async fn extract_pdf_text_cmd(
 }
 
 #[tauri::command]
-async fn read_file_bytes(path: String, allowed: State<'_, AllowedPaths>) -> Result<Vec<u8>, String> {
+async fn read_file_bytes(
+    path: String,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<tauri::ipc::Response, String> {
     let canon = ensure_allowed(&allowed, &path)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
         std::fs::read(&canon).map_err(|e| format!("Read failed: {e}"))
     })
     .await
-    .map_err(|e| format!("Task join failed: {e}"))?
+    .map_err(|e| format!("Task join failed: {e}"))??;
+    // Return raw bytes so the webview receives an ArrayBuffer directly instead
+    // of a JSON number[] (which balloons for large PDFs).
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
@@ -114,17 +120,35 @@ async fn write_text_file(
         return Err("path not authorized".to_string());
     }
 
-    let resolved = canon_parent.join(file_name);
-    let canon_resolved =
-        std::fs::canonicalize(&resolved).map_err(|e| format!("Invalid path: {e}"))?;
-
-    if !canon_resolved.starts_with(&canon_parent) {
+    // Reject any file name that contains path separators or traversal — the
+    // write must stay directly inside the authorized parent directory.
+    let name_str = file_name
+        .to_str()
+        .ok_or_else(|| "Invalid path: bad file name encoding".to_string())?;
+    if name_str == ".."
+        || name_str == "."
+        || name_str.contains('/')
+        || name_str.contains('\\')
+    {
         return Err("path not authorized".to_string());
     }
 
-    let content = content;
+    // Do NOT canonicalize the leaf: canonicalize() requires the final path
+    // component to already exist, which would break saving to a NEW file name.
+    let resolved = canon_parent.join(file_name);
+
+    // Symlink-escape protection only applies when overwriting an existing file:
+    // resolve the real target and confirm it is still inside the parent dir.
+    if resolved.exists() {
+        let canon_resolved =
+            std::fs::canonicalize(&resolved).map_err(|e| format!("Invalid path: {e}"))?;
+        if !canon_resolved.starts_with(&canon_parent) {
+            return Err("path not authorized".to_string());
+        }
+    }
+
     tauri::async_runtime::spawn_blocking(move || {
-        std::fs::write(&canon_resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
+        std::fs::write(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
