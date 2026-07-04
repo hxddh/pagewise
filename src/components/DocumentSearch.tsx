@@ -1,9 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { searchDocumentPages, type SearchHit } from "../lib/document-search";
 import { OPEN_DOC_SEARCH_EVENT } from "../lib/events";
 import type { LoadedDocument } from "../lib/types";
 import { useOverlayLock } from "../hooks/useOverlayLock";
+import {
+  isOverlayOpen,
+  isTopOverlayLayer,
+  popOverlayLayer,
+  pushOverlayLayer,
+} from "../lib/overlay-state";
 
 interface DocumentSearchProps {
   doc: LoadedDocument;
@@ -16,6 +22,18 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   useOverlayLock(open);
+  const layerRef = useRef<number | null>(null);
+
+  // Own an escape layer while open so Escape only closes the topmost overlay.
+  useEffect(() => {
+    if (!open) return;
+    const id = pushOverlayLayer();
+    layerRef.current = id;
+    return () => {
+      popOverlayLayer(id);
+      layerRef.current = null;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -31,10 +49,12 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        // Don't open search underneath a modal/drawer/palette.
+        if (!open && isOverlayOpen()) return;
         e.preventDefault();
         setOpen(true);
       }
-      if (e.key === "Escape" && open) {
+      if (e.key === "Escape" && open && isTopOverlayLayer(layerRef.current ?? -1)) {
         setOpen(false);
         setQuery("");
       }

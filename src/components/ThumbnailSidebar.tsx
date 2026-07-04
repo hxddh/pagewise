@@ -30,7 +30,16 @@ function ThumbnailItem({
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (active) rootRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (!active) return;
+    const el = rootRef.current;
+    const container = el?.parentElement;
+    if (!el || !container) return;
+    // Only auto-scroll when the active thumb is actually out of view, so we
+    // don't fight the user's manual scrolling as follow-mode flips pages.
+    const elRect = el.getBoundingClientRect();
+    const boxRect = container.getBoundingClientRect();
+    const outOfView = elRect.top < boxRect.top || elRect.bottom > boxRect.bottom;
+    if (outOfView) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [active]);
 
   useEffect(() => {
@@ -51,7 +60,12 @@ function ThumbnailItem({
       if (!cancelled && canvasRef.current) {
         const ctx = canvasRef.current.getContext("2d");
         if (ctx) {
-          ctx.fillStyle = "#1a1a1e";
+          // Resolve the theme token so the error fill matches light/dark.
+          const fill =
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--bg-hover")
+              .trim() || "#1a1a1e";
+          ctx.fillStyle = fill;
           ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         }
       }
@@ -116,6 +130,12 @@ export function ThumbnailSidebar({
         </button>
       </div>
       <div className="thumb-list">
+        {/*
+          NOTE: all page buttons are mounted eagerly. Thumbnail rendering itself
+          is deferred via IntersectionObserver (only visible canvases paint), so
+          the cost is DOM nodes rather than PDF work. For very large documents a
+          windowed/virtualized list would further reduce DOM overhead.
+        */}
         {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
           <ThumbnailItem
             key={page}

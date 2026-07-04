@@ -39,7 +39,7 @@ npm test
 npm run build
 ```
 
-The CI workflow runs the secret scan on every push and pull request.
+The CI workflow (`ci.yml`) runs the secret scan on pushes to `main` and on pull requests targeting `main`.
 
 ## Reporting vulnerabilities
 
@@ -49,4 +49,5 @@ If you discover a security issue, please open a private report via GitHub Securi
 
 - Never commit `.env` files with real keys
 - Use placeholder values in tests only (e.g. `sk-test`)
-- Do not log `LlmSettings` objects containing `apiKey`
+- Avoid logging `LlmSettings` objects containing `apiKey` — this is a code-review
+  guideline, not an automatically enforced guarantee, so review diffs accordingly

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useI18n } from "../i18n";
 import type { StoredChatSession } from "../lib/chat-sessions";
 import type { RecentFile } from "../lib/recent-files";
@@ -35,6 +36,7 @@ export function DocumentLibrary({
   onClearSession,
 }: DocumentLibraryProps) {
   const { t } = useI18n();
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const recentPaths = new Set(recentFiles.map((f) => f.path));
   const historySessions = sessions
@@ -81,9 +83,11 @@ export function DocumentLibrary({
           ) : (
             historySessions.map((s) => {
               const preview = userPreview(s.messages);
+              const key = `${s.docPath}-${s.sessionId}`;
+              const confirming = pendingDelete === key;
               return (
                 <li
-                  key={`${s.docPath}-${s.sessionId}`}
+                  key={key}
                   className={s.docPath === activePath ? "active" : ""}
                 >
                   <button
@@ -98,14 +102,43 @@ export function DocumentLibrary({
                       <span className="library-meta">{formatRelative(s.updatedAt, t)}</span>
                     )}
                   </button>
-                  <button
-                    type="button"
-                    className="library-remove"
-                    onClick={() => onClearSession(s.docPath)}
-                    aria-label={t("library.deleteChat")}
-                  >
-                    ×
-                  </button>
+                  {confirming ? (
+                    <span
+                      className="library-delete-confirm"
+                      role="group"
+                      aria-label={t("library.deleteChatConfirm")}
+                    >
+                      <button
+                        type="button"
+                        className="library-confirm-yes"
+                        onClick={() => {
+                          onClearSession(s.docPath);
+                          setPendingDelete(null);
+                        }}
+                        aria-label={t("library.deleteChatConfirmAction")}
+                        title={t("library.deleteChatConfirm")}
+                      >
+                        {t("library.deleteChatConfirmAction")}
+                      </button>
+                      <button
+                        type="button"
+                        className="library-confirm-no"
+                        onClick={() => setPendingDelete(null)}
+                        aria-label={t("common.cancel")}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="library-remove"
+                      onClick={() => setPendingDelete(key)}
+                      aria-label={t("library.deleteChat")}
+                    >
+                      ×
+                    </button>
+                  )}
                 </li>
               );
             })

@@ -4,6 +4,12 @@ import { filterCommands, sectionLabel } from "../lib/commands";
 import type { CommandItem } from "../lib/commands";
 import { hasSeenPaletteHint, loadRecentCommandIds, markPaletteHintSeen } from "../lib/onboarding-hints";
 import { useOverlayLock } from "../hooks/useOverlayLock";
+import { useFocusTrap } from "../hooks/useFocusTrap";
+import {
+  isTopOverlayLayer,
+  popOverlayLayer,
+  pushOverlayLayer,
+} from "../lib/overlay-state";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -17,6 +23,10 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement>(null);
+  const layerRef = useRef<number | null>(null);
+  useFocusTrap(open, panelRef);
 
   const recentCommands = useMemo(() => {
     const ids = loadRecentCommandIds();
@@ -61,15 +71,26 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
 
   useEffect(() => {
     if (!open) return;
+    const layerId = pushOverlayLayer();
+    layerRef.current = layerId;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
         e.preventDefault();
         onClose();
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      popOverlayLayer(layerId);
+      layerRef.current = null;
+    };
   }, [open, onClose]);
+
+  // Keep the active row visible as the selection moves.
+  useEffect(() => {
+    activeItemRef.current?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
 
   if (!open) return null;
 
@@ -79,6 +100,8 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
   }
 
   function onInputKeyDown(e: React.KeyboardEvent) {
+    // Ignore keys mid-IME-composition so Enter doesn't run a command early.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((i) => Math.min(i + 1, Math.max(0, listItems.length - 1)));
@@ -96,7 +119,13 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
   return (
     <div className="palette-root" role="presentation">
       <button type="button" className="palette-backdrop" aria-label={t("settings.close")} onClick={onClose} />
-      <div className="palette-panel" role="dialog" aria-modal="true" aria-label={t("commands.title")}>
+      <div
+        ref={panelRef}
+        className="palette-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("commands.title")}
+      >
         <input
           ref={inputRef}
           className="palette-input"
@@ -104,8 +133,14 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onInputKeyDown}
           placeholder={t("commands.placeholder")}
+          role="combobox"
+          aria-expanded
+          aria-controls="palette-listbox"
+          aria-activedescendant={
+            listItems[activeIndex] ? `palette-option-${activeIndex}` : undefined
+          }
         />
-        <div className="palette-list">
+        <div className="palette-list" id="palette-listbox" role="listbox">
           {listItems.length === 0 ? (
             <p className="palette-empty">{t("commands.empty")}</p>
           ) : (
@@ -117,11 +152,16 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
                 {(showRecent ? recentCommands : filtered.filter((cmd) => cmd.section === section)).map(
                   (cmd) => {
                     const idx = listItems.indexOf(cmd);
+                    const isActive = idx === activeIndex;
                     return (
                       <button
                         key={cmd.id}
+                        ref={isActive ? activeItemRef : undefined}
+                        id={`palette-option-${idx}`}
                         type="button"
-                        className={`palette-item ${idx === activeIndex ? "active" : ""}`}
+                        role="option"
+                        aria-selected={isActive}
+                        className={`palette-item ${isActive ? "active" : ""}`}
                         onMouseEnter={() => setActiveIndex(idx)}
                         onClick={() => void runCommand(cmd)}
                       >

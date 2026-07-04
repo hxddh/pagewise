@@ -30,13 +30,17 @@ Verify:
 
 ## macOS artifacts
 
-After `npm run tauri build`:
+After `npm run tauri build` on `macos-latest` (Apple Silicon runner):
 
 ```
 src-tauri/target/release/bundle/macos/PageWise.app
-src-tauri/target/release/bundle/dmg/PageWise_0.2.0_aarch64.dmg   # Apple Silicon
-src-tauri/target/release/bundle/dmg/PageWise_0.2.0_x64.dmg       # Intel (cross-build)
+src-tauri/target/release/bundle/dmg/PageWise_0.2.0_aarch64.dmg   # Apple Silicon (arm64)
 ```
+
+> The CI workflow runs a plain `npm run tauri build` on `macos-latest`, which
+> produces the **arm64 DMG only**. An Intel `x64.dmg` is **not currently
+> produced** — it would require an explicit `--target x86_64-apple-darwin`
+> cross-build step that the workflow does not yet include.
 
 ## GitHub release
 
@@ -50,17 +54,26 @@ src-tauri/target/release/bundle/dmg/PageWise_0.2.0_x64.dmg       # Intel (cross-
 
 3. GitHub Actions (`release.yml`) builds the macOS DMG and attaches it to the release, **or** upload the local DMG manually via the Releases UI.
 
-### Code signing (optional)
+### Code signing (not yet wired)
 
-Unsigned builds run on macOS after right-click → Open. For distribution outside your team:
+> **Note:** `release.yml` does **not** currently sign or notarize builds. The
+> steps below describe what *would* need to be added; none of these secrets or
+> hooks exist in the workflow today.
 
-- Apple Developer ID Application certificate
-- Set `APPLE_SIGNING_IDENTITY` in the release workflow
+CI-built DMGs are unsigned, so users must right-click → **Open** (or run
+`xattr -dr com.apple.quarantine /Applications/PageWise.app`) on first launch.
+For signed distribution outside your team you would need to:
+
+- Obtain an Apple Developer ID Application certificate
+- Add `APPLE_SIGNING_IDENTITY` (and related secrets) to the release workflow
 - Notarize with `notarytool`
 
 See [Tauri macOS code signing](https://v2.tauri.app/distribute/sign/macos/).
 
 ## CI
 
-- **ci.yml** — tests + secret scan on push/PR
-- **release.yml** — triggered on `v*` tags, produces macOS DMG artifact
+- **ci.yml** — secret scan, unit tests, frontend typecheck/build, version-sync
+  drift check, and `cargo check` (Rust) on pushes to `main` and PRs targeting `main`
+- **release.yml** — triggered on `v*` tags. Verifies the tag matches `VERSION`,
+  builds the arm64 macOS bundle, fails if no `.dmg` is produced, and attaches the
+  `.dmg` (plus a `PageWise.app.tar.gz` of the `.app`) to the GitHub Release

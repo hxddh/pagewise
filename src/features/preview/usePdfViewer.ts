@@ -82,6 +82,9 @@ export function usePdfViewer({
     loadPreferences().then((p) => setUserQuality(p.previewQuality));
   }, [prefsRevision]);
 
+  // Per-document reset to fit-width for display. This is a *programmatic* reset
+  // and must NOT be persisted, otherwise it would clobber the user's remembered
+  // zoom (persistence happens only in the explicit user-action callbacks below).
   useEffect(() => {
     setZoom("fit-width");
     clearPdfCache();
@@ -90,10 +93,6 @@ export function usePdfViewer({
   useEffect(() => {
     clearPdfCache();
   }, [userQuality]);
-
-  useEffect(() => {
-    localStorage.setItem(ZOOM_KEY, zoom === "fit-width" ? "fit-width" : String(zoom));
-  }, [zoom]);
 
   useEffect(() => {
     const initial = loadZoom();
@@ -328,38 +327,52 @@ export function usePdfViewer({
     return () => window.removeEventListener("keydown", onKey);
   }, [prevPage, nextPage]);
 
-  const bumpZoom = useCallback((next: ZoomMode) => {
-    if (typeof next === "number") lastNumericRef.current = next;
-    setZoom((prev) => (isSameZoom(prev, next) ? prev : next));
-    setRefitToken((t) => t + 1);
+  // Persist only user-initiated zoom changes. `zoomRef` is kept current every
+  // render, so these callbacks read the live zoom without a stale closure and
+  // without putting side effects inside a setState updater (StrictMode-safe).
+  const persistZoom = useCallback((z: ZoomMode) => {
+    localStorage.setItem(ZOOM_KEY, z === "fit-width" ? "fit-width" : String(z));
   }, []);
+
+  const bumpZoom = useCallback(
+    (next: ZoomMode) => {
+      if (typeof next === "number") lastNumericRef.current = next;
+      setZoom((prev) => (isSameZoom(prev, next) ? prev : next));
+      setRefitToken((t) => t + 1);
+      persistZoom(next);
+    },
+    [persistZoom],
+  );
 
   const zoomIn = useCallback(() => {
-    setZoom((prev) => {
-      const next = stepZoom(prev, 1);
-      if (typeof next === "number") lastNumericRef.current = next;
-      return next;
-    });
+    const next = stepZoom(zoomRef.current, 1);
+    if (typeof next === "number") lastNumericRef.current = next;
+    setZoom(next);
     setRefitToken((t) => t + 1);
-  }, []);
+    persistZoom(next);
+  }, [persistZoom]);
 
   const zoomOut = useCallback(() => {
-    setZoom((prev) => {
-      const next = stepZoom(prev, -1);
-      if (typeof next === "number") lastNumericRef.current = next;
-      return next;
-    });
+    const next = stepZoom(zoomRef.current, -1);
+    if (typeof next === "number") lastNumericRef.current = next;
+    setZoom(next);
     setRefitToken((t) => t + 1);
-  }, []);
+    persistZoom(next);
+  }, [persistZoom]);
 
   const toggleFitWidth = useCallback(() => {
-    setZoom((prev) => {
-      if (prev === "fit-width") return lastNumericRef.current;
+    const prev = zoomRef.current;
+    let next: ZoomMode;
+    if (prev === "fit-width") {
+      next = lastNumericRef.current;
+    } else {
       if (typeof prev === "number") lastNumericRef.current = prev;
-      return "fit-width";
-    });
+      next = "fit-width";
+    }
+    setZoom(next);
     setRefitToken((t) => t + 1);
-  }, []);
+    persistZoom(next);
+  }, [persistZoom]);
 
   useEffect(() => {
     if (doc.kind !== "pdf" || !canvasRef.current || viewportWidth < 80) return;
@@ -431,13 +444,21 @@ export function usePdfViewer({
 
         if (wantTextLayer && textLayerRef.current) {
           try {
-            cleanupTextLayer = await renderTextLayer(
+            const c = await renderTextLayer(
               doc.path,
               page,
               scale,
               textLayerRef.current,
             );
-            if (!cancelled) setShowTextLayer(true);
+            // If cleanup ran (or a newer render started) while awaiting, the
+            // resolved text layer must be cancelled/removed immediately —
+            // otherwise it's orphaned and never torn down.
+            if (cancelled || generation !== renderGenRef.current) {
+              c();
+              return;
+            }
+            cleanupTextLayer = c;
+            setShowTextLayer(true);
           } catch {
             if (!cancelled) setShowTextLayer(false);
           }

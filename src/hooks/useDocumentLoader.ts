@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadDocument } from "../lib/load-document";
 import { addRecentFile } from "../lib/recent-files";
 import type { LoadProgress } from "../lib/load-progress";
@@ -22,22 +22,47 @@ export function useDocumentLoader({
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
 
+  // Monotonic sequence so a slow earlier load can't clobber a newer one.
+  const loadSeqRef = useRef(0);
+  // Handle for the deferred "clear progress" timer so it can be cancelled on a
+  // new load / unmount (it must not clear the NEXT load's progress).
+  const clearProgressTimerRef = useRef<number | undefined>(undefined);
+
+  const cancelClearProgressTimer = () => {
+    if (clearProgressTimerRef.current !== undefined) {
+      window.clearTimeout(clearProgressTimerRef.current);
+      clearProgressTimerRef.current = undefined;
+    }
+  };
+
+  useEffect(() => () => cancelClearProgressTimer(), []);
+
   const openPath = useCallback(
     async (path: string) => {
+      const seq = ++loadSeqRef.current;
+      const isLatest = () => loadSeqRef.current === seq;
+
+      // A brand-new load owns the overlay: drop any pending clear timer.
+      cancelClearProgressTimer();
       setLoading(true);
       setProgress({ stage: "opening", message: "load.opening", percent: 0 });
       onError("");
       try {
-        const doc = await loadDocument(path, setProgress);
+        const doc = await loadDocument(path, (p) => {
+          if (isLatest()) setProgress(p);
+        });
+        if (!isLatest()) return;
         onLoaded(doc);
         const recent = await addRecentFile({
           path: doc.path,
           name: doc.name,
           kind: doc.kind,
         });
+        if (!isLatest()) return;
         onRecentChange(recent);
         showToast(t("toast.opened", { name: doc.name }), "success");
       } catch (e) {
+        if (!isLatest()) return;
         const raw = e instanceof Error ? e.message : "";
         const msg =
           raw === "errors.unsupportedFile" || raw.startsWith("errors.")
@@ -46,8 +71,15 @@ export function useDocumentLoader({
         onError(msg);
         showToast(msg, "error");
       } finally {
-        setLoading(false);
-        window.setTimeout(() => setProgress(null), 400);
+        // Only the newest load may flip the overlay off / schedule the clear.
+        if (isLatest()) {
+          setLoading(false);
+          cancelClearProgressTimer();
+          clearProgressTimerRef.current = window.setTimeout(() => {
+            clearProgressTimerRef.current = undefined;
+            if (isLatest()) setProgress(null);
+          }, 400);
+        }
       }
     },
     [onLoaded, onRecentChange, onError, showToast, t],

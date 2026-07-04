@@ -11,8 +11,8 @@ export function AboutSettings() {
   const [tesseractOk, setTesseractOk] = useState<boolean | null>(null);
 
   useEffect(() => {
-    invoke<boolean>("check_tesseract")
-      .then(setTesseractOk)
+    invoke<{ installed: boolean; chi_sim: boolean }>("check_tesseract")
+      .then((status) => setTesseractOk(status.installed))
       .catch(() => setTesseractOk(false));
   }, []);
 

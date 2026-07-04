@@ -58,7 +58,9 @@ export function AppRail({
           connected ? t("sidebar.connected") : t("sidebar.settingsHint")
         }
         aria-label={
-          connected ? t("sidebar.connected") : t("sidebar.notConfigured")
+          connected
+            ? t("sidebar.settingsConnected")
+            : t("sidebar.settingsNotConfigured")
         }
       >
         <Settings size={18} strokeWidth={1.75} />

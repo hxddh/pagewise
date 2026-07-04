@@ -14,6 +14,8 @@ const RASTER_TEXT_THRESHOLD = 48;
 
 let pdfDocCache: { path: string; doc: pdfjs.PDFDocumentProxy } | null = null;
 const pdfBytesCache = new Map<string, Uint8Array>();
+/** De-dupes concurrent getDocument loads for the same path. */
+const inFlightDocs = new Map<string, Promise<pdfjs.PDFDocumentProxy>>();
 let renderEpoch = 0;
 
 type RenderPriority = "high" | "low";
@@ -22,6 +24,8 @@ interface QueueItem {
   priority: RenderPriority;
   epoch: number;
   run: () => Promise<void>;
+  /** Settle the awaited promise without running (used when the item is dropped). */
+  cancel: () => void;
 }
 
 interface PageRenderSnapshot {
@@ -67,15 +71,15 @@ export function qualityMultiplier(quality: PreviewQuality): number {
   }
 }
 
-/** WebView may under-report DPR; use the larger of reported vs screen-derived ratio. */
+/**
+ * Use the browser-reported device pixel ratio directly, clamped to a sane range.
+ * Inferring DPR from screen.width / innerWidth over-scaled non-maximized windows on
+ * 1x displays (rendering ~4x the pixels), so that heuristic has been removed.
+ */
 export function effectiveDevicePixelRatio(): number {
   if (typeof window === "undefined") return 1;
   const reported = window.devicePixelRatio || 1;
-  const screenRatio =
-    window.screen?.width && window.innerWidth
-      ? window.screen.width / window.innerWidth
-      : reported;
-  return Math.min(2, Math.ceil(Math.max(reported, screenRatio, 1)));
+  return Math.min(2, Math.max(1, reported));
 }
 
 export function effectiveRenderQuality(
@@ -97,8 +101,22 @@ export function isRasterHeavyPage(textLength: number): boolean {
 
 function purgeLowPriorityQueue(): void {
   for (let i = renderQueue.length - 1; i >= 0; i--) {
-    if (renderQueue[i]!.priority === "low") renderQueue.splice(i, 1);
+    const item = renderQueue[i]!;
+    if (item.priority === "low") {
+      renderQueue.splice(i, 1);
+      item.cancel();
+    }
   }
+}
+
+/** LRU read: on a hit, re-insert the key so it becomes most-recently-used. */
+function getCachedPage(key: string): PageRenderSnapshot | undefined {
+  const snap = pageCache.get(key);
+  if (snap) {
+    pageCache.delete(key);
+    pageCache.set(key, snap);
+  }
+  return snap;
 }
 
 function evictPageCache(): void {
@@ -113,17 +131,32 @@ function evictPageCache(): void {
 function enqueueRender(priority: RenderPriority, run: () => Promise<void>): Promise<void> {
   const epoch = renderEpoch;
   return new Promise((resolve, reject) => {
+    let settled = false;
     const item: QueueItem = {
       priority,
       epoch,
       run: async () => {
+        if (settled) return;
+        // Stale after a cache clear / epoch bump: settle (resolve) instead of
+        // silently dropping the promise, so awaiters never hang.
+        if (item.epoch !== renderEpoch) {
+          settled = true;
+          resolve();
+          return;
+        }
         try {
-          if (item.epoch !== renderEpoch) return;
           await run();
+          settled = true;
           resolve();
         } catch (e) {
+          settled = true;
           reject(e);
         }
+      },
+      cancel: () => {
+        if (settled) return;
+        settled = true;
+        resolve();
       },
     };
 
@@ -146,7 +179,7 @@ async function drainQueue(): Promise<void> {
   try {
     while (renderQueue.length > 0) {
       const item = renderQueue.shift()!;
-      if (item.epoch !== renderEpoch) continue;
+      // item.run() settles stale items as cancelled internally.
       await item.run();
     }
   } finally {
@@ -196,16 +229,33 @@ export async function getPdfDocument(path: string): Promise<pdfjs.PDFDocumentPro
   if (pdfDocCache?.path === path) {
     return pdfDocCache.doc;
   }
-  const data = await loadPdfBytes(path);
-  const doc = await pdfjs.getDocument({
-    data,
-    useSystemFonts: true,
-    disableStream: true,
-    disableAutoFetch: true,
-    disableRange: true,
-  }).promise;
-  pdfDocCache = { path, doc };
-  return doc;
+  const inFlight = inFlightDocs.get(path);
+  if (inFlight) return inFlight;
+
+  const load = (async () => {
+    const data = await loadPdfBytes(path);
+    const doc = await pdfjs.getDocument({
+      data,
+      useSystemFonts: true,
+      disableStream: true,
+      disableAutoFetch: true,
+      disableRange: true,
+    }).promise;
+    // Destroy the previously cached document before replacing it, otherwise the
+    // parsed doc leaks inside the pdf.js worker.
+    if (pdfDocCache && pdfDocCache.path !== path) {
+      void pdfDocCache.doc.loadingTask.destroy();
+    }
+    pdfDocCache = { path, doc };
+    return doc;
+  })();
+
+  inFlightDocs.set(path, load);
+  try {
+    return await load;
+  } finally {
+    inFlightDocs.delete(path);
+  }
 }
 
 export async function getPageViewport(path: string, pageNumber: number, scale: number) {
@@ -278,7 +328,7 @@ export function tryApplyCachedPage(
   canvas: HTMLCanvasElement,
 ): boolean {
   const key = cacheKey(path, pageNumber, scaleKey, quality);
-  const cached = pageCache.get(key);
+  const cached = getCachedPage(key);
   if (!cached) return false;
   applySnapshot(canvas, cached);
   return true;
@@ -302,7 +352,7 @@ async function renderAndCache(
   canvas: HTMLCanvasElement,
 ): Promise<{ totalPages: number; cacheHit: boolean }> {
   const key = cacheKey(path, pageNumber, scaleKey, quality);
-  const cached = pageCache.get(key);
+  const cached = getCachedPage(key);
   if (cached) {
     applySnapshot(canvas, cached);
     const doc = await getPdfDocument(path);
@@ -326,6 +376,13 @@ async function renderAndCache(
   return { totalPages: doc.numPages, cacheHit: false };
 }
 
+export interface RenderResult {
+  totalPages: number;
+  cacheHit: boolean;
+  /** True when the render was cancelled (cache cleared / epoch bumped) before running. */
+  cancelled?: boolean;
+}
+
 export async function renderPageToCanvas(
   path: string,
   pageNumber: number,
@@ -334,15 +391,16 @@ export async function renderPageToCanvas(
   priority: RenderPriority = "high",
   quality: PreviewQuality = "crisp",
   scaleKey?: string,
-): Promise<{ totalPages: number; cacheHit: boolean }> {
+): Promise<RenderResult> {
   const key = scaleKey ?? `fixed:${scale.toFixed(4)}`;
-  let result: { totalPages: number; cacheHit: boolean };
+  // Default to a cancelled marker; the callback below overwrites it only if it runs.
+  let result: RenderResult = { totalPages: 0, cacheHit: false, cancelled: true };
 
   await enqueueRender(priority, async () => {
     result = await renderAndCache(path, pageNumber, scale, key, quality, canvas);
   });
 
-  return result!;
+  return result;
 }
 
 export function prefetchPage(
@@ -403,8 +461,13 @@ export async function renderTextLayer(
 
 export function clearPdfCache(): void {
   renderEpoch += 1;
+  // Settle any queued renders so their awaiters resolve instead of hanging forever.
+  for (const item of renderQueue) item.cancel();
   renderQueue.length = 0;
-  pdfDocCache = null;
+  if (pdfDocCache) {
+    void pdfDocCache.doc.loadingTask.destroy();
+    pdfDocCache = null;
+  }
   pdfBytesCache.clear();
   fitScaleCache.clear();
   for (const snap of pageCache.values()) snap.bitmap.close();

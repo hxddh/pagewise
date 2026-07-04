@@ -12,6 +12,20 @@ import {
   type ChatThread,
   type StoredChatSession,
 } from "../lib/chat-sessions";
+import { sanitizeDanglingToolParts } from "../lib/prune-chat-history";
+
+/**
+ * Cheap identity signature for a message list. Used to tell whether the current
+ * messages are still exactly what was loaded from disk (so we can skip a
+ * pointless autosave that would only bump `updatedAt`).
+ */
+function messagesSignature(messages: UIMessage[]): string {
+  let sig = `${messages.length}:`;
+  for (const m of messages) {
+    sig += `${m.id}#${m.parts.length};`;
+  }
+  return sig;
+}
 
 interface UseChatPersistenceOptions {
   docPath: string | null;
@@ -42,10 +56,18 @@ export function useChatPersistence({
   const prevPathRef = useRef<string | null>(null);
   const skipSaveRef = useRef(false);
   const switchGenRef = useRef(0);
-  const pendingSessionRef = useRef<string | undefined>(undefined);
+  // A queued session id is bound to the path it was queued for, so a queued id
+  // whose load never completed can never be applied to a *different* document.
+  const pendingSessionRef = useRef<{ path: string; sessionId: string } | undefined>(
+    undefined,
+  );
   const onDocumentSwitchRef = useRef(onDocumentSwitch);
   const setMessagesRef = useRef(setMessages);
   const appliedLoadKeyRef = useRef("");
+  // Signature of the messages exactly as last loaded from disk. The debounced
+  // autosave skips saving while the live messages still match this, so merely
+  // opening a doc/thread doesn't rewrite it with a fresh updatedAt.
+  const loadedSnapshotRef = useRef("");
 
   messagesRef.current = messages;
   sessionIdRef.current = activeSessionId;
@@ -94,20 +116,23 @@ export function useChatPersistence({
               prev,
               prevName,
               sessionIdRef.current,
-              outgoing,
+              sanitizeDanglingToolParts(outgoing),
             );
           }
         }
 
         if (cancelled || gen !== switchGenRef.current) return;
 
-        const preferredSession = pendingSessionRef.current;
+        const pending = pendingSessionRef.current;
         pendingSessionRef.current = undefined;
+        const preferredSession =
+          pending && pending.path === docPath ? pending.sessionId : undefined;
         const loaded = await loadActiveMessages(docPath!, preferredSession);
 
         if (cancelled || gen !== switchGenRef.current) return;
 
         setMessagesRef.current(loaded.messages);
+        loadedSnapshotRef.current = messagesSignature(loaded.messages);
         setActiveSessionId(loaded.sessionId);
         setThreads(loaded.threads);
         prevPathRef.current = docPath;
@@ -137,12 +162,15 @@ export function useChatPersistence({
       if (docPathRef.current !== savePath || !docNameRef.current) return;
       const snapshot = messagesRef.current;
       if (snapshot.length === 0) return;
+      // Nothing actually changed since load — don't re-save (would only churn
+      // updatedAt and scramble the recent-sessions order).
+      if (messagesSignature(snapshot) === loadedSnapshotRef.current) return;
 
       void saveActiveSession(
         savePath,
         saveName,
         sessionIdRef.current,
-        snapshot,
+        sanitizeDanglingToolParts(snapshot),
       ).then(async () => {
         if (docPathRef.current !== savePath) return;
         const loaded = await loadActiveMessages(savePath);
@@ -154,9 +182,15 @@ export function useChatPersistence({
     return () => window.clearTimeout(id);
   }, [docPath, docName, activeSessionId, messages, refreshSessions, chatLoading]);
 
-  const queueSessionForLoad = useCallback((sessionId: string) => {
-    pendingSessionRef.current = sessionId;
+  const queueSessionForLoad = useCallback((path: string, sessionId: string) => {
+    pendingSessionRef.current = { path, sessionId };
     appliedLoadKeyRef.current = "";
+  }, []);
+
+  // Drop a queued session id (e.g. when the open that would have consumed it
+  // failed) so it can't later be applied to the wrong document.
+  const clearQueuedSession = useCallback(() => {
+    pendingSessionRef.current = undefined;
   }, []);
 
   const selectThread = useCallback(
@@ -164,7 +198,12 @@ export function useChatPersistence({
       if (!docPath) return;
       const snapshot = messagesRef.current;
       if (snapshot.length > 0) {
-        await saveActiveSession(docPath, docName ?? "", sessionIdRef.current, snapshot);
+        await saveActiveSession(
+          docPath,
+          docName ?? "",
+          sessionIdRef.current,
+          sanitizeDanglingToolParts(snapshot),
+        );
       }
       skipSaveRef.current = true;
       setChatLoading(true);
@@ -172,6 +211,7 @@ export function useChatPersistence({
         const loaded = await switchThread(docPath, sessionId);
         setActiveSessionId(sessionId);
         setMessagesRef.current(loaded);
+        loadedSnapshotRef.current = messagesSignature(loaded);
         const meta = await loadActiveMessages(docPath);
         setThreads(meta.threads);
         await refreshSessions();
@@ -187,7 +227,12 @@ export function useChatPersistence({
     if (!docPath || !docName) return;
     const snapshot = messagesRef.current;
     if (snapshot.length > 0) {
-      await saveActiveSession(docPath, docName, sessionIdRef.current, snapshot);
+      await saveActiveSession(
+        docPath,
+        docName,
+        sessionIdRef.current,
+        sanitizeDanglingToolParts(snapshot),
+      );
     }
     skipSaveRef.current = true;
     try {
@@ -195,6 +240,7 @@ export function useChatPersistence({
       setActiveSessionId(sessionId);
       setThreads(nextThreads);
       setMessagesRef.current([]);
+      loadedSnapshotRef.current = messagesSignature([]);
     } finally {
       skipSaveRef.current = false;
     }
@@ -207,6 +253,7 @@ export function useChatPersistence({
     try {
       await clearActiveThread(docPath, sessionIdRef.current);
       setMessagesRef.current([]);
+      loadedSnapshotRef.current = messagesSignature([]);
       const loaded = await loadActiveMessages(docPath);
       setActiveSessionId(loaded.sessionId);
       setThreads(loaded.threads);
@@ -227,6 +274,7 @@ export function useChatPersistence({
         try {
           const loaded = await loadActiveMessages(docPath);
           setMessagesRef.current(loaded.messages);
+          loadedSnapshotRef.current = messagesSignature(loaded.messages);
           setActiveSessionId(loaded.sessionId);
           setThreads(loaded.threads);
           appliedLoadKeyRef.current = loadKey;
@@ -270,6 +318,7 @@ export function useChatPersistence({
     deleteSession,
     clearCurrentThread,
     queueSessionForLoad,
+    clearQueuedSession,
     refreshSessions,
   };
 }

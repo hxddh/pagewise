@@ -2,7 +2,22 @@ use keyring::Entry;
 
 const SERVICE: &str = "pagewise";
 
+/// Providers the frontend is allowed to store keys for. Rejecting anything else
+/// avoids junk/typo entries piling up in the OS keychain.
+const KNOWN_PROVIDERS: &[&str] = &["openai", "deepseek", "openrouter", "ollama", "custom"];
+
+fn validate_provider(provider: &str) -> Result<(), String> {
+    if provider.trim().is_empty() {
+        return Err("Provider must not be empty".to_string());
+    }
+    if !KNOWN_PROVIDERS.contains(&provider) {
+        return Err(format!("Unknown provider: {provider}"));
+    }
+    Ok(())
+}
+
 fn entry(provider: &str) -> Result<Entry, String> {
+    validate_provider(provider)?;
     Entry::new(SERVICE, &format!("api-key/{provider}")).map_err(|e| e.to_string())
 }
 
@@ -37,11 +52,18 @@ mod tests {
 
     #[test]
     fn keyring_roundtrip() {
-        let provider = format!("test-provider-{}", std::process::id());
+        // Must be a known provider now that entry() validates the name.
+        let provider = "custom".to_string();
         let key = format!("test-key-{}", std::process::id());
         set_api_key(provider.clone(), key.clone()).expect("set");
         let got = get_api_key(provider.clone()).expect("get");
         assert_eq!(got, key, "keychain roundtrip failed");
         delete_api_key(provider).expect("delete");
+    }
+
+    #[test]
+    fn rejects_unknown_provider() {
+        assert!(set_api_key("bogus".to_string(), "k".to_string()).is_err());
+        assert!(set_api_key(String::new(), "k".to_string()).is_err());
     }
 }

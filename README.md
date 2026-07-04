@@ -13,7 +13,7 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 - **Sessions** — Per-document chat threads persisted locally
 - **Library** — Recent files and saved sessions
 - **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint
-- **Security** — API keys stored in the **OS keychain** (macOS Keychain / Windows Credential Manager)
+- **Security** — API keys stored in the **OS keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service)
 - **i18n** — English and 简体中文
 
 ## Prerequisites
@@ -83,6 +83,18 @@ React UI  →  AI SDK (DirectChatTransport + ToolLoopAgent)
 ## macOS install
 
 Download the latest **`.dmg`** from [GitHub Releases](https://github.com/hxddh/pagewise/releases), open it, and drag PageWise to Applications.
+
+**Install Tesseract** — OCR is a hard prerequisite even for the prebuilt app; without it, image and scanned-PDF indexing will not work:
+
+```bash
+brew install tesseract tesseract-lang
+```
+
+**Unsigned builds** — CI-built DMGs are **not code-signed or notarized**, so Gatekeeper will block the first launch. Either right-click the app and choose **Open** (then confirm), or clear the quarantine attribute:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/PageWise.app
+```
 
 To build locally:
 

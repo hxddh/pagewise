@@ -33,6 +33,17 @@ export function clearPageIndexState(path: string, page: number): void {
   states.delete(key(path, page));
 }
 
+/**
+ * Drop all cached per-page index states for a document. Call when a document is
+ * closed/evicted so the `states` map doesn't grow unbounded across the session.
+ */
+export function clearDocumentIndexState(path: string): void {
+  const prefix = `${path}:`;
+  for (const stateKey of states.keys()) {
+    if (stateKey.startsWith(prefix)) states.delete(stateKey);
+  }
+}
+
 export function subscribePageIndex(listener: IndexListener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -40,5 +51,11 @@ export function subscribePageIndex(listener: IndexListener): () => void {
 
 export function emitPageIndex(state: PageIndexState): void {
   states.set(key(state.path, state.page), state);
-  for (const listener of listeners) listener(state);
+  for (const listener of listeners) {
+    try {
+      listener(state);
+    } catch {
+      // A throwing listener must not abort delivery to the remaining listeners.
+    }
+  }
 }

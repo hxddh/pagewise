@@ -6,6 +6,19 @@ export interface PageCitation {
   excerpt: string;
 }
 
+/**
+ * Matches the placeholder text that `pruneToolOutputsForHistory` /
+ * `sanitizeDanglingToolParts` substitute for real tool output, so we never
+ * render an "omitted from chat history" / "[cancelled]" string as a citation.
+ */
+const PLACEHOLDER_RE = /^\[Read .*omitted from chat history\]$/;
+
+function isPrunedPlaceholder(output: unknown): boolean {
+  if (typeof output !== "string") return false;
+  const trimmed = output.trim();
+  return trimmed === "[cancelled]" || PLACEHOLDER_RE.test(trimmed);
+}
+
 export function extractExcerpt(output: unknown, max = 160): string {
   if (!output) return "";
   if (typeof output === "string") return truncate(output.trim(), max);
@@ -17,15 +30,44 @@ export function extractExcerpt(output: unknown, max = 160): string {
 }
 
 function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return `${s.slice(0, max).trim()}…`;
+  // Slice by code points so a surrogate pair (e.g. an emoji) is never split
+  // into a lone half that renders as the replacement character.
+  const chars = [...s];
+  if (chars.length <= max) return s;
+  return `${chars.slice(0, max).join("").trim()}…`;
 }
 
-export function extractCitationsFromMessage(message: UIMessage): PageCitation[] {
+/**
+ * @param totalPages when provided, citations pointing past the document (or
+ *   below page 1) are dropped so a hallucinated `page: 9999` never renders.
+ */
+export function extractCitationsFromMessage(
+  message: UIMessage,
+  totalPages?: number,
+): PageCitation[] {
   const citations: PageCitation[] = [];
+  const seen = new Set<string>();
+
+  const inRange = (page: number): boolean => {
+    if (page < 1) return false;
+    if (typeof totalPages === "number" && totalPages > 0 && page > totalPages) {
+      return false;
+    }
+    return true;
+  };
+
+  const push = (citation: PageCitation): void => {
+    const dedupeKey = `${citation.page}:${citation.pageEnd ?? ""}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    citations.push(citation);
+  };
 
   for (const part of message.parts) {
     if (!isToolUIPart(part) || part.state !== "output-available") continue;
+
+    // Pruned/cancelled outputs no longer carry real page text.
+    if (isPrunedPlaceholder(part.output)) continue;
 
     const name = getToolName(part);
     const input =
@@ -37,17 +79,17 @@ export function extractCitationsFromMessage(message: UIMessage): PageCitation[] 
     if (!excerpt) continue;
 
     if (name === "read_pdf_page" && typeof input.page === "number") {
-      citations.push({ page: input.page, excerpt });
+      if (!inRange(input.page)) continue;
+      push({ page: input.page, excerpt });
     } else if (
       name === "read_pdf_range" &&
       typeof input.start === "number" &&
       typeof input.end === "number"
     ) {
-      citations.push({
-        page: input.start,
-        pageEnd: input.end,
-        excerpt,
-      });
+      const start = Math.min(input.start, input.end);
+      const end = Math.max(input.start, input.end);
+      if (!inRange(start)) continue;
+      push({ page: start, pageEnd: end, excerpt });
     }
   }
 
@@ -86,7 +128,6 @@ export function getLatestAgentActivity(
     if (name === "search_in_document") {
       return t ? t("agent.activitySearch") : "Searching document…";
     }
-    if (name === "ocr_file") return t ? t("agent.activityOcr") : "Running OCR…";
     if (name === "list_documents") return t ? t("agent.activityList") : "Checking documents…";
     return t ? t("agent.activityWorking") : "Working…";
   }

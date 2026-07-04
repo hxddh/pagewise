@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "./useTheme";
 import { useAppCommands } from "./useAppCommands";
 import { useToast } from "./useToast";
@@ -145,30 +145,58 @@ export function useAppShell() {
     showToast,
   });
 
-  const shell: ShellContextValue = {
-    settingsOpen,
-    settingsTab,
-    setSettingsOpen,
-    setSettingsTab,
-    openSettings,
-    paletteOpen,
-    setPaletteOpen,
-    commands,
-    prefsRevision,
-    showToast,
-    onPreferencesSaved,
-    handleApiReady,
-    handleLlmSettingsSaved,
-    handleReindexDoc,
-    exportChat,
-    exportSummary,
-    toggleAgent,
-    expandAgent,
-    clearChat,
-    requestClearChat,
-    clearConfirmOpen,
-    setClearConfirmOpen,
-  };
+  // Memoize the context value so agent stream ticks (which re-render this shell
+  // frequently) don't hand a brand-new object literal to every consumer.
+  const shell = useMemo<ShellContextValue>(
+    () => ({
+      settingsOpen,
+      settingsTab,
+      setSettingsOpen,
+      setSettingsTab,
+      openSettings,
+      paletteOpen,
+      setPaletteOpen,
+      commands,
+      prefsRevision,
+      showToast,
+      onPreferencesSaved,
+      handleApiReady,
+      handleLlmSettingsSaved,
+      handleReindexDoc,
+      exportChat,
+      exportSummary,
+      toggleAgent,
+      expandAgent,
+      clearChat,
+      requestClearChat,
+      clearConfirmOpen,
+      setClearConfirmOpen,
+    }),
+    [
+      settingsOpen,
+      settingsTab,
+      setSettingsOpen,
+      setSettingsTab,
+      openSettings,
+      paletteOpen,
+      setPaletteOpen,
+      commands,
+      prefsRevision,
+      showToast,
+      onPreferencesSaved,
+      handleApiReady,
+      handleLlmSettingsSaved,
+      handleReindexDoc,
+      exportChat,
+      exportSummary,
+      toggleAgent,
+      expandAgent,
+      clearChat,
+      requestClearChat,
+      clearConfirmOpen,
+      setClearConfirmOpen,
+    ],
+  );
 
   return { document, library, agent, shell };
 }

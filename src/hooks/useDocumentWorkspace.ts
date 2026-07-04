@@ -6,7 +6,7 @@ import { useTauriFileDrop } from "./useTauriFileDrop";
 import { useI18n } from "../i18n";
 import { clearPdfCache } from "../lib/pdf";
 import { docCache } from "../lib/doc-cache";
-import { subscribePageIndex } from "../lib/index-events";
+import { subscribePageIndex, clearDocumentIndexState } from "../lib/index-events";
 import { isSupportedDocument } from "../lib/load-document";
 import { loadPreferences } from "../lib/preferences";
 import { getLastAgentMessageContext } from "../lib/agent-view-context";
@@ -29,6 +29,13 @@ export function useDocumentWorkspace(
   const [docLoadSeq, setDocLoadSeq] = useState(0);
   const onLoadedRef = useRef<((doc: LoadedDocument) => void) | null>(null);
   const lastSyncedToolRef = useRef<string | null>(null);
+  // Mirror of activeDoc so effects/callbacks can read the current doc without a
+  // stale closure and without running side effects inside a setState updater.
+  const activeDocRef = useRef<LoadedDocument | null>(null);
+  activeDocRef.current = activeDoc;
+  // Cancels in-flight vision/OCR indexing when the document changes.
+  const indexAbortRef = useRef<AbortController | null>(null);
+  const prevDocPathRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadPreferences().then((p) => {
@@ -48,6 +55,15 @@ export function useDocumentWorkspace(
   }, []);
 
   const handleDocumentLoaded = useCallback((doc: LoadedDocument) => {
+    // Cancel indexing for the outgoing document and drop its per-page index
+    // state so the events map doesn't grow unbounded across a session.
+    indexAbortRef.current?.abort();
+    indexAbortRef.current = null;
+    const prevPath = prevDocPathRef.current;
+    if (prevPath && prevPath !== doc.path) {
+      clearDocumentIndexState(prevPath);
+    }
+    prevDocPathRef.current = doc.path;
     clearPdfCache();
     setActiveDoc(doc);
     setPreviewPage(1);
@@ -57,26 +73,36 @@ export function useDocumentWorkspace(
     onLoadedRef.current?.(doc);
   }, []);
 
+  const handleLoadError = useCallback(
+    (message: string) => setFileError(message || null),
+    [],
+  );
+
   const { openPath, loading, progress } = useDocumentLoader({
     onLoaded: handleDocumentLoaded,
     onRecentChange: onRecentChange ?? (() => {}),
-    onError: (message) => setFileError(message || null),
+    onError: handleLoadError,
   });
 
   const clearFileError = useCallback(() => setFileError(null), []);
 
   const openFileDialog = useCallback(async () => {
     setPickerOpen(true);
-    const selected = await open({
-      multiple: false,
-      filters: [
-        {
-          name: t("dialog.documentsFilter"),
-          extensions: ["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"],
-        },
-      ],
-    });
-    setPickerOpen(false);
+    let selected: string | string[] | null = null;
+    try {
+      selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: t("dialog.documentsFilter"),
+            extensions: ["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"],
+          },
+        ],
+      });
+    } finally {
+      // A rejected/cancelled dialog must never leave the picker stuck open.
+      setPickerOpen(false);
+    }
     if (!selected || typeof selected !== "string") return;
     await openPath(selected);
   }, [openPath, t]);
@@ -121,7 +147,12 @@ export function useDocumentWorkspace(
           targetPage = input.start;
         }
 
-        if (targetPage !== null && shouldFollowAgentToPage(targetPage, followCtx)) {
+        // Non-read tool outputs (search_in_document, get_document_index, …) carry
+        // no page to follow. Skip past them instead of breaking, otherwise one
+        // sitting here would stall syncing to a later read tool output.
+        if (targetPage === null) continue;
+
+        if (shouldFollowAgentToPage(targetPage, followCtx)) {
           lastSyncedToolRef.current = part.toolCallId;
           setPreviewPage((prev) => (prev === targetPage ? prev : targetPage!));
         }
@@ -132,11 +163,15 @@ export function useDocumentWorkspace(
   );
 
   const reindexActiveDoc = useCallback((pages?: number[]) => {
-    setActiveDoc((doc) => {
-      if (!doc) return doc;
-      indexSparsePages(doc, pages);
-      return doc;
-    });
+    // indexSparsePages is a side effect (paid vision/OCR calls). It must run
+    // OUTSIDE any setState updater — StrictMode double-invokes updaters, which
+    // would double-fire the index work.
+    const doc = activeDocRef.current;
+    if (!doc) return;
+    indexAbortRef.current?.abort();
+    const controller = new AbortController();
+    indexAbortRef.current = controller;
+    void indexSparsePages(doc, pages, { signal: controller.signal });
   }, []);
 
   return {

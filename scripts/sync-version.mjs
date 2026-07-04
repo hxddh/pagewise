@@ -38,4 +38,15 @@ let cargo = readFileSync(cargoPath, "utf8");
 cargo = cargo.replace(/^version = "[^"]+"/m, `version = "${version}"`);
 writeFileSync(cargoPath, cargo);
 
-console.log(`Synced version ${version} → package.json, tauri.conf.json, Cargo.toml`);
+// Keep package-lock.json in sync (root version + root package entry).
+const lockPath = join(root, "package-lock.json");
+const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+lock.version = version;
+if (lock.packages && lock.packages[""]) {
+  lock.packages[""].version = version;
+}
+writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+
+console.log(
+  `Synced version ${version} → package.json, package-lock.json, tauri.conf.json, Cargo.toml`
+);

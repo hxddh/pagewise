@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n";
+
 interface CitationBlockProps {
   docName?: string;
   page: number;
@@ -13,8 +15,11 @@ export function CitationBlock({
   excerpt,
   onGoToPage,
 }: CitationBlockProps) {
+  const { t } = useI18n();
   const pageLabel =
-    pageEnd && pageEnd !== page ? `pp. ${page}–${pageEnd}` : `p. ${page}`;
+    pageEnd && pageEnd !== page
+      ? t("preview.pageRange", { page, pageEnd })
+      : t("preview.pageHit", { page });
 
   return (
     <blockquote className="citation-block">

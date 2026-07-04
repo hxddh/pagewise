@@ -13,7 +13,10 @@ export function useFocusTrap(active: boolean, containerRef: RefObject<HTMLElemen
 
     const focusables = () =>
       Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) => el.offsetParent !== null || root.contains(el),
+        // Must be actually rendered/visible. `offsetParent !== null` excludes
+        // display:none; `getClientRects().length > 0` also excludes elements
+        // hidden via other means (e.g. inactive tab panels).
+        (el) => el.offsetParent !== null && el.getClientRects().length > 0,
       );
 
     window.setTimeout(() => {

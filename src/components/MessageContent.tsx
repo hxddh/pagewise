@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { isToolUIPart } from "ai";
+import { useI18n } from "../i18n";
 import { Markdown } from "./Markdown";
 
 interface MessageContentProps {
@@ -7,7 +8,33 @@ interface MessageContentProps {
   markdown?: boolean;
 }
 
+type TranslateFn = (key: string, vars?: Record<string, string | number>) => string;
+
+function toolChipLabel(toolName: string, input: unknown, t: TranslateFn): string {
+  const args = (input ?? {}) as Record<string, unknown>;
+  switch (toolName) {
+    case "read_pdf_page":
+      return typeof args.page === "number"
+        ? t("agent.toolReadPage", { page: args.page })
+        : t("agent.toolWorking");
+    case "read_pdf_range":
+      return typeof args.start === "number" && typeof args.end === "number"
+        ? t("agent.toolReadRange", { start: args.start, end: args.end })
+        : t("agent.toolWorking");
+    case "search_in_document":
+      return typeof args.query === "string"
+        ? t("agent.toolSearch", { query: args.query })
+        : t("agent.toolWorking");
+    case "get_document_index":
+      return t("agent.toolIndex");
+    default:
+      return t("agent.toolWorking");
+  }
+}
+
 export function MessageContent({ message, markdown = false }: MessageContentProps) {
+  const { t } = useI18n();
+
   return (
     <div className="message-parts">
       {message.parts.map((part, index) => {
@@ -22,7 +49,18 @@ export function MessageContent({ message, markdown = false }: MessageContentProp
           );
         }
 
-        if (isToolUIPart(part)) return null;
+        if (isToolUIPart(part)) {
+          const toolName = part.type.replace(/^tool-/, "");
+          const label = toolChipLabel(toolName, part.input, t);
+          return (
+            <span key={index} className="tool-chip">
+              <span className="tool-chip-dot" aria-hidden>
+                ·
+              </span>
+              {label}
+            </span>
+          );
+        }
 
         if (part.type === "reasoning") return null;
 

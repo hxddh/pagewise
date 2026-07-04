@@ -136,7 +136,7 @@ export function PreviewPane({
           <>
             <canvas ref={viewer.canvasRef} className="preview-canvas" />
             {viewer.showTextLayer && (
-              <div ref={viewer.textLayerRef} className="pdf-text-layer" aria-hidden />
+              <div ref={viewer.textLayerRef} className="pdf-text-layer" />
             )}
           </>
         ) : (
