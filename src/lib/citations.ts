@@ -54,7 +54,10 @@ export function extractCitationsFromMessage(message: UIMessage): PageCitation[] 
   return citations;
 }
 
-export function getLatestAgentActivity(messages: UIMessage[]): string | null {
+export function getLatestAgentActivity(
+  messages: UIMessage[],
+  t?: (key: string, vars?: Record<string, string | number>) => string,
+): string | null {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
   if (!lastAssistant) return null;
 
@@ -70,14 +73,22 @@ export function getLatestAgentActivity(messages: UIMessage[]): string | null {
         : {};
 
     if (name === "read_pdf_page" && typeof input.page === "number") {
-      return `Reading page ${input.page}…`;
+      return t
+        ? t("agent.activityReadPage", { page: input.page })
+        : `Reading page ${input.page}…`;
     }
     if (name === "read_pdf_range") {
-      return "Reading pages…";
+      return t ? t("agent.activityReadRange") : "Reading pages…";
     }
-    if (name === "search_in_document") return "Searching document…";
-    if (name === "ocr_file") return "Running OCR…";
-    return "Working…";
+    if (name === "get_document_index") {
+      return t ? t("agent.activityIndex") : "Scanning document…";
+    }
+    if (name === "search_in_document") {
+      return t ? t("agent.activitySearch") : "Searching document…";
+    }
+    if (name === "ocr_file") return t ? t("agent.activityOcr") : "Running OCR…";
+    if (name === "list_documents") return t ? t("agent.activityList") : "Checking documents…";
+    return t ? t("agent.activityWorking") : "Working…";
   }
 
   return null;

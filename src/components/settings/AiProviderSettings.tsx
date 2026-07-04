@@ -1,0 +1,580 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
+import { useI18n } from "../../i18n";
+import { useDebouncedSave, type SaveStatus } from "../../hooks/useDebouncedSave";
+import { testConnection, validateModel, formatLlmError } from "../../lib/llm";
+import {
+  loadLlmStore,
+  loadProviderSettings,
+  markProviderVerified,
+  saveProviderProfile,
+  setActiveProvider,
+} from "../../lib/settings";
+import {
+  allProviderModels,
+  DEFAULT_SETTINGS,
+  PROVIDER_PRESETS,
+  type LlmSettings,
+  type ProviderId,
+  type ProviderProfile,
+} from "../../lib/types";
+import { IconCheck } from "../Icon";
+import { SettingsSkeleton } from "./SettingsSkeleton";
+import { ConnectionChip } from "./ConnectionChip";
+import { ModelSelect } from "./ModelSelect";
+
+interface AiProviderSettingsProps {
+  onLlmSettingsSaved?: () => void;
+  onReindexDoc?: () => void;
+  onTestResult?: (message: string, ok: boolean) => void;
+  onApiReady?: () => void;
+  onSaveError?: () => void;
+  onFooterState?: (state: AiSettingsFooterState | null) => void;
+}
+
+export interface AiSettingsFooterState {
+  saveStatusLabel: string | null;
+  saveStatus: SaveStatus;
+  dirty: boolean;
+  testing: boolean;
+  settingActive: boolean;
+  previewIsActive: boolean;
+  canSetActive: boolean;
+  onTest: () => void;
+  onSetActive: () => void;
+}
+
+const PRESET_IDS = Object.keys(PROVIDER_PRESETS) as (keyof typeof PROVIDER_PRESETS)[];
+
+function resolveDraftSettings(
+  settings: LlmSettings,
+  apiKeyTouched: boolean,
+  apiKeyDraft: string,
+): LlmSettings {
+  return {
+    ...settings,
+    apiKey: apiKeyTouched ? apiKeyDraft : settings.apiKey,
+  };
+}
+
+export function AiProviderSettings({
+  onLlmSettingsSaved,
+  onReindexDoc,
+  onTestResult,
+  onApiReady,
+  onSaveError,
+  onFooterState,
+}: AiProviderSettingsProps) {
+  const { t } = useI18n();
+  const [activeProvider, setActiveProviderState] = useState<ProviderId>(DEFAULT_SETTINGS.provider);
+  const [providerProfiles, setProviderProfiles] = useState<
+    Partial<Record<ProviderId, ProviderProfile>>
+  >({});
+  const [settings, setSettings] = useState<LlmSettings>(DEFAULT_SETTINGS);
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [apiKeyTouched, setApiKeyTouched] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [settingActive, setSettingActive] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [customModel, setCustomModel] = useState(false);
+  const [migratedNotice, setMigratedNotice] = useState(false);
+
+  const profileCacheRef = useRef<Map<ProviderId, LlmSettings>>(new Map());
+  const loadSeqRef = useRef(0);
+
+  const previewProvider = settings.provider;
+  const previewIsActive = previewProvider === activeProvider;
+  const hasStoredKey = settings.apiKey.length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadLlmStore().then(async (store) => {
+      if (cancelled) return;
+      setActiveProviderState(store.activeProvider);
+      setProviderProfiles(store.profiles);
+      const active = await loadProviderSettings(store.activeProvider);
+      if (cancelled) return;
+      profileCacheRef.current.set(store.activeProvider, active);
+      setSettings(active);
+      setApiKeyDraft("");
+      setApiKeyTouched(false);
+      setDirty(false);
+      const presetModels =
+        active.provider !== "custom" ? allProviderModels(active.provider) : [];
+      setCustomModel(active.provider === "custom" || !presetModels.includes(active.model));
+      setMigratedNotice(
+        active.model.includes("v4") &&
+          localStorage.getItem("pagewise.modelMigrated") !== "1",
+      );
+      setLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const cacheCurrentPreview = useCallback(() => {
+    profileCacheRef.current.set(
+      previewProvider,
+      resolveDraftSettings(settings, apiKeyTouched, apiKeyDraft),
+    );
+  }, [previewProvider, settings, apiKeyTouched, apiKeyDraft]);
+
+  const applyLoadedSettings = useCallback((next: LlmSettings) => {
+    setSettings(next);
+    setApiKeyDraft("");
+    setApiKeyTouched(false);
+    setTestError(null);
+    const presetModels =
+      next.provider !== "custom" ? allProviderModels(next.provider) : [];
+    setCustomModel(next.provider === "custom" || !presetModels.includes(next.model));
+  }, []);
+
+  const handlePersisted = useCallback(
+    (saved: LlmSettings) => {
+      profileCacheRef.current.set(saved.provider, saved);
+      setProviderProfiles((prev) => ({
+        ...prev,
+        [saved.provider]: {
+          model: saved.model,
+          baseURL: saved.baseURL,
+          thinkingEnabled: saved.thinkingEnabled,
+          connectionVerified: saved.connectionVerified,
+        },
+      }));
+      if (saved.provider === previewProvider) {
+        setSettings(saved);
+        setApiKeyTouched(false);
+        setApiKeyDraft("");
+        setDirty(false);
+      }
+      if (saved.provider === activeProvider) {
+        onLlmSettingsSaved?.();
+      }
+    },
+    [previewProvider, activeProvider, onLlmSettingsSaved],
+  );
+
+  const { persistNow, markSaved } = useDebouncedSave({
+    settings,
+    apiKeyDraft,
+    apiKeyTouched,
+    loaded,
+    dirty,
+    onPersisted: handlePersisted,
+    onStatus: setSaveStatus,
+  });
+
+  function markDirty() {
+    setDirty(true);
+    setSaveStatus("idle");
+  }
+
+  function patchSettings(patch: Partial<LlmSettings>) {
+    setSettings((s) => {
+      const next = { ...s, ...patch, connectionVerified: false };
+      profileCacheRef.current.set(next.provider, next);
+      return next;
+    });
+    setTestError(null);
+    markDirty();
+  }
+
+  function onProviderChange(provider: ProviderId) {
+    if (provider === previewProvider) return;
+
+    cacheCurrentPreview();
+    const seq = ++loadSeqRef.current;
+
+    const cached = profileCacheRef.current.get(provider);
+    if (cached) {
+      applyLoadedSettings(cached);
+      setDirty(false);
+      setSaveStatus("idle");
+      return;
+    }
+
+    void loadProviderSettings(provider).then((loadedSettings) => {
+      if (seq !== loadSeqRef.current) return;
+      profileCacheRef.current.set(provider, loadedSettings);
+      applyLoadedSettings(loadedSettings);
+      setDirty(false);
+      setSaveStatus("idle");
+    });
+  }
+
+  function onModelSelect(value: string) {
+    setCustomModel(false);
+    patchSettings({ model: value });
+  }
+
+  async function handleSave() {
+    const saved = await persistNow();
+    if (saved) markSaved(saved);
+  }
+
+  const handleSetActive = useCallback(async () => {
+    setSettingActive(true);
+    try {
+      await persistNow();
+      const next = await setActiveProvider(previewProvider);
+      profileCacheRef.current.set(previewProvider, next);
+      setActiveProviderState(previewProvider);
+      setSettings(next);
+      setDirty(false);
+      setSaveStatus("saved");
+      markSaved(next);
+      onLlmSettingsSaved?.();
+      onReindexDoc?.();
+      if (next.connectionVerified) onApiReady?.();
+    } catch {
+      setSaveStatus("error");
+      onSaveError?.();
+    } finally {
+      setSettingActive(false);
+    }
+  }, [
+    persistNow,
+    previewProvider,
+    markSaved,
+    onLlmSettingsSaved,
+    onReindexDoc,
+    onApiReady,
+    onSaveError,
+  ]);
+
+  const handleTest = useCallback(async () => {
+    setTesting(true);
+    setTestError(null);
+    try {
+      const toTest = resolveDraftSettings(settings, apiKeyTouched, apiKeyDraft);
+      const modelError = validateModel(toTest, t);
+      if (modelError) throw new Error(modelError);
+
+      const saved = await saveProviderProfile(
+        toTest.provider,
+        {
+          model: toTest.model,
+          baseURL: toTest.baseURL,
+          thinkingEnabled: toTest.thinkingEnabled,
+          connectionVerified: false,
+        },
+        apiKeyTouched ? toTest.apiKey : undefined,
+      );
+      setSettings(saved);
+      profileCacheRef.current.set(saved.provider, saved);
+      markSaved(saved);
+      if (apiKeyTouched) {
+        setApiKeyTouched(false);
+        setApiKeyDraft("");
+      }
+
+      const reply = await testConnection(saved, t);
+      const verified = await markProviderVerified(saved.provider, true);
+      setSettings(verified);
+      profileCacheRef.current.set(verified.provider, verified);
+      setProviderProfiles((prev) => ({
+        ...prev,
+        [verified.provider]: {
+          model: verified.model,
+          baseURL: verified.baseURL,
+          thinkingEnabled: verified.thinkingEnabled,
+          connectionVerified: true,
+        },
+      }));
+      markSaved(verified);
+      setDirty(false);
+      setSaveStatus("saved");
+      localStorage.setItem("pagewise.modelMigrated", "1");
+      setMigratedNotice(false);
+      if (verified.provider === activeProvider) {
+        onLlmSettingsSaved?.();
+        onApiReady?.();
+      }
+      onTestResult?.(t("settings.testSuccess", { reply }), true);
+    } catch (e) {
+      const display = e instanceof Error ? e.message : formatLlmError(e, t);
+      setTestError(display);
+      onTestResult?.(display, false);
+    } finally {
+      setTesting(false);
+    }
+  }, [
+    settings,
+    apiKeyTouched,
+    apiKeyDraft,
+    t,
+    markSaved,
+    activeProvider,
+    onLlmSettingsSaved,
+    onTestResult,
+    onApiReady,
+  ]);
+
+  const preset =
+    settings.provider !== "custom" ? PROVIDER_PRESETS[settings.provider] : null;
+
+  const saveStatusLabel =
+    saveStatus === "saving"
+      ? t("settings.saving")
+      : saveStatus === "saved"
+        ? t("settings.saved")
+        : saveStatus === "error"
+          ? t("settings.saveFailed")
+          : dirty
+            ? t("settings.unsaved")
+            : !previewIsActive
+              ? t("settings.previewMode")
+              : null;
+
+  const showThinking =
+    settings.provider === "deepseek" || settings.provider === "openrouter";
+
+  const canSetActive = !previewIsActive;
+
+  useEffect(() => {
+    if (saveStatus === "error") onSaveError?.();
+  }, [saveStatus, onSaveError]);
+
+  useEffect(() => {
+    if (!loaded) {
+      onFooterState?.(null);
+      return;
+    }
+    onFooterState?.({
+      saveStatusLabel,
+      saveStatus,
+      dirty,
+      testing,
+      settingActive,
+      previewIsActive,
+      canSetActive,
+      onTest: () => void handleTest(),
+      onSetActive: () => void handleSetActive(),
+    });
+  }, [
+    loaded,
+    saveStatusLabel,
+    saveStatus,
+    dirty,
+    testing,
+    settingActive,
+    previewIsActive,
+    canSetActive,
+    handleTest,
+    handleSetActive,
+    onFooterState,
+  ]);
+
+  useEffect(() => {
+    return () => onFooterState?.(null);
+  }, [onFooterState]);
+
+  if (!loaded) {
+    return <SettingsSkeleton />;
+  }
+
+  return (
+    <div className="settings-page">
+      <div className="settings-page-header">
+        <h3 className="settings-page-title">{t("settings.aiProvider")}</h3>
+        <ConnectionChip
+          settings={settings}
+          activeProvider={activeProvider}
+          apiKeyTouched={apiKeyTouched}
+          apiKeyDraft={apiKeyDraft}
+          dirty={dirty}
+        />
+      </div>
+
+      {migratedNotice && (
+        <div className="settings-callout" role="note">
+          <span>{t("settings.modelMigrated")}</span>
+          <button
+            type="button"
+            className="settings-callout-dismiss"
+            onClick={() => setMigratedNotice(false)}
+            aria-label={t("common.dismiss")}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {testError && (
+        <p className="settings-error-banner" role="alert">
+          {testError}
+        </p>
+      )}
+
+      <section className="settings-card">
+        <h4 className="settings-card-title">{t("settings.provider")}</h4>
+        <p className="settings-card-hint">{t("settings.providerHint")}</p>
+        <div className="provider-grid">
+          {PRESET_IDS.map((id) => {
+            const profile = providerProfiles[id];
+            const isPreview = previewProvider === id;
+            const isActive = activeProvider === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                className={`provider-cell ${isPreview ? "active" : ""}`}
+                onClick={() => onProviderChange(id)}
+              >
+                <span className="provider-cell-label">
+                  {PROVIDER_PRESETS[id].label}
+                  <span className="provider-cell-badges">
+                    {isActive && (
+                      <span className="provider-badge provider-badge-active">
+                        {t("settings.providerInUse")}
+                      </span>
+                    )}
+                    {profile?.connectionVerified && (
+                      <span className="provider-badge provider-badge-verified">
+                        {t("settings.providerVerified")}
+                      </span>
+                    )}
+                  </span>
+                </span>
+                {isPreview && <IconCheck size={14} />}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className={`provider-cell provider-cell-wide ${previewProvider === "custom" ? "active" : ""}`}
+            onClick={() => onProviderChange("custom")}
+          >
+            <span className="provider-cell-label">
+              {t("settings.providerCustom")}
+              <span className="provider-cell-badges">
+                {activeProvider === "custom" && (
+                  <span className="provider-badge provider-badge-active">
+                    {t("settings.providerInUse")}
+                  </span>
+                )}
+                {providerProfiles.custom?.connectionVerified && (
+                  <span className="provider-badge provider-badge-verified">
+                    {t("settings.providerVerified")}
+                  </span>
+                )}
+              </span>
+            </span>
+            {previewProvider === "custom" && <IconCheck size={14} />}
+          </button>
+        </div>
+        {preset && (
+          <p className="provider-endpoint">
+            {t("settings.endpoint")}{" "}
+            <code>{preset.baseURL}</code>
+          </p>
+        )}
+      </section>
+
+      {settings.provider === "custom" && (
+        <section className="settings-card">
+          <label className="settings-field">
+            <span className="settings-field-label">{t("settings.baseUrl")}</span>
+            <input
+              className="settings-input"
+              type="url"
+              value={settings.baseURL ?? ""}
+              onChange={(e) => patchSettings({ baseURL: e.target.value })}
+              placeholder="https://api.example.com"
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field-label">{t("settings.model")}</span>
+            <input
+              className="settings-input"
+              type="text"
+              value={settings.model}
+              onChange={(e) => patchSettings({ model: e.target.value })}
+              placeholder="model-id"
+            />
+          </label>
+        </section>
+      )}
+
+      {settings.provider !== "custom" && (
+        <section className="settings-card">
+          <ModelSelect
+            provider={settings.provider}
+            model={settings.model}
+            customModel={customModel}
+            onSelect={onModelSelect}
+            onCustom={() => setCustomModel(true)}
+          />
+
+          {showThinking && (
+            <>
+              <div className="settings-card-divider" />
+              <label className="settings-row-toggle">
+                <div>
+                  <span className="settings-row-title">{t("settings.thinkingMode")}</span>
+                  <span className="settings-row-hint">{t("settings.thinkingHint")}</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!settings.thinkingEnabled}
+                  onChange={(e) => patchSettings({ thinkingEnabled: e.target.checked })}
+                />
+              </label>
+            </>
+          )}
+        </section>
+      )}
+
+      <section className="settings-card">
+        <div className="settings-field">
+          <div className="settings-field-meta">
+            <span className="settings-field-label">{t("settings.apiKey")}</span>
+            {hasStoredKey && !apiKeyTouched && (
+              <span className="settings-field-badge">{t("settings.apiKeySaved")}</span>
+            )}
+          </div>
+          <div className="settings-input-row">
+            <input
+              className="settings-input"
+              type={showKey ? "text" : "password"}
+              value={apiKeyDraft}
+              onChange={(e) => {
+                setApiKeyDraft(e.target.value);
+                setApiKeyTouched(true);
+                setSettings((s) => {
+                  const next = { ...s, connectionVerified: false };
+                  profileCacheRef.current.set(next.provider, next);
+                  return next;
+                });
+                setTestError(null);
+                markDirty();
+              }}
+              placeholder={
+                settings.provider === "ollama"
+                  ? t("settings.apiKeyNotRequired")
+                  : hasStoredKey && !apiKeyTouched
+                    ? "••••••••"
+                    : t("settings.apiKeyPlaceholder")
+              }
+              onBlur={() => void handleSave()}
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              className="settings-icon-btn"
+              onClick={() => setShowKey((s) => !s)}
+              aria-label={showKey ? t("settings.hideKey") : t("settings.showKey")}
+            >
+              {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

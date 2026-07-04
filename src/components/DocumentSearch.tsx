@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useI18n } from "../i18n";
 import { searchDocumentPages, type SearchHit } from "../lib/document-search";
 import { OPEN_DOC_SEARCH_EVENT } from "../lib/events";
 import type { LoadedDocument } from "../lib/types";
+import { useOverlayLock } from "../hooks/useOverlayLock";
 
 interface DocumentSearchProps {
   doc: LoadedDocument;
@@ -9,9 +11,11 @@ interface DocumentSearchProps {
 }
 
 export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
+  useOverlayLock(open);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -32,6 +36,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
       }
       if (e.key === "Escape" && open) {
         setOpen(false);
+        setQuery("");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -44,62 +49,71 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
     return () => window.removeEventListener(OPEN_DOC_SEARCH_EVENT, onOpen);
   }, []);
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="btn ghost toolbar-btn"
-        onClick={() => setOpen(true)}
-        title="Search in document (⌘F)"
-      >
-        Search
-      </button>
-    );
-  }
+  if (!open) return null;
 
   return (
-    <div className="doc-search">
-      <input
-        className="doc-search-input"
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search in document…"
-        autoFocus
+    <div className="doc-search-overlay" role="presentation">
+      <button
+        type="button"
+        className="doc-search-backdrop"
+        aria-label={t("preview.closeSearch")}
+        onClick={() => {
+          setOpen(false);
+          setQuery("");
+        }}
       />
-      <button type="button" className="btn icon-btn" onClick={() => setOpen(false)} aria-label="Close search">
-        ×
-      </button>
-      {query.trim() && (
-        <div className="doc-search-results">
-          {hits.length === 0 ? (
-            <p className="doc-search-empty">No matches</p>
-          ) : (
-            <>
-              <p className="doc-search-count">
-                {hits.length} match{hits.length === 1 ? "" : "es"}
-              </p>
-              <ul>
-                {hits.map((hit, i) => (
-                  <li key={`${hit.page}-${hit.index}-${i}`}>
-                    <button
-                      type="button"
-                      className="doc-search-hit"
-                      onClick={() => {
-                        onJumpToPage(hit.page);
-                        setOpen(false);
-                      }}
-                    >
-                      <span className="hit-page">p. {hit.page}</span>
-                      <span className="hit-snippet">{hit.snippet}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
+      <div className="doc-search-panel" role="dialog" aria-modal="true" aria-label={t("preview.search")}>
+        <input
+          className="doc-search-input"
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("preview.searchPlaceholder")}
+          autoFocus
+        />
+        <button
+          type="button"
+          className="btn icon-btn"
+          onClick={() => {
+            setOpen(false);
+            setQuery("");
+          }}
+          aria-label={t("preview.closeSearch")}
+        >
+          ×
+        </button>
+        {query.trim() && (
+          <div className="doc-search-results">
+            {hits.length === 0 ? (
+              <p className="doc-search-empty">{t("preview.noMatches")}</p>
+            ) : (
+              <>
+                <p className="doc-search-count">
+                  {t("preview.matchCount", { count: hits.length })}
+                </p>
+                <ul>
+                  {hits.map((hit, i) => (
+                    <li key={`${hit.page}-${hit.index}-${i}`}>
+                      <button
+                        type="button"
+                        className="doc-search-hit"
+                        onClick={() => {
+                          onJumpToPage(hit.page);
+                          setOpen(false);
+                          setQuery("");
+                        }}
+                      >
+                        <span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>
+                        <span className="hit-snippet">{hit.snippet}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

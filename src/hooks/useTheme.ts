@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   applyTheme,
   loadPreferences,
+  patchPreferences,
   resolveTheme,
-  savePreferences,
   type AppPreferences,
   type ThemeMode,
 } from "../lib/preferences";
@@ -29,17 +29,16 @@ export function useTheme() {
   }, [preferences, resolved]);
 
   const setTheme = useCallback(async (theme: ThemeMode) => {
-    const next = { theme };
+    const next = await patchPreferences({ theme });
     setPreferences(next);
-    await savePreferences(next);
     applyTheme(resolveTheme(theme));
   }, []);
 
   const cycleTheme = useCallback(async () => {
     const order: ThemeMode[] = ["dark", "light", "system"];
     const current = preferences?.theme ?? "dark";
-    const next = order[(order.indexOf(current) + 1) % order.length];
-    await setTheme(next);
+    const nextTheme = order[(order.indexOf(current) + 1) % order.length];
+    await setTheme(nextTheme);
   }, [preferences?.theme, setTheme]);
 
   const reloadPreferences = useCallback(async () => {
@@ -48,5 +47,11 @@ export function useTheme() {
     return prefs;
   }, []);
 
-  return { theme: preferences?.theme ?? "dark", resolved, setTheme, cycleTheme, reloadPreferences };
+  return {
+    theme: preferences?.theme ?? "dark",
+    resolved,
+    setTheme,
+    cycleTheme,
+    reloadPreferences,
+  };
 }

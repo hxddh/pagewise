@@ -1,181 +1,215 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { UIMessage } from "ai";
+import { useI18n } from "../i18n";
 import { chatToMarkdown, summaryToMarkdown } from "../lib/export-markdown";
 import { saveMarkdownFile } from "../lib/save-markdown";
 import type { CommandItem } from "../lib/commands";
 import { requestOpenDocSearch } from "../lib/events";
+import type { LocaleMode } from "../lib/preferences";
+import { recordCommand } from "../lib/onboarding-hints";
+import { previewNextPage, previewPrevPage } from "../lib/preview-actions";
+import { modKey } from "../lib/shortcut-display";
 
 interface UseAppCommandsOptions {
   activeDocName: string | null;
   messages: UIMessage[];
   busy: boolean;
-  agentCollapsed: boolean;
   followAgent: boolean;
+  agentOpen: boolean;
   previewPage: number;
   totalPages: number;
   onOpenDocument: () => void;
   onOpenSettings: () => void;
-  onToggleAgent: () => void;
   onToggleFollowAgent: () => void;
+  onToggleAgent: () => void;
   onClearChat: () => void;
   onStop: () => void;
-  onPrevPage: () => void;
-  onNextPage: () => void;
   onCycleTheme: () => void;
   showToast: (msg: string, tone?: "default" | "success" | "error") => void;
+}
+
+const LOCALE_CYCLE: LocaleMode[] = ["system", "en", "zh-CN"];
+
+function wrapRun(id: string, run: () => void | Promise<void>): () => void | Promise<void> {
+  return () => {
+    recordCommand(id);
+    return run();
+  };
 }
 
 export function useAppCommands({
   activeDocName,
   messages,
   busy,
-  agentCollapsed,
   followAgent,
+  agentOpen,
   previewPage,
   totalPages,
   onOpenDocument,
   onOpenSettings,
-  onToggleAgent,
   onToggleFollowAgent,
+  onToggleAgent,
   onClearChat,
   onStop,
-  onPrevPage,
-  onNextPage,
   onCycleTheme,
   showToast,
 }: UseAppCommandsOptions) {
+  const { t, localeMode, setLocaleMode } = useI18n();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const mod = modKey();
 
   const exportChat = useCallback(async () => {
     if (messages.length === 0) {
-      showToast("No messages to export", "error");
+      showToast(t("toast.noMessages"), "error");
       return;
     }
     const md = chatToMarkdown(messages, activeDocName ?? undefined);
     const name = (activeDocName ?? "chat").replace(/\.[^.]+$/, "") + "-chat.md";
-    const ok = await saveMarkdownFile(md, name);
-    if (ok) showToast("Chat exported", "success");
-  }, [messages, activeDocName, showToast]);
+    try {
+      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
+      if (ok) showToast(t("toast.chatExported"), "success");
+    } catch {
+      showToast(t("toast.exportFailed"), "error");
+    }
+  }, [messages, activeDocName, showToast, t]);
 
   const exportSummary = useCallback(async () => {
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+    if (!lastAssistant) {
+      showToast(t("toast.noSummary"), "error");
+      return;
+    }
     const md = summaryToMarkdown(messages, activeDocName ?? undefined);
     const name = (activeDocName ?? "summary").replace(/\.[^.]+$/, "") + "-summary.md";
-    const ok = await saveMarkdownFile(md, name);
-    if (ok) showToast("Summary exported", "success");
-  }, [messages, activeDocName, showToast]);
+    try {
+      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
+      if (ok) showToast(t("toast.summaryExported"), "success");
+    } catch {
+      showToast(t("toast.exportFailed"), "error");
+    }
+  }, [messages, activeDocName, showToast, t]);
+
+  const cycleLanguage = useCallback(async () => {
+    const next = LOCALE_CYCLE[(LOCALE_CYCLE.indexOf(localeMode) + 1) % LOCALE_CYCLE.length];
+    await setLocaleMode(next);
+  }, [localeMode, setLocaleMode]);
 
   const commands = useMemo<CommandItem[]>(
     () => [
       {
         id: "open",
-        label: "Open document",
-        section: "File",
-        shortcut: "⌘O",
-        keywords: ["file", "pdf", "import"],
-        run: onOpenDocument,
+        label: t("commands.openDoc"),
+        section: "file",
+        shortcut: `${mod}O`,
+        keywords: ["file", "pdf"],
+        run: wrapRun("open", onOpenDocument),
       },
       {
         id: "search-doc",
-        label: "Search in document",
-        section: "Document",
-        shortcut: "⌘F",
-        keywords: ["find", "text"],
+        label: t("commands.searchDoc"),
+        section: "document",
+        shortcut: `${mod}F`,
+        keywords: ["find"],
         disabled: !activeDocName,
-        run: () => requestOpenDocSearch(),
+        run: wrapRun("search-doc", () => requestOpenDocSearch()),
       },
       {
         id: "prev-page",
-        label: "Previous page",
-        section: "Document",
-        shortcut: "⌘[",
+        label: t("commands.prevPage"),
+        section: "document",
+        shortcut: `${mod}[`,
         disabled: !activeDocName || previewPage <= 1,
-        run: onPrevPage,
+        run: wrapRun("prev-page", previewPrevPage),
       },
       {
         id: "next-page",
-        label: "Next page",
-        section: "Document",
-        shortcut: "⌘]",
+        label: t("commands.nextPage"),
+        section: "document",
+        shortcut: `${mod}]`,
         disabled: !activeDocName || previewPage >= totalPages,
-        run: onNextPage,
+        run: wrapRun("next-page", previewNextPage),
       },
       {
         id: "export-chat",
-        label: "Export chat as Markdown",
-        section: "Export",
-        keywords: ["download", "save"],
+        label: t("commands.exportChat"),
+        section: "export",
         disabled: messages.length === 0,
-        run: exportChat,
+        run: wrapRun("export-chat", exportChat),
       },
       {
         id: "export-summary",
-        label: "Export summary as Markdown",
-        section: "Export",
-        keywords: ["download", "save", "last"],
+        label: t("commands.exportSummary"),
+        section: "export",
         disabled: messages.length === 0,
-        run: exportSummary,
+        run: wrapRun("export-summary", exportSummary),
       },
       {
         id: "clear-chat",
-        label: "Clear chat",
-        section: "Agent",
+        label: t("commands.clearChat"),
+        section: "agent",
         disabled: messages.length === 0 || busy,
-        run: onClearChat,
+        run: wrapRun("clear-chat", onClearChat),
       },
       {
         id: "stop",
-        label: "Stop generation",
-        section: "Agent",
+        label: t("commands.stopGen"),
+        section: "agent",
         disabled: !busy,
-        run: onStop,
-      },
-      {
-        id: "toggle-agent",
-        label: agentCollapsed ? "Show agent panel" : "Hide agent panel",
-        section: "View",
-        shortcut: "⌘B",
-        run: onToggleAgent,
+        run: wrapRun("stop", onStop),
       },
       {
         id: "toggle-follow",
-        label: followAgent ? "Disable follow agent" : "Enable follow agent",
-        section: "View",
-        run: onToggleFollowAgent,
+        label: followAgent ? t("commands.disableFollow") : t("commands.enableFollow"),
+        section: "view",
+        run: wrapRun("toggle-follow", onToggleFollowAgent),
+      },
+      {
+        id: "toggle-agent",
+        label: agentOpen ? t("commands.toggleAgent") : t("commands.showAgent"),
+        section: "view",
+        shortcut: `${mod}\\`,
+        disabled: !activeDocName,
+        run: wrapRun("toggle-agent", onToggleAgent),
       },
       {
         id: "theme",
-        label: "Cycle theme (dark / light / system)",
-        section: "View",
-        shortcut: "⌘\\",
-        keywords: ["appearance", "dark", "light"],
-        run: onCycleTheme,
+        label: t("commands.cycleTheme"),
+        section: "view",
+        run: wrapRun("theme", onCycleTheme),
+      },
+      {
+        id: "language",
+        label: t("commands.switchLang"),
+        section: "view",
+        run: wrapRun("language", cycleLanguage),
       },
       {
         id: "settings",
-        label: "Open settings",
-        section: "App",
-        shortcut: "⌘,",
-        run: onOpenSettings,
+        label: t("commands.openSettings"),
+        section: "app",
+        shortcut: `${mod},`,
+        run: wrapRun("settings", onOpenSettings),
       },
     ],
     [
       activeDocName,
-      agentCollapsed,
+      agentOpen,
       busy,
+      cycleLanguage,
       exportChat,
       exportSummary,
       followAgent,
       messages.length,
+      mod,
       onClearChat,
       onCycleTheme,
-      onNextPage,
       onOpenDocument,
       onOpenSettings,
-      onPrevPage,
       onStop,
       onToggleAgent,
       onToggleFollowAgent,
       previewPage,
+      t,
       totalPages,
     ],
   );
@@ -194,21 +228,26 @@ export function useAppCommands({
 
       if (mod && e.key.toLowerCase() === "o") {
         e.preventDefault();
+        recordCommand("open");
         void onOpenDocument();
-      }
-      if (mod && e.key === "b") {
-        e.preventDefault();
-        onToggleAgent();
       }
       if (mod && e.key === "\\") {
         e.preventDefault();
-        void onCycleTheme();
+        if (activeDocName) {
+          recordCommand("toggle-agent");
+          onToggleAgent();
+        }
+      }
+      if (mod && e.key === ",") {
+        e.preventDefault();
+        recordCommand("settings");
+        onOpenSettings();
       }
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen, onOpenDocument, onToggleAgent, onCycleTheme]);
+  }, [paletteOpen, activeDocName, onOpenDocument, onToggleAgent, onOpenSettings]);
 
   return { commands, paletteOpen, setPaletteOpen, exportChat, exportSummary };
 }

@@ -4,10 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 export async function saveMarkdownFile(
   content: string,
   defaultName: string,
+  filterName = "Markdown",
 ): Promise<boolean> {
   const path = await save({
     defaultPath: defaultName,
-    filters: [{ name: "Markdown", extensions: ["md"] }],
+    filters: [{ name: filterName, extensions: ["md"] }],
   });
 
   if (!path) return false;

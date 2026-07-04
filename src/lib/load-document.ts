@@ -1,8 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
 import { docCache } from "./doc-cache";
 import { extractPdfFromRust, getPdfPageCount } from "./pdf";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
+import { indexPageInBackground, MIN_INDEX_CHARS } from "./vision-index";
 
 const SUPPORTED_EXT = new Set([
   "pdf",
@@ -10,6 +10,7 @@ const SUPPORTED_EXT = new Set([
   "jpg",
   "jpeg",
   "webp",
+  "tif",
   "tiff",
   "bmp",
   "gif",
@@ -25,18 +26,18 @@ export async function loadDocument(
   onProgress?: LoadProgressCallback,
 ): Promise<LoadedDocument> {
   if (!isSupportedDocument(path)) {
-    throw new Error("Unsupported file type. Use PDF or image files.");
+    throw new Error("errors.unsupportedFile");
   }
 
   const name = path.split(/[/\\]/).pop() ?? path;
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
 
-  report(onProgress, { stage: "opening", message: "Opening file…", percent: 5 });
+  report(onProgress, { stage: "opening", message: "load.openingFile", percent: 5 });
 
   let doc: LoadedDocument;
 
   if (ext === "pdf") {
-    report(onProgress, { stage: "extracting", message: "Extracting text…", percent: 15 });
+    report(onProgress, { stage: "extracting", message: "load.extracting", percent: 15 });
 
     const pageCountPromise = getPdfPageCount(path).catch(() => null);
     const result = await extractPdfFromRust(path);
@@ -44,11 +45,12 @@ export async function loadDocument(
 
     report(onProgress, {
       stage: "extracting",
-      message: `Extracted ${pageCount} page${pageCount === 1 ? "" : "s"}`,
+      message: "load.extractedPages",
+      messageParams: { count: pageCount },
       percent: 70,
     });
 
-    report(onProgress, { stage: "indexing", message: "Indexing for search…", percent: 85 });
+    report(onProgress, { stage: "indexing", message: "load.indexing", percent: 85 });
 
     doc = {
       path,
@@ -58,22 +60,25 @@ export async function loadDocument(
       totalPages: result.total_pages,
     };
 
-    // Yield so UI can paint progress
     await new Promise((r) => setTimeout(r, 0));
   } else {
-    report(onProgress, { stage: "ocr", message: "Running OCR…", percent: 30 });
-    const text = await invoke<string>("ocr_image", { path });
-    report(onProgress, { stage: "indexing", message: "Indexing for search…", percent: 85 });
+    report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
     doc = {
       path,
       name,
       kind: "image",
-      pages: [{ page: 1, text }],
+      pages: [{ page: 1, text: "" }],
       totalPages: 1,
     };
   }
 
   docCache.set(doc);
-  report(onProgress, { stage: "done", message: "Ready", percent: 100 });
+
+  const first = doc.pages[0];
+  if (first && first.text.trim().length < MIN_INDEX_CHARS) {
+    indexPageInBackground(path, 1, doc.kind);
+  }
+
+  report(onProgress, { stage: "done", message: "load.ready", percent: 100 });
   return doc;
 }

@@ -12,11 +12,24 @@ dist
 dist-ssr
 *.local
 
+# Secrets & local config
+.env
+.env.*
+!.env.example
+settings.json
+**/settings.json
+*.pem
+*.p12
+*.mobileprovision
+
+# macOS / build artifacts
+.DS_Store
+src-tauri/target
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj

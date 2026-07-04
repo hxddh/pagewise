@@ -3,6 +3,7 @@ import { loadDocument } from "../lib/load-document";
 import { addRecentFile } from "../lib/recent-files";
 import type { LoadProgress } from "../lib/load-progress";
 import type { LoadedDocument } from "../lib/types";
+import { useI18n } from "../i18n";
 import { useToast } from "./useToast";
 
 interface UseDocumentLoaderOptions {
@@ -16,6 +17,7 @@ export function useDocumentLoader({
   onRecentChange,
   onError,
 }: UseDocumentLoaderOptions) {
+  const { t } = useI18n();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
@@ -23,7 +25,7 @@ export function useDocumentLoader({
   const openPath = useCallback(
     async (path: string) => {
       setLoading(true);
-      setProgress({ stage: "opening", message: "Opening…", percent: 0 });
+      setProgress({ stage: "opening", message: "load.opening", percent: 0 });
       onError("");
       try {
         const doc = await loadDocument(path, setProgress);
@@ -34,9 +36,13 @@ export function useDocumentLoader({
           kind: doc.kind,
         });
         onRecentChange(recent);
-        showToast(`Opened ${doc.name}`, "success");
+        showToast(t("toast.opened", { name: doc.name }), "success");
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Failed to open file";
+        const raw = e instanceof Error ? e.message : "";
+        const msg =
+          raw === "errors.unsupportedFile" || raw.startsWith("errors.")
+            ? t(raw)
+            : raw || t("load.failed");
         onError(msg);
         showToast(msg, "error");
       } finally {
@@ -44,7 +50,7 @@ export function useDocumentLoader({
         window.setTimeout(() => setProgress(null), 400);
       }
     },
-    [onLoaded, onRecentChange, onError, showToast],
+    [onLoaded, onRecentChange, onError, showToast, t],
   );
 
   return { openPath, loading, progress };

@@ -1,24 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "pagewise.chatWidth";
+const MIN = 360;
+const MAX = 480;
 
-export function useResizeWidth(defaultWidth = 380, min = 300, max = 560) {
+function computeDefaultWidth(): number {
+  if (typeof window === "undefined") return 360;
+  return Math.min(MAX, Math.max(MIN, 360));
+}
+
+export function useResizeWidth(min = MIN, max = MAX) {
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    const n = saved ? Number(saved) : defaultWidth;
-    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : defaultWidth;
+    const n = saved ? Number(saved) : computeDefaultWidth();
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : computeDefaultWidth();
   });
 
   const dragging = useRef(false);
 
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault();
-      dragging.current = true;
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    },
-    [],
-  );
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      if (localStorage.getItem(STORAGE_KEY)) return;
+      setWidth(computeDefaultWidth());
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {

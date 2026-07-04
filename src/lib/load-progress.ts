@@ -2,7 +2,9 @@ export type LoadStage = "opening" | "extracting" | "ocr" | "indexing" | "done";
 
 export interface LoadProgress {
   stage: LoadStage;
+  /** i18n message key */
   message: string;
+  messageParams?: Record<string, string | number>;
   percent: number;
 }
 

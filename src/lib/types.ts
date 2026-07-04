@@ -1,10 +1,37 @@
 export type ProviderId = "openai" | "deepseek" | "openrouter" | "ollama" | "custom";
 
+export const ALL_PROVIDER_IDS: ProviderId[] = [
+  "openai",
+  "deepseek",
+  "openrouter",
+  "ollama",
+  "custom",
+];
+
+/** Per-provider config persisted in settings.json (apiKey lives in keychain). */
+export interface ProviderProfile {
+  model: string;
+  baseURL?: string;
+  thinkingEnabled?: boolean;
+  connectionVerified?: boolean;
+}
+
+export interface LlmStoreV2 {
+  version: 2;
+  activeProvider: ProviderId;
+  profiles: Partial<Record<ProviderId, ProviderProfile>>;
+}
+
+export type PreviewQuality = "auto" | "crisp" | "performance";
+
 export interface LlmSettings {
   provider: ProviderId;
   apiKey: string;
   model: string;
   baseURL?: string;
+  thinkingEnabled?: boolean;
+  /** Set true only after a successful test connection. */
+  connectionVerified?: boolean;
 }
 
 export interface PageText {
@@ -28,7 +55,9 @@ export interface LoadedDocument {
 export const DEFAULT_SETTINGS: LlmSettings = {
   provider: "deepseek",
   apiKey: "",
-  model: "deepseek-chat",
+  model: "deepseek-v4-flash",
+  thinkingEnabled: false,
+  connectionVerified: false,
 };
 
 export const PROVIDER_PRESETS: Record<
@@ -43,12 +72,12 @@ export const PROVIDER_PRESETS: Record<
   deepseek: {
     label: "DeepSeek",
     baseURL: "https://api.deepseek.com",
-    defaultModel: "deepseek-chat",
+    defaultModel: "deepseek-v4-flash",
   },
   openrouter: {
     label: "OpenRouter",
     baseURL: "https://openrouter.ai/api/v1",
-    defaultModel: "deepseek/deepseek-chat",
+    defaultModel: "openai/gpt-4o-mini",
   },
   ollama: {
     label: "Ollama (local)",
@@ -56,3 +85,71 @@ export const PROVIDER_PRESETS: Record<
     defaultModel: "llama3.2",
   },
 };
+
+/** Grouped model options for settings UI. */
+export const PROVIDER_MODEL_GROUPS: Record<
+  Exclude<ProviderId, "custom">,
+  { labelKey: string; models: string[] }[]
+> = {
+  openai: [
+    {
+      labelKey: "settings.modelGroupFast",
+      models: ["gpt-4o-mini", "gpt-4.1-mini"],
+    },
+    {
+      labelKey: "settings.modelGroupPro",
+      models: ["gpt-4o", "gpt-4.1"],
+    },
+  ],
+  deepseek: [
+    {
+      labelKey: "settings.modelGroupFast",
+      models: ["deepseek-v4-flash"],
+    },
+    {
+      labelKey: "settings.modelGroupPro",
+      models: ["deepseek-v4-pro"],
+    },
+  ],
+  openrouter: [
+    {
+      labelKey: "settings.modelGroupAgent",
+      models: [
+        "openai/gpt-4o-mini",
+        "anthropic/claude-3.5-sonnet",
+        "google/gemini-2.5-flash-lite",
+      ],
+    },
+    {
+      labelKey: "settings.modelGroupVision",
+      models: [
+        "openai/gpt-4o-mini",
+        "qwen/qwen2.5-vl-72b-instruct",
+        "google/gemini-2.5-flash-lite",
+      ],
+    },
+    {
+      labelKey: "settings.modelGroupChatOnly",
+      models: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
+    },
+  ],
+  ollama: [
+    {
+      labelKey: "settings.modelGroupLocal",
+      models: ["llama3.2", "llama3.1", "qwen2.5", "mistral"],
+    },
+    {
+      labelKey: "settings.modelGroupVision",
+      models: ["qwen2.5vl", "llava"],
+    },
+  ],
+};
+
+export const LEGACY_MODEL_MAP: Record<string, { model: string; thinkingEnabled: boolean }> = {
+  "deepseek-chat": { model: "deepseek-v4-flash", thinkingEnabled: false },
+  "deepseek-reasoner": { model: "deepseek-v4-flash", thinkingEnabled: true },
+};
+
+export function allProviderModels(provider: Exclude<ProviderId, "custom">): string[] {
+  return PROVIDER_MODEL_GROUPS[provider].flatMap((g) => g.models);
+}

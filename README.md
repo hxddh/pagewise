@@ -1,36 +1,34 @@
 # PageWise
 
-Local desktop document agent for **PDF text extraction**, **OCR**, and **page-wise AI analysis**.
+Local desktop document agent for **PDF text extraction**, **OCR**, **vision indexing**, and **page-wise AI analysis**.
 
-Built with **Tauri 2**, **React**, and the [Vercel AI SDK](https://ai-sdk.dev). Documents are processed on your machine; only extracted text is sent to the LLM you configure.
+Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev). Documents are processed on your machine; only extracted text (and optional vision payloads) are sent to the LLM you configure.
 
-## Features (v0.1)
+## Features
 
-- Open PDFs and images from disk (**file picker** or **drag & drop**)
-- **PDF preview** with page navigation, **thumbnail sidebar**, zoom, and page jump
-- **In-document search** (⌘F) with jump-to-page results
-- **Recent files** list (persisted locally)
-- Loading **progress overlay** and success/error **toasts**
-- **Image preview** for OCR'd image files
-- Extract PDF text layers locally (Rust `pdf-extract`)
-- OCR images and scanned PDF pages (system Tesseract)
-- Streaming chat agent with **tool call visualization** (input/output, status)
-- Preview auto-jumps to the page the agent is reading
-- Multi-provider LLM via a single OpenAI-compatible client (`@ai-sdk/openai`):
-  - OpenAI, DeepSeek, OpenRouter, Ollama, or any custom compatible endpoint
-- API keys stored locally with `tauri-plugin-store`
+- **Documents** — Open PDFs and images via file picker or drag & drop
+- **Preview** — Page navigation, thumbnails, zoom, in-document search (⌘F)
+- **Indexing** — PDF text layer, Tesseract OCR, optional vision model indexing for scans
+- **Agent** — Streaming chat with tool calls (`read_pdf_page`, `search_in_document`, …)
+- **Sessions** — Per-document chat threads persisted locally
+- **Library** — Recent files and saved sessions
+- **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint
+- **Security** — API keys stored in the **OS keychain** (macOS Keychain / Windows Credential Manager)
+- **i18n** — English and 简体中文
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 22+
-- [Rust](https://www.rust-lang.org/tools/install)
-- **Tesseract** (for OCR):
+| Requirement | Notes |
+|-------------|-------|
+| [Node.js](https://nodejs.org/) 22+ | For frontend build |
+| [Rust](https://www.rust-lang.org/tools/install) | Tauri backend |
+| **Tesseract** | OCR for images and scanned PDFs |
 
 ```bash
 brew install tesseract tesseract-lang
 ```
 
-## Development
+## Quick start
 
 ```bash
 git clone https://github.com/hxddh/pagewise.git
@@ -41,17 +39,16 @@ npm run tauri dev
 
 ## Configuration
 
-1. Open **Settings** in the app
-2. Choose a provider (DeepSeek, OpenRouter, OpenAI, Ollama, or Custom)
-3. Enter your API key and model id
-4. Click **Test connection**, then **Save**
+1. Open **Settings → AI Provider**
+2. Choose a provider and model
+3. Enter your API key (stored in the OS keychain)
+4. Click **Set active** — settings auto-save
 
-## Architecture
+**OpenRouter:** Use a **tool-capable** model (e.g. `openai/gpt-4o-mini`) for the document agent. Some DeepSeek routes on OpenRouter do not support tool calling.
 
-```
-React UI  →  Vercel AI SDK (DirectChatTransport + ToolLoopAgent)
-          →  Tauri invoke  →  Rust (pdf-extract, Tesseract CLI)
-```
+**Vision / scans:** Pick a multimodal model (e.g. `gpt-4o-mini`, Qwen2.5-VL) for image-heavy documents.
+
+See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 
 ## Scripts
 
@@ -59,8 +56,47 @@ React UI  →  Vercel AI SDK (DirectChatTransport + ToolLoopAgent)
 |---------|-------------|
 | `npm run dev` | Vite dev server only |
 | `npm run tauri dev` | Desktop app (recommended) |
-| `npm run tauri build` | Production build |
+| `npm run build` | Frontend production build |
+| `npm run tauri build` | macOS `.app` + `.dmg` |
+| `npm test` | Unit tests (Vitest) |
+| `npm run check:secrets` | Pre-release credential scan |
+| `npm run version:sync` | Sync `VERSION` → package / Tauri / Cargo |
+
+## Versioning
+
+The canonical version lives in [`VERSION`](VERSION). Run `npm run version:sync` after editing it, or pass an explicit version:
+
+```bash
+node scripts/sync-version.mjs 0.2.1
+```
+
+Release notes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+## Architecture
+
+```
+React UI  →  AI SDK (DirectChatTransport + ToolLoopAgent)
+          →  Tauri invoke  →  Rust (pdf-extract, Tesseract)
+          →  OS Keychain   →  API keys (per provider)
+```
+
+## macOS install
+
+Download the latest **`.dmg`** from [GitHub Releases](https://github.com/hxddh/pagewise/releases), open it, and drag PageWise to Applications.
+
+To build locally:
+
+```bash
+npm run tauri build
+# Artifacts: src-tauri/target/release/bundle/dmg/*.dmg
+```
+
+See [docs/RELEASE.md](docs/RELEASE.md) for the full release checklist.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

@@ -1,73 +1,72 @@
-const EXAMPLE_PROMPTS = [
-  "Summarize the first page",
-  "What dates are mentioned?",
-  "List the main parties or entities",
-  "What are the key obligations?",
-];
+import { useI18n } from "../i18n";
 
 interface EmptyStateProps {
   hasApiKey: boolean;
+  agentToolsSupported?: boolean;
+  settingsReady: boolean;
   hasDocument: boolean;
-  onOpenSettings: () => void;
-  onOpenFile: () => void;
-  onSendExample: (text: string) => void;
+  onConfigureApi: () => void;
+  onExamplePrompt?: (text: string) => void;
 }
 
 export function EmptyState({
   hasApiKey,
+  agentToolsSupported = true,
+  settingsReady,
   hasDocument,
-  onOpenSettings,
-  onOpenFile,
-  onSendExample,
+  onConfigureApi,
+  onExamplePrompt,
 }: EmptyStateProps) {
+  const { t } = useI18n();
+
+  if (settingsReady && !hasApiKey) {
+    return (
+      <div className="empty-state empty-state-compact">
+        <p className="empty-lead">{t("empty.agentLead")}</p>
+        <button type="button" className="link-btn" onClick={onConfigureApi}>
+          {t("empty.configureInline")}
+        </button>
+      </div>
+    );
+  }
+
+  if (settingsReady && hasApiKey && !agentToolsSupported) {
+    return (
+      <div className="empty-state empty-state-compact">
+        <p className="empty-lead">{t("empty.agentToolsLead")}</p>
+        <button type="button" className="link-btn" onClick={onConfigureApi}>
+          {t("empty.configureInline")}
+        </button>
+      </div>
+    );
+  }
+
+  if (!hasDocument) {
+    return (
+      <div className="empty-state empty-state-compact">
+        <p className="empty-lead">{t("empty.waitingDoc")}</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="empty-state">
-      <p className="empty-lead">Ask questions about your document</p>
-      <ol className="empty-steps">
-        <li className={hasApiKey ? "done" : ""}>
-          <span className="step-num">1</span>
-          <div>
-            <strong>Configure AI</strong>
-            {hasApiKey ? (
-              <span className="step-status">Ready</span>
-            ) : (
-              <button type="button" className="link-btn" onClick={onOpenSettings}>
-                Open settings
-              </button>
-            )}
-          </div>
-        </li>
-        <li className={hasDocument ? "done" : ""}>
-          <span className="step-num">2</span>
-          <div>
-            <strong>Open a document</strong>
-            {!hasDocument && (
-              <button type="button" className="link-btn" onClick={onOpenFile}>
-                Choose file
-              </button>
-            )}
-          </div>
-        </li>
-        <li>
-          <span className="step-num">3</span>
-          <div>
-            <strong>Ask anything</strong>
-            <div className="example-chips">
-              {EXAMPLE_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="chip"
-                  disabled={!hasDocument || !hasApiKey}
-                  onClick={() => onSendExample(prompt)}
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          </div>
-        </li>
-      </ol>
+    <div className="empty-state empty-state-minimal">
+      <p className="empty-lead">{t("empty.askLead")}</p>
+      <p className="empty-hint">{t("empty.composerHint")}</p>
+      {onExamplePrompt && (
+        <div className="empty-examples">
+          {[t("empty.example1"), t("empty.example2")].map((example) => (
+            <button
+              key={example}
+              type="button"
+              className="empty-example-chip"
+              onClick={() => onExamplePrompt(example)}
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

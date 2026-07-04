@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Secret scan
+        run: npm run check:secrets
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Typecheck & build frontend
+        run: npm run build
+
+      - name: Verify version sync
+        run: node scripts/sync-version.mjs && git diff --exit-code VERSION package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml

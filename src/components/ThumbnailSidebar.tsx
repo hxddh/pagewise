@@ -1,4 +1,6 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../i18n";
 import { renderThumbnail } from "../lib/pdf";
 
 interface ThumbnailSidebarProps {
@@ -15,11 +17,13 @@ function ThumbnailItem({
   page,
   active,
   onSelect,
+  pageLabel,
 }: {
   path: string;
   page: number;
   active: boolean;
   onSelect: () => void;
+  pageLabel: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLButtonElement>(null);
@@ -63,7 +67,9 @@ function ThumbnailItem({
       type="button"
       className={`thumb-item ${active ? "active" : ""}`}
       onClick={onSelect}
-      title={`Page ${page}`}
+      title={pageLabel}
+      aria-label={pageLabel}
+      aria-current={active ? "page" : undefined}
     >
       <canvas ref={canvasRef} className="thumb-canvas" />
       <span className="thumb-label">{page}</span>
@@ -79,26 +85,34 @@ export function ThumbnailSidebar({
   onToggle,
   onPageSelect,
 }: ThumbnailSidebarProps) {
+  const { t } = useI18n();
+
   if (collapsed) {
     return (
       <button
         type="button"
         className="thumb-collapse-rail"
         onClick={onToggle}
-        title="Show thumbnails"
-        aria-label="Show thumbnails"
+        title={t("preview.thumbnailsShow")}
+        aria-label={t("preview.thumbnailsShow")}
       >
-        ▶
+        <ChevronRight size={14} />
       </button>
     );
   }
 
   return (
-    <aside className="thumb-sidebar">
+    <aside className="thumb-sidebar" aria-label={t("preview.pages")}>
       <div className="thumb-sidebar-header">
-        <span>Pages</span>
-        <button type="button" className="btn icon-btn" onClick={onToggle} title="Hide thumbnails">
-          ◀
+        <span>{t("preview.pages")}</span>
+        <button
+          type="button"
+          className="toolbar-btn"
+          onClick={onToggle}
+          title={t("preview.thumbnailsHide")}
+          aria-label={t("preview.thumbnailsHide")}
+        >
+          <ChevronLeft size={14} />
         </button>
       </div>
       <div className="thumb-list">
@@ -109,6 +123,7 @@ export function ThumbnailSidebar({
             page={page}
             active={page === currentPage}
             onSelect={() => onPageSelect(page)}
+            pageLabel={t("preview.pageTitle", { page })}
           />
         ))}
       </div>

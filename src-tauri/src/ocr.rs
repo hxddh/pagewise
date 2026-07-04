@@ -24,7 +24,8 @@ pub fn ocr_image(path: &str) -> Result<String, String> {
     if !std::path::Path::new(path).exists() {
         return Err(format!("File not found: {path}"));
     }
-    run_tesseract_on_path(path)
+    let data = std::fs::read(path).map_err(|e| format!("Failed to read image: {e}"))?;
+    ocr_bytes(data)
 }
 
 pub fn ocr_bytes(data: Vec<u8>) -> Result<String, String> {

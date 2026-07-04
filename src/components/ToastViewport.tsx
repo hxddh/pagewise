@@ -1,10 +1,12 @@
+import { useI18n } from "../i18n";
 import { useToast, type Toast } from "../hooks/useToast";
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+  const { t } = useI18n();
   return (
     <div className={`toast toast-${toast.tone ?? "default"}`} role="status">
       <span>{toast.message}</span>
-      <button type="button" className="toast-close" onClick={onDismiss} aria-label="Dismiss">
+      <button type="button" className="toast-close" onClick={onDismiss} aria-label={t("toast.dismiss")}>
         ×
       </button>
     </div>
