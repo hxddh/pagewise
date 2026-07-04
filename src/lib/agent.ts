@@ -467,6 +467,7 @@ export function createDocAgent() {
         messages,
         budgetUsed: budget.used,
         budgetMax: budget.max,
+        maxSteps: MAX_AGENT_STEPS,
       });
     },
   });

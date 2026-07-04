@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "@ai-sdk/provider-utils";
 import {
   COMPACT_AGGRESSIVE_ESTIMATED_TOKENS,
+  COMPACT_AGGRESSIVE_STEP_INPUT_TOKENS,
   compactAgentMessages,
   estimateMessageTokens,
   hasBudgetExceededInMessages,
   resolveCompactionLevel,
   shouldForceSynthesisStep,
+  shouldReserveFinalSynthesis,
   sumStepInputTokens,
 } from "./agent-context-compaction";
 
@@ -29,6 +31,49 @@ describe("agent-context-compaction", () => {
     const payload = "x".repeat(COMPACT_AGGRESSIVE_ESTIMATED_TOKENS * 4);
     const huge = [{ role: "user", content: payload }] as ModelMessage[];
     expect(resolveCompactionLevel(huge, [], 0)).toBe("aggressive");
+  });
+
+  it("does not escalate on a cumulative billing sum when live context is small", () => {
+    // Three steps that each re-sent ~7k tokens of the same growing context.
+    // Cumulative sum is 21k (> the 20k step threshold) but the LIVE context is
+    // small, so aggressive compaction must NOT trigger.
+    const messages = [
+      { role: "user", content: "q" },
+      { role: "assistant", content: [{ type: "text", text: "short" }] },
+    ] as ModelMessage[];
+    const steps = [
+      { usage: { inputTokens: 7_000 } },
+      { usage: { inputTokens: 7_000 } },
+      { usage: { inputTokens: 7_000 } },
+    ];
+    expect(sumStepInputTokens(steps)).toBe(21_000);
+    expect(resolveCompactionLevel(messages, steps, 3)).not.toBe("aggressive");
+  });
+
+  it("escalates to aggressive on a large single live step input", () => {
+    const messages = [{ role: "user", content: "q" }] as ModelMessage[];
+    const steps = [{ usage: { inputTokens: COMPACT_AGGRESSIVE_STEP_INPUT_TOKENS } }];
+    expect(resolveCompactionLevel(messages, steps, 1)).toBe("aggressive");
+  });
+
+  it("does not force synthesis on the same step that aggressively pruned", () => {
+    const messages = [{ role: "user", content: "q" }] as ModelMessage[];
+    // Post-tool step, aggressive level, but no budget pressure → keep gathering.
+    expect(
+      shouldForceSynthesisStep(
+        [{ toolCalls: [{}], text: "" }],
+        messages,
+        "aggressive",
+        0,
+        120_000,
+      ),
+    ).toBe(false);
+  });
+
+  it("reserves the final allowed step for synthesis", () => {
+    expect(shouldReserveFinalSynthesis(13, 14)).toBe(true);
+    expect(shouldReserveFinalSynthesis(12, 14)).toBe(false);
+    expect(shouldReserveFinalSynthesis(0, 0)).toBe(false);
   });
 
   it("detects budgetExceeded in tool results", () => {

@@ -39,6 +39,15 @@ export function resolveFastModel(settings: LlmSettings): LanguageModel | null {
   return resolveModel({ ...settings, model: fastId });
 }
 
+/**
+ * Whether a step is a candidate for the cheaper model.
+ *
+ * NOTE: a true result is necessary but NOT sufficient — the caller must only
+ * apply fast routing on a *provably intermediate* step (one where the model is
+ * forced to call tools, e.g. `toolChoice: "required"`), never on a free-choice
+ * step where the model may write the user-visible final answer. Routing the
+ * final answer to the cheap model degrades output quality.
+ */
 export function shouldUseFastModelForStep(
   stepNumber: number,
   steps: Array<{ toolCalls?: unknown[]; text?: string }>,

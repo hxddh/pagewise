@@ -93,6 +93,59 @@ describe("message-metadata", () => {
     expect(finish?.stepUsage?.[0]?.toolNames).toEqual(["read_pdf_page"]);
   });
 
+  it("does not double-count steps in production chunk order", () => {
+    // Production order: onStepEnd fires BEFORE the matching finish-step chunk.
+    const tracker = createUsageMetadataTracker("gpt-test");
+
+    // --- Step 0 ---
+    tracker.onStepEnd({
+      stepNumber: 0,
+      usage: { inputTokens: 100, outputTokens: 20 },
+      toolCalls: [{ toolName: "search_in_document" }],
+    });
+    const afterStep0 = tracker.messageMetadata({
+      part: { type: "finish-step", usage: { inputTokens: 100, outputTokens: 20 } },
+    });
+    expect(afterStep0?.stepUsage).toHaveLength(1);
+    expect(afterStep0?.inputTokens).toBe(100);
+    expect(afterStep0?.outputTokens).toBe(20);
+
+    // --- Step 1 ---
+    tracker.onStepEnd({
+      stepNumber: 1,
+      usage: { inputTokens: 250, outputTokens: 90 },
+      toolCalls: [{ toolName: "read_pdf_page" }],
+    });
+    const afterStep1 = tracker.messageMetadata({
+      part: { type: "finish-step", usage: { inputTokens: 250, outputTokens: 90 } },
+    });
+    expect(afterStep1?.stepUsage).toHaveLength(2);
+
+    const finish = tracker.messageMetadata({
+      part: {
+        type: "finish",
+        totalUsage: { inputTokens: 350, outputTokens: 110, totalTokens: 460 },
+      },
+    });
+
+    // Exactly one entry per real step — no doubling.
+    expect(finish?.stepUsage).toHaveLength(2);
+    expect(finish?.stepUsage?.[0]?.step).toBe(0);
+    expect(finish?.stepUsage?.[0]?.inputTokens).toBe(100);
+    expect(finish?.stepUsage?.[0]?.outputTokens).toBe(20);
+    expect(finish?.stepUsage?.[0]?.toolNames).toEqual(["search_in_document"]);
+    expect(finish?.stepUsage?.[1]?.step).toBe(1);
+    expect(finish?.stepUsage?.[1]?.inputTokens).toBe(250);
+    expect(finish?.stepUsage?.[1]?.toolNames).toEqual(["read_pdf_page"]);
+
+    // Summed per-step tokens agree with the provider total (no ~2x inflation).
+    const line = formatUsageSummaryLine(
+      { stepUsage: finish?.stepUsage },
+      (key, vars) => `${key}:${JSON.stringify(vars)}`,
+    );
+    expect(line).toContain('"steps":2');
+  });
+
   it("collects per-step usage via onStepEnd", () => {
     const tracker = createUsageMetadataTracker("gpt-test");
     tracker.onStepEnd({

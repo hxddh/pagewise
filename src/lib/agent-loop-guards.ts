@@ -74,6 +74,13 @@ export function getBlockedMetaTools(steps: AgentStepSnapshot[]): AgentToolName[]
 }
 
 const DSML_START_RE = /<\s*\|+\s*DSML/i;
+/**
+ * The real leaked opening: a `<|DSML|` delimiter directly introducing an
+ * `invoke name=` token, e.g. `<|DSML|invoke name="list_documents">`. Requiring
+ * this actual adjacency (rather than two independent substrings) avoids cutting
+ * legitimate prose that merely mentions "DSML" and "invoke name=" separately.
+ */
+const DSML_INVOKE_RE = /<\s*\|+\s*DSML\|*\s*invoke\s+name=/i;
 
 /** DeepSeek / some providers leak tool XML as plain text — hide from chat UI. */
 export function stripDsmlToolMarkup(text: string): string {
@@ -89,5 +96,5 @@ export function stripDsmlToolMarkup(text: string): string {
 }
 
 export function isDsmlToolLeak(text: string): boolean {
-  return /DSML/i.test(text) && /invoke name=/i.test(text);
+  return DSML_INVOKE_RE.test(text);
 }

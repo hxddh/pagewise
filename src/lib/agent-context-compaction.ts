@@ -59,13 +59,16 @@ export function resolveCompactionLevel(
   stepNumber: number,
 ): CompactionLevel {
   const estimated = estimateMessageTokens(messages);
-  const stepInput = sumStepInputTokens(steps);
+  // Use the LIVE context size — the serialized messages we are about to send,
+  // plus the provider-reported input of the last step (a single step's input,
+  // which reflects the real context the model saw). Do NOT sum inputTokens
+  // across steps: every step re-sends the growing context, so a cumulative sum
+  // re-counts the same tokens and trips the aggressive threshold far too early.
   const lastStepInput = steps[steps.length - 1]?.usage?.inputTokens ?? 0;
 
   if (
     estimated >= COMPACT_AGGRESSIVE_ESTIMATED_TOKENS ||
-    stepInput >= COMPACT_AGGRESSIVE_STEP_INPUT_TOKENS ||
-    lastStepInput >= COMPACT_AGGRESSIVE_ESTIMATED_TOKENS
+    lastStepInput >= COMPACT_AGGRESSIVE_STEP_INPUT_TOKENS
   ) {
     return "aggressive";
   }
@@ -124,15 +127,32 @@ export function isPostToolStep(steps: AgentStep[]): boolean {
 export function shouldForceSynthesisStep(
   steps: AgentStep[],
   messages: ModelMessage[],
-  compactionLevel: CompactionLevel,
+  _compactionLevel: CompactionLevel,
   budgetUsed: number,
   budgetMax: number,
 ): boolean {
   if (!isPostToolStep(steps)) return false;
   if (hasBudgetExceededInMessages(messages)) return true;
   if (budgetMax > 0 && budgetUsed >= budgetMax * 0.85) return true;
-  if (compactionLevel === "aggressive") return true;
+  // NOTE: `_compactionLevel === "aggressive"` does NOT force synthesis here.
+  // Aggressive mode prunes older read/light results down to the last message,
+  // so forcing `toolChoice:"none"` on the very same step would make the model
+  // synthesize a whole-document answer from only the last chunk. Instead we let
+  // it gather at least one more step; a dead-end tool step is prevented by the
+  // reserved final synthesis step (see `shouldReserveFinalSynthesis`).
   return false;
+}
+
+/**
+ * Reserve the last allowed step for synthesis: on the final step the run may
+ * take, force a text answer (`toolChoice:"none"`) so a `stepCountIs` cap can
+ * never terminate the run on a tool call with no user-visible reply.
+ */
+export function shouldReserveFinalSynthesis(
+  stepNumber: number,
+  maxSteps: number,
+): boolean {
+  return maxSteps > 0 && stepNumber >= maxSteps - 1;
 }
 
 export interface PrepareStepContext {
@@ -142,6 +162,8 @@ export interface PrepareStepContext {
   messages: ModelMessage[];
   budgetUsed: number;
   budgetMax: number;
+  /** Hard step cap for the run; the last step is reserved for synthesis. */
+  maxSteps: number;
 }
 
 export interface PrepareStepOverrides {
@@ -152,7 +174,7 @@ export interface PrepareStepOverrides {
 }
 
 export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepOverrides {
-  const { settings, stepNumber, steps, messages, budgetUsed, budgetMax } = ctx;
+  const { settings, stepNumber, steps, messages, budgetUsed, budgetMax, maxSteps } = ctx;
   const compactionLevel = resolveCompactionLevel(messages, steps, stepNumber);
   const prunedMessages = compactAgentMessages(
     messages,
@@ -173,6 +195,18 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
     };
   }
 
+  // Reserve the final allowed step for a text answer so the run never ends on a
+  // dead-end tool call with no reply. Always uses the base model (final answer).
+  if (shouldReserveFinalSynthesis(stepNumber, maxSteps)) {
+    emitAgentProgress("Synthesizing final answer…", "tool");
+    return {
+      model: baseModel,
+      messages: prunedMessages,
+      activeTools: [],
+      toolChoice: "none",
+    };
+  }
+
   if (shouldForceSynthesisStep(steps, messages, compactionLevel, budgetUsed, budgetMax)) {
     emitAgentProgress("Synthesizing answer from gathered context…", "tool");
     return {
@@ -185,8 +219,23 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
 
   if (shouldForceReadTools(steps)) {
     emitAgentProgress("Reading matched pages…", "read");
+    // A forced read step is provably intermediate (toolChoice:"required" — the
+    // model must emit a read call, not a final answer), so it is safe to route
+    // to the cheaper model. The free-choice answer step never gets the fast
+    // model, which previously risked sending the user-visible answer to it.
+    let model = baseModel;
+    if (shouldUseFastModelForStep(stepNumber, steps)) {
+      const fast = resolveFastModel(settings);
+      if (fast) {
+        model = fast;
+        const fastId = pickFastModelId(settings);
+        if (fastId) {
+          emitAgentProgress(`Routing step ${stepNumber + 1} to ${fastId}…`, "tool");
+        }
+      }
+    }
     return {
-      model: baseModel,
+      model,
       messages: prunedMessages,
       activeTools: [...READ_TOOL_NAMES],
       toolChoice: "required",
@@ -202,17 +251,6 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
         (name) => !blocked.includes(name),
       ) as AgentToolName[],
     };
-  }
-
-  if (shouldUseFastModelForStep(stepNumber, steps)) {
-    const fast = resolveFastModel(settings);
-    if (fast) {
-      const fastId = pickFastModelId(settings);
-      if (fastId) {
-        emitAgentProgress(`Routing step ${stepNumber + 1} to ${fastId}…`, "tool");
-      }
-      return { model: fast, messages: prunedMessages };
-    }
   }
 
   return { model: baseModel, messages: prunedMessages };
