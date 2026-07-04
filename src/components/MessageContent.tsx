@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { UIMessage } from "ai";
 import { isToolUIPart } from "ai";
 import { useI18n } from "../i18n";
@@ -32,7 +33,17 @@ function toolChipLabel(toolName: string, input: unknown, t: TranslateFn): string
   }
 }
 
-export function MessageContent({ message, markdown = false }: MessageContentProps) {
+function partsSignature(parts: UIMessage["parts"]): string {
+  let sig = `${parts.length}:`;
+  for (const p of parts) {
+    if (p.type === "text") sig += `t${p.text.length}:${p.text.slice(-24)};`;
+    else if (isToolUIPart(p)) sig += `${p.type}:${p.state};`;
+    else sig += `${p.type};`;
+  }
+  return sig;
+}
+
+function MessageContentInner({ message, markdown = false }: MessageContentProps) {
   const { t } = useI18n();
 
   return (
@@ -69,3 +80,11 @@ export function MessageContent({ message, markdown = false }: MessageContentProp
     </div>
   );
 }
+
+export const MessageContent = memo(
+  MessageContentInner,
+  (prev, next) =>
+    prev.markdown === next.markdown &&
+    prev.message.id === next.message.id &&
+    partsSignature(prev.message.parts) === partsSignature(next.message.parts),
+);

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { generateText } from "ai";
 import { docCache } from "./doc-cache";
 import {
@@ -9,7 +9,7 @@ import {
 } from "./index-events";
 import { resolveModel } from "./llm";
 import { isVisionModel } from "./model-capabilities";
-import { ocrPdfPage, renderPageToPngBytes } from "./pdf";
+import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
 import { loadSettings } from "./settings";
 import type { LoadedDocument } from "./types";
 import type { LlmSettings } from "./types";
@@ -76,8 +76,15 @@ export class VisionNotSupportedError extends Error {
 }
 
 async function readImageBytes(path: string): Promise<Uint8Array> {
-  const data = await invoke<number[]>("read_file_bytes", { path });
-  return Uint8Array.from(data);
+  try {
+    const url = convertFileSrc(path);
+    const buf = await fetch(url).then((r) => r.arrayBuffer());
+    return new Uint8Array(buf);
+  } catch {
+    const raw = await invoke<ArrayBuffer | Uint8Array>("read_file_bytes", { path });
+    if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+    return raw instanceof Uint8Array ? raw : new Uint8Array();
+  }
 }
 
 export async function compressImageForVision(bytes: Uint8Array): Promise<Uint8Array> {
@@ -115,7 +122,7 @@ async function loadPageImageBytes(
   kind: "pdf" | "image",
 ): Promise<Uint8Array> {
   if (kind === "image") return readImageBytes(path);
-  return renderPageToPngBytes(path, page, 1.5);
+  return renderPageToJpegBytes(path, page);
 }
 
 export async function visionExtractPage(

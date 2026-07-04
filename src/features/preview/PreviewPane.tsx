@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
 import { getPageIndexState } from "../../lib/index-events";
@@ -19,7 +19,7 @@ interface PreviewPaneProps {
   onOpenAiSettings?: () => void;
 }
 
-export function PreviewPane({
+function PreviewPaneInner({
   doc,
   page,
   onPageChange,
@@ -135,9 +135,11 @@ export function PreviewPane({
         {doc.kind === "pdf" ? (
           <>
             <canvas ref={viewer.canvasRef} className="preview-canvas" />
-            {viewer.showTextLayer && (
-              <div ref={viewer.textLayerRef} className="pdf-text-layer" />
-            )}
+            <div
+              ref={viewer.textLayerRef}
+              className={`pdf-text-layer${viewer.textLayerActive ? " pdf-text-layer-active" : ""}`}
+              aria-hidden={!viewer.textLayerActive}
+            />
           </>
         ) : (
           <img src={convertFileSrc(doc.path)} alt={doc.name} className="preview-image" />
@@ -208,3 +210,5 @@ export function PreviewPane({
     </div>
   );
 }
+
+export const PreviewPane = memo(PreviewPaneInner);

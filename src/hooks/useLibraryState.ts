@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useChatPersistence } from "./useChatPersistence";
 import type { RecentFile } from "../lib/recent-files";
 import type { LoadedDocument } from "../lib/types";
@@ -12,6 +12,7 @@ interface UseLibraryStateOptions {
   recentFiles: RecentFile[];
   setRecentFiles: (files: RecentFile[]) => void;
   onDocumentSwitch?: (nextPath: string | null) => void;
+  isStreaming?: boolean;
 }
 
 export function useLibraryState({
@@ -23,6 +24,7 @@ export function useLibraryState({
   recentFiles,
   setRecentFiles,
   onDocumentSwitch,
+  isStreaming = false,
 }: UseLibraryStateOptions) {
   const [libraryOpen, setLibraryOpen] = useState(false);
 
@@ -42,6 +44,7 @@ export function useLibraryState({
     messages,
     setMessages,
     onDocumentSwitch,
+    isStreaming,
   });
 
   const openSessionFromLibrary = useCallback(
@@ -65,16 +68,29 @@ export function useLibraryState({
     [activeDoc?.path, openPath, selectThread, queueSessionForLoad, clearQueuedSession],
   );
 
-  return {
-    libraryOpen,
-    setLibraryOpen,
-    recentFiles,
-    setRecentFiles,
-    sessions,
-    deleteSession,
-    openSessionFromLibrary,
-    clearCurrentThread,
-    activeSessionId,
-    chatLoading,
-  };
+  return useMemo(
+    () => ({
+      libraryOpen,
+      setLibraryOpen,
+      recentFiles,
+      setRecentFiles,
+      sessions,
+      deleteSession,
+      openSessionFromLibrary,
+      clearCurrentThread,
+      activeSessionId,
+      chatLoading,
+    }),
+    [
+      libraryOpen,
+      recentFiles,
+      setRecentFiles,
+      sessions,
+      deleteSession,
+      openSessionFromLibrary,
+      clearCurrentThread,
+      activeSessionId,
+      chatLoading,
+    ],
+  );
 }

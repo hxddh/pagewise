@@ -1,30 +1,38 @@
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import { TextLayer } from "pdfjs-dist/legacy/build/pdf.mjs";
+import type { PDFPageProxy, RenderTask } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import {
+  getPdfJs,
+  PDF_CMAP_URL,
+  PDF_STANDARD_FONT_URL,
+  type PDFDocumentProxy,
+} from "./pdf-loader";
 import type { PreviewQuality } from "./types";
 import type { PdfExtractResult } from "./types";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
-
-const MAX_PAGE_CACHE = 24;
+const MAX_CACHE_BYTES = 128 * 1024 * 1024;
 const RASTER_TEXT_THRESHOLD = 48;
+const WIDTH_QUANTUM = 32;
+const MAX_OUTPUT_SCALE = 2.5;
 
-let pdfDocCache: { path: string; doc: pdfjs.PDFDocumentProxy } | null = null;
+const QUALITY_RANK: Record<PreviewQuality, number> = {
+  performance: 0,
+  auto: 1,
+  crisp: 2,
+};
+
+let pdfDocCache: { path: string; doc: PDFDocumentProxy } | null = null;
 const pdfBytesCache = new Map<string, Uint8Array>();
-/** De-dupes concurrent getDocument loads for the same path. */
-const inFlightDocs = new Map<string, Promise<pdfjs.PDFDocumentProxy>>();
+const inFlightDocs = new Map<string, Promise<PDFDocumentProxy>>();
 let renderEpoch = 0;
+let pageCacheBytes = 0;
 
 type RenderPriority = "high" | "low";
+type RenderIntent = "display" | "print";
 
 interface QueueItem {
   priority: RenderPriority;
   epoch: number;
   run: () => Promise<void>;
-  /** Settle the awaited promise without running (used when the item is dropped). */
   cancel: () => void;
 }
 
@@ -34,20 +42,36 @@ interface PageRenderSnapshot {
   cssWidth: number;
   cssHeight: number;
   bitmap: ImageBitmap;
+  bytes: number;
+}
+
+interface PaintResult {
+  cssWidth: number;
+  cssHeight: number;
+  cancel: () => void;
 }
 
 const pageCache = new Map<string, PageRenderSnapshot>();
 const fitScaleCache = new Map<string, number>();
+const textLayerCache = new Map<string, unknown>();
 
 const renderQueue: QueueItem[] = [];
 let queueRunning = false;
+
+/** Active render tasks keyed by canvas element (for cancellation). */
+const activeRenderTasks = new WeakMap<HTMLCanvasElement, RenderTask>();
+
+export function quantizeWidth(width: number): number {
+  return Math.max(WIDTH_QUANTUM, Math.round(width / WIDTH_QUANTUM) * WIDTH_QUANTUM);
+}
 
 export function buildScaleKey(
   zoom: "fit-width" | number,
   containerWidth: number,
   resolvedScale: number,
 ): string {
-  if (zoom === "fit-width") return `fit:${containerWidth}`;
+  const qWidth = quantizeWidth(containerWidth);
+  if (zoom === "fit-width") return `fit:${qWidth}`;
   return `fixed:${resolvedScale.toFixed(4)}`;
 }
 
@@ -63,19 +87,14 @@ function cacheKey(
 export function qualityMultiplier(quality: PreviewQuality): number {
   switch (quality) {
     case "crisp":
-      return 2;
+      return 1.25;
     case "performance":
       return 1;
     default:
-      return 1.5;
+      return 1.15;
   }
 }
 
-/**
- * Use the browser-reported device pixel ratio directly, clamped to a sane range.
- * Inferring DPR from screen.width / innerWidth over-scaled non-maximized windows on
- * 1x displays (rendering ~4x the pixels), so that heuristic has been removed.
- */
 export function effectiveDevicePixelRatio(): number {
   if (typeof window === "undefined") return 1;
   const reported = window.devicePixelRatio || 1;
@@ -91,13 +110,37 @@ export function effectiveRenderQuality(
 }
 
 export function getOutputScale(quality: PreviewQuality = "crisp"): number {
-  return effectiveDevicePixelRatio() * qualityMultiplier(quality);
+  const raw = effectiveDevicePixelRatio() * qualityMultiplier(quality);
+  return Math.min(MAX_OUTPUT_SCALE, raw);
 }
 
 export function isRasterHeavyPage(textLength: number): boolean {
   return textLength < RASTER_TEXT_THRESHOLD;
 }
 
+function findCachedPageKey(
+  path: string,
+  page: number,
+  scaleKey: string,
+  minQuality: PreviewQuality,
+): string | undefined {
+  const minRank = QUALITY_RANK[minQuality];
+  let bestKey: string | undefined;
+  let bestRank = -1;
+
+  for (const key of pageCache.keys()) {
+    const parts = key.split("|");
+    if (parts.length < 5) continue;
+    if (parts[0] !== path || parts[1] !== String(page) || parts[2] !== scaleKey) continue;
+    const q = parts[3] as PreviewQuality;
+    const rank = QUALITY_RANK[q] ?? 0;
+    if (rank >= minRank && rank > bestRank) {
+      bestRank = rank;
+      bestKey = key;
+    }
+  }
+  return bestKey;
+}
 
 function purgeLowPriorityQueue(): void {
   for (let i = renderQueue.length - 1; i >= 0; i--) {
@@ -109,7 +152,6 @@ function purgeLowPriorityQueue(): void {
   }
 }
 
-/** LRU read: on a hit, re-insert the key so it becomes most-recently-used. */
 function getCachedPage(key: string): PageRenderSnapshot | undefined {
   const snap = pageCache.get(key);
   if (snap) {
@@ -120,12 +162,27 @@ function getCachedPage(key: string): PageRenderSnapshot | undefined {
 }
 
 function evictPageCache(): void {
-  while (pageCache.size > MAX_PAGE_CACHE) {
+  while (pageCacheBytes > MAX_CACHE_BYTES && pageCache.size > 0) {
     const key = pageCache.keys().next().value;
     if (!key) break;
-    pageCache.get(key)?.bitmap.close();
+    const snap = pageCache.get(key);
+    if (snap) {
+      pageCacheBytes -= snap.bytes;
+      snap.bitmap.close();
+    }
     pageCache.delete(key);
   }
+}
+
+function storePageCache(key: string, snap: PageRenderSnapshot): void {
+  const prev = pageCache.get(key);
+  if (prev) {
+    pageCacheBytes -= prev.bytes;
+    prev.bitmap.close();
+  }
+  pageCache.set(key, snap);
+  pageCacheBytes += snap.bytes;
+  evictPageCache();
 }
 
 function enqueueRender(priority: RenderPriority, run: () => Promise<void>): Promise<void> {
@@ -137,8 +194,6 @@ function enqueueRender(priority: RenderPriority, run: () => Promise<void>): Prom
       epoch,
       run: async () => {
         if (settled) return;
-        // Stale after a cache clear / epoch bump: settle (resolve) instead of
-        // silently dropping the promise, so awaiters never hang.
         if (item.epoch !== renderEpoch) {
           settled = true;
           resolve();
@@ -179,7 +234,6 @@ async function drainQueue(): Promise<void> {
   try {
     while (renderQueue.length > 0) {
       const item = renderQueue.shift()!;
-      // item.run() settles stale items as cancelled internally.
       await item.run();
     }
   } finally {
@@ -192,57 +246,70 @@ export async function extractPdfFromRust(path: string): Promise<PdfExtractResult
   return invoke<PdfExtractResult>("extract_pdf_text_cmd", { path, page: null });
 }
 
+async function loadPdfBytesViaAsset(path: string): Promise<Uint8Array> {
+  const url = convertFileSrc(path);
+  const buf = await fetch(url).then((r) => {
+    if (!r.ok) throw new Error(`Failed to load PDF (${r.status})`);
+    return r.arrayBuffer();
+  });
+  const data = new Uint8Array(buf);
+  if (data.byteLength === 0) throw new Error("Empty PDF file");
+  return data;
+}
+
+async function loadPdfBytesViaIpc(path: string): Promise<Uint8Array> {
+  const raw = await invoke<ArrayBuffer | Uint8Array | number[]>("read_file_bytes", { path });
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (raw instanceof Uint8Array) return raw;
+  return new Uint8Array(Array.isArray(raw) ? raw : []);
+}
+
 async function loadPdfBytes(path: string): Promise<Uint8Array> {
   const cached = pdfBytesCache.get(path);
   if (cached) return cached;
 
+  let data: Uint8Array;
   try {
-    const raw = await invoke<number[] | Uint8Array>("read_file_bytes", { path });
-    const data =
-      raw instanceof Uint8Array ? raw : new Uint8Array(Array.isArray(raw) ? raw : []);
-    if (data.byteLength === 0) throw new Error("Empty PDF file");
-    pdfBytesCache.set(path, data);
-    return data;
+    data = await loadPdfBytesViaAsset(path);
   } catch {
-    const url = convertFileSrc(path);
-    const buf = await new Promise<ArrayBuffer>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("GET", url, true);
-      xhr.responseType = "arraybuffer";
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
-          resolve(xhr.response as ArrayBuffer);
-        } else {
-          reject(new Error(`Failed to load PDF (${xhr.status})`));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Failed to load PDF"));
-      xhr.send();
-    });
-    const data = new Uint8Array(buf);
-    pdfBytesCache.set(path, data);
-    return data;
+    data = await loadPdfBytesViaIpc(path);
   }
+
+  if (data.byteLength === 0) throw new Error("Empty PDF file");
+  pdfBytesCache.set(path, data);
+  return data;
 }
 
-export async function getPdfDocument(path: string): Promise<pdfjs.PDFDocumentProxy> {
-  if (pdfDocCache?.path === path) {
-    return pdfDocCache.doc;
-  }
+export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
+  if (pdfDocCache?.path === path) return pdfDocCache.doc;
+
   const inFlight = inFlightDocs.get(path);
   if (inFlight) return inFlight;
 
   const load = (async () => {
-    const data = await loadPdfBytes(path);
-    const doc = await pdfjs.getDocument({
-      data,
-      useSystemFonts: true,
-      disableStream: true,
-      disableAutoFetch: true,
-      disableRange: true,
-    }).promise;
-    // Destroy the previously cached document before replacing it, otherwise the
-    // parsed doc leaks inside the pdf.js worker.
+    const pdfjs = await getPdfJs();
+    let doc: PDFDocumentProxy;
+
+    try {
+      const url = convertFileSrc(path);
+      doc = await pdfjs.getDocument({
+        url,
+        useSystemFonts: true,
+        cMapUrl: PDF_CMAP_URL,
+        cMapPacked: true,
+        standardFontDataUrl: PDF_STANDARD_FONT_URL,
+      }).promise;
+    } catch {
+      const data = await loadPdfBytes(path);
+      doc = await pdfjs.getDocument({
+        data,
+        useSystemFonts: true,
+        cMapUrl: PDF_CMAP_URL,
+        cMapPacked: true,
+        standardFontDataUrl: PDF_STANDARD_FONT_URL,
+      }).promise;
+    }
+
     if (pdfDocCache && pdfDocCache.path !== path) {
       void pdfDocCache.doc.loadingTask.destroy();
     }
@@ -258,19 +325,45 @@ export async function getPdfDocument(path: string): Promise<pdfjs.PDFDocumentPro
   }
 }
 
-export async function getPageViewport(path: string, pageNumber: number, scale: number) {
+export async function getPdfPageCount(path: string): Promise<number> {
   const doc = await getPdfDocument(path);
-  const page = await doc.getPage(pageNumber);
-  return page.getViewport({ scale });
+  return doc.numPages;
 }
 
-/** Direct viewport render — one pass, integer pixel dimensions. */
+/** Extract plain text for one page via pdf.js (no Rust pdf-extract). */
+export async function extractPageText(path: string, pageNumber: number): Promise<string> {
+  const doc = await getPdfDocument(path);
+  const page = await doc.getPage(pageNumber);
+  const content = await page.getTextContent();
+  return content.items
+    .map((item) => ("str" in item ? item.str : ""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Background-fill sparse page texts after open. */
+export async function extractAllPageTexts(
+  path: string,
+  onPage?: (page: number, text: string) => void,
+): Promise<{ page: number; text: string }[]> {
+  const doc = await getPdfDocument(path);
+  const out: { page: number; text: string }[] = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const text = await extractPageText(path, p);
+    out.push({ page: p, text });
+    onPage?.(p, text);
+  }
+  return out;
+}
+
 async function paintPage(
-  page: pdfjs.PDFPageProxy,
+  page: PDFPageProxy,
   scale: number,
   quality: PreviewQuality,
   canvas: HTMLCanvasElement,
-): Promise<{ cssWidth: number; cssHeight: number }> {
+  intent: RenderIntent = "display",
+): Promise<PaintResult> {
   const outputScale = getOutputScale(quality);
   const renderScale = scale * outputScale;
   const viewport = page.getViewport({ scale: renderScale });
@@ -294,14 +387,30 @@ async function paintPage(
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, pixelWidth, pixelHeight);
 
-  await page.render({
+  const prev = activeRenderTasks.get(canvas);
+  prev?.cancel();
+
+  const task = page.render({
     canvasContext: ctx,
     viewport,
     canvas,
-    intent: "print",
-  }).promise;
+    intent,
+  });
 
-  return { cssWidth, cssHeight };
+  activeRenderTasks.set(canvas, task);
+
+  try {
+    await task.promise;
+  } catch (e) {
+    if ((e as { name?: string })?.name === "RenderingCancelledException") {
+      return { cssWidth, cssHeight, cancel: () => task.cancel() };
+    }
+    throw e;
+  } finally {
+    activeRenderTasks.delete(canvas);
+  }
+
+  return { cssWidth, cssHeight, cancel: () => task.cancel() };
 }
 
 function applySnapshot(canvas: HTMLCanvasElement, snap: PageRenderSnapshot): void {
@@ -327,7 +436,8 @@ export function tryApplyCachedPage(
   quality: PreviewQuality,
   canvas: HTMLCanvasElement,
 ): boolean {
-  const key = cacheKey(path, pageNumber, scaleKey, quality);
+  const key = findCachedPageKey(path, pageNumber, scaleKey, quality);
+  if (!key) return false;
   const cached = getCachedPage(key);
   if (!cached) return false;
   applySnapshot(canvas, cached);
@@ -340,7 +450,7 @@ export function hasPageCache(
   scaleKey: string,
   quality: PreviewQuality,
 ): boolean {
-  return pageCache.has(cacheKey(path, pageNumber, scaleKey, quality));
+  return findCachedPageKey(path, pageNumber, scaleKey, quality) !== undefined;
 }
 
 async function renderAndCache(
@@ -350,28 +460,44 @@ async function renderAndCache(
   scaleKey: string,
   quality: PreviewQuality,
   canvas: HTMLCanvasElement,
+  intent: RenderIntent,
+  isStale: () => boolean,
 ): Promise<{ totalPages: number; cacheHit: boolean }> {
-  const key = cacheKey(path, pageNumber, scaleKey, quality);
-  const cached = getCachedPage(key);
-  if (cached) {
-    applySnapshot(canvas, cached);
+  const existingKey = findCachedPageKey(path, pageNumber, scaleKey, quality);
+  if (existingKey) {
+    const cached = getCachedPage(existingKey);
+    if (cached && !isStale()) {
+      applySnapshot(canvas, cached);
+      const doc = await getPdfDocument(path);
+      return { totalPages: doc.numPages, cacheHit: true };
+    }
+  }
+
+  if (isStale()) {
     const doc = await getPdfDocument(path);
-    return { totalPages: doc.numPages, cacheHit: true };
+    return { totalPages: doc.numPages, cacheHit: false };
   }
 
   const doc = await getPdfDocument(path);
   const page = await doc.getPage(pageNumber);
-  const dims = await paintPage(page, scale, quality, canvas);
+  const paint = await paintPage(page, scale, quality, canvas, intent);
+
+  if (isStale()) {
+    paint.cancel();
+    return { totalPages: doc.numPages, cacheHit: false };
+  }
 
   const bitmap = await createImageBitmap(canvas);
-  pageCache.set(key, {
+  const key = cacheKey(path, pageNumber, scaleKey, quality);
+  const bytes = canvas.width * canvas.height * 4;
+  storePageCache(key, {
     bitmap,
     pixelWidth: canvas.width,
     pixelHeight: canvas.height,
-    cssWidth: dims.cssWidth,
-    cssHeight: dims.cssHeight,
+    cssWidth: paint.cssWidth,
+    cssHeight: paint.cssHeight,
+    bytes,
   });
-  evictPageCache();
 
   return { totalPages: doc.numPages, cacheHit: false };
 }
@@ -379,7 +505,6 @@ async function renderAndCache(
 export interface RenderResult {
   totalPages: number;
   cacheHit: boolean;
-  /** True when the render was cancelled (cache cleared / epoch bumped) before running. */
   cancelled?: boolean;
 }
 
@@ -391,13 +516,24 @@ export async function renderPageToCanvas(
   priority: RenderPriority = "high",
   quality: PreviewQuality = "crisp",
   scaleKey?: string,
+  isStale?: () => boolean,
 ): Promise<RenderResult> {
   const key = scaleKey ?? `fixed:${scale.toFixed(4)}`;
-  // Default to a cancelled marker; the callback below overwrites it only if it runs.
+  const stale = isStale ?? (() => false);
   let result: RenderResult = { totalPages: 0, cacheHit: false, cancelled: true };
 
   await enqueueRender(priority, async () => {
-    result = await renderAndCache(path, pageNumber, scale, key, quality, canvas);
+    if (stale()) return;
+    result = await renderAndCache(
+      path,
+      pageNumber,
+      scale,
+      key,
+      quality,
+      canvas,
+      "display",
+      stale,
+    );
   });
 
   return result;
@@ -411,22 +547,20 @@ export function prefetchPage(
   scaleKey?: string,
 ): void {
   const key = scaleKey ?? `fixed:${scale.toFixed(4)}`;
-  if (pageCache.has(cacheKey(path, pageNumber, key, quality))) return;
+  if (hasPageCache(path, pageNumber, key, quality)) return;
 
   void enqueueRender("low", async () => {
     const offscreen = document.createElement("canvas");
-    const doc = await getPdfDocument(path);
-    const page = await doc.getPage(pageNumber);
-    const dims = await paintPage(page, scale, quality, offscreen);
-    const bitmap = await createImageBitmap(offscreen);
-    pageCache.set(cacheKey(path, pageNumber, key, quality), {
-      bitmap,
-      pixelWidth: offscreen.width,
-      pixelHeight: offscreen.height,
-      cssWidth: dims.cssWidth,
-      cssHeight: dims.cssHeight,
-    });
-    evictPageCache();
+    await renderAndCache(
+      path,
+      pageNumber,
+      scale,
+      key,
+      quality,
+      offscreen,
+      "display",
+      () => false,
+    );
   });
 }
 
@@ -436,17 +570,24 @@ export async function renderTextLayer(
   scale: number,
   container: HTMLElement,
 ): Promise<() => void> {
+  const layerKey = `${path}|${pageNumber}|${scale.toFixed(4)}`;
   const doc = await getPdfDocument(path);
   const page = await doc.getPage(pageNumber);
   const viewport = page.getViewport({ scale });
-  const textContent = await page.getTextContent();
+
+  let textContent = textLayerCache.get(layerKey);
+  if (!textContent) {
+    textContent = await page.getTextContent();
+    textLayerCache.set(layerKey, textContent);
+  }
 
   container.innerHTML = "";
   container.style.width = `${Math.round(viewport.width)}px`;
   container.style.height = `${Math.round(viewport.height)}px`;
 
+  const { TextLayer } = await getPdfJs();
   const layer = new TextLayer({
-    textContentSource: textContent,
+    textContentSource: textContent as Awaited<ReturnType<PDFPageProxy["getTextContent"]>>,
     container,
     viewport,
   });
@@ -461,7 +602,6 @@ export async function renderTextLayer(
 
 export function clearPdfCache(): void {
   renderEpoch += 1;
-  // Settle any queued renders so their awaiters resolve instead of hanging forever.
   for (const item of renderQueue) item.cancel();
   renderQueue.length = 0;
   if (pdfDocCache) {
@@ -470,8 +610,10 @@ export function clearPdfCache(): void {
   }
   pdfBytesCache.clear();
   fitScaleCache.clear();
+  textLayerCache.clear();
   for (const snap of pageCache.values()) snap.bitmap.close();
   pageCache.clear();
+  pageCacheBytes = 0;
 }
 
 export async function resolveFitWidthScale(
@@ -480,17 +622,13 @@ export async function resolveFitWidthScale(
   containerWidth: number,
   padding = 4,
 ): Promise<number> {
-  const cacheId = `${path}|${pageNumber}|${containerWidth}`;
+  const qWidth = quantizeWidth(containerWidth);
+  const cacheId = `${path}|${pageNumber}|${qWidth}`;
   const cached = fitScaleCache.get(cacheId);
   if (cached !== undefined) return cached;
-  const scale = await computeFitWidthScale(path, pageNumber, containerWidth, padding);
+  const scale = await computeFitWidthScale(path, pageNumber, qWidth, padding);
   fitScaleCache.set(cacheId, scale);
   return scale;
-}
-
-export async function getPdfPageCount(path: string): Promise<number> {
-  const doc = await getPdfDocument(path);
-  return doc.numPages;
 }
 
 export async function computeFitWidthScale(
@@ -506,28 +644,59 @@ export async function computeFitWidthScale(
   return available / base.width;
 }
 
+/** OCR target ~300 DPI (72 PDF points × ~4.17). */
+const OCR_RENDER_SCALE = 300 / 72;
+
 export async function renderThumbnail(
   path: string,
   pageNumber: number,
   canvas: HTMLCanvasElement,
   maxWidth = 96,
 ): Promise<void> {
+  await enqueueRender("low", async () => {
+    const doc = await getPdfDocument(path);
+    const page = await doc.getPage(pageNumber);
+    const base = page.getViewport({ scale: 1 });
+    const scale = maxWidth / base.width;
+    await paintPage(page, scale, "performance", canvas, "display");
+  });
+}
+
+export async function renderPageToJpegBytes(
+  path: string,
+  pageNumber: number,
+  maxEdge = 1568,
+  quality = 0.85,
+): Promise<Uint8Array> {
   const doc = await getPdfDocument(path);
   const page = await doc.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
-  const scale = maxWidth / base.width;
-  await paintPage(page, scale, "performance", canvas);
+  const edge = Math.max(base.width, base.height);
+  const scale = edge > maxEdge ? maxEdge / edge : OCR_RENDER_SCALE;
+
+  const offscreen = document.createElement("canvas");
+  await paintPage(page, scale, "performance", offscreen, "print");
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    offscreen.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+      "image/jpeg",
+      quality,
+    );
+  });
+
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 export async function renderPageToPngBytes(
   path: string,
   pageNumber: number,
-  scale = 2,
+  scale = OCR_RENDER_SCALE,
 ): Promise<Uint8Array> {
   const doc = await getPdfDocument(path);
   const page = await doc.getPage(pageNumber);
   const offscreen = document.createElement("canvas");
-  await paintPage(page, scale, "crisp", offscreen);
+  await paintPage(page, scale, "performance", offscreen, "print");
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     offscreen.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
@@ -538,5 +707,11 @@ export async function renderPageToPngBytes(
 
 export async function ocrPdfPage(path: string, pageNumber: number): Promise<string> {
   const bytes = await renderPageToPngBytes(path, pageNumber);
-  return invoke<string>("ocr_bytes", { data: Array.from(bytes) });
+  return invoke<string>("ocr_bytes", { data: bytes });
+}
+
+export async function getPageViewport(path: string, pageNumber: number, scale: number) {
+  const doc = await getPdfDocument(path);
+  const page = await doc.getPage(pageNumber);
+  return page.getViewport({ scale });
 }

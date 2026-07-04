@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { findLastMessage } from "../lib/messages-utils";
 import { getToolName, isToolUIPart } from "ai";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useDocumentLoader } from "./useDocumentLoader";
@@ -131,7 +132,7 @@ export function useDocumentWorkspace(
         ? { userText: msgCtx.userText, viewingPage: msgCtx.viewingPage }
         : null;
 
-      const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+      const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
       if (!lastAssistant) return;
       for (const part of lastAssistant.parts) {
         if (!isToolUIPart(part) || part.state !== "output-available") continue;
@@ -174,25 +175,44 @@ export function useDocumentWorkspace(
     void indexSparsePages(doc, pages, { signal: controller.signal });
   }, []);
 
-  return {
-    activeDoc,
-    previewPage,
-    setPreviewPage,
-    followAgent,
-    setFollowAgent,
-    includeViewingPage,
-    setIncludeViewingPage,
-    fileError,
-    clearFileError,
-    pickerOpen,
-    loading,
-    progress,
-    openPath,
-    openFileDialog,
-    isDragging,
-    onLoadedRef,
-    syncPageFromAgent,
-    reindexActiveDoc,
-    docLoadSeq,
-  };
+  return useMemo(
+    () => ({
+      activeDoc,
+      previewPage,
+      setPreviewPage,
+      followAgent,
+      setFollowAgent,
+      includeViewingPage,
+      setIncludeViewingPage,
+      fileError,
+      clearFileError,
+      pickerOpen,
+      loading,
+      progress,
+      openPath,
+      openFileDialog,
+      isDragging,
+      onLoadedRef,
+      syncPageFromAgent,
+      reindexActiveDoc,
+      docLoadSeq,
+    }),
+    [
+      activeDoc,
+      previewPage,
+      followAgent,
+      includeViewingPage,
+      fileError,
+      clearFileError,
+      pickerOpen,
+      loading,
+      progress,
+      openPath,
+      openFileDialog,
+      isDragging,
+      syncPageFromAgent,
+      reindexActiveDoc,
+      docLoadSeq,
+    ],
+  );
 }

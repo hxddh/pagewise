@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { UIMessage } from "ai";
+import { findLastMessage } from "../lib/messages-utils";
 import { useI18n } from "../i18n";
 import { chatToMarkdown, summaryToMarkdown } from "../lib/export-markdown";
 import { saveMarkdownFile } from "../lib/save-markdown";
@@ -75,7 +76,7 @@ export function useAppCommands({
   }, [messages, activeDocName, showToast, t]);
 
   const exportSummary = useCallback(async () => {
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+    const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
     if (!lastAssistant) {
       showToast(t("toast.noSummary"), "error");
       return;

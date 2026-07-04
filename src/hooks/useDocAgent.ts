@@ -51,7 +51,7 @@ export function useDocAgent() {
 
   const chat = useChat({
     transport: transportRef.current,
-    experimental_throttle: 50,
+    experimental_throttle: 100,
     onError: (error) => {
       if (import.meta.env.DEV) {
         console.error("[PageWise agent]", error);

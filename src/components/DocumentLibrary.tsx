@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { findLastMessage } from "../lib/messages-utils";
 import { useI18n } from "../i18n";
 import type { StoredChatSession } from "../lib/chat-sessions";
 import type { RecentFile } from "../lib/recent-files";
@@ -15,7 +16,7 @@ interface DocumentLibraryProps {
 }
 
 function userPreview(messages: UIMessage[]): string {
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const lastUser = findLastMessage(messages, (m) => m.role === "user");
   if (!lastUser) return "";
   const text = lastUser.parts
     .filter((p): p is { type: "text"; text: string } => p.type === "text")

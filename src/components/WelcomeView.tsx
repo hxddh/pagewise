@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { FileText } from "lucide-react";
 import { useI18n } from "../i18n";
 import { LogoMark } from "./LogoMark";
@@ -14,7 +15,7 @@ interface WelcomeViewProps {
   onConfigureApi: () => void;
 }
 
-export function WelcomeView({
+function WelcomeViewInner({
   recentFiles,
   canUseAgent,
   hasApiKey = false,
@@ -80,3 +81,5 @@ export function WelcomeView({
     </div>
   );
 }
+
+export const WelcomeView = memo(WelcomeViewInner);

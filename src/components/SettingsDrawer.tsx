@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Info, Keyboard, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useI18n } from "../i18n";
 import { IconClose } from "./Icon";
@@ -46,7 +46,7 @@ const TAB_ICONS: Record<DrawerTab, typeof Sparkles> = {
   about: Info,
 };
 
-export function SettingsDrawer({
+function SettingsDrawerInner({
   open,
   initialTab,
   onClose,
@@ -322,3 +322,5 @@ export function SettingsDrawer({
     </div>
   );
 }
+
+export const SettingsDrawer = memo(SettingsDrawerInner);

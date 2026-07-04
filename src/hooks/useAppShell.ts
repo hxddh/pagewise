@@ -38,6 +38,7 @@ export function useAppShell() {
     recentFiles,
     setRecentFiles,
     onDocumentSwitch: handleDocumentSwitch,
+    isStreaming: agent.busy,
   });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -125,7 +126,7 @@ export function useAppShell() {
     agentRef.current.setComposerDraft("");
     void library.clearCurrentThread();
     setClearConfirmOpen(false);
-  }, [library]);
+  }, [library.clearCurrentThread]);
 
   const { commands, paletteOpen, setPaletteOpen, exportChat, exportSummary } = useAppCommands({
     activeDocName: document.activeDoc?.name ?? null,
