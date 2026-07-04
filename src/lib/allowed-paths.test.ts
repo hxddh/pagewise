@@ -50,6 +50,25 @@ describe("allowed-paths", () => {
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not drop entries when two allow actions run concurrently", async () => {
+    // Without the store lock, the two allowPathPersisted calls read the same
+    // initial array and last-write-wins would drop one file's entries.
+    const { allowPathPersisted } = await import("./allowed-paths");
+    await Promise.all([
+      allowPathPersisted("/Users/me/a/one.pdf"),
+      allowPathPersisted("/Users/me/b/two.pdf"),
+    ]);
+
+    const storeMod = await import("@tauri-apps/plugin-store");
+    const store = new storeMod.LazyStore("");
+    const persisted = (await store.get("paths")) as string[];
+
+    expect(persisted).toContain("/Users/me/a/one.pdf");
+    expect(persisted).toContain("/Users/me/b/two.pdf");
+    expect(persisted).toContain("/Users/me/a");
+    expect(persisted).toContain("/Users/me/b");
+  });
+
   it("reports failed paths on restore and prunes them from storage", async () => {
     const storeMod = await import("@tauri-apps/plugin-store");
     const store = new storeMod.LazyStore("");

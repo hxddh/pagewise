@@ -1,6 +1,6 @@
 import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
-import { clearSemanticIndex } from "./semantic-index";
+import { clearSemanticIndex, markSemanticIndexDirty } from "./semantic-index";
 
 type DocCacheListener = (path: string) => void;
 
@@ -49,6 +49,10 @@ class DocCache {
 
     const nextDoc: LoadedDocument = { ...doc, pages: nextPages };
     this.docs.set(path, nextDoc);
+    // Background OCR/vision text just landed — mark the semantic index stale so the
+    // next search rebuilds it and embeds the newly-recognized page (lazy rebuild
+    // avoids thrashing during a burst of per-page upserts).
+    markSemanticIndexDirty(path);
     this.notify(path);
   }
 

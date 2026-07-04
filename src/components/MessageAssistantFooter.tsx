@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { Copy, Gauge, RotateCcw } from "lucide-react";
 import { AnchoredMenu } from "./AnchoredMenu";
@@ -33,7 +33,27 @@ function extractCopyableText(message: UIMessage): string {
   return parts.join("\n\n").trim();
 }
 
-export function MessageAssistantFooter({
+/**
+ * Structural signature of everything this footer renders (id + parts shape +
+ * the metadata fields it reads), used to skip re-renders driven by the parent
+ * re-rendering on every streamed chunk.
+ */
+function footerSignature(message: PageWiseUIMessage): string {
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  let partsSig = `${parts.length}`;
+  for (const p of parts) {
+    if (p.type === "text" || p.type === "reasoning") {
+      partsSig += `:${p.type}${p.text?.length ?? 0}`;
+    } else {
+      partsSig += `:${p.type}`;
+    }
+  }
+  const meta = getPageWiseMetadata(message);
+  const metaSig = meta ? JSON.stringify(meta) : "";
+  return `${message.id}|${partsSig}|${metaSig}`;
+}
+
+function MessageAssistantFooterInner({
   message,
   live = false,
   canRegenerate = false,
@@ -81,12 +101,14 @@ export function MessageAssistantFooter({
     }
   }, [message, onCopy]);
 
+  // Hooks must run unconditionally — keep this above the early return below.
+  const hasCopyable = useMemo(() => extractCopyableText(message).length > 0, [message]);
+
   if (!showFooter) return null;
 
   const totalMs = metadata ? computeTotalDurationMs(metadata, nowMs) : undefined;
   const ttftMs = metadata ? computeTimeToFirstTokenMs(metadata) : undefined;
   const speed = metadata ? computeGenerationSpeed(metadata, nowMs) : undefined;
-  const hasCopyable = extractCopyableText(message).length > 0;
   const agentIn = resolveAgentTokenTotals(metadata).input;
   const agentOut = resolveAgentTokenTotals(metadata).output;
   const citations = metadata?.structuredCitations ?? [];
@@ -177,7 +199,7 @@ export function MessageAssistantFooter({
         anchorRef={statsBtnRef}
         className="anchored-popover usage-stats-popover"
         align="start"
-        role="menu"
+        role="dialog"
       >
         <div className="usage-stats-panel" role="presentation">
           <dl className="usage-stats-list">
@@ -265,3 +287,19 @@ export function MessageAssistantFooter({
     </div>
   );
 }
+
+/**
+ * Prior (finished) assistant footers otherwise re-render on every streamed word
+ * of the in-flight reply because the parent re-renders. Skip unless something
+ * this footer actually renders changed (its structural signature or `live` /
+ * `canRegenerate`); the unstable `onRegenerate`/`onCopy` closures are ignored.
+ */
+export const MessageAssistantFooter = memo(
+  MessageAssistantFooterInner,
+  (prev, next) => {
+    if (prev.live !== next.live) return false;
+    if (prev.canRegenerate !== next.canRegenerate) return false;
+    if (prev.message === next.message) return true;
+    return footerSignature(prev.message) === footerSignature(next.message);
+  },
+);

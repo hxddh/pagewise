@@ -41,4 +41,14 @@ describe("agent-loop-guards", () => {
     expect(isDsmlToolLeak(raw)).toBe(true);
     expect(stripDsmlToolMarkup(raw)).toBe("让我先读取整份文档");
   });
+
+  it("does not truncate legitimate prose mentioning DSML and invoke name=", () => {
+    // Both "DSML" and "invoke name=" appear, but only as independent substrings
+    // in explanatory text — not the real `<|DSML|invoke name=` delimiter.
+    const legit =
+      "The DSML format is a leaked markup where a model writes <invoke name=\"foo\"> " +
+      "instead of using the native tool API. We strip it so users never see it.";
+    expect(isDsmlToolLeak(legit)).toBe(false);
+    expect(stripDsmlToolMarkup(legit)).toBe(legit);
+  });
 });

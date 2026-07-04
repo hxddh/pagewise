@@ -26,7 +26,11 @@ const inFlightDocs = new Map<string, Promise<PDFDocumentProxy>>();
 let renderEpoch = 0;
 let pageCacheBytes = 0;
 
-type RenderPriority = "high" | "low";
+// "thumb" is a dedicated lower-priority lane for sidebar thumbnails. Unlike
+// "low", it is NOT purged by page navigation/zoom/resize, so a thumbnail render
+// that is in-flight during a page turn still completes instead of silently
+// cancelling and leaving the thumbnail permanently blank.
+type RenderPriority = "high" | "low" | "thumb";
 type RenderIntent = "display" | "print";
 
 interface QueueItem {
@@ -134,6 +138,9 @@ function findCachedPageKey(
     if (parts.length < 5) continue;
     if (parts[0] !== path || parts[1] !== String(page) || parts[2] !== scaleKey) continue;
     const q = parts[3] as PreviewQuality;
+    // Honor the outputScale part: a cached bitmap was rendered for a specific
+    // device pixel ratio, so a DPR change must not reuse a stale-DPR bitmap.
+    if (parts[4] !== String(getOutputScale(q))) continue;
     const rank = QUALITY_RANK[q] ?? 0;
     if (rank >= minRank && rank > bestRank) {
       bestRank = rank;
@@ -218,7 +225,8 @@ function enqueueRender(priority: RenderPriority, run: () => Promise<void>): Prom
 
     if (priority === "high") {
       purgeLowPriorityQueue();
-      const idx = renderQueue.findIndex((q) => q.priority === "low");
+      // Insert ahead of any lower-priority ("low"/"thumb") work.
+      const idx = renderQueue.findIndex((q) => q.priority !== "high");
       if (idx >= 0) renderQueue.splice(idx, 0, item);
       else renderQueue.unshift(item);
     } else {
@@ -255,9 +263,16 @@ export async function extractPageTextFromRust(path: string, pageNumber: number):
   return result.pages[0]?.text?.trim() ?? "";
 }
 
+// `read_file_bytes` now returns raw bytes via tauri::ipc::Response, which the
+// webview receives as an ArrayBuffer (or Uint8Array). Older/other callers may
+// still hand back a number[] — accept all forms so every path keeps working.
 function coerceInvokeBytes(raw: unknown): Uint8Array {
   if (raw instanceof Uint8Array) return raw;
   if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (ArrayBuffer.isView(raw)) {
+    const view = raw as ArrayBufferView;
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
   if (Array.isArray(raw)) return new Uint8Array(raw);
   throw new Error("read_file_bytes returned unexpected payload");
 }
@@ -603,6 +618,18 @@ export async function renderTextLayer(
   };
 }
 
+/**
+ * Clear ONLY the rendered page bitmap cache, keeping the loaded pdf.js document
+ * and the raw PDF byte cache intact. Used when the render quality changes: the
+ * cached bitmaps are quality-specific and must be re-rendered, but there is no
+ * need to re-read the file or re-parse the document.
+ */
+export function clearPageBitmapCache(): void {
+  for (const snap of pageCache.values()) snap.bitmap.close();
+  pageCache.clear();
+  pageCacheBytes = 0;
+}
+
 export function clearPdfCache(): void {
   renderEpoch += 1;
   for (const item of renderQueue) item.cancel();
@@ -656,7 +683,9 @@ export async function renderThumbnail(
   canvas: HTMLCanvasElement,
   maxWidth = 96,
 ): Promise<void> {
-  await enqueueRender("low", async () => {
+  // Use the dedicated "thumb" lane so a page turn/zoom/resize (which purges the
+  // "low" lane) does not cancel this render and leave the thumbnail blank.
+  await enqueueRender("thumb", async () => {
     const doc = await getPdfDocument(path);
     const page = await doc.getPage(pageNumber);
     const base = page.getViewport({ scale: 1 });

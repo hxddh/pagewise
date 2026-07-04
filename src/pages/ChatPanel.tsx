@@ -111,9 +111,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     () => findLastMessage(messages, (m) => m.role === "user"),
     [messages],
   );
+  // The in-list pending bubble (awaitingAssistant) and this header strip both
+  // render the same "thinking" text with aria-live; keep them mutually exclusive
+  // so there's never a duplicate indicator or double announcement. The header
+  // strip covers the "streaming but no substantial text yet" window only.
   const showProgress =
     busy &&
-    (awaitingAssistant || !hasSubstantialAssistantText(inFlightAssistant));
+    !awaitingAssistant &&
+    !hasSubstantialAssistantText(inFlightAssistant);
+
+  const composerDraftRef = useRef(composerDraft);
+  composerDraftRef.current = composerDraft;
 
   useEffect(() => {
     const el = composerRef.current;
@@ -153,11 +161,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         totalPages: activeDoc.totalPages,
         includeViewingPage,
       });
-      if (!sent) {
+      // Only restore the failed send's text if the user hasn't started a new
+      // draft in the meantime — otherwise we'd clobber what they just typed.
+      if (!sent && !composerDraftRef.current) {
         onComposerDraftChange(text);
       }
     } catch {
-      onComposerDraftChange(text);
+      if (!composerDraftRef.current) {
+        onComposerDraftChange(text);
+      }
     }
   }, [
     composerDraft,
@@ -276,7 +288,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       </header>
 
       {showProgress && (
-        <div className="agent-activity agent-typing" aria-live="polite">
+        <div className="agent-activity agent-typing">
           <span className="typing-dots" aria-hidden>
             <span />
             <span />

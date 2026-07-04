@@ -174,28 +174,44 @@ export function createUsageMetadataTracker(model: string): {
 } {
   let firstTokenAt: number | undefined;
   const stepUsage: StepUsageEntry[] = [];
+  // Number of `finish-step` chunks seen so far; the Nth chunk (0-based) is the
+  // downstream signal for real step index N. `onStepEnd` fires BEFORE the
+  // matching `finish-step` chunk, so both populate the SAME entry — we upsert
+  // by real step index to keep exactly one entry per step (no double counting).
+  let finishedSteps = 0;
+
+  const upsertStepEntry = (
+    step: number,
+    usage: { inputTokens?: number; outputTokens?: number } | undefined,
+    toolNames: string[] | undefined,
+  ): void => {
+    const entry = stepUsage.find((s) => s.step === step);
+    if (entry) {
+      if (usage?.inputTokens != null) entry.inputTokens = usage.inputTokens;
+      if (usage?.outputTokens != null) entry.outputTokens = usage.outputTokens;
+      if (toolNames && toolNames.length > 0) entry.toolNames = toolNames;
+      return;
+    }
+    stepUsage.push({
+      step,
+      inputTokens: usage?.inputTokens,
+      outputTokens: usage?.outputTokens,
+      ...(toolNames && toolNames.length > 0 ? { toolNames } : {}),
+    });
+  };
 
   return {
     reset: () => {
       firstTokenAt = undefined;
       stepUsage.length = 0;
+      finishedSteps = 0;
       resetIndexUsageTracker();
     },
     onStepEnd: (event) => {
       const toolNames = event.toolCalls
         ?.map((call) => call.toolName)
         .filter((name): name is string => Boolean(name));
-      const entry = stepUsage.find((s) => s.step === event.stepNumber);
-      if (entry) {
-        if (toolNames && toolNames.length > 0) entry.toolNames = toolNames;
-        return;
-      }
-      stepUsage.push({
-        step: event.stepNumber,
-        inputTokens: event.usage?.inputTokens,
-        outputTokens: event.usage?.outputTokens,
-        ...(toolNames && toolNames.length > 0 ? { toolNames } : {}),
-      });
+      upsertStepEntry(event.stepNumber, event.usage, toolNames);
     },
     messageMetadata: ({ part }) => {
       if (part.type === "start") {
@@ -212,12 +228,12 @@ export function createUsageMetadataTracker(model: string): {
       }
 
       if (part.type === "finish-step") {
-        const step = stepUsage.length;
-        stepUsage.push({
-          step,
-          inputTokens: part.usage?.inputTokens,
-          outputTokens: part.usage?.outputTokens,
-        });
+        // Each `finish-step` chunk maps to the next real step index; upsert so
+        // it dedupes against the `onStepEnd` entry for the same step instead of
+        // blindly appending (which double-counted tokens and step count).
+        const step = finishedSteps;
+        finishedSteps += 1;
+        upsertStepEntry(step, part.usage, undefined);
         const totals = sumStepTokens(stepUsage);
         return {
           includesToolContext: true,

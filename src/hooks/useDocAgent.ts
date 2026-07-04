@@ -118,7 +118,7 @@ export function useDocAgent() {
       const excerpts = extractToolExcerpts(message);
       if (!answer) return;
 
-      void extractStructuredCitations(answer, excerpts).then((citations) => {
+      void extractStructuredCitations(answer, excerpts, lastTotalPagesRef.current).then((citations) => {
         if (citations.length === 0) return;
         setMessagesRef.current?.((prev) =>
           prev.map((m) => {
@@ -137,14 +137,22 @@ export function useDocAgent() {
 
   const prevStatusRef = useRef(chat.status);
   const sendingRef = useRef(false);
+  // Total page count of the document the in-flight message is about, used to
+  // bound structured citations (drop hallucinated pages > totalPages).
+  const lastTotalPagesRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const wasBusy =
       prevStatusRef.current === "streaming" || prevStatusRef.current === "submitted";
     prevStatusRef.current = chat.status;
 
-    if (wasBusy && chat.status === "ready") {
+    // Clear the transient progress label on ANY terminal transition — a stream
+    // that ends in "error" (not just "ready") must not leave a stale indicator.
+    if (wasBusy && (chat.status === "ready" || chat.status === "error")) {
       setStreamProgress(null);
+    }
+
+    if (wasBusy && chat.status === "ready") {
       const id = window.setTimeout(() => {
         chat.setMessages((prev) => pruneToolOutputsForHistory(prev) as typeof prev);
       }, 0);
@@ -187,6 +195,7 @@ export function useDocAgent() {
       }
 
       sendingRef.current = true;
+      lastTotalPagesRef.current = opts.totalPages;
       try {
         if (!(await prepareForAgentSend())) return false;
 
@@ -231,6 +240,7 @@ export function useDocAgent() {
       if (!text.trim()) return false;
 
       sendingRef.current = true;
+      lastTotalPagesRef.current = opts.totalPages;
       try {
         if (!(await prepareForAgentSend())) return false;
 

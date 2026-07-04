@@ -334,6 +334,12 @@ async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
   if (entries.length > 0) {
     payload.apiKeys = Object.fromEntries(entries) as Partial<Record<ProviderId, string>>;
   }
+  // Preserve deliberate clears so a keychain-blocked -> available retry can't
+  // resurrect a key the user explicitly removed (the loop above already skips
+  // re-importing any provider present in `cleared`).
+  if (Object.keys(cleared).length > 0) {
+    payload.apiKeysCleared = { ...cleared };
+  }
   if (!keychainBlocked) {
     payload.apiKeysMigratedFromKeychain = true;
   }

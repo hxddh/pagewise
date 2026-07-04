@@ -8,7 +8,10 @@ export default defineConfig(async () => ({
   plugins: [react()],
 
   build: {
-    target: "chrome110",
+    // The app ships inside macOS WKWebView (minimumSystemVersion ~ macOS 12,
+    // i.e. Safari 15), NOT Chrome. Targeting chrome110 emits syntax WKWebView
+    // can't parse and white-screens on the minimum supported OS.
+    target: "safari15",
     minify: "esbuild",
     rollupOptions: {
       output: {
