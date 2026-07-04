@@ -7,6 +7,7 @@ import {
   summarizeToolSteps,
   toolStepFromPart,
 } from "../lib/tool-steps-summary";
+import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
 import { Markdown } from "./Markdown";
 
 interface MessageContentProps {
@@ -118,14 +119,17 @@ function MessageContentInner({ message, markdown = false, live = false }: Messag
     if (part.type === "text") {
       if (!part.text?.trim() && !live) return null;
       if (!part.text) return null;
+      const displayText =
+        message.role === "assistant" ? stripDsmlToolMarkup(part.text) : part.text;
+      if (!displayText.trim() && !live) return null;
       sawAnswerBody = true;
       return markdown ? (
         <Markdown key={index} live={live}>
-          {part.text}
+          {displayText}
         </Markdown>
       ) : (
         <div key={index} className="message-body">
-          {part.text}
+          {displayText}
         </div>
       );
     }
