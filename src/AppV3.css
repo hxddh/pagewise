@@ -352,6 +352,28 @@
   gap: 16px;
 }
 
+.app.v3 .message-assistant-actions {
+  opacity: 0.5;
+}
+
+.app.v3 .message-assistant-footer:hover .message-assistant-actions,
+.app.v3 .message-assistant-footer:focus-within .message-assistant-actions {
+  opacity: 1;
+}
+
+.app.v3 .message-action-btn {
+  border: none;
+  background: transparent;
+}
+
+.app.v3 .message-action-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.app.v3 .agent-generating-line {
+  font-size: 12px;
+}
+
 .app.v3 .agent-activity {
   padding: 6px 14px;
   font-size: 12px;

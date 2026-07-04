@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-07-04
+
+### Fixed
+
+- Agent: keep status visible during tool/reasoning phases; show "generating answer" between tools and final reply
+- Streaming: reasoning block auto-expands while live; markdown stream caret during answer generation
+- Tool steps stay expanded until the assistant message finishes
+
+### Changed
+
+- Agent: aggressive `prepareStep` pruning and stale read-tool compaction to lower multi-step input tokens
+- Read tools default max chars reduced from 12k to 8k per call
+- Usage stats label clarifies total input includes all agent steps; splits agent vs index when relevant
+- Assistant footer actions use ghost icon buttons aligned with v3 message styling
+
 ## [0.2.11] - 2026-07-04
 
 ### Added
@@ -219,7 +234,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.11...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.12...HEAD
+[0.2.12]: https://github.com/hxddh/pagewise/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/hxddh/pagewise/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/hxddh/pagewise/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/hxddh/pagewise/compare/v0.2.8...v0.2.9

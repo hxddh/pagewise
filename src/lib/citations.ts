@@ -150,12 +150,33 @@ export function getAgentActivity(
   const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
   if (!lastAssistant) return t ? t("agent.thinking") : "Thinking…";
 
-  const hasAnswer = lastAssistant.parts.some(
-    (p) => p.type === "text" && !!p.text?.trim(),
+  const textLen = lastAssistant.parts.reduce((sum, p) => {
+    if (p.type === "text" && p.text) return sum + p.text.length;
+    return sum;
+  }, 0);
+
+  if (textLen > 0) {
+    return t ? t("agent.activityWriting") : "Writing answer…";
+  }
+
+  const hasReasoning = lastAssistant.parts.some(
+    (p) => p.type === "reasoning" && !!p.text?.trim(),
   );
-  if (hasAnswer) return null;
+  if (hasReasoning) {
+    return t ? t("agent.activityThinking") : "Thinking…";
+  }
 
   const hasTools = lastAssistant.parts.some((p) => isToolUIPart(p));
+  const allToolsDone =
+    hasTools &&
+    lastAssistant.parts
+      .filter((p) => isToolUIPart(p))
+      .every((p) => p.state === "output-available" || p.state === "output-error");
+
+  if (allToolsDone) {
+    return t ? t("agent.generatingAnswer") : "Generating answer…";
+  }
+
   if (hasTools) {
     return t ? t("agent.activityFollowUp") : "Continuing analysis…";
   }

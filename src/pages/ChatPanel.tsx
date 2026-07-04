@@ -101,12 +101,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     () => findLastMessage(messages, (m) => m.role === "user"),
     [messages],
   );
-  const hasAnswerText = lastAssistant?.parts.some(
-    (p) =>
-      (p.type === "text" && !!p.text?.trim()) ||
-      (p.type === "reasoning" && !!p.text?.trim()),
+  /** Hide the status bar only once the final answer is visibly streaming (not reasoning). */
+  const hasSubstantialAnswerText = lastAssistant?.parts.some(
+    (p) => p.type === "text" && (p.text?.trim().length ?? 0) > 48,
   );
-  const showProgress = busy && !hasAnswerText;
+  const showProgress = busy && !hasSubstantialAnswerText;
 
   useEffect(() => {
     const el = composerRef.current;

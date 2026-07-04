@@ -19,14 +19,15 @@ import { pickFastModelId, resolveFastModel, shouldUseFastModelForStep } from "./
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { semanticSearchPages } from "./semantic-index";
+import { compactStaleToolResults } from "./compact-agent-messages";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { indexPageText } from "./vision-index";
 import { yieldToUi } from "./yield-to-ui";
 
 /** Default cap per read_pdf_range call — keeps tool results out of context blowups. */
-export const DEFAULT_RANGE_MAX_CHARS = 12_000;
+export const DEFAULT_RANGE_MAX_CHARS = 8_000;
 /** Default cap per read_pdf_page call. */
-export const DEFAULT_PAGE_MAX_CHARS = 12_000;
+export const DEFAULT_PAGE_MAX_CHARS = 8_000;
 /** Explicit ceiling on tool-loop steps so a run always terminates. */
 const MAX_AGENT_STEPS = 24;
 /** Cumulative characters a single run may read before it must synthesize. */
@@ -251,7 +252,7 @@ function createDocumentTools(budget: ReadBudget) {
     read_pdf_range: tool({
       description:
         "Read text from a page range (inclusive, 1-based). " +
-        "For large documents use maxChars (default 12000) and continue when truncated=true: call again " +
+        "For large documents use maxChars (default 8000) and continue when truncated=true: call again " +
         "with start=nextStart, and pass offset=nextOffset when it is non-null (the same page has more text). " +
         "truncated=false (with nextStart=null) means the range is fully read.",
       inputSchema: z.object({
@@ -398,7 +399,7 @@ Rules:
 - Document pages are pre-indexed from images and scans. Use read_pdf_page / read_pdf_range on indexed text.
 - If a page returns empty text, indexing may still be running, or the user may need a multimodal model in Settings → AI Provider (e.g. gpt-4o-mini, Qwen2.5-VL). Do not ask them to install Tesseract.
 - For whole-document summary or analysis (全文, 总结, 分析整份文档): call get_document_index first.
-  If totalChars ≤ 12000, one read_pdf_range is enough. Otherwise read in chunks with maxChars=12000,
+  If totalChars ≤ 8000, one read_pdf_range is enough. Otherwise read in chunks with maxChars=8000,
   continuing from nextStart (and pass offset=nextOffset when it is non-null — the same page still has text)
   until truncated=false, then synthesize.
 - If any tool result includes budgetExceeded=true, stop reading and answer from the pages already read.
@@ -456,14 +457,15 @@ export function createDocAgent() {
     },
     prepareStep: async ({ stepNumber, steps, messages }) => {
       const settings = await loadSettings();
-      const prunedMessages =
-        messages.length > 12
+      let prunedMessages =
+        messages.length > 4 || stepNumber > 0
           ? pruneMessages({
               messages,
               reasoning: "before-last-message",
-              toolCalls: "before-last-3-messages",
+              toolCalls: "before-last-2-messages",
             })
           : messages;
+      prunedMessages = compactStaleToolResults(prunedMessages);
 
       if (shouldUseFastModelForStep(stepNumber, steps)) {
         const fast = resolveFastModel(settings);

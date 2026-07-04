@@ -821,24 +821,34 @@ body {
 .message-assistant-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.message-assistant-footer:hover .message-assistant-actions,
+.message-assistant-footer:focus-within .message-assistant-actions {
+  opacity: 1;
 }
 
 .message-action-btn {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   color: var(--text-muted);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm, 6px);
 }
 
 .message-action-btn:hover:not(:disabled) {
   color: var(--text-secondary);
-  background: var(--bg-elevated);
+  background: var(--bg-hover);
 }
 
 .message-action-btn.active {
   color: var(--accent);
-  background: var(--bg-elevated);
+  background: var(--accent-muted);
 }
 
 .usage-stats-popover {
@@ -1047,6 +1057,26 @@ body {
   padding-left: 12px;
   border-left: 2px solid var(--border);
   color: var(--text-secondary);
+}
+
+.markdown-stream-tail {
+  display: inline;
+}
+
+.markdown-stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: markdown-caret-blink 1s step-end infinite;
+}
+
+@keyframes markdown-caret-blink {
+  50% {
+    opacity: 0;
+  }
 }
 
 /* Citations */
@@ -2850,6 +2880,20 @@ body {
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
+}
+
+.agent-generating-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.agent-generating-line .typing-dots span {
+  width: 4px;
+  height: 4px;
 }
 
 .message.assistant {
