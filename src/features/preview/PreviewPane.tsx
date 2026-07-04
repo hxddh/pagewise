@@ -2,9 +2,10 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { memo, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
-import { getPageIndexState } from "../../lib/index-events";
+import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
+import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { isRasterHeavyPage } from "../../lib/pdf";
-import { indexPageInBackground, MIN_INDEX_CHARS } from "../../lib/vision-index";
+import { indexPageInBackground } from "../../lib/vision-index";
 import { usePdfViewer } from "./usePdfViewer";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
@@ -33,19 +34,24 @@ function PreviewPaneInner({
 
   const indexPage = doc.kind === "pdf" ? page : 1;
   const indexState = usePageIndexStatus(doc.path, indexPage);
-  const pageTextLen = doc.pages[indexPage - 1]?.text.trim().length ?? 0;
+  const pageTextLen = getPageTextLen(doc.path, indexPage, doc.pages);
 
   useEffect(() => {
-    if (pageTextLen >= MIN_INDEX_CHARS) return;
+    if (pageHasIndexableText(doc.path, indexPage, doc.pages)) {
+      if (getPageIndexState(doc.path, indexPage)?.status === "failed") {
+        clearPageIndexState(doc.path, indexPage);
+      }
+      return;
+    }
     const state = getPageIndexState(doc.path, indexPage);
     if (state?.status === "indexing" || state?.status === "done" || state?.status === "failed") {
       return;
     }
     indexPageInBackground(doc.path, indexPage, doc.kind);
-  }, [doc.path, doc.kind, indexPage, pageTextLen]);
+  }, [doc.path, doc.kind, indexPage, pageTextLen, doc.pages]);
 
   const indexHint = useMemo(() => {
-    if (pageTextLen >= MIN_INDEX_CHARS) return null;
+    if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return null;
     if (indexState?.status === "indexing") return t("preview.indexing");
     if (indexState?.status === "done" && indexState.source === "vision") {
       return t("preview.indexedVision");

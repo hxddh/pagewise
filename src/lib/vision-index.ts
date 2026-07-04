@@ -10,7 +10,7 @@ import {
 import { resolveModel } from "./llm";
 import { isVisionModel } from "./model-capabilities";
 import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
-import { loadSettings } from "./settings";
+import { loadVisionSettings } from "./settings";
 import type { LoadedDocument } from "./types";
 import type { LlmSettings } from "./types";
 
@@ -184,7 +184,10 @@ function resolveFailureReason(
   visionFailed: boolean,
   ocrFailed: boolean,
   tesseractAvailable: boolean,
+  pdfTextPending: boolean,
 ): IndexFailureReason {
+  if (pdfTextPending) return "unknown";
+
   const hasVision = isVisionModel(settings.provider, settings.model);
 
   if (hasVision && visionAttempted && visionFailed) {
@@ -214,16 +217,16 @@ export async function indexPageText(
     return { text: cached.text, source: "cache" };
   }
 
-  // Consult the per-page index state so genuinely-short pages (blank, "7", a
-  // logo) that were already processed are not re-billed on every read.
   const priorState = getPageIndexState(path, page);
   if (priorState?.status === "done") {
     return { text: cached?.text ?? "", source: "cache" };
   }
   if (priorState?.status === "failed") {
-    // Already attempted and failed; don't spend another paid call until the
-    // state is explicitly cleared (e.g. via a user-triggered reindex).
-    return { text: cached?.text ?? "", source: "ocr" };
+    if (cached?.text.trim()) {
+      clearPageIndexState(path, page);
+    } else {
+      return { text: "", source: "ocr" };
+    }
   }
 
   if (signal?.aborted) {
@@ -233,7 +236,7 @@ export async function indexPageText(
   emitPageIndex({ path, page, status: "indexing" });
 
   try {
-    const settings = await loadSettings();
+    const settings = await loadVisionSettings();
     const hasVision = isVisionModel(settings.provider, settings.model);
     let visionAttempted = false;
     let visionFailed = false;
@@ -290,6 +293,7 @@ export async function indexPageText(
       visionFailed,
       ocrFailed,
       tesseractAvailable,
+      false,
     );
 
     emitPageIndex({

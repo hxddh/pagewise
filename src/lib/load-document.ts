@@ -22,6 +22,12 @@ export function isSupportedDocument(path: string): boolean {
   return SUPPORTED_EXT.has(ext);
 }
 
+function maybeIndexSparsePage(path: string, page: number, kind: "pdf" | "image"): void {
+  const text = docCache.getPages(path).find((p) => p.page === page)?.text.trim() ?? "";
+  if (text.length >= MIN_INDEX_CHARS) return;
+  indexPageInBackground(path, page, kind);
+}
+
 export async function loadDocument(
   path: string,
   onProgress?: LoadProgressCallback,
@@ -51,7 +57,6 @@ export async function loadDocument(
       percent: 40,
     });
 
-    // Fast path: open with page 1 empty, fill text in background via pdf.js.
     doc = {
       path,
       name,
@@ -62,21 +67,18 @@ export async function loadDocument(
 
     docCache.set(doc);
 
-    report(onProgress, { stage: "indexing", message: "load.indexing", percent: 55 });
+    report(onProgress, { stage: "indexing", message: "load.extracting", percent: 55 });
 
-    void extractAllPageTexts(path, (page, text) => {
+    await extractAllPageTexts(path, (page, text) => {
       docCache.upsertPageText(path, page, text);
-    }).then((pages) => {
-      const cached = docCache.get(path);
-      if (cached) {
-        docCache.set({
-          ...cached,
-          pages: pages.length ? pages : cached.pages,
-        });
-      }
     });
 
-    await new Promise((r) => setTimeout(r, 0));
+    const cached = docCache.get(path);
+    if (cached) {
+      docCache.set({ ...cached, pages: cached.pages });
+    }
+
+    maybeIndexSparsePage(path, 1, "pdf");
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
     doc = {
@@ -87,11 +89,7 @@ export async function loadDocument(
       totalPages: 1,
     };
     docCache.set(doc);
-  }
-
-  const first = doc.pages[0];
-  if (first && first.text.trim().length < MIN_INDEX_CHARS) {
-    indexPageInBackground(path, 1, doc.kind);
+    maybeIndexSparsePage(path, 1, "image");
   }
 
   report(onProgress, { stage: "done", message: "load.ready", percent: 100 });

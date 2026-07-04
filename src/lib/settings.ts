@@ -5,11 +5,14 @@ import {
   DEFAULT_SETTINGS,
   LEGACY_MODEL_MAP,
   PROVIDER_PRESETS,
+  defaultAgentModel,
+  defaultVisionModel,
   type LlmSettings,
   type LlmStoreV2,
   type ProviderId,
   type ProviderProfile,
 } from "./types";
+import { isToolModel, isVisionModel } from "./model-capabilities";
 
 const STORE_PATH = "settings.json";
 const SETTINGS_KEY = "llm";
@@ -80,6 +83,7 @@ export function defaultProviderProfile(provider: ProviderId): ProviderProfile {
   if (provider === "custom") {
     return {
       model: "",
+      visionModel: "",
       baseURL: "",
       thinkingEnabled: false,
       connectionVerified: false,
@@ -88,6 +92,7 @@ export function defaultProviderProfile(provider: ProviderId): ProviderProfile {
   const preset = PROVIDER_PRESETS[provider];
   return {
     model: preset.defaultModel,
+    visionModel: defaultVisionModel(provider),
     thinkingEnabled: false,
     connectionVerified: false,
   };
@@ -131,11 +136,30 @@ function migrateProviderProfile(
   profile: ProviderProfile,
 ): ProviderProfile {
   const asSettings = migrateLlmSettings({ provider, ...profile, apiKey: "" });
+  let model = asSettings.model;
+  let visionModel = profile.visionModel?.trim() ?? "";
+  let connectionVerified = asSettings.connectionVerified;
+
+  if (provider !== "custom") {
+    const presetProvider = provider as Exclude<ProviderId, "custom">;
+    if (!visionModel) {
+      visionModel =
+        isVisionModel(provider, model) && !isToolModel(provider, model)
+          ? model
+          : defaultVisionModel(presetProvider);
+    }
+    if (!isToolModel(provider, model)) {
+      model = defaultAgentModel(presetProvider);
+      connectionVerified = false;
+    }
+  }
+
   return {
-    model: asSettings.model,
+    model,
+    visionModel: visionModel || undefined,
     baseURL: asSettings.baseURL,
     thinkingEnabled: asSettings.thinkingEnabled,
-    connectionVerified: asSettings.connectionVerified,
+    connectionVerified,
   };
 }
 
@@ -154,9 +178,16 @@ function profileToSettings(
   };
 }
 
-function settingsToProfile(settings: LlmSettings): ProviderProfile {
+/** Settings metadata without reading the OS keychain (safe at app startup). */
+export type LlmSettingsMeta = Omit<LlmSettings, "apiKey"> & {
+  hasStoredKey: boolean;
+  visionModel: string;
+};
+
+function settingsToProfile(settings: LlmSettings, visionModel?: string): ProviderProfile {
   return {
     model: settings.model,
+    visionModel,
     baseURL: settings.baseURL,
     thinkingEnabled: settings.thinkingEnabled,
     connectionVerified: settings.connectionVerified,
@@ -299,6 +330,33 @@ async function readStoreV2(): Promise<LlmStoreV2> {
   return migrated;
 }
 
+async function hasStoredApiKey(provider: ProviderId): Promise<boolean> {
+  if (provider === "ollama") return true;
+  const fallback = await getFallbackKey(provider);
+  if (fallback.trim()) return true;
+  const storeData = await readStoreV2();
+  const profile = getProfileFromStore(storeData, provider);
+  return profile.connectionVerified === true;
+}
+
+function metaFromProfile(
+  provider: ProviderId,
+  profile: ProviderProfile,
+  hasStoredKey: boolean,
+): LlmSettingsMeta {
+  const visionModel =
+    profile.visionModel?.trim() ||
+    (provider !== "custom" ? defaultVisionModel(provider as Exclude<ProviderId, "custom">) : "");
+  return {
+    provider,
+    model: profile.model,
+    visionModel,
+    baseURL: profile.baseURL,
+    thinkingEnabled: profile.thinkingEnabled,
+    connectionVerified: profile.connectionVerified,
+    hasStoredKey,
+  };
+}
 function getProfileFromStore(storeData: LlmStoreV2, provider: ProviderId): ProviderProfile {
   return migrateProviderProfile(
     provider,
@@ -308,6 +366,29 @@ function getProfileFromStore(storeData: LlmStoreV2, provider: ProviderId): Provi
 
 export async function loadLlmStore(): Promise<LlmStoreV2> {
   return readStoreV2();
+}
+
+/** Active provider metadata without touching the OS keychain. */
+export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
+  const storeData = await readStoreV2();
+  const provider = storeData.activeProvider;
+  const profile = getProfileFromStore(storeData, provider);
+  const hasStoredKey = await hasStoredApiKey(provider);
+  return metaFromProfile(provider, profile, hasStoredKey);
+}
+
+/** Vision indexing model (separate from agent model when configured). */
+export async function loadVisionSettings(): Promise<LlmSettings> {
+  const storeData = await readStoreV2();
+  const provider = storeData.activeProvider;
+  const profile = getProfileFromStore(storeData, provider);
+  const apiKey = await loadApiKey(provider, await getFallbackKey(provider));
+  const visionModel =
+    profile.visionModel?.trim() ||
+    (provider !== "custom"
+      ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
+      : profile.model);
+  return profileToSettings(provider, { ...profile, model: visionModel || profile.model }, apiKey);
 }
 
 export async function loadProviderSettings(provider: ProviderId): Promise<LlmSettings> {
@@ -378,8 +459,11 @@ export async function markProviderVerified(
 }
 
 /** Saves profile for settings.provider — does not change the active provider. */
-export async function saveSettings(settings: LlmSettings): Promise<void> {
-  const profile = settingsToProfile(migrateLlmSettings(settings));
+export async function saveSettings(
+  settings: LlmSettings,
+  visionModel?: string,
+): Promise<void> {
+  const profile = settingsToProfile(migrateLlmSettings(settings), visionModel);
   const priorKey = await loadApiKey(settings.provider, await getFallbackKey(settings.provider));
   let apiKey: string | undefined = settings.apiKey;
   if (!apiKey.trim() && priorKey.trim()) {

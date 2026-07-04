@@ -5,6 +5,7 @@ import { AnchoredMenu } from "../AnchoredMenu";
 import {
   allProviderModels,
   PROVIDER_MODEL_GROUPS,
+  visionModelsForProvider,
   type ProviderId,
 } from "../../lib/types";
 import { isVisionModel, isToolModel } from "../../lib/model-capabilities";
@@ -13,6 +14,7 @@ interface ModelSelectProps {
   provider: Exclude<ProviderId, "custom">;
   model: string;
   customModel: boolean;
+  purpose: "agent" | "vision";
   onSelect: (model: string) => void;
   onCustom: () => void;
 }
@@ -21,6 +23,7 @@ export function ModelSelect({
   provider,
   model,
   customModel,
+  purpose,
   onSelect,
   onCustom,
 }: ModelSelectProps) {
@@ -28,14 +31,22 @@ export function ModelSelect({
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
 
-  const presetModels = allProviderModels(provider);
+  const presetModels =
+    purpose === "vision" ? visionModelsForProvider(provider) : allProviderModels(provider);
   const inPreset = !customModel && presetModels.includes(model);
   const vision = isVisionModel(provider, model);
   const tools = isToolModel(provider, model);
 
+  const groups =
+    purpose === "vision"
+      ? PROVIDER_MODEL_GROUPS[provider].filter((g) => g.labelKey.includes("Vision") || g.labelKey.includes("vision") || g.labelKey.includes("Agent"))
+      : PROVIDER_MODEL_GROUPS[provider].filter((g) => !g.labelKey.includes("Vision") && !g.labelKey.includes("vision"));
+
+  const labelKey = purpose === "agent" ? "settings.agentModel" : "settings.visionModel";
+
   return (
     <div className="settings-field">
-      <span className="settings-field-label">{t("settings.model")}</span>
+      <span className="settings-field-label">{t(labelKey)}</span>
       {customModel || !inPreset ? (
         <input
           className="settings-input"
@@ -74,7 +85,7 @@ export function ModelSelect({
             align="start"
             role="listbox"
           >
-            {PROVIDER_MODEL_GROUPS[provider].map((group) => (
+            {groups.map((group) => (
               <div key={group.labelKey} className="model-select-group">
                 <div className="model-select-group-label">{t(group.labelKey)}</div>
                 {group.models.map((m) => (
@@ -117,11 +128,14 @@ export function ModelSelect({
           </AnchoredMenu>
         </div>
       )}
-      {!customModel && inPreset && !tools && (
+      {purpose === "agent" && !customModel && inPreset && !tools && (
         <p className="settings-field-hint settings-vision-hint">{t("settings.agentNeedTools")}</p>
       )}
-      {!customModel && inPreset && !vision && tools && (
+      {purpose === "vision" && !customModel && inPreset && !vision && (
         <p className="settings-field-hint settings-vision-hint">{t("settings.visionNeedMultimodal")}</p>
+      )}
+      {purpose === "agent" && !customModel && inPreset && !vision && tools && (
+        <p className="settings-field-hint">{t("settings.agentVisionFallbackHint")}</p>
       )}
     </div>
   );
