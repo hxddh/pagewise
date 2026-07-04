@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 const STORE_PATH = "allowed-paths.json";
 const KEY = "paths";
+const MAX_PERSISTED = 64;
 
 let store: LazyStore | null = null;
 
@@ -36,7 +37,20 @@ async function persistPath(path: string): Promise<void> {
   const existing = (await s.get<string[]>(KEY)) ?? [];
   if (existing.includes(trimmed)) return;
 
-  const updated = [...existing, trimmed].slice(-64);
+  const updated = [...existing, trimmed].slice(-MAX_PERSISTED);
+  await s.set(KEY, updated);
+  await s.save();
+}
+
+async function removePersistedPath(path: string): Promise<void> {
+  const trimmed = path.trim();
+  if (!trimmed) return;
+
+  const s = await getStore();
+  const existing = (await s.get<string[]>(KEY)) ?? [];
+  if (!existing.includes(trimmed)) return;
+
+  const updated = existing.filter((p) => p !== trimmed);
   await s.set(KEY, updated);
   await s.save();
 }
@@ -56,21 +70,46 @@ export async function allowPathPersisted(path: string): Promise<void> {
   }
 }
 
+export interface RestoreAllowedPathsResult {
+  restored: number;
+  failed: string[];
+}
+
 /** Re-register paths saved from previous sessions (and recent documents). */
-export async function restoreAllowedPaths(extraPaths: string[] = []): Promise<void> {
+export async function restoreAllowedPaths(
+  extraPaths: string[] = [],
+): Promise<RestoreAllowedPathsResult> {
   const s = await getStore();
   const stored = (await s.get<string[]>(KEY)) ?? [];
   const seen = new Set<string>();
+  const failed: string[] = [];
+  let restored = 0;
 
   for (const path of [...stored, ...extraPaths]) {
     const trimmed = path.trim();
     if (!trimmed || seen.has(trimmed)) continue;
     seen.add(trimmed);
-    await registerWithBackend(trimmed, false);
+
+    const ok = await registerWithBackend(trimmed, false);
+    if (ok) {
+      restored += 1;
+    } else {
+      failed.push(trimmed);
+      await removePersistedPath(trimmed);
+    }
+
     const parent = parentPath(trimmed);
     if (parent && !seen.has(parent)) {
       seen.add(parent);
-      await registerWithBackend(parent, false);
+      const parentOk = await registerWithBackend(parent, false);
+      if (parentOk) {
+        restored += 1;
+      } else {
+        failed.push(parent);
+        await removePersistedPath(parent);
+      }
     }
   }
+
+  return { restored, failed };
 }

@@ -49,4 +49,24 @@ describe("allowed-paths", () => {
     );
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
+
+  it("reports failed paths on restore and prunes them from storage", async () => {
+    const storeMod = await import("@tauri-apps/plugin-store");
+    const store = new storeMod.LazyStore("");
+    await store.set("paths", ["/gone/report.pdf", "/ok/report.pdf"]);
+
+    invokeMock.mockImplementation((_cmd: string, args: { path: string }) => {
+      if (args.path === "/gone/report.pdf") return Promise.reject(new Error("missing"));
+      return Promise.resolve(undefined);
+    });
+
+    const { restoreAllowedPaths } = await import("./allowed-paths");
+    const result = await restoreAllowedPaths(["/ok/report.pdf"]);
+
+    expect(result.failed).toContain("/gone/report.pdf");
+    expect(result.restored).toBeGreaterThan(0);
+
+    const remaining = (await store.get("paths")) as string[];
+    expect(remaining).not.toContain("/gone/report.pdf");
+  });
 });

@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -6,10 +6,18 @@ import type { AnchorHTMLAttributes, ImgHTMLAttributes } from "react";
 
 interface MarkdownProps {
   children: string;
+  /** When true, completed paragraphs are parsed once; the tail streams as plain text. */
+  live?: boolean;
 }
 
 const SAFE_LINK_SCHEMES = ["http:", "https:", "mailto:"];
 const SAFE_IMG_SCHEMES = ["https:", "asset:", "data:"];
+
+const remarkPlugins = [remarkGfm];
+const markdownComponents = {
+  a: SafeAnchor,
+  img: SafeImg,
+};
 
 function schemeOf(url: string): string | null {
   try {
@@ -49,14 +57,45 @@ function SafeImg({ src, ...rest }: ImgHTMLAttributes<HTMLImageElement>) {
   return <img {...rest} src={target} referrerPolicy="no-referrer" loading="lazy" />;
 }
 
-function MarkdownInner({ children }: MarkdownProps) {
+/** Split at the last completed paragraph so streaming only re-renders the tail. */
+export function splitStreamingMarkdown(text: string): { stable: string; tail: string } {
+  const idx = text.lastIndexOf("\n\n");
+  if (idx === -1) return { stable: "", tail: text };
+  return { stable: text.slice(0, idx), tail: text.slice(idx + 2) };
+}
+
+const ParsedMarkdown = memo(function ParsedMarkdown({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>
+      {text}
+    </ReactMarkdown>
+  );
+});
+
+function MarkdownInner({ children, live = false }: MarkdownProps) {
+  const { stable, tail } = useMemo(
+    () => (live ? splitStreamingMarkdown(children) : { stable: "", tail: children }),
+    [children, live],
+  );
+
+  if (!live) {
+    return (
+      <div className="markdown">
+        <ParsedMarkdown text={children} />
+      </div>
+    );
+  }
+
   return (
     <div className="markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: SafeAnchor, img: SafeImg }}>
-        {children}
-      </ReactMarkdown>
+      {stable ? <ParsedMarkdown text={stable} /> : null}
+      {tail ? <div className="message-stream-tail">{tail}</div> : null}
     </div>
   );
 }
 
-export const Markdown = memo(MarkdownInner, (prev, next) => prev.children === next.children);
+export const Markdown = memo(MarkdownInner, (prev, next) => {
+  if (prev.live !== next.live) return false;
+  return prev.children === next.children;
+});
