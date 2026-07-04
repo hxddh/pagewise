@@ -38,6 +38,17 @@ let cargo = readFileSync(cargoPath, "utf8");
 cargo = cargo.replace(/^version = "[^"]+"/m, `version = "${version}"`);
 writeFileSync(cargoPath, cargo);
 
+// Keep Cargo.lock's own package entry in sync — CI runs `cargo check --locked`,
+// which fails if the lockfile version drifts from Cargo.toml. Anchored to the
+// package name so it never touches a dependency's version line.
+const cargoLockPath = join(root, "src-tauri", "Cargo.lock");
+let cargoLock = readFileSync(cargoLockPath, "utf8");
+cargoLock = cargoLock.replace(
+  /(name = "pagewise"\nversion = ")[^"]+(")/,
+  `$1${version}$2`,
+);
+writeFileSync(cargoLockPath, cargoLock);
+
 // Keep package-lock.json in sync (root version + root package entry).
 const lockPath = join(root, "package-lock.json");
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
@@ -48,5 +59,5 @@ if (lock.packages && lock.packages[""]) {
 writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
 
 console.log(
-  `Synced version ${version} → package.json, package-lock.json, tauri.conf.json, Cargo.toml`
+  `Synced version ${version} → package.json, package-lock.json, tauri.conf.json, Cargo.toml, Cargo.lock`
 );
