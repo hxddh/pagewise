@@ -4,6 +4,20 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-07-04
+
+### Fixed
+
+- Agent: fix streaming status disappearing on follow-up questions (`lastAssistant` pointed at the previous turn)
+- Agent: continuous progress stream pump; placeholder bubble while awaiting first assistant chunk
+- Provider: omit `reasoning` when thinking is off (fixes `reasoning_effort: unknown variant none` on switch)
+
+### Changed
+
+- Agent: AI SDK `prepareStep` compaction — tiered `pruneMessages` by tool type, usage-driven aggressive mode, synthesis step disables tools
+- Agent: read tool default max chars 8k → 6k; compact search/index outputs in stale steps
+- Usage: inline token summary on assistant footer; per-step breakdown expands when multi-step; live updates on `finish-step`
+
 ## [0.2.12] - 2026-07-04
 
 ### Fixed
@@ -234,7 +248,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.12...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.13...HEAD
+[0.2.13]: https://github.com/hxddh/pagewise/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/hxddh/pagewise/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/hxddh/pagewise/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/hxddh/pagewise/compare/v0.2.9...v0.2.10

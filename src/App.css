@@ -818,10 +818,19 @@ body {
   margin-top: 6px;
 }
 
+.message-assistant-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
 .message-assistant-actions {
   display: flex;
   align-items: center;
   gap: 4px;
+  margin-left: auto;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
@@ -829,6 +838,49 @@ body {
 .message-assistant-footer:hover .message-assistant-actions,
 .message-assistant-footer:focus-within .message-assistant-actions {
   opacity: 1;
+}
+
+.message-usage-summary {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-steps-inline {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.usage-steps-inline summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-secondary);
+}
+
+.usage-steps-list {
+  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usage-steps-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-steps-row dt {
+  margin: 0;
+  font-weight: 400;
+}
+
+.usage-steps-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
 }
 
 .message-action-btn {

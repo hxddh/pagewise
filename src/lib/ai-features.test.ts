@@ -53,7 +53,7 @@ describe("embeddings", () => {
 });
 
 describe("resolveReasoning", () => {
-  it("disables reasoning when thinking is off", () => {
+  it("omits reasoning when thinking is off", () => {
     expect(
       resolveReasoning({
         provider: "openai",
@@ -61,7 +61,7 @@ describe("resolveReasoning", () => {
         model: "gpt-4o",
         thinkingEnabled: false,
       }),
-    ).toBe("none");
+    ).toBeUndefined();
   });
 
   it("uses high reasoning for pro models when thinking is on", () => {

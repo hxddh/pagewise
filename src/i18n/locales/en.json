@@ -21,7 +21,8 @@
     "rateLimited": "Rate limited — try again shortly.",
     "networkError": "Network error — check your connection.",
     "toolsNotSupported": "Model \"{{model}}\" does not support tool calling required by the agent. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) or use the DeepSeek provider directly.",
-    "toolsNotSupportedOpenRouter": "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → AI Provider."
+    "toolsNotSupportedOpenRouter": "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → AI Provider.",
+    "reasoningNotSupported": "This provider does not support the reasoning setting — turn off Extended thinking in Settings → AI Provider."
   },
   "workbench": {
     "nav": "Main navigation"
@@ -187,6 +188,8 @@
     "usageIndexOutput": "Index output",
     "usageSteps": "Per-step usage",
     "usageStep": "Step {{n}}",
+    "usageSummary": "{{input}} in · {{output}} out",
+    "usageSummaryWithSteps": "{{input}} in · {{output}} out · {{steps}} steps",
     "regenerate": "Regenerate",
     "structuredCitations": "Structured citations"
   },

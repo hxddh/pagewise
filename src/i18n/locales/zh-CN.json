@@ -21,7 +21,8 @@
     "rateLimited": "请求过于频繁 — 请稍后再试。",
     "networkError": "网络错误 — 请检查网络连接。",
     "toolsNotSupported": "模型「{{model}}」不支持助手所需的工具调用。请在设置中换用支持工具的模型（如 openai/gpt-4o-mini），或直接使用 DeepSeek 提供商。",
-    "toolsNotSupportedOpenRouter": "当前 OpenRouter 模型没有支持工具调用的路由。请在设置 → AI 提供商中换用 openai/gpt-4o-mini 等支持工具的模型。"
+    "toolsNotSupportedOpenRouter": "当前 OpenRouter 模型没有支持工具调用的路由。请在设置 → AI 提供商中换用 openai/gpt-4o-mini 等支持工具的模型。",
+    "reasoningNotSupported": "当前提供商不支持推理强度参数 — 请在设置 → AI 提供商中关闭「扩展思考」。"
   },
   "workbench": {
     "nav": "主导航"
@@ -187,6 +188,8 @@
     "usageIndexOutput": "索引输出",
     "usageSteps": "分步用量",
     "usageStep": "第 {{n}} 步",
+    "usageSummary": "{{input}} 输入 · {{output}} 输出",
+    "usageSummaryWithSteps": "{{input}} 输入 · {{output}} 输出 · {{steps}} 步",
     "regenerate": "重新生成",
     "structuredCitations": "结构化引用"
   },

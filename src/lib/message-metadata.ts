@@ -91,6 +91,69 @@ export function formatGenerationSpeed(tps: number | undefined): string {
   return `${tps.toFixed(1)} T/s`;
 }
 
+export function formatCompactTokenCount(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value);
+  if (rounded < 1000) return rounded.toLocaleString();
+  if (rounded < 10_000) return `${(rounded / 1000).toFixed(1)}k`;
+  return `${Math.round(rounded / 1000)}k`;
+}
+
+function sumStepTokens(steps: StepUsageEntry[]): { input: number; output: number } {
+  return steps.reduce(
+    (acc, step) => ({
+      input: acc.input + (step.inputTokens ?? 0),
+      output: acc.output + (step.outputTokens ?? 0),
+    }),
+    { input: 0, output: 0 },
+  );
+}
+
+/** Agent-only tokens when index OCR usage is tracked separately. */
+export function resolveAgentTokenTotals(metadata: PageWiseMessageMetadata | undefined): {
+  input?: number;
+  output?: number;
+} {
+  if (!metadata) return {};
+  const input =
+    metadata.inputTokens != null && metadata.indexInputTokens != null
+      ? Math.max(0, metadata.inputTokens - metadata.indexInputTokens)
+      : metadata.inputTokens;
+  const output =
+    metadata.outputTokens != null && metadata.indexOutputTokens != null
+      ? Math.max(0, metadata.outputTokens - metadata.indexOutputTokens)
+      : metadata.outputTokens;
+  return { input, output };
+}
+
+export function formatUsageSummaryLine(
+  metadata: PageWiseMessageMetadata | undefined,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string | null {
+  if (!metadata) return null;
+
+  const steps = metadata.stepUsage ?? [];
+  const fromSteps = steps.length > 0 ? sumStepTokens(steps) : null;
+  const agent = resolveAgentTokenTotals(metadata);
+  const input = fromSteps?.input || agent.input;
+  const output = fromSteps?.output || agent.output;
+
+  if (input == null && output == null) return null;
+
+  const inputLabel = formatCompactTokenCount(input);
+  const outputLabel = formatCompactTokenCount(output);
+
+  if (steps.length > 1) {
+    return t("agent.usageSummaryWithSteps", {
+      input: inputLabel,
+      output: outputLabel,
+      steps: steps.length,
+    });
+  }
+
+  return t("agent.usageSummary", { input: inputLabel, output: outputLabel });
+}
+
 type StepEndEvent = {
   stepNumber: number;
   usage?: { inputTokens?: number; outputTokens?: number };
@@ -102,7 +165,11 @@ export function createUsageMetadataTracker(model: string): {
   reset: () => void;
   onStepEnd: (event: StepEndEvent) => void;
   messageMetadata: (options: {
-    part: { type: string; totalUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } };
+    part: {
+      type: string;
+      totalUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+      usage?: { inputTokens?: number; outputTokens?: number };
+    };
   }) => PageWiseMessageMetadata | undefined;
 } {
   let firstTokenAt: number | undefined;
@@ -118,6 +185,11 @@ export function createUsageMetadataTracker(model: string): {
       const toolNames = event.toolCalls
         ?.map((call) => call.toolName)
         .filter((name): name is string => Boolean(name));
+      const entry = stepUsage.find((s) => s.step === event.stepNumber);
+      if (entry) {
+        if (toolNames && toolNames.length > 0) entry.toolNames = toolNames;
+        return;
+      }
       stepUsage.push({
         step: event.stepNumber,
         inputTokens: event.usage?.inputTokens,
@@ -137,6 +209,22 @@ export function createUsageMetadataTracker(model: string): {
       ) {
         firstTokenAt = Date.now();
         return { firstTokenAt };
+      }
+
+      if (part.type === "finish-step") {
+        const step = stepUsage.length;
+        stepUsage.push({
+          step,
+          inputTokens: part.usage?.inputTokens,
+          outputTokens: part.usage?.outputTokens,
+        });
+        const totals = sumStepTokens(stepUsage);
+        return {
+          includesToolContext: true,
+          inputTokens: totals.input,
+          outputTokens: totals.output,
+          stepUsage: [...stepUsage],
+        };
       }
 
       if (part.type === "finish") {
