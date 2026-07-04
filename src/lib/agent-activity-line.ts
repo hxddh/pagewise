@@ -4,6 +4,19 @@ import { getPageWiseMetadata, type PageWiseUIMessage } from "./message-metadata"
 import { getLastAgentMessageContext } from "./agent-view-context";
 import { resolveMaxAgentSteps } from "./agent-run-plan";
 
+function resolveUserTextForSteps(messages: UIMessage[]): string {
+  const fromContext = getLastAgentMessageContext()?.userText?.trim();
+  if (fromContext) return fromContext;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message?.role !== "user") continue;
+    for (const part of message.parts) {
+      if (part.type === "text" && part.text?.trim()) return part.text;
+    }
+  }
+  return "";
+}
+
 export function formatElapsedSeconds(startedAt: number | undefined, nowMs: number): number | null {
   if (startedAt == null) return null;
   return Math.max(0, Math.floor((nowMs - startedAt) / 1000));
@@ -27,15 +40,12 @@ export function formatAgentActivityLine(options: {
   const elapsed = formatElapsedSeconds(startedAt, nowMs);
 
   const completedSteps = meta?.stepUsage?.length ?? 0;
-  const userText = getLastAgentMessageContext()?.userText ?? "";
+  const userText = resolveUserTextForSteps(messages);
   const maxSteps = resolveMaxAgentSteps(userText);
   const stepIndex = Math.min(completedSteps + 1, maxSteps);
 
-  let line = label;
-  if (completedSteps > 0 || stepIndex > 1) {
-    line = t("agent.stepProgress", { step: stepIndex, max: maxSteps, action: label });
-  }
-  if (elapsed != null && elapsed > 0) {
+  let line = t("agent.stepProgress", { step: stepIndex, max: maxSteps, action: label });
+  if (elapsed != null) {
     line = `${line} · ${t("agent.elapsedSeconds", { seconds: elapsed })}`;
   }
 

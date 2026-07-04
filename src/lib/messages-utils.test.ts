@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getInFlightAssistantMessage,
   hasSubstantialAssistantText,
+  hasSubstantialAnswerText,
   isAwaitingAssistantReply,
   normalizeUIMessage,
   normalizeUIMessages,
@@ -84,6 +85,6 @@ describe("normalizeUIMessages", () => {
       parts: [{ type: "reasoning", text: "short note" }],
     };
     expect(hasSubstantialAssistantText(msg)).toBe(true);
-    expect(hasSubstantialAssistantText(msg, 12)).toBe(false);
+    expect(hasSubstantialAnswerText(msg)).toBe(false);
   });
 });

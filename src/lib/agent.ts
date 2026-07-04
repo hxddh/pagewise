@@ -20,6 +20,7 @@ import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { semanticSearchPages } from "./semantic-index";
 import { buildPrepareStepOverrides } from "./agent-context-compaction";
+import { resolveMaxAgentSteps, MAX_AGENT_STEPS_FULL } from "./agent-run-plan";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { indexPageText } from "./vision-index";
 import { yieldToUi } from "./yield-to-ui";
@@ -28,8 +29,8 @@ import { yieldToUi } from "./yield-to-ui";
 export const DEFAULT_RANGE_MAX_CHARS = 6_000;
 /** Default cap per read_pdf_page call. */
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
-/** Explicit ceiling on tool-loop steps so a run always terminates. */
-const MAX_AGENT_STEPS = 14;
+/** Default ceiling when user intent is unknown (overridden per run in prepareCall). */
+const DEFAULT_MAX_AGENT_STEPS = MAX_AGENT_STEPS_FULL;
 /** Cumulative characters a single run may read before it must synthesize. */
 const RUN_CHAR_BUDGET = 120_000;
 
@@ -431,6 +432,7 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
 
 export function createDocAgent() {
   const budget: ReadBudget = { used: 0, max: RUN_CHAR_BUDGET };
+  let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
   const tools = createDocumentTools(budget);
   const defaultRuntime = buildRuntimeContext(null);
 
@@ -439,12 +441,13 @@ export function createDocAgent() {
     instructions: SYSTEM_INSTRUCTIONS,
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
-    stopWhen: stepCountIs(MAX_AGENT_STEPS),
+    stopWhen: stepCountIs(DEFAULT_MAX_AGENT_STEPS),
     prepareCall: async ({ toolsContext, ...rest }) => {
       budget.used = 0;
 
       const settings = await loadSettings();
       const viewCtx = consumePendingAgentContext();
+      runMaxSteps = resolveMaxAgentSteps(viewCtx?.userText ?? "");
       const runtimeContext = buildRuntimeContext(viewCtx);
       let viewHint = viewCtx ? buildViewContextInstructions(viewCtx) : "";
 
@@ -454,6 +457,7 @@ export function createDocAgent() {
 
       return {
         ...rest,
+        stopWhen: stepCountIs(runMaxSteps),
         model: resolveModel(settings),
         reasoning: resolveReasoning(settings),
         instructions: SYSTEM_INSTRUCTIONS + viewHint,
@@ -473,7 +477,7 @@ export function createDocAgent() {
         messages,
         budgetUsed: budget.used,
         budgetMax: budget.max,
-        maxSteps: MAX_AGENT_STEPS,
+        maxSteps: runMaxSteps,
       });
     },
   });

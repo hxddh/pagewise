@@ -8,7 +8,7 @@ import {
   type UIMessageChunk,
 } from "ai";
 import { resolveStreamingTransform } from "./stream-transform";
-import { clearAgentProgress } from "./agent-progress";
+import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
 import {
   createUsageMetadataTracker,
@@ -67,12 +67,23 @@ export class PagewiseChatTransport<
     const tracker = createUsageMetadataTracker(model);
     tracker.reset();
 
-    const result = await this.agent.stream({
-      prompt: modelMessages,
-      abortSignal,
-      experimental_transform: resolveStreamingTransform(),
-      onStepEnd: tracker.onStepEnd,
-    } as Parameters<Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>["stream"]>[0]);
+    const earlyProgress: Array<{ message: string; phase?: "tool" | "index" | "search" | "read" }> =
+      [];
+    const unsubEarly = subscribeAgentProgress((payload) => {
+      earlyProgress.push(payload);
+    });
+
+    let result;
+    try {
+      result = await this.agent.stream({
+        prompt: modelMessages,
+        abortSignal,
+        experimental_transform: resolveStreamingTransform(),
+        onStepEnd: tracker.onStepEnd,
+      } as Parameters<Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>["stream"]>[0]);
+    } finally {
+      unsubEarly();
+    }
 
     const uiStream = toUIMessageStream({
       stream: result.stream,
@@ -82,7 +93,7 @@ export class PagewiseChatTransport<
       messageMetadata: tracker.messageMetadata,
     });
 
-    return wrapStreamWithAgentProgress(uiStream);
+    return wrapStreamWithAgentProgress(uiStream, earlyProgress);
   }
 
   async reconnectToStream(
