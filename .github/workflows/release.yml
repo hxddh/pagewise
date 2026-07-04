@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - "v*"
+  # Manual trigger: releases the current VERSION, creating the tag server-side
+  # (used when a tag cannot be pushed directly). Runs against the ref it is
+  # dispatched on — dispatch from the commit whose VERSION you intend to ship.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -28,15 +32,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify tag matches VERSION
+      - name: Resolve release tag
+        id: rel
         run: |
-          tag_version="${GITHUB_REF_NAME#v}"
           file_version="$(cat VERSION)"
-          echo "tag=$tag_version file=$file_version"
-          if [ "$tag_version" != "$file_version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME (version $tag_version) does not match VERSION file ($file_version)"
-            exit 1
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Tag push: the pushed tag must match the VERSION file.
+            tag="${GITHUB_REF_NAME}"
+            tag_version="${tag#v}"
+            if [ "$tag_version" != "$file_version" ]; then
+              echo "::error::Tag $tag (version $tag_version) does not match VERSION file ($file_version)"
+              exit 1
+            fi
+          else
+            # Manual dispatch: derive the tag from VERSION; it is created by the
+            # release step below from the checked-out commit.
+            tag="v${file_version}"
           fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $tag (VERSION=$file_version)"
 
       - name: Secret scan
         run: npm run check:secrets
@@ -76,6 +90,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             release-artifacts/*.dmg
             release-artifacts/*.tar.gz
