@@ -18,6 +18,27 @@ async function getStore(): Promise<LazyStore> {
   return store;
 }
 
+/**
+ * Serializes every store mutation through a single promise chain so concurrent
+ * read-modify-write cycles (e.g. startup restore racing a user opening a file)
+ * can't interleave and drop entries via last-write-wins.
+ */
+let storeLock: Promise<unknown> = Promise.resolve();
+function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = storeLock.then(fn, fn);
+  storeLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+/** Unlocked read — callers hold the lock (or accept a snapshot) themselves. */
+async function readRecentFiles(): Promise<RecentFile[]> {
+  const s = await getStore();
+  return sanitizeRecentFiles(await s.get<unknown>(KEY));
+}
+
 function isValidRecentFile(value: unknown): value is RecentFile {
   if (!value || typeof value !== "object") return false;
   const f = value as Partial<RecentFile>;
@@ -37,38 +58,42 @@ function sanitizeRecentFiles(raw: unknown): RecentFile[] {
 }
 
 export async function getRecentFiles(): Promise<RecentFile[]> {
-  const s = await getStore();
-  const list = await s.get<unknown>(KEY);
-  return sanitizeRecentFiles(list);
+  return withStoreLock(readRecentFiles);
 }
 
 export async function addRecentFile(entry: Omit<RecentFile, "openedAt">): Promise<RecentFile[]> {
-  const s = await getStore();
-  const existing = sanitizeRecentFiles(await s.get<unknown>(KEY));
-  const next: RecentFile = { ...entry, openedAt: Date.now() };
-  const filtered = existing.filter((f) => f.path !== entry.path);
-  const updated = [next, ...filtered].slice(0, MAX_RECENT);
-  await s.set(KEY, updated);
-  await s.save();
-  return updated;
+  return withStoreLock(async () => {
+    const s = await getStore();
+    const existing = await readRecentFiles();
+    const next: RecentFile = { ...entry, openedAt: Date.now() };
+    const filtered = existing.filter((f) => f.path !== entry.path);
+    const updated = [next, ...filtered].slice(0, MAX_RECENT);
+    await s.set(KEY, updated);
+    await s.save();
+    return updated;
+  });
 }
 
 export async function removeRecentFiles(paths: string[]): Promise<RecentFile[]> {
-  if (paths.length === 0) return getRecentFiles();
-  const removeSet = new Set(paths);
-  const s = await getStore();
-  const existing = sanitizeRecentFiles(await s.get<unknown>(KEY));
-  const updated = existing.filter((f) => !removeSet.has(f.path));
-  await s.set(KEY, updated);
-  await s.save();
-  return updated;
+  return withStoreLock(async () => {
+    const existing = await readRecentFiles();
+    if (paths.length === 0) return existing;
+    const removeSet = new Set(paths);
+    const s = await getStore();
+    const updated = existing.filter((f) => !removeSet.has(f.path));
+    await s.set(KEY, updated);
+    await s.save();
+    return updated;
+  });
 }
 
 export async function removeRecentFile(path: string): Promise<RecentFile[]> {
-  const s = await getStore();
-  const existing = sanitizeRecentFiles(await s.get<unknown>(KEY));
-  const updated = existing.filter((f) => f.path !== path);
-  await s.set(KEY, updated);
-  await s.save();
-  return updated;
+  return withStoreLock(async () => {
+    const s = await getStore();
+    const existing = await readRecentFiles();
+    const updated = existing.filter((f) => f.path !== path);
+    await s.set(KEY, updated);
+    await s.save();
+    return updated;
+  });
 }

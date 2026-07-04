@@ -16,8 +16,12 @@ interface AnchoredMenuProps {
   children: ReactNode;
   className?: string;
   align?: "start" | "end";
-  /** ARIA role for the popover container. Defaults to "menu"; pass "listbox" for option lists. */
-  role?: "menu" | "listbox";
+  /**
+   * ARIA role for the popover container. Defaults to "menu"; pass "listbox" for
+   * option lists, or "dialog" for popovers with no focusable menu items (e.g. a
+   * read-only stats panel that must still close on Escape).
+   */
+  role?: "menu" | "listbox" | "dialog";
 }
 
 export function AnchoredMenu({
@@ -87,7 +91,10 @@ export function AnchoredMenu({
     if (!open) return;
     restoreFocusRef.current = document.activeElement as HTMLElement | null;
     const id = window.setTimeout(() => {
-      getItems()[0]?.focus();
+      // Focus the first item, or the container itself when there are none, so the
+      // portal's onKeyDown (Escape) receives keystrokes instead of leaving focus
+      // on the trigger outside the portal.
+      (getItems()[0] ?? menuRef.current)?.focus();
     }, 0);
     return () => {
       window.clearTimeout(id);
@@ -109,6 +116,20 @@ export function AnchoredMenu({
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Escape / Tab must work even for item-less popovers (role="dialog"), so
+      // handle them before the item-navigation early-return below.
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key === "Tab") {
+        // Tabbing away dismisses the popover (WAI-ARIA menu pattern).
+        onClose();
+        return;
+      }
+
       const items = getItems();
       if (items.length === 0) return;
       const current = document.activeElement as HTMLElement | null;
@@ -131,15 +152,6 @@ export function AnchoredMenu({
           e.preventDefault();
           items[items.length - 1]?.focus();
           break;
-        case "Escape":
-          e.preventDefault();
-          e.stopPropagation();
-          onClose();
-          break;
-        case "Tab":
-          // Tabbing away dismisses the menu (WAI-ARIA menu pattern).
-          onClose();
-          break;
         default:
           break;
       }
@@ -155,6 +167,9 @@ export function AnchoredMenu({
       className={className}
       style={style}
       role={role}
+      // Programmatically focusable (never in the tab order) so item-less popovers
+      // can receive focus and thus keyboard events; getItems() excludes it.
+      tabIndex={-1}
       onKeyDown={onKeyDown}
       onMouseDown={(e) => e.stopPropagation()}
     >

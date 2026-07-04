@@ -12,7 +12,13 @@ import {
   saveSettings,
   setActiveProvider,
 } from "./settings";
-import { DEFAULT_SETTINGS, PROVIDER_PRESETS, type ProviderId } from "./types";
+import { settingsPersistSnapshot } from "./redact-settings";
+import {
+  DEFAULT_SETTINGS,
+  PROVIDER_PRESETS,
+  type LlmSettings,
+  type ProviderId,
+} from "./types";
 
 describe("migrateLlmSettings", () => {
   it("maps legacy deepseek-chat model", () => {
@@ -187,6 +193,39 @@ describe("store I/O — keychain fallback (no working keychain)", () => {
   });
 });
 
+describe("settingsPersistSnapshot — apiKey change detection", () => {
+  const base: LlmSettings = {
+    ...DEFAULT_SETTINGS,
+    provider: "openai",
+    model: "gpt-4o-mini",
+  };
+
+  it("produces a DIFFERENT snapshot when only the apiKey value changes", () => {
+    // Regression: redacting every key to "[redacted]" made sk-A and sk-B look
+    // identical, so the debounced save deduped and never persisted the change.
+    const a = settingsPersistSnapshot({ ...base, apiKey: "sk-A" });
+    const b = settingsPersistSnapshot({ ...base, apiKey: "sk-B" });
+    expect(a).not.toBe(b);
+  });
+
+  it("is stable for an unchanged key (so unrelated saves still dedup)", () => {
+    const a = settingsPersistSnapshot({ ...base, apiKey: "sk-same" }, "gpt-4o-mini");
+    const b = settingsPersistSnapshot({ ...base, apiKey: "sk-same" }, "gpt-4o-mini");
+    expect(a).toBe(b);
+  });
+
+  it("never leaks the raw key into the snapshot", () => {
+    const snap = settingsPersistSnapshot({ ...base, apiKey: "sk-test-rawvalue-123" });
+    expect(snap).not.toContain("sk-test-rawvalue-123");
+  });
+
+  it("distinguishes a set key from an empty key", () => {
+    const empty = settingsPersistSnapshot({ ...base, apiKey: "" });
+    const set = settingsPersistSnapshot({ ...base, apiKey: "sk-A" });
+    expect(empty).not.toBe(set);
+  });
+});
+
 describe("migrateProviderProfile", () => {
   it("splits a vision-only OpenRouter model into agent + vision models", async () => {
     __resetSettingsStoreForTests({
@@ -287,6 +326,38 @@ describe("store I/O — working keychain", () => {
     denyKeychain = false;
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("sk-router");
     expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBe(true);
+  });
+
+  it("does not resurrect an explicitly-cleared key after keychain becomes available", async () => {
+    // Regression: the keychain migration dropped `apiKeysCleared`, so on the
+    // blocked -> available retry a deliberately-removed key got re-imported.
+    let denyKeychain = true;
+    const keychain = {
+      get: async (provider: ProviderId): Promise<string> => {
+        if (denyKeychain) throw new Error("denied");
+        return provider === "openrouter" ? "sk-router" : "";
+      },
+      set: async (): Promise<void> => {},
+    };
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openrouter",
+        profiles: { openrouter: defaultProviderProfile("openrouter") },
+        apiKeysCleared: { openrouter: true },
+      },
+      keychain,
+    });
+
+    // Keychain blocked: migration incomplete, cleared flag must be preserved.
+    expect((await loadProviderSettings("openrouter")).apiKey).toBe("");
+    expect(__peekSettingsStoreForTests()?.apiKeysCleared?.openrouter).toBe(true);
+
+    // Keychain now available on retry — the cleared key must NOT come back.
+    denyKeychain = false;
+    expect((await loadProviderSettings("openrouter")).apiKey).toBe("");
+    expect(__peekSettingsStoreForTests()?.apiKeysCleared?.openrouter).toBe(true);
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBeUndefined();
   });
 
   it("saveSettings with unchanged apiKey does not touch the key mirror", async () => {

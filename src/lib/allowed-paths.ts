@@ -12,6 +12,21 @@ async function getStore(): Promise<LazyStore> {
   return store;
 }
 
+/**
+ * Serializes every persisted-array mutation through a single promise chain so a
+ * concurrent startup restore and a user allow/remove action can't interleave
+ * their read-modify-write cycles and drop entries via last-write-wins.
+ */
+let storeLock: Promise<unknown> = Promise.resolve();
+function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = storeLock.then(fn, fn);
+  storeLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 function parentPath(path: string): string | null {
   const normalized = path.replace(/\\/g, "/");
   const idx = normalized.lastIndexOf("/");
@@ -34,26 +49,30 @@ async function persistPath(path: string): Promise<void> {
   const trimmed = path.trim();
   if (!trimmed) return;
 
-  const s = await getStore();
-  const existing = (await s.get<string[]>(KEY)) ?? [];
-  if (existing.includes(trimmed)) return;
+  return withStoreLock(async () => {
+    const s = await getStore();
+    const existing = (await s.get<string[]>(KEY)) ?? [];
+    if (existing.includes(trimmed)) return;
 
-  const updated = [...existing, trimmed].slice(-MAX_PERSISTED);
-  await s.set(KEY, updated);
-  await s.save();
+    const updated = [...existing, trimmed].slice(-MAX_PERSISTED);
+    await s.set(KEY, updated);
+    await s.save();
+  });
 }
 
 async function removePersistedPath(path: string): Promise<void> {
   const trimmed = path.trim();
   if (!trimmed) return;
 
-  const s = await getStore();
-  const existing = (await s.get<string[]>(KEY)) ?? [];
-  if (!existing.includes(trimmed)) return;
+  return withStoreLock(async () => {
+    const s = await getStore();
+    const existing = (await s.get<string[]>(KEY)) ?? [];
+    if (!existing.includes(trimmed)) return;
 
-  const updated = existing.filter((p) => p !== trimmed);
-  await s.set(KEY, updated);
-  await s.save();
+    const updated = existing.filter((p) => p !== trimmed);
+    await s.set(KEY, updated);
+    await s.save();
+  });
 }
 
 /** Authorize a path with the Rust allowlist and persist it for the next launch. */
@@ -80,8 +99,12 @@ export interface RestoreAllowedPathsResult {
 export async function restoreAllowedPaths(
   extraPaths: string[] = [],
 ): Promise<RestoreAllowedPathsResult> {
-  const s = await getStore();
-  const stored = (await s.get<string[]>(KEY)) ?? [];
+  // Snapshot the persisted list under the lock; per-path removals below take the
+  // lock individually so we never hold it across backend round-trips.
+  const stored = await withStoreLock(async () => {
+    const s = await getStore();
+    return (await s.get<string[]>(KEY)) ?? [];
+  });
   const seen = new Set<string>();
   const failed: string[] = [];
   let restored = 0;
