@@ -157,10 +157,16 @@ export function useDocumentWorkspace(
         setActiveDoc(prevDoc);
         setPreviewPage(1);
         setDocLoadSeq((n) => n + 1);
+        if (controller && !controller.signal.aborted) {
+          void indexSparsePages(prevDoc, undefined, { signal: controller.signal }).catch(
+            () => {},
+          );
+        }
       }
     } else {
       prevDocPathRef.current = null;
       setActivePdfPath(null);
+      clearPdfCache();
       setActiveDoc(null);
       setDocLoadSeq((n) => n + 1);
     }
@@ -270,16 +276,21 @@ export function useDocumentWorkspace(
   const reindexActiveDoc = useCallback((pages?: number[]) => {
     const doc = activeDocRef.current;
     if (!doc) return;
+    docCache.invalidateIndexedPageText(doc.path, pages);
     if (pages?.length) {
       for (const p of pages) clearPageIndexState(doc.path, p);
     } else {
       clearDocumentIndexState(doc.path);
     }
     indexAbortRef.current?.abort();
+    abortSemanticIndexBuild(doc.path);
     const controller = new AbortController();
     indexAbortRef.current = controller;
     setBackgroundIndexAbortController(controller);
-    void indexSparsePages(doc, pages, { signal: controller.signal }).then((result) => {
+    void indexSparsePages(doc, pages, {
+      signal: controller.signal,
+      forceReindex: true,
+    }).then((result) => {
       if (showToast && translate) {
         if (result.capped) {
           showToast(

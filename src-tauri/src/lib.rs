@@ -3,7 +3,9 @@ mod pdf;
 mod secrets;
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -107,6 +109,45 @@ fn cancel_file_read_cmd(cancel: State<'_, FileReadCancel>) {
     cancel.bump();
 }
 
+/// Maximum file size for `read_file_bytes` (256 MiB).
+const MAX_READ_BYTES: u64 = 256 * 1024 * 1024;
+const READ_CHUNK_BYTES: usize = 1024 * 1024;
+
+fn read_file_with_cancel(
+    path: &Path,
+    cancel: &Arc<AtomicU64>,
+    gen_at_start: u64,
+) -> Result<Vec<u8>, String> {
+    if cancel.load(Ordering::SeqCst) != gen_at_start {
+        return Err("Read cancelled".to_string());
+    }
+    let mut file = File::open(path).map_err(|e| format!("Read failed: {e}"))?;
+    let len = file.metadata().map_err(|e| format!("Read failed: {e}"))?.len();
+    if len > MAX_READ_BYTES {
+        return Err(format!(
+            "File too large ({len} bytes; max {MAX_READ_BYTES})"
+        ));
+    }
+    let mut buf = Vec::with_capacity(len.min(MAX_READ_BYTES) as usize);
+    let mut chunk = [0u8; READ_CHUNK_BYTES];
+    loop {
+        if cancel.load(Ordering::SeqCst) != gen_at_start {
+            return Err("Read cancelled".to_string());
+        }
+        let n = file.read(&mut chunk).map_err(|e| format!("Read failed: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.len() as u64 > MAX_READ_BYTES {
+            return Err(format!(
+                "File too large (>{MAX_READ_BYTES} bytes)"
+            ));
+        }
+    }
+    Ok(buf)
+}
+
 #[tauri::command]
 async fn read_file_bytes(
     path: String,
@@ -114,12 +155,24 @@ async fn read_file_bytes(
     cancel: State<'_, FileReadCancel>,
 ) -> Result<tauri::ipc::Response, String> {
     let canon = ensure_allowed(&allowed, &path)?;
-    let _gen = cancel.inner().0.load(Ordering::SeqCst);
+    let meta = std::fs::metadata(&canon).map_err(|e| format!("Read failed: {e}"))?;
+    if meta.len() > MAX_READ_BYTES {
+        return Err(format!(
+            "File too large ({} bytes; max {MAX_READ_BYTES})",
+            meta.len()
+        ));
+    }
+    let cancel_gen = cancel.inner().0.clone();
+    let gen_at_start = cancel_gen.load(Ordering::SeqCst);
+    let path_for_read = canon.clone();
     let bytes = tauri::async_runtime::spawn_blocking(move || {
-        std::fs::read(&canon).map_err(|e| format!("Read failed: {e}"))
+        read_file_with_cancel(&path_for_read, &cancel_gen, gen_at_start)
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))??;
+    if cancel_gen.load(Ordering::SeqCst) != gen_at_start {
+        return Err("Read cancelled".to_string());
+    }
     Ok(tauri::ipc::Response::new(bytes))
 }
 

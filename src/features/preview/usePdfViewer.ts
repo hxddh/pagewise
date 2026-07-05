@@ -409,7 +409,9 @@ export function usePdfViewer({
     let cancelled = false;
     let cleanupTextLayer: (() => void) | undefined;
     const generation = ++renderGenRef.current;
-    const isStale = () => cancelled || generation !== renderGenRef.current;
+    const pathAtStart = docPath;
+    const isStale = () =>
+      cancelled || generation !== renderGenRef.current || pathAtStart !== docPath;
 
     const clearLoadingTimer = () => {
       if (loadingTimerRef.current !== undefined) {
@@ -444,7 +446,11 @@ export function usePdfViewer({
           clearLoadingTimer();
           setShowLoading(false);
           setRenderError(null);
-          setTextLayerActive(false);
+          if (wantTextLayer) {
+            setTextLayerActive(true);
+          } else {
+            setTextLayerActive(false);
+          }
         }
       }
 
@@ -467,7 +473,7 @@ export function usePdfViewer({
 
       try {
         if (!cacheHit) {
-          await renderPageToCanvas(
+          const result = await renderPageToCanvas(
             docPath,
             page,
             canvasRef.current,
@@ -477,6 +483,7 @@ export function usePdfViewer({
             scaleKey,
             isStale,
           );
+          if (result.cancelled && isStale()) return;
         }
 
         if (isStale()) return;
@@ -539,6 +546,9 @@ export function usePdfViewer({
     let cancelled = false;
     let cleanup: (() => void) | undefined;
     const generation = renderGenRef.current;
+    const pathAtStart = docPath;
+    const isStale = () =>
+      cancelled || generation !== renderGenRef.current || pathAtStart !== docPath;
 
     const run = () => {
       void (async () => {
@@ -547,10 +557,10 @@ export function usePdfViewer({
             ? await resolveFitWidthScale(docPath, page, viewportWidth)
             : zoom;
 
-        if (cancelled || generation !== renderGenRef.current || !textLayerRef.current) return;
+        if (isStale() || !textLayerRef.current) return;
 
         try {
-          cleanup = await renderTextLayer(docPath, page, scale, textLayerRef.current);
+          cleanup = await renderTextLayer(docPath, page, scale, textLayerRef.current, isStale);
         } catch {
           /* text layer optional */
         }

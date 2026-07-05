@@ -139,7 +139,6 @@ function AppShell() {
                   page={document.previewPage}
                   onPageChange={document.setPreviewPage}
                   prefsRevision={shell.prefsRevision}
-                  indexRevision={shell.indexRevision}
                   onOpenAiSettings={() => shell.openSettings("ai")}
                 />
               </Suspense>
@@ -176,6 +175,7 @@ function AppShell() {
                     settingsReady={agent.settingsReady}
                     loadingDoc={document.loading}
                     chatLoading={library.chatLoading}
+                    agentBusy={agent.busy}
                     activity={agent.busy ? agent.activity : null}
                     historySettling={agent.historySettling}
                     composerDraft={agent.composerDraft}

@@ -1,5 +1,5 @@
 export type IndexSource = "vision" | "ocr" | "extract" | "cache";
-export type IndexStatus = "indexing" | "done" | "failed";
+export type IndexStatus = "indexing" | "done" | "failed" | "idle";
 
 export type IndexFailureReason =
   | "need_vision"
@@ -32,6 +32,7 @@ export function getPageIndexState(path: string, page: number): PageIndexState | 
 
 export function clearPageIndexState(path: string, page: number): void {
   states.delete(key(path, page));
+  emitPageIndex({ path, page, status: "idle" });
 }
 
 /**
@@ -40,8 +41,11 @@ export function clearPageIndexState(path: string, page: number): void {
  */
 export function clearDocumentIndexState(path: string): void {
   const prefix = `${path}:`;
-  for (const stateKey of states.keys()) {
-    if (stateKey.startsWith(prefix)) states.delete(stateKey);
+  for (const stateKey of [...states.keys()]) {
+    if (!stateKey.startsWith(prefix)) continue;
+    const page = Number(stateKey.slice(prefix.length));
+    states.delete(stateKey);
+    emitPageIndex({ path, page, status: "idle" });
   }
 }
 

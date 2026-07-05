@@ -331,7 +331,12 @@ export function AiProviderSettings({
       setSaveStatus("saved");
       markSaved(next);
       onLlmSettingsSaved?.();
-      onReindexDoc?.();
+      const prevVision = providerProfiles[previewProvider]?.visionModel?.trim() ?? "";
+      const visionChanged = visionModel.trim() !== prevVision;
+      if (visionChanged) {
+        lastPersistedVisionRef.current = visionModel;
+        onReindexDoc?.();
+      }
       if (next.connectionVerified) onApiReady?.();
     } catch (err) {
       setSaveStatus("error");
@@ -354,6 +359,8 @@ export function AiProviderSettings({
     onReindexDoc,
     onApiReady,
     onSaveError,
+    providerProfiles,
+    visionModel,
   ]);
 
   const handleTest = useCallback(async () => {
@@ -406,7 +413,11 @@ export function AiProviderSettings({
       if (saved.provider === activeProvider) {
         onLlmSettingsSaved?.();
         onApiReady?.();
-        onReindexDoc?.();
+        const visionChanged =
+          visionModel.trim() !== (lastPersistedVisionRef.current?.trim() ?? "");
+        if (visionChanged) {
+          onReindexDoc?.();
+        }
         lastPersistedVisionRef.current = visionModel;
       }
       onTestResult?.(

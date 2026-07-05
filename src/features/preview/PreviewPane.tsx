@@ -18,7 +18,6 @@ interface PreviewPaneProps {
   page: number;
   onPageChange: (page: number) => void;
   prefsRevision?: number;
-  indexRevision?: number;
   onOpenAiSettings?: () => void;
 }
 
@@ -27,7 +26,6 @@ function PreviewPaneInner({
   page,
   onPageChange,
   prefsRevision = 0,
-  indexRevision = 0,
   onOpenAiSettings,
 }: PreviewPaneProps) {
   const { t } = useI18n();
@@ -48,14 +46,7 @@ function PreviewPaneInner({
       return;
     }
     indexPageInBackground(doc.path, indexPage, doc.kind);
-  }, [doc.path, doc.kind, indexPage, pageTextLen, indexRevision]);
-
-  useEffect(() => {
-    if (indexRevision <= 0) return;
-    if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return;
-    clearPageIndexState(doc.path, indexPage);
-    indexPageInBackground(doc.path, indexPage, doc.kind);
-  }, [indexRevision, doc.path, doc.kind, indexPage, doc.pages]);
+  }, [doc.path, doc.kind, indexPage, pageTextLen]);
 
   const transientRetryRef = useRef(0);
 
@@ -67,9 +58,7 @@ function PreviewPaneInner({
     const state = getPageIndexState(doc.path, indexPage);
     if (state?.status !== "failed") return;
     const detail = sanitizeIndexErrorDetail(state.error);
-    const transient =
-      detail === "rate_limited" ||
-      detail === "timeout";
+    const transient = detail === "timeout";
     if (!transient) return;
     if (transientRetryRef.current >= 6) return;
 

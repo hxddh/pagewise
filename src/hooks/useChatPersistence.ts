@@ -295,16 +295,6 @@ export function useChatPersistence({
     async function switchDocument() {
       const prev = prevPathRef.current;
       const pathChanged = docPath !== prev;
-      const pendingSave = resolveOutgoingBeforeDocSwitch({
-        prevPath: prev,
-        pathChanged,
-        currentMessages: messagesRef.current,
-        currentSignature: messagesSignature(messagesRef.current),
-        loadedSignature: loadedSnapshotRef.current,
-        cache: docMessageCacheRef.current,
-        currentSessionId: sessionIdRef.current,
-        currentDocName: docNameRef.current ?? "",
-      });
 
       skipSaveRef.current = true;
       bumpSaveEpoch();
@@ -320,6 +310,17 @@ export function useChatPersistence({
         }
         return;
       }
+
+      const pendingSave = resolveOutgoingBeforeDocSwitch({
+        prevPath: prev,
+        pathChanged,
+        currentMessages: messagesRef.current,
+        currentSignature: messagesSignature(messagesRef.current),
+        loadedSignature: loadedSnapshotRef.current,
+        cache: docMessageCacheRef.current,
+        currentSessionId: sessionIdRef.current,
+        currentDocName: docNameRef.current ?? "",
+      });
 
       try {
         if (pendingSave) {
@@ -371,6 +372,7 @@ export function useChatPersistence({
         await refreshSessions();
       } catch (err) {
         reportPersistError(err, "chat.persist.loadFailed");
+        onDocumentSwitchFailedRef.current?.();
         setMessagesRef.current([]);
         loadedSnapshotRef.current = messagesSignature([]);
         messagesDocPathRef.current = docPath ?? null;
