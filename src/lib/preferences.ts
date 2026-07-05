@@ -29,6 +29,16 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
 
 let store: LazyStore | null = null;
 
+let prefsLock: Promise<unknown> = Promise.resolve();
+function withPrefsLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = prefsLock.then(fn, fn);
+  prefsLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 async function getStore(): Promise<LazyStore> {
   if (!store) store = new LazyStore(STORE_PATH);
   return store;
@@ -69,19 +79,25 @@ export async function loadPreferences(): Promise<AppPreferences> {
   return sanitizePreferences(saved);
 }
 
-export async function savePreferences(prefs: AppPreferences): Promise<void> {
+async function writePreferences(prefs: AppPreferences): Promise<void> {
   const s = await getStore();
   await s.set(KEY, prefs);
   await s.save();
 }
 
+export async function savePreferences(prefs: AppPreferences): Promise<void> {
+  return withPrefsLock(() => writePreferences(prefs));
+}
+
 export async function patchPreferences(
   patch: Partial<AppPreferences>,
 ): Promise<AppPreferences> {
-  const current = await loadPreferences();
-  const next = { ...current, ...patch };
-  await savePreferences(next);
-  return next;
+  return withPrefsLock(async () => {
+    const current = await loadPreferences();
+    const next = { ...current, ...patch };
+    await writePreferences(next);
+    return next;
+  });
 }
 
 export function resolveTheme(mode: ThemeMode): "dark" | "light" {

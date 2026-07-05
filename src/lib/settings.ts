@@ -466,13 +466,15 @@ async function loadApiKey(provider: ProviderId): Promise<string> {
   const raw = await s.get<RawStored>(SETTINGS_KEY);
   if (raw?.apiKeysCleared?.[provider]) return "";
   if (provider === "ollama") return "ollama";
+  const fromMirror = (await getFallbackKey(provider)).trim();
+  if (fromMirror) return fromMirror;
   try {
     const fromKeychain = (await keychainGet(provider)).trim();
     if (fromKeychain) return fromKeychain;
   } catch {
-    /* fall through to local mirror */
+    /* fall through */
   }
-  return (await getFallbackKey(provider)).trim();
+  return "";
 }
 
 /** The plaintext fallback key stored in settings.json for a provider (keychain-less machines). */

@@ -102,6 +102,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -111,6 +112,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   useEffect(() => {
     setEditingUserId(null);
     setEditDraft("");
+    setEditError(null);
   }, [activeDoc?.path, activeThreadId, chatLoading]);
 
   useImperativeHandle(ref, () => ({
@@ -378,6 +380,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       if (!activeDoc || !editUserMessage || interactionBusy) return;
                       const text = editDraft.trim();
                       if (!text) return;
+                      setEditError(null);
                       void editUserMessage(m.id, {
                         text,
                         path: activeDoc.path,
@@ -387,7 +390,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                         totalPages: activeDoc.totalPages,
                         includeViewingPage,
                       }).then((ok) => {
-                        if (ok) setEditingUserId(null);
+                        if (ok) {
+                          setEditingUserId(null);
+                          setEditError(null);
+                        } else {
+                          setEditError(errorMessage ?? t("agent.editFailed"));
+                        }
                       });
                     }}
                   >
@@ -405,11 +413,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       <button
                         type="button"
                         className="btn btn-sm"
-                        onClick={() => setEditingUserId(null)}
+                        onClick={() => {
+                          setEditingUserId(null);
+                          setEditError(null);
+                        }}
                       >
                         {t("agent.cancelEdit")}
                       </button>
                     </div>
+                    {editError && (
+                      <p className="message-edit-error" role="alert">
+                        {editError}
+                      </p>
+                    )}
                   </form>
                 ) : (
                   <>
@@ -420,6 +436,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                         className="message-edit-btn"
                         onClick={() => {
                           setEditingUserId(m.id);
+                          setEditError(null);
                           setEditDraft(extractUserText(m));
                         }}
                       >

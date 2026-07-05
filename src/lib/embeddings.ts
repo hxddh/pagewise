@@ -122,7 +122,9 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 export async function embedText(
   settings: LlmSettings,
   value: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<number[] | null> {
+  if (options.signal?.aborted) return null;
   // Gate on provider capability: attempting an embedding against a provider with no
   // embeddings endpoint just 404s. Skip entirely so retrieval stays keyword-only.
   if (!isEmbeddingCapableProvider(settings.provider)) return null;
@@ -130,10 +132,13 @@ export async function embedText(
   const trimmed = value.trim();
   if (!trimmed) return null;
   try {
+    if (options.signal?.aborted) return null;
     const { embedding } = await embed({
       model: resolveEmbedModel(settings),
       value: trimmed.slice(0, 8000),
+      abortSignal: options.signal,
     });
+    if (options.signal?.aborted) return null;
     return embedding;
   } catch (error) {
     warn(`[embeddings] embedText failed for provider "${settings.provider}"`, error);

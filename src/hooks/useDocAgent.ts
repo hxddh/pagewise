@@ -282,6 +282,7 @@ export function useDocAgent(chatId: string | null = null) {
 
       sendingRef.current = true;
       lastTotalPagesRef.current = opts.totalPages;
+      citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;
 
@@ -336,6 +337,7 @@ export function useDocAgent(chatId: string | null = null) {
 
       sendingRef.current = true;
       lastTotalPagesRef.current = opts.totalPages;
+      citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;
 
@@ -395,6 +397,7 @@ export function useDocAgent(chatId: string | null = null) {
 
       sendingRef.current = true;
       lastTotalPagesRef.current = opts.totalPages;
+      citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;
 
@@ -408,11 +411,23 @@ export function useDocAgent(chatId: string | null = null) {
         });
 
         try {
+          const payload = await buildSendPayload({ ...opts, text }, text);
           pendingSendErrorRef.current = undefined;
-          chat.clearError();
-          await chat.regenerate();
-          const err = readSendError();
-          if (err) throw err;
+          clearSendError();
+          await sendWithImageFallback(
+            { ...payload, messageId: lastUser.id },
+            (p) => chat.sendMessage(p),
+            readSendError,
+            clearSendError,
+            () => {
+              chat.setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role !== "user") return prev;
+                if (extractUserText(last) !== text.trim()) return prev;
+                return prev.slice(0, -1);
+              });
+            },
+          );
           return true;
         } catch (e) {
           rollbackLastAgentMessage();
@@ -424,7 +439,7 @@ export function useDocAgent(chatId: string | null = null) {
         sendingRef.current = false;
       }
     },
-    [chat.messages, chat.regenerate, chat.status, prepareForAgentSend, readSendError, chat.clearError],
+    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload, readSendError, clearSendError],
   );
 
   const clearChat = useCallback(() => {

@@ -119,12 +119,11 @@ export function isAgentMultimodalModel(provider: ProviderId, model: string): boo
   return false;
 }
 
-export function isToolModel(_provider: ProviderId, model: string): boolean {
+export function isToolModel(provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.tools;
-  // Unknown model id (custom base URL, a newer OpenRouter/Ollama release): be optimistic.
-  // Let the request be attempted and fail server-side (mapped by formatLlmError) rather
-  // than hard-blocking a legitimate tool-capable model on the client.
+  if (provider === "openrouter") return false;
+  // Unknown model id (custom base URL, a newer Ollama release): be optimistic.
   return true;
 }
 

@@ -407,7 +407,7 @@ describe("store I/O — working keychain", () => {
     expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBeUndefined();
   });
 
-  it("prefers keychain over stale plaintext mirror when both exist", async () => {
+  it("prefers local mirror over keychain on read when both exist", async () => {
     const keychain = memoryKeychain();
     __resetSettingsStoreForTests({
       store: {
@@ -415,6 +415,22 @@ describe("store I/O — working keychain", () => {
         activeProvider: "openai",
         profiles: { openai: defaultProviderProfile("openai") },
         apiKeys: { openai: "sk-from-disk" },
+        apiKeysMigratedFromKeychain: true,
+      },
+      keychain,
+    });
+    await keychain.set("openai", "sk-from-keychain");
+
+    expect((await loadProviderSettings("openai")).apiKey).toBe("sk-from-disk");
+  });
+
+  it("falls back to keychain when local mirror is empty", async () => {
+    const keychain = memoryKeychain();
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openai",
+        profiles: { openai: defaultProviderProfile("openai") },
         apiKeysMigratedFromKeychain: true,
       },
       keychain,

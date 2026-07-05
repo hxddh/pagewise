@@ -1,5 +1,6 @@
 import { docCache } from "./doc-cache";
-import type { PageText } from "./types";
+import { throwIfAborted } from "./abort-utils";
+import { getAgentRunAbortSignal } from "./vision-index";
 import {
   cosineSimilarity,
   embedText,
@@ -9,6 +10,7 @@ import {
 import { isEmbeddingCapableProvider } from "./model-capabilities";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { loadSettings } from "./settings";
+import type { PageText } from "./types";
 import { searchDocumentPages, type SearchHit } from "./document-search";
 import { fuseSearchHits, rerankSearchHits, type RankableHit } from "./search-rerank";
 
@@ -116,10 +118,12 @@ export function markSemanticIndexDirty(path: string): void {
 export async function ensureSemanticIndex(
   path: string,
   pages: PageText[],
+  externalSignal?: AbortSignal,
 ): Promise<void> {
   if (!docCache.has(path)) return;
 
   for (let attempt = 0; attempt < MAX_EMBED_BUILD_ATTEMPTS + 1; attempt++) {
+    throwIfAborted(externalSignal);
     if (!docCache.has(path)) return;
 
     const pending = buildPromises.get(path);
@@ -169,10 +173,13 @@ export async function ensureSemanticIndex(
         buildAbortByPath.get(path)?.abort();
         const buildAbort = new AbortController();
         buildAbortByPath.set(path, buildAbort);
+        const embedSignal = externalSignal
+          ? AbortSignal.any([buildAbort.signal, externalSignal])
+          : buildAbort.signal;
         const pageOffset = embedWindowOffset.get(path) ?? 0;
         const { embeddings: vectors, capped, eligible, embedded, nextPageOffset } =
           await embedTexts(settings, values, {
-            signal: buildAbort.signal,
+            signal: embedSignal,
             pageOffset,
           });
         if (buildAbortByPath.get(path) === buildAbort) {
@@ -201,7 +208,7 @@ export async function ensureSemanticIndex(
           }
         }
         const merged = mergePageEmbeddings(priorEntries, freshEntries);
-        const aborted = buildAbort.signal.aborted;
+        const aborted = embedSignal.aborted;
         const complete = merged.length >= sparse.length;
         if (merged.length > 0 && !aborted) {
           store.set(path, { model: modelKey, dim, entries: merged });
@@ -253,10 +260,15 @@ export async function semanticSearchPages(
   pages: PageText[],
   query: string,
   limit = 30,
+  options?: { signal?: AbortSignal },
 ): Promise<SearchHit[]> {
+  const signal = options?.signal ?? getAgentRunAbortSignal();
+  throwIfAborted(signal);
+
   const livePages = resolvePages(path, pages);
   const keywordHits = searchDocumentPages(livePages, query, limit);
-  await ensureSemanticIndex(path, livePages);
+  await ensureSemanticIndex(path, livePages, signal);
+  throwIfAborted(signal);
   const indexed = store.get(path);
   if (!indexed?.entries.length) return keywordHits;
 
@@ -267,7 +279,8 @@ export async function semanticSearchPages(
     return keywordHits;
   }
 
-  const queryVector = await embedText(settings, query);
+  throwIfAborted(signal);
+  const queryVector = await embedText(settings, query, { signal });
   if (!queryVector) return keywordHits;
   // Dimension guard: mismatched dims make cosine meaningless (silent 0). Rebuild next call.
   if (queryVector.length !== indexed.dim) {

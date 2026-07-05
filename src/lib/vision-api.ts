@@ -1,4 +1,4 @@
-import { formatLlmError, resolveBaseURL } from "./llm";
+import { formatLlmError, resolveBaseURL, validateModel } from "./llm";
 import { addIndexUsage } from "./usage-tracker";
 import type { LlmSettings } from "./types";
 
@@ -70,6 +70,11 @@ export async function generateVisionText(
   imageJpeg: Uint8Array,
   options: { signal?: AbortSignal } = {},
 ): Promise<string> {
+  const modelError = validateModel(settings);
+  if (modelError) {
+    throw new Error(formatLlmError(new Error(modelError), undefined, "scan"));
+  }
+
   const baseURL = resolveBaseURL(settings);
   const url = `${baseURL}/chat/completions`;
   const dataUrl = imageBytesToDataUrl(imageJpeg);

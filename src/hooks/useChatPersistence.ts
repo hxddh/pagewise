@@ -185,7 +185,7 @@ export function useChatPersistence({
         sessionIdRef.current,
         messagesRef.current,
       );
-      loadedSnapshotRef.current = messagesSignature(messagesRef.current);
+      loadedSnapshotRef.current = messagesSignature(prepareMessagesForPersist(messagesRef.current));
       return true;
     } catch (err) {
       reportPersistError(err, "Failed to save conversation");
@@ -372,7 +372,7 @@ export function useChatPersistence({
       void persistOutgoing(savePath, saveName, saveSessionId, snapshot)
         .then(async () => {
           if (docPathRef.current !== savePath || sessionIdRef.current !== saveSessionId) return;
-          loadedSnapshotRef.current = messagesSignature(snapshot);
+          loadedSnapshotRef.current = messagesSignature(prepareMessagesForPersist(snapshot));
           const loaded = await loadActiveMessages(savePath, undefined, { readOnly: true });
           setThreads(loaded.threads);
           await refreshSessions();
