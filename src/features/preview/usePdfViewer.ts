@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import {
   buildScaleKey,
   clearPageBitmapCache,
-  clearPdfCache,
   effectiveRenderQuality,
   hasPageCache,
   isRasterHeavyPage,
@@ -99,7 +98,7 @@ export function usePdfViewer({
 
   useEffect(() => {
     setZoom("fit-width");
-    clearPdfCache();
+    // Doc-switch PDF cache invalidation is owned by useDocumentWorkspace (clearPdfCache).
   }, [docPath]);
 
   useEffect(() => {

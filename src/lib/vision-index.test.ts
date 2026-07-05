@@ -21,6 +21,20 @@ describe("resolveIndexFailureReason", () => {
     ).toBe("insufficient_text");
   });
 
+  it("returns vision_failed for auth errors even when OCR also fails", () => {
+    expect(
+      resolveIndexFailureReason(
+        base,
+        true,
+        true,
+        true,
+        false,
+        false,
+        "Invalid API key",
+      ),
+    ).toBe("vision_failed");
+  });
+
   it("returns need_vision when no vision model and no tesseract", () => {
     expect(
       resolveIndexFailureReason(

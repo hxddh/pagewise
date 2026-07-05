@@ -50,6 +50,7 @@ interface UseChatPersistenceOptions {
   isStreaming?: boolean;
   isAgentBusy?: () => boolean;
   onAbortPendingSend?: () => void;
+  onResetAgent?: () => void;
   onPersistError?: (messageKey: string) => void;
   onActiveSessionIdChange?: (sessionId: string) => void;
 }
@@ -68,6 +69,7 @@ export function useChatPersistence({
   isStreaming = false,
   isAgentBusy,
   onAbortPendingSend,
+  onResetAgent,
   onPersistError,
   onActiveSessionIdChange,
 }: UseChatPersistenceOptions) {
@@ -93,6 +95,7 @@ export function useChatPersistence({
   const onThreadSwitchRef = useRef(onThreadSwitch);
   const onStopStreamRef = useRef(onStopStream);
   const onAbortPendingSendRef = useRef(onAbortPendingSend);
+  const onResetAgentRef = useRef(onResetAgent);
   const isAgentBusyRef = useRef(isAgentBusy);
   const onPersistErrorRef = useRef(onPersistError);
   const onActiveSessionIdChangeRef = useRef(onActiveSessionIdChange);
@@ -113,6 +116,7 @@ export function useChatPersistence({
   onThreadSwitchRef.current = onThreadSwitch;
   onStopStreamRef.current = onStopStream;
   onAbortPendingSendRef.current = onAbortPendingSend;
+  onResetAgentRef.current = onResetAgent;
   isAgentBusyRef.current = isAgentBusy;
   onPersistErrorRef.current = onPersistError;
   onActiveSessionIdChangeRef.current = onActiveSessionIdChange;
@@ -173,6 +177,10 @@ export function useChatPersistence({
     onAbortPendingSendRef.current?.();
     const deadline = Date.now() + STREAM_SETTLE_MS;
     while (busy() && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, STREAM_POLL_MS));
+    }
+    if (busy()) {
+      onResetAgentRef.current?.();
       await new Promise((resolve) => window.setTimeout(resolve, STREAM_POLL_MS));
     }
     return !busy();
@@ -621,6 +629,7 @@ export function useChatPersistence({
       bumpSaveEpoch();
       if (path === docPath) {
         onStopStreamRef.current?.();
+        onAbortPendingSendRef.current?.();
         skipSaveRef.current = true;
         const idle = await waitForStreamIdle();
         if (!idle) {
@@ -631,6 +640,7 @@ export function useChatPersistence({
       }
       await clearDocSessions(path);
       if (path === docPath) {
+        onResetAgentRef.current?.();
         bumpOpGen();
         skipSaveRef.current = true;
         try {

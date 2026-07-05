@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { beginAgentMessage, rollbackLastAgentMessage, type AgentMessageContext } from "../lib/agent-view-context";
+import { beginAgentMessage, rollbackLastAgentMessage, getLastAgentMessageContext, type AgentMessageContext } from "../lib/agent-view-context";
 import { sendWithImageFallback } from "../lib/agent-send";
 import { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
@@ -70,11 +70,16 @@ export function useDocAgent(chatId: string | null = null) {
   formatErrorRef.current = (error) => formatAgentError(error, t);
 
   const transportRef = useRef<ReturnType<typeof createTransport> | null>(null);
+  const agentGenRef = useRef(0);
+  const streamAgentGenRef = useRef(0);
   if (transportRef.current === null) {
     transportRef.current = createTransport(
       agentRef.current,
       (error) => formatErrorRef.current(error),
-      (repaired) => setMessagesRef.current?.(repaired),
+      (repaired) => {
+        if (streamAgentGenRef.current !== agentGenRef.current) return;
+        setMessagesRef.current?.(repaired);
+      },
     );
   }
 
@@ -105,6 +110,8 @@ export function useDocAgent(chatId: string | null = null) {
       }
     },
     onFinish: ({ message, isAbort, isError }) => {
+      if (streamAgentGenRef.current !== agentGenRef.current) return;
+
       setStreamProgress(null);
       if (!isError) pendingSendErrorRef.current = undefined;
 
@@ -148,10 +155,12 @@ export function useDocAgent(chatId: string | null = null) {
       const citationController = new AbortController();
       citationAbortRef.current = citationController;
       const citationSettings = runSettingsRef.current ?? undefined;
+      const citationTotalPages =
+        getLastAgentMessageContext()?.totalPages ?? lastTotalPagesRef.current;
       void streamStructuredCitations(
         answer,
         excerpts,
-        lastTotalPagesRef.current,
+        citationTotalPages,
         (citations) => {
           if (citationGen !== citationGenRef.current) return;
           if (citations.length === 0) return;
@@ -220,9 +229,11 @@ export function useDocAgent(chatId: string | null = null) {
     chat.status === "submitted";
 
   useEffect(() => {
+    agentGenRef.current += 1;
     sendGenRef.current += 1;
     sendingRef.current = false;
     setSendPhase(false);
+    setHistorySettling(false);
     pendingSendContextRef.current = null;
     abortCitationStream();
     citationGenRef.current += 1;
@@ -246,7 +257,10 @@ export function useDocAgent(chatId: string | null = null) {
       }
       pruneTimeoutRef.current = window.setTimeout(() => {
         pruneTimeoutRef.current = null;
-        if (pruneChatIdRef.current !== pruneForChatId) return;
+        if (pruneChatIdRef.current !== pruneForChatId) {
+          setHistorySettling(false);
+          return;
+        }
         chat.setMessages((prev) => pruneToolOutputsForHistory(prev) as typeof prev);
         window.setTimeout(() => setHistorySettling(false), 300);
       }, 0);
@@ -255,6 +269,7 @@ export function useDocAgent(chatId: string | null = null) {
           window.clearTimeout(pruneTimeoutRef.current);
           pruneTimeoutRef.current = null;
         }
+        setHistorySettling(false);
       };
     }
   }, [chat.status, chat.setMessages, resolvedChatId]);
@@ -351,9 +366,13 @@ export function useDocAgent(chatId: string | null = null) {
       pendingSendContextRef.current = ctx;
       beginAgentMessage(ctx);
       lastSendOptionsRef.current = { includeViewingPage: opts.includeViewingPage };
+      streamAgentGenRef.current = agentGenRef.current;
 
       try {
-        if (sendGen !== sendGenRef.current) return false;
+        if (sendGen !== sendGenRef.current || streamAgentGenRef.current !== agentGenRef.current) {
+          rollbackLastAgentMessage();
+          return false;
+        }
         const payload = await buildSendPayload({ ...opts, text }, text);
         if (sendGen !== sendGenRef.current) {
           rollbackLastAgentMessage();
@@ -456,6 +475,20 @@ export function useDocAgent(chatId: string | null = null) {
       try {
         if (!(await prepareForAgentSend())) return false;
         if (sendGen !== sendGenRef.current) return false;
+
+        chat.setMessages((prev) => {
+          let lastUserIdx = -1;
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i]?.role === "user") {
+              lastUserIdx = i;
+              break;
+            }
+          }
+          if (lastUserIdx < 0) return prev;
+          const trimmed = prev.slice(0, lastUserIdx + 1);
+          return trimmed.length === prev.length ? prev : trimmed;
+        });
+
         pendingSendErrorRef.current = undefined;
         clearSendError();
         return await runAgentSend(sendOpts, text, lastUser.id, sendGen);
@@ -499,6 +532,7 @@ export function useDocAgent(chatId: string | null = null) {
       historySettling,
       chatId: resolvedChatId,
       resetForDocumentSwitch: () => {
+        agentGenRef.current += 1;
         abortPendingSend();
         sendGenRef.current += 1;
         abortCitationStream();

@@ -52,6 +52,23 @@ function shouldCommitPdfLoad(path: string, epochAtStart: number): boolean {
   return epochAtStart === pdfDocEpoch && (pdfActivePath === null || pdfActivePath === path);
 }
 
+export class StalePdfLoadError extends Error {
+  constructor(path: string) {
+    super(`PDF load superseded: ${path}`);
+    this.name = "StalePdfLoadError";
+  }
+}
+
+/** Bumped on doc switch — stale IPC byte reads are discarded on the JS side. */
+let fileReadGen = 0;
+
+function bumpFileReadGeneration(): void {
+  fileReadGen += 1;
+  if (isTauriRuntime()) {
+    void invoke("cancel_file_read_cmd").catch(() => {});
+  }
+}
+
 // "thumb" is a dedicated lower-priority lane for sidebar thumbnails. Unlike
 // "low", it is NOT purged by page navigation/zoom/resize, so a thumbnail render
 // that is in-flight during a page turn still completes instead of silently
@@ -384,21 +401,23 @@ async function loadPdfBytesViaAsset(path: string): Promise<Uint8Array> {
   return data;
 }
 
-async function loadPdfBytesViaIpc(path: string): Promise<Uint8Array> {
+async function loadPdfBytesViaIpc(path: string, readGen: number): Promise<Uint8Array> {
   const raw = await invoke<unknown>("read_file_bytes", { path });
+  if (readGen !== fileReadGen) throw new StalePdfLoadError(path);
   return coerceInvokeBytes(raw);
 }
 
-async function loadPdfBytes(path: string): Promise<Uint8Array> {
+async function loadPdfBytes(path: string, readGen: number): Promise<Uint8Array> {
   const cached = pdfBytesCache.get(path);
   if (cached) return cached;
 
-  // Prefer IPC in Tauri — asset:// fetch can lack ReadableStream / iterator support.
   let data: Uint8Array;
   try {
-    data = await loadPdfBytesViaIpc(path);
-  } catch {
+    data = await loadPdfBytesViaIpc(path, readGen);
+  } catch (e) {
+    if (e instanceof StalePdfLoadError) throw e;
     data = await loadPdfBytesViaAsset(path);
+    if (readGen !== fileReadGen) throw new StalePdfLoadError(path);
   }
 
   if (data.byteLength === 0) throw new Error("Empty PDF file");
@@ -407,27 +426,43 @@ async function loadPdfBytes(path: string): Promise<Uint8Array> {
   return data;
 }
 
+async function loadPdfDocumentOnce(path: string, epochAtStart: number): Promise<PDFDocumentProxy> {
+  const readGen = fileReadGen;
+  const pdfjs = await getPdfJs();
+  const data = await loadPdfBytes(path, readGen);
+  const doc = await pdfjs.getDocument(pdfDocumentInit(data)).promise;
+
+  if (!shouldCommitPdfLoad(path, epochAtStart)) {
+    void doc.loadingTask.destroy();
+    throw new StalePdfLoadError(path);
+  }
+  if (pdfDocCache && pdfDocCache.path !== path) {
+    void pdfDocCache.doc.loadingTask.destroy();
+  }
+  pdfDocCache = { path, doc };
+  return doc;
+}
+
 export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
   if (pdfDocCache?.path === path) return pdfDocCache.doc;
 
   const inFlight = inFlightDocs.get(path);
   if (inFlight) return inFlight;
 
-  const epochAtStart = pdfDocEpoch;
   const load = (async () => {
-    const pdfjs = await getPdfJs();
-    const data = await loadPdfBytes(path);
-    const doc = await pdfjs.getDocument(pdfDocumentInit(data)).promise;
-
-    if (!shouldCommitPdfLoad(path, epochAtStart)) {
-      void doc.loadingTask.destroy();
-      return doc;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const epochAtStart = pdfDocEpoch;
+      try {
+        return await loadPdfDocumentOnce(path, epochAtStart);
+      } catch (e) {
+        if (e instanceof StalePdfLoadError) {
+          if (pdfDocCache?.path === path) return pdfDocCache.doc;
+          continue;
+        }
+        throw e;
+      }
     }
-    if (pdfDocCache && pdfDocCache.path !== path) {
-      void pdfDocCache.doc.loadingTask.destroy();
-    }
-    pdfDocCache = { path, doc };
-    return doc;
+    return loadPdfDocumentOnce(path, pdfDocEpoch);
   })();
 
   inFlightDocs.set(path, load);
@@ -731,6 +766,7 @@ export function clearPageBitmapCache(): void {
 export function clearPdfCache(): void {
   renderEpoch += 1;
   pdfDocEpoch += 1;
+  bumpFileReadGeneration();
   for (const item of renderQueue) item.cancel();
   renderQueue.length = 0;
   if (pdfDocCache) {

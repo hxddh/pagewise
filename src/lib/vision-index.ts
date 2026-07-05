@@ -13,6 +13,7 @@ import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
 import { loadVisionSettings } from "./settings";
 import type { LoadedDocument } from "./types";
 import type { LlmSettings } from "./types";
+import { sanitizeIndexErrorDetail } from "./index-error-display";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 
 export { MIN_INDEX_CHARS } from "./page-text-merge";
@@ -260,10 +261,18 @@ export function resolveIndexFailureReason(
   ocrFailed: boolean,
   tesseractAvailable: boolean,
   pdfTextPending: boolean,
+  visionError?: string,
 ): IndexFailureReason {
   if (pdfTextPending) return "unknown";
 
   const hasVision = isVisionModel(settings.provider, settings.model);
+
+  if (hasVision && visionAttempted && visionFailed && visionError) {
+    const detail = sanitizeIndexErrorDetail(visionError);
+    if (detail === "auth" || detail === "rate_limited" || detail === "timeout") {
+      return "vision_failed";
+    }
+  }
 
   if (hasVision && visionAttempted && visionFailed && ocrFailed) {
     return "insufficient_text";
@@ -392,6 +401,7 @@ async function indexPageTextInner(
       ocrFailed,
       tesseractAvailable,
       false,
+      visionError,
     );
 
     emitPageIndex({

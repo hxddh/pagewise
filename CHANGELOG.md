@@ -4,6 +4,24 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.45] - 2026-07-06
+
+### Fixed
+
+- PDF: single `clearPdfCache` owner on doc switch (removed duplicate from `usePdfViewer`)
+- PDF: stale `getPdfDocument` loads retry instead of returning destroyed pdf.js docs
+- PDF: `cancel_file_read_cmd` + JS generation guard discards stale IPC byte reads
+- Index: `indexSparsePages` runs after workspace sets new abort controller (not during load)
+- Index: auth/rate-limit vision errors surface as `vision_failed`, not `insufficient_text`
+- Index: `embedMany` honours abort between batches
+- Preview: reindex on successful connection test; `indexRevision` clears failed pages
+- Preview: retry + settings for `vision_failed`; exponential backoff for rate limits
+- Agent: `agentGenRef` guards `onFinish`, `onMessagesRepaired`, citations use live `totalPages`
+- Agent: `deleteSession` resets agent; `waitForStreamIdle` timeout forces `resetForDocumentSwitch`
+- Agent: regenerate truncates trailing assistant; `historySettling` cleanup on prune skip
+- Chat: clear chat clears agent error state
+- Rollback: `abortDocumentSwitch` reconciles PDF cache via `clearPdfCache`
+
 ## [0.2.44] - 2026-07-06
 
 ### Fixed
