@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveDocPath } from "./agent-runtime-context";
 import { cosineSimilarity } from "./embeddings";
 import { resolveReasoning } from "./llm";
-import { isEmbeddingCapableProvider } from "./model-capabilities";
+import { isEmbeddingCapableProvider, isThinkingCapableModel } from "./model-capabilities";
 import { pickFastModelId, shouldUseFastModelForStep } from "./model-routing";
 import { normalizeStructuredCitations } from "./structured-citations";
 import type { StructuredCitation } from "./structured-citations";
@@ -100,6 +100,21 @@ describe("normalizeStructuredCitations", () => {
       { page: 2, quote: "q" },
       { page: 2, pageEnd: 4, quote: "q" },
     ]);
+  });
+});
+
+describe("isThinkingCapableModel", () => {
+  it("allows DeepSeek provider models", () => {
+    expect(isThinkingCapableModel("deepseek", "deepseek-v4-flash")).toBe(true);
+  });
+
+  it("allows DeepSeek routes on OpenRouter", () => {
+    expect(isThinkingCapableModel("openrouter", "deepseek/deepseek-v4-flash")).toBe(true);
+  });
+
+  it("rejects OpenRouter chat models without reasoning support", () => {
+    expect(isThinkingCapableModel("openrouter", "openai/gpt-4o-mini")).toBe(false);
+    expect(isThinkingCapableModel("openai", "gpt-4o-mini")).toBe(false);
   });
 });
 

@@ -241,6 +241,20 @@
   color: var(--text);
 }
 
+.provider-cell.in-use:not(.active) {
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border-subtle));
+}
+
+.provider-cell.in-use:not(.active)::after {
+  content: "";
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.65;
+}
+
 .provider-cell-wide {
   grid-column: 1 / -1;
   justify-content: center;
@@ -381,6 +395,10 @@
 
 .model-select-anchor {
   position: relative;
+}
+
+.model-select-custom-input {
+  margin-top: 6px;
 }
 
 .settings-select-trigger {

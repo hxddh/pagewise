@@ -248,6 +248,48 @@ describe("migrateProviderProfile", () => {
     expect(profile.visionModel).toBe("qwen/qwen2.5-vl-72b-instruct");
     expect(profile.connectionVerified).toBe(false);
   });
+
+  it("resets legacy shared agent/scan model id to default scan preset", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openrouter",
+        profiles: {
+          openrouter: {
+            model: "openai/gpt-4o-mini",
+            visionModel: "openai/gpt-4o-mini",
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+
+    const store = await loadLlmStore();
+    const profile = store.profiles.openrouter!;
+    expect(profile.visionModel).toBe("google/gemini-2.5-flash-lite");
+    expect(profile.model).toBe("openai/gpt-4o-mini");
+  });
+
+  it("clears thinking when the assistant model does not support it", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openrouter",
+        profiles: {
+          openrouter: {
+            model: "openai/gpt-4o-mini",
+            thinkingEnabled: true,
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+
+    const store = await loadLlmStore();
+    expect(store.profiles.openrouter!.thinkingEnabled).toBe(false);
+  });
 });
 
 describe("store I/O — working keychain", () => {

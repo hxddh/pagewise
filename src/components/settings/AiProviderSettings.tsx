@@ -10,6 +10,7 @@ import {
   saveProviderProfile,
   setActiveProvider,
 } from "../../lib/settings";
+import { isThinkingCapableModel } from "../../lib/model-capabilities";
 import {
   agentPresetModels,
   DEFAULT_SETTINGS,
@@ -254,9 +255,22 @@ export function AiProviderSettings({
     });
   }
 
-  function onModelSelect(value: string) {
+  function onAgentPresetSelect(value: string) {
     setCustomModel(false);
-    patchSettings({ model: value });
+    const patch: Partial<LlmSettings> = { model: value };
+    if (!isThinkingCapableModel(settings.provider, value)) {
+      patch.thinkingEnabled = false;
+    }
+    patchSettings(patch);
+  }
+
+  function onAgentCustomChange(value: string) {
+    setCustomModel(true);
+    const patch: Partial<LlmSettings> = { model: value };
+    if (!isThinkingCapableModel(settings.provider, value)) {
+      patch.thinkingEnabled = false;
+    }
+    patchSettings(patch);
   }
 
   async function handleSave() {
@@ -264,8 +278,14 @@ export function AiProviderSettings({
     if (saved) markSaved(saved);
   }
 
-  function onVisionModelSelect(value: string) {
+  function onScanPresetSelect(value: string) {
     setCustomVisionModel(false);
+    setVisionModel(value);
+    markDirty();
+  }
+
+  function onScanCustomChange(value: string) {
+    setCustomVisionModel(true);
     setVisionModel(value);
     markDirty();
   }
@@ -396,7 +416,8 @@ export function AiProviderSettings({
               : null;
 
   const showThinking =
-    settings.provider === "deepseek" || settings.provider === "openrouter";
+    settings.provider !== "custom" &&
+    isThinkingCapableModel(settings.provider, settings.model);
 
   const canSetActive = !previewIsActive;
 
@@ -476,59 +497,32 @@ export function AiProviderSettings({
       )}
 
       <section className="settings-card">
-        <h4 className="settings-card-title">{t("settings.provider")}</h4>
+        <h4 className="settings-card-title">{t("settings.connectionSection")}</h4>
         <p className="settings-card-hint">{t("settings.providerHint")}</p>
         <div className="provider-grid">
           {PRESET_IDS.map((id) => {
-            const profile = providerProfiles[id];
             const isPreview = previewProvider === id;
             const isActive = activeProvider === id;
             return (
               <button
                 key={id}
                 type="button"
-                className={`provider-cell ${isPreview ? "active" : ""}`}
+                className={`provider-cell ${isPreview ? "active" : ""} ${isActive ? "in-use" : ""}`}
                 onClick={() => onProviderChange(id)}
+                title={isActive ? t("settings.providerCurrentlyActive") : undefined}
               >
-                <span className="provider-cell-label">
-                  {PROVIDER_PRESETS[id].label}
-                  <span className="provider-cell-badges">
-                    {isActive && (
-                      <span className="provider-badge provider-badge-active">
-                        {t("settings.providerInUse")}
-                      </span>
-                    )}
-                    {profile?.connectionVerified && (
-                      <span className="provider-badge provider-badge-verified">
-                        {t("settings.providerVerified")}
-                      </span>
-                    )}
-                  </span>
-                </span>
+                <span className="provider-cell-label">{PROVIDER_PRESETS[id].label}</span>
                 {isPreview && <IconCheck size={14} />}
               </button>
             );
           })}
           <button
             type="button"
-            className={`provider-cell provider-cell-wide ${previewProvider === "custom" ? "active" : ""}`}
+            className={`provider-cell provider-cell-wide ${previewProvider === "custom" ? "active" : ""} ${activeProvider === "custom" ? "in-use" : ""}`}
             onClick={() => onProviderChange("custom")}
+            title={activeProvider === "custom" ? t("settings.providerCurrentlyActive") : undefined}
           >
-            <span className="provider-cell-label">
-              {t("settings.providerCustom")}
-              <span className="provider-cell-badges">
-                {activeProvider === "custom" && (
-                  <span className="provider-badge provider-badge-active">
-                    {t("settings.providerInUse")}
-                  </span>
-                )}
-                {providerProfiles.custom?.connectionVerified && (
-                  <span className="provider-badge provider-badge-verified">
-                    {t("settings.providerVerified")}
-                  </span>
-                )}
-              </span>
-            </span>
+            <span className="provider-cell-label">{t("settings.providerCustom")}</span>
             {previewProvider === "custom" && <IconCheck size={14} />}
           </button>
         </div>
@@ -538,83 +532,9 @@ export function AiProviderSettings({
             <code>{preset.baseURL}</code>
           </p>
         )}
-      </section>
 
-      {settings.provider === "custom" && (
-        <section className="settings-card">
-          <label className="settings-field">
-            <span className="settings-field-label">{t("settings.baseUrl")}</span>
-            <input
-              className="settings-input"
-              type="url"
-              value={settings.baseURL ?? ""}
-              onChange={(e) => patchSettings({ baseURL: e.target.value })}
-              placeholder="https://api.example.com"
-            />
-          </label>
-          <label className="settings-field">
-            <span className="settings-field-label">{t("settings.model")}</span>
-            <input
-              className="settings-input"
-              type="text"
-              value={settings.model}
-              onChange={(e) => patchSettings({ model: e.target.value })}
-              placeholder="model-id"
-            />
-          </label>
-        </section>
-      )}
+        <div className="settings-card-divider" />
 
-      {settings.provider !== "custom" && (
-        <section className="settings-card">
-          <ModelSelect
-            provider={settings.provider}
-            model={settings.model}
-            customModel={customModel}
-            purpose="agent"
-            onSelect={onModelSelect}
-            onCustom={() => setCustomModel(true)}
-          />
-
-          {visionPresetModels(settings.provider).length > 0 ? (
-            <>
-              <div className="settings-card-divider" />
-              <ModelSelect
-                provider={settings.provider}
-                model={visionModel}
-                customModel={customVisionModel}
-                purpose="vision"
-                onSelect={onVisionModelSelect}
-                onCustom={() => setCustomVisionModel(true)}
-              />
-            </>
-          ) : (
-            <>
-              <div className="settings-card-divider" />
-              <p className="settings-field-hint">{t("settings.visionUnavailableHint")}</p>
-            </>
-          )}
-
-          {showThinking && (
-            <>
-              <div className="settings-card-divider" />
-              <label className="settings-row-toggle">
-                <div>
-                  <span className="settings-row-title">{t("settings.thinkingMode")}</span>
-                  <span className="settings-row-hint">{t("settings.thinkingHint")}</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={!!settings.thinkingEnabled}
-                  onChange={(e) => patchSettings({ thinkingEnabled: e.target.checked })}
-                />
-              </label>
-            </>
-          )}
-        </section>
-      )}
-
-      <section className="settings-card">
         <div className="settings-field">
           <div className="settings-field-meta">
             <span className="settings-field-label">{t("settings.apiKey")}</span>
@@ -659,6 +579,87 @@ export function AiProviderSettings({
           </div>
         </div>
       </section>
+
+      {settings.provider === "custom" && (
+        <section className="settings-card">
+          <h4 className="settings-card-title">{t("settings.modelsSection")}</h4>
+          <p className="settings-card-hint">{t("settings.customModelsHint")}</p>
+          <label className="settings-field">
+            <span className="settings-field-label">{t("settings.baseUrl")}</span>
+            <input
+              className="settings-input"
+              type="url"
+              value={settings.baseURL ?? ""}
+              onChange={(e) => patchSettings({ baseURL: e.target.value })}
+              placeholder="https://api.example.com"
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field-label">{t("settings.model")}</span>
+            <input
+              className="settings-input"
+              type="text"
+              value={settings.model}
+              onChange={(e) => patchSettings({ model: e.target.value })}
+              placeholder="model-id"
+            />
+          </label>
+        </section>
+      )}
+
+      {settings.provider !== "custom" && (
+        <section className="settings-card">
+          <h4 className="settings-card-title">{t("settings.modelsSection")}</h4>
+          <p className="settings-card-hint">{t("settings.modelsSectionHint")}</p>
+
+          <ModelSelect
+            provider={settings.provider}
+            model={settings.model}
+            customModel={customModel}
+            purpose="agent"
+            onPresetSelect={onAgentPresetSelect}
+            onCustomChange={onAgentCustomChange}
+            onEnterCustom={() => setCustomModel(true)}
+          />
+
+          {visionPresetModels(settings.provider).length > 0 ? (
+            <>
+              <div className="settings-card-divider" />
+              <ModelSelect
+                provider={settings.provider}
+                model={visionModel}
+                customModel={customVisionModel}
+                purpose="vision"
+                onPresetSelect={onScanPresetSelect}
+                onCustomChange={onScanCustomChange}
+                onEnterCustom={() => setCustomVisionModel(true)}
+              />
+            </>
+          ) : (
+            <>
+              <div className="settings-card-divider" />
+              <p className="settings-field-hint">{t("settings.scanUnavailableHint")}</p>
+            </>
+          )}
+        </section>
+      )}
+
+      {showThinking && (
+        <section className="settings-card">
+          <h4 className="settings-card-title">{t("settings.advancedSection")}</h4>
+          <label className="settings-row-toggle">
+            <div>
+              <span className="settings-row-title">{t("settings.thinkingMode")}</span>
+              <span className="settings-row-hint">{t("settings.thinkingHint")}</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={!!settings.thinkingEnabled}
+              onChange={(e) => patchSettings({ thinkingEnabled: e.target.checked })}
+            />
+          </label>
+        </section>
+      )}
     </div>
   );
 }

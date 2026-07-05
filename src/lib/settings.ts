@@ -7,12 +7,13 @@ import {
   PROVIDER_PRESETS,
   defaultAgentModel,
   defaultVisionModel,
+  visionPresetModels,
   type LlmSettings,
   type LlmStoreV2,
   type ProviderId,
   type ProviderProfile,
 } from "./types";
-import { isToolModel, isVisionModel } from "./model-capabilities";
+import { isThinkingCapableModel, isToolModel, isVisionModel } from "./model-capabilities";
 
 const STORE_PATH = "settings.json";
 const SETTINGS_KEY = "llm";
@@ -146,17 +147,29 @@ function migrateProviderProfile(
   let visionModel = profile.visionModel?.trim() ?? "";
   let connectionVerified = asSettings.connectionVerified;
 
+  let thinkingEnabled = asSettings.thinkingEnabled;
+
   if (provider !== "custom") {
     const presetProvider = provider as Exclude<ProviderId, "custom">;
+    const visionPresets = visionPresetModels(presetProvider);
     if (!visionModel) {
       visionModel =
         isVisionModel(provider, model) && !isToolModel(provider, model)
           ? model
           : defaultVisionModel(presetProvider);
+    } else if (
+      visionPresets.length > 0 &&
+      !visionPresets.includes(visionModel) &&
+      visionModel === model
+    ) {
+      visionModel = defaultVisionModel(presetProvider);
     }
     if (!isToolModel(provider, model)) {
       model = defaultAgentModel(presetProvider);
       connectionVerified = false;
+    }
+    if (thinkingEnabled && !isThinkingCapableModel(provider, model)) {
+      thinkingEnabled = false;
     }
   }
 
@@ -164,7 +177,7 @@ function migrateProviderProfile(
     model,
     visionModel: visionModel || undefined,
     baseURL: asSettings.baseURL,
-    thinkingEnabled: asSettings.thinkingEnabled,
+    thinkingEnabled,
     connectionVerified,
   };
 }

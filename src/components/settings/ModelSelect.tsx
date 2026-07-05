@@ -14,8 +14,9 @@ interface ModelSelectProps {
   model: string;
   customModel: boolean;
   purpose: "agent" | "vision";
-  onSelect: (model: string) => void;
-  onCustom: () => void;
+  onPresetSelect: (model: string) => void;
+  onCustomChange: (model: string) => void;
+  onEnterCustom: () => void;
 }
 
 export function ModelSelect({
@@ -23,8 +24,9 @@ export function ModelSelect({
   model,
   customModel,
   purpose,
-  onSelect,
-  onCustom,
+  onPresetSelect,
+  onCustomChange,
+  onEnterCustom,
 }: ModelSelectProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -32,96 +34,124 @@ export function ModelSelect({
 
   const presetModels =
     purpose === "vision" ? visionPresetModels(provider) : agentPresetModels(provider);
-  const inPreset = !customModel && presetModels.includes(model);
+  const hasPresets = presetModels.length > 0;
+  const inPreset = presetModels.includes(model);
+  const isCustomValue = customModel || !inPreset;
   const vision = isVisionModel(provider, model);
   const tools = isToolModel(provider, model);
 
-  const labelKey = purpose === "agent" ? "settings.agentModel" : "settings.visionModel";
+  const labelKey = purpose === "agent" ? "settings.agentModel" : "settings.scanModel";
+  const hintKey = purpose === "agent" ? "settings.agentModelHint" : "settings.scanModelHint";
 
-  return (
-    <div className="settings-field">
-      <span className="settings-field-label">{t(labelKey)}</span>
-      {customModel || !inPreset ? (
+  if (!hasPresets) {
+    return (
+      <div className="settings-field">
+        <span className="settings-field-label">{t(labelKey)}</span>
+        <p className="settings-field-hint">{t(hintKey)}</p>
         <input
           className="settings-input"
           type="text"
           value={model}
-          onChange={(e) => onSelect(e.target.value)}
+          onChange={(e) => onCustomChange(e.target.value)}
           placeholder="model-id"
         />
-      ) : (
-        <div ref={anchorRef} className="model-select-anchor">
-          <button
-            type="button"
-            className="settings-select-trigger"
-            onClick={() => setOpen((o) => !o)}
-            aria-expanded={open}
-            aria-haspopup="listbox"
-          >
-            <span className="model-select-value">{model}</span>
-            {vision ? (
-              <span className="model-select-badge">{t("settings.modelVisionBadge")}</span>
-            ) : (
-              <span className="model-select-badge muted">{t("settings.modelTextOnlyBadge")}</span>
-            )}
-            {tools ? (
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-field">
+      <span className="settings-field-label">{t(labelKey)}</span>
+      <p className="settings-field-hint">{t(hintKey)}</p>
+      <div ref={anchorRef} className="model-select-anchor">
+        <button
+          type="button"
+          className="settings-select-trigger"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+        >
+          <span className="model-select-value">{model || t("settings.modelSelectPlaceholder")}</span>
+          {isCustomValue ? (
+            <span className="model-select-badge muted">{t("settings.modelCustomBadge")}</span>
+          ) : null}
+          {vision ? (
+            <span className="model-select-badge">{t("settings.modelVisionBadge")}</span>
+          ) : (
+            <span className="model-select-badge muted">{t("settings.modelTextOnlyBadge")}</span>
+          )}
+          {purpose === "agent" ? (
+            tools ? (
               <span className="model-select-badge">{t("settings.modelToolsBadge")}</span>
             ) : (
               <span className="model-select-badge muted">{t("settings.modelChatOnlyBadge")}</span>
-            )}
-            <ChevronDown size={14} className="settings-select-chevron" aria-hidden />
-          </button>
-          <AnchoredMenu
-            open={open}
-            onClose={() => setOpen(false)}
-            anchorRef={anchorRef}
-            className="anchored-popover model-select-menu"
-            align="start"
-            role="listbox"
-          >
-            {presetModels.map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="option"
-                aria-selected={model === m}
-                className={`model-select-option ${model === m ? "active" : ""}`}
-                onClick={() => {
-                  onSelect(m);
-                  setOpen(false);
-                }}
-              >
-                <span>{m}</span>
-                {isVisionModel(provider, m) ? (
-                  <span className="model-select-badge">{t("settings.modelVisionBadge")}</span>
-                ) : null}
-                {isToolModel(provider, m) ? (
-                  <span className="model-select-badge">{t("settings.modelToolsBadge")}</span>
-                ) : (
-                  <span className="model-select-badge muted">{t("settings.modelChatOnlyBadge")}</span>
-                )}
-              </button>
-            ))}
-            <div className="model-select-divider" role="separator" />
+            )
+          ) : null}
+          <ChevronDown size={14} className="settings-select-chevron" aria-hidden />
+        </button>
+        <AnchoredMenu
+          open={open}
+          onClose={() => setOpen(false)}
+          anchorRef={anchorRef}
+          className="anchored-popover model-select-menu"
+          align="start"
+          role="listbox"
+        >
+          {presetModels.map((m) => (
             <button
+              key={m}
               type="button"
               role="option"
-              className="model-select-option"
+              aria-selected={model === m && !customModel}
+              className={`model-select-option ${model === m && !customModel ? "active" : ""}`}
               onClick={() => {
-                onCustom();
+                onPresetSelect(m);
                 setOpen(false);
               }}
             >
-              {t("settings.modelCustom")}
+              <span>{m}</span>
+              {isVisionModel(provider, m) ? (
+                <span className="model-select-badge">{t("settings.modelVisionBadge")}</span>
+              ) : null}
+              {purpose === "agent" ? (
+                isToolModel(provider, m) ? (
+                  <span className="model-select-badge">{t("settings.modelToolsBadge")}</span>
+                ) : (
+                  <span className="model-select-badge muted">{t("settings.modelChatOnlyBadge")}</span>
+                )
+              ) : null}
             </button>
-          </AnchoredMenu>
-        </div>
+          ))}
+          <div className="model-select-divider" role="separator" />
+          <button
+            type="button"
+            role="option"
+            aria-selected={customModel}
+            className={`model-select-option ${customModel ? "active" : ""}`}
+            onClick={() => {
+              onEnterCustom();
+              setOpen(false);
+            }}
+          >
+            {t("settings.modelCustom")}
+          </button>
+        </AnchoredMenu>
+      </div>
+      {customModel && (
+        <input
+          className="settings-input model-select-custom-input"
+          type="text"
+          value={model}
+          onChange={(e) => onCustomChange(e.target.value)}
+          placeholder="model-id"
+          aria-label={t("settings.modelCustomInputLabel")}
+        />
       )}
       {purpose === "agent" && !customModel && inPreset && !tools && (
         <p className="settings-field-hint settings-vision-hint">{t("settings.agentNeedTools")}</p>
       )}
       {purpose === "vision" && !customModel && inPreset && !vision && (
-        <p className="settings-field-hint settings-vision-hint">{t("settings.visionNeedMultimodal")}</p>
+        <p className="settings-field-hint settings-vision-hint">{t("settings.scanNeedMultimodal")}</p>
       )}
       {purpose === "agent" && !customModel && inPreset && !vision && tools && (
         <p className="settings-field-hint">{t("settings.agentVisionFallbackHint")}</p>
