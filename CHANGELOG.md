@@ -4,6 +4,15 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.34] - 2026-07-05
+
+### Fixed
+
+- Chat: strip or reject messages with `parts: []` on load, persist, and send (fixes `validateUIMessages` "Message must contain at least one part" after stop/quit mid-stream)
+- Chat: aborted assistant placeholders with no parts are removed on finish instead of being saved
+
+## [0.2.33] - 2026-07-05
+
 ### Fixed
 
 - Search: capped semantic embed merges vectors across rotations (full-doc coverage over rebuilds)

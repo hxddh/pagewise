@@ -7,6 +7,7 @@ import {
   type ChatTransport,
   type UIMessageChunk,
 } from "ai";
+import { dropEmptyPartMessages } from "./messages-utils";
 import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
@@ -56,7 +57,7 @@ export class PagewiseChatTransport<
     clearAgentProgress();
 
     const validatedMessages = (await validateUIMessages({
-      messages,
+      messages: dropEmptyPartMessages(messages),
       tools: this.agent.tools as Parameters<typeof validateUIMessages>[0]["tools"],
     })) as PageWiseUIMessage[];
 
