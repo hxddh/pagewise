@@ -87,14 +87,19 @@ export function isKnownNonVisionModel(model: string): boolean {
   return known !== undefined && !known.vision;
 }
 
+/** Heuristic for unknown model ids that are likely multimodal. */
+function looksLikeVisionModel(model: string): boolean {
+  const m = normalizeModelId(model);
+  return /(?:^|[-_/])(vl|vision|llava|bakllava|minicpm-v|pixtral|moondream|gemma)/.test(m);
+}
+
 export function isVisionModel(provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.vision;
-  // Custom endpoints may front a vision-capable model we don't know about — allow the attempt.
   if (provider === "custom") return true;
-  // OpenRouter / Ollama / OpenAI often expose newer multimodal ids not yet in our table.
-  if (provider === "openrouter" || provider === "ollama" || provider === "openai") {
-    return true;
+  if (provider === "openai") return true;
+  if (provider === "openrouter" || provider === "ollama") {
+    return looksLikeVisionModel(model);
   }
   return false;
 }
@@ -122,8 +127,8 @@ export function isAgentMultimodalModel(provider: ProviderId, model: string): boo
 export function isToolModel(provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.tools;
-  if (provider === "openrouter") return false;
-  // Unknown model id (custom base URL, a newer Ollama release): be optimistic.
+  if (provider === "openrouter" || provider === "ollama") return false;
+  // Custom base URL: user explicitly configured the endpoint.
   return true;
 }
 
