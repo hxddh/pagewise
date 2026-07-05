@@ -165,8 +165,9 @@ async fn read_file_bytes(
     let cancel_gen = cancel.inner().0.clone();
     let gen_at_start = cancel_gen.load(Ordering::SeqCst);
     let path_for_read = canon.clone();
+    let cancel_for_blocking = cancel_gen.clone();
     let bytes = tauri::async_runtime::spawn_blocking(move || {
-        read_file_with_cancel(&path_for_read, &cancel_gen, gen_at_start)
+        read_file_with_cancel(&path_for_read, &cancel_for_blocking, gen_at_start)
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))??;
