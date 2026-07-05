@@ -106,6 +106,34 @@ export function resolveModel(settings: LlmSettings = DEFAULT_SETTINGS): Language
 
 export type TranslateFn = (key: string, vars?: Record<string, string | number>) => string;
 
+function parseApiErrorBody(body: unknown): string | null {
+  if (!body) return null;
+  const text = typeof body === "string" ? body : null;
+  if (!text?.trim()) return null;
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: { message?: string };
+      message?: string;
+    };
+    const msg = parsed.error?.message ?? parsed.message;
+    return typeof msg === "string" && msg.trim() ? msg.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function unwrapApiError(error: unknown): unknown {
+  if (APICallError.isInstance(error)) {
+    const fromBody = parseApiErrorBody(error.responseBody);
+    if (fromBody) return new Error(fromBody);
+  }
+  if (error instanceof Error) {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    if (cause && cause !== error) return unwrapApiError(cause);
+  }
+  return error;
+}
+
 export function validateModel(
   settings: LlmSettings,
   t?: TranslateFn,
@@ -138,16 +166,30 @@ export function validateAgentModel(
 }
 
 export function formatLlmError(error: unknown, t?: TranslateFn): string {
+  const unwrapped = unwrapApiError(error);
   // Prefer the AI SDK's structured status code; substring digit matching (e.g. "429") is
   // only a fallback, since a model id like "gpt-4-0429" would otherwise be misclassified.
-  const statusCode = APICallError.isInstance(error) ? error.statusCode : undefined;
+  const statusCode = APICallError.isInstance(unwrapped)
+    ? unwrapped.statusCode
+    : APICallError.isInstance(error)
+      ? error.statusCode
+      : undefined;
   const hasStatus = typeof statusCode === "number";
 
-  if (error instanceof Error) {
-    const msg = error.message;
+  if (unwrapped instanceof Error) {
+    const msg = unwrapped.message;
     if (msg === "An error occurred.") {
-      const cause = (error as Error & { cause?: unknown }).cause;
+      const cause = (unwrapped as Error & { cause?: unknown }).cause;
       if (cause) return formatLlmError(cause, t);
+    }
+    if (
+      msg === "Provider returned error" ||
+      msg.toLowerCase() === "provider returned error"
+    ) {
+      return (
+        t?.("llm.providerReturnedError") ??
+        "The AI provider returned an error — try another model in Settings → AI Provider. If “Include current page” is on, pick a vision-capable assistant model or turn that option off."
+      );
     }
     if (msg.includes("/responses")) {
       return (

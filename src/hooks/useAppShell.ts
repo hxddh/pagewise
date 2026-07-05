@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTheme } from "./useTheme";
 import { useAppCommands } from "./useAppCommands";
 import { useToast } from "./useToast";
@@ -59,7 +60,9 @@ export function useAppShell() {
     onStopStream: agent.stop,
     isStreaming: agent.busy,
     onPersistError: handlePersistError,
-    onActiveSessionIdChange: setThreadSessionId,
+    onActiveSessionIdChange: (id) => {
+      flushSync(() => setThreadSessionId(id));
+    },
   });
 
   const [settingsOpen, setSettingsOpen] = useState(false);

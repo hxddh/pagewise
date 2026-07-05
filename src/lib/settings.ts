@@ -342,15 +342,19 @@ async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
   const storeData = isLlmStoreV2(raw) ? normalizeStore(raw) : migrateV1ToV2(raw);
   const fallbackKeys: Partial<Record<ProviderId, string>> = { ...(raw?.apiKeys ?? {}) };
 
+  let keychainBlocked = false;
   if (raw?.apiKey?.trim()) {
     const legacyProvider = isLlmStoreV2(raw) ? raw.activeProvider : storeData.activeProvider;
     if (!fallbackKeys[legacyProvider]?.trim()) {
-      fallbackKeys[legacyProvider] = raw.apiKey.trim();
-      await persistApiKey(legacyProvider, raw.apiKey.trim());
+      const legacyKey = raw.apiKey.trim();
+      const keychainOk = await persistApiKey(legacyProvider, legacyKey);
+      if (!keychainOk) {
+        fallbackKeys[legacyProvider] = legacyKey;
+        keychainBlocked = true;
+      }
     }
   }
 
-  let keychainBlocked = false;
   const cleared = raw?.apiKeysCleared ?? {};
   for (const provider of ALL_PROVIDER_IDS) {
     if (provider === "ollama" || fallbackKeys[provider]?.trim() || cleared[provider]) continue;
@@ -388,8 +392,67 @@ async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
   });
 }
 
+/**
+ * When Keychain works but legacy plaintext mirrors remain on disk (e.g. after an
+ * unsigned rebuild or a denied prompt), copy them back into Keychain and drop the mirror.
+ */
+async function reconcilePlaintextKeyMirrors(): Promise<void> {
+  const s = await getStore();
+  const raw = await s.get<RawStored>(SETTINGS_KEY);
+  if (!raw) return;
+
+  const diskKeys: Partial<Record<ProviderId, string>> = { ...(raw.apiKeys ?? {}) };
+  if (raw.apiKey?.trim()) {
+    const legacyProvider = isLlmStoreV2(raw) ? raw.activeProvider : DEFAULT_SETTINGS.provider;
+    if (!diskKeys[legacyProvider]?.trim()) {
+      diskKeys[legacyProvider] = raw.apiKey.trim();
+    }
+  }
+
+  const entries = Object.entries(diskKeys).filter(([, v]) => v?.trim()) as [
+    ProviderId,
+    string,
+  ][];
+  if (entries.length === 0) return;
+
+  for (const [provider, key] of entries) {
+    if (provider === "ollama") continue;
+
+    const rawNow = await s.get<RawStored>(SETTINGS_KEY);
+    const storeData =
+      rawNow && isLlmStoreV2(rawNow)
+        ? normalizeStore(rawNow)
+        : isLlmStoreV2(raw)
+          ? normalizeStore(raw)
+          : migrateV1ToV2(raw);
+
+    let keychainKey = "";
+    try {
+      keychainKey = (await keychainGet(provider)).trim();
+    } catch {
+      continue;
+    }
+    if (keychainKey && keychainKey !== key.trim()) continue;
+
+    if (!keychainKey) {
+      const keychainOk = await persistApiKey(provider, key);
+      if (!keychainOk) continue;
+      try {
+        if ((await keychainGet(provider)).trim() !== key.trim()) continue;
+      } catch {
+        continue;
+      }
+    }
+    await writeStoreV2(storeData, { provider, apiKey: key, keychainOk: true });
+  }
+}
+
 function ensureApiKeysMigrated(): Promise<void> {
-  if (!migrationPromise) migrationPromise = migrateKeychainApiKeysIfNeeded();
+  if (!migrationPromise) {
+    migrationPromise = migrateKeychainApiKeysIfNeeded().then(() =>
+      reconcilePlaintextKeyMirrors(),
+    );
+  }
   return migrationPromise;
 }
 
@@ -402,14 +465,14 @@ async function loadApiKey(provider: ProviderId): Promise<string> {
   const s = await getStore();
   const raw = await s.get<RawStored>(SETTINGS_KEY);
   if (raw?.apiKeysCleared?.[provider]) return "";
-  const fallback = (await getFallbackKey(provider)).trim();
-  if (fallback) return fallback;
   if (provider === "ollama") return "ollama";
   try {
-    return (await keychainGet(provider)).trim();
+    const fromKeychain = (await keychainGet(provider)).trim();
+    if (fromKeychain) return fromKeychain;
   } catch {
-    return "";
+    /* fall through to local mirror */
   }
+  return (await getFallbackKey(provider)).trim();
 }
 
 /** The plaintext fallback key stored in settings.json for a provider (keychain-less machines). */
@@ -437,10 +500,11 @@ async function readStoreV2Raw(): Promise<LlmStoreV2> {
   const migrated = migrateV1ToV2(raw);
   const legacyKey = raw?.apiKey?.trim() ?? "";
   if (legacyKey) {
-    await persistApiKey(migrated.activeProvider, legacyKey);
+    const keychainOk = await persistApiKey(migrated.activeProvider, legacyKey);
     await writeStoreV2(migrated, {
       provider: migrated.activeProvider,
       apiKey: legacyKey,
+      keychainOk,
     });
   } else {
     await writeStoreV2(migrated);

@@ -27,10 +27,25 @@ export function useConnectionStatus() {
 
   const refresh = useCallback(() => {
     const seq = ++refreshSeqRef.current;
-    loadSettingsMeta().then((s) => {
-      if (!mountedRef.current || seq !== refreshSeqRef.current) return;
-      setSettings(s);
-    });
+    loadSettingsMeta()
+      .then((s) => {
+        if (!mountedRef.current || seq !== refreshSeqRef.current) return;
+        setSettings(s);
+      })
+      .catch((err) => {
+        if (!mountedRef.current || seq !== refreshSeqRef.current) return;
+        if (import.meta.env.DEV) console.warn("[connection-status] load failed:", err);
+        setSettings({
+          provider: "openrouter",
+          model: "",
+          visionModel: "",
+          baseURL: "",
+          thinkingEnabled: false,
+          connectionVerified: false,
+          hasStoredKey: false,
+          plaintextKeysOnDisk: false,
+        });
+      });
   }, []);
 
   useEffect(() => {

@@ -24,7 +24,8 @@
     "toolsNotSupported": "Model \"{{model}}\" does not support tool calling required by the agent. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) or use the DeepSeek provider directly.",
     "toolsNotSupportedOpenRouter": "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → AI Provider.",
     "reasoningNotSupported": "This provider does not support the reasoning setting — turn off Extended thinking in Settings → AI Provider.",
-    "visionNotSupported": "This model does not support image input — pick another scan model in Settings → AI Provider."
+    "visionNotSupported": "This model does not support image input — pick another scan model in Settings → AI Provider.",
+    "providerReturnedError": "The AI provider returned an error — try another model in Settings → AI Provider. If “Include current page” is on, use a vision-capable assistant model or turn that option off."
   },
   "workbench": {
     "nav": "Main navigation"
@@ -292,7 +293,7 @@
     "connectionPendingShort": "Not configured",
     "connectionReadyShort": "Ready to test",
     "modelMigrated": "Your model was updated to DeepSeek V4. Please test connection.",
-    "plaintextKeysWarning": "Secure storage is unavailable — API keys are saved on disk in plaintext. Avoid shared machines until Keychain access is restored.",
+    "plaintextKeysWarning": "Secure storage is unavailable — API keys are saved on disk in plaintext. Avoid shared machines until Keychain access is restored. Re-enter and save your key below to retry migrating to Keychain.",
     "modelGroupFast": "Fast",
     "modelGroupPro": "High quality",
     "modelGroupAgent": "Agent (tool calling)",

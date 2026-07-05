@@ -113,6 +113,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }));
 
   const busy = status === "streaming" || status === "submitted";
+  const interactionBusy = busy || chatLoading;
 
   const lastAssistant = useMemo(
     () => findLastMessage(messages, (m) => m.role === "assistant"),
@@ -152,7 +153,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const submit = useCallback(async () => {
     const text = composerDraft.trim();
-    if (!text || busy) return;
+    if (!text || interactionBusy) return;
     if (!hasApiKey || !agentToolsSupported) {
       onConfigureApi();
       return;
@@ -183,7 +184,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     }
   }, [
     composerDraft,
-    busy,
+    interactionBusy,
     hasApiKey,
     agentToolsSupported,
     activeDoc,
@@ -195,7 +196,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   ]);
 
   const handleRegenerate = useCallback(async () => {
-    if (!activeDoc || !regenerateDocumentMessage || busy) return;
+    if (!activeDoc || !regenerateDocumentMessage || interactionBusy) return;
     if (!hasApiKey || !agentToolsSupported) {
       onConfigureApi();
       return;
@@ -212,7 +213,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }, [
     activeDoc,
     regenerateDocumentMessage,
-    busy,
+    interactionBusy,
     hasApiKey,
     agentToolsSupported,
     onConfigureApi,
@@ -285,7 +286,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 setMenuOpen(false);
                 void onExportChat();
               }}
-              disabled={busy}
+              disabled={interactionBusy}
             >
               {t("agent.exportChat")}
             </button>
@@ -296,7 +297,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 setMenuOpen(false);
                 void onExportSummary();
               }}
-              disabled={busy}
+              disabled={interactionBusy}
             >
               {t("agent.exportSummary")}
             </button>
@@ -308,7 +309,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 setMenuOpen(false);
                 onClearChat();
               }}
-              disabled={busy}
+              disabled={interactionBusy}
             >
               {t("agent.clear")}
             </button>
@@ -368,7 +369,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                     className="message-edit-form"
                     onSubmit={(e) => {
                       e.preventDefault();
-                      if (!activeDoc || !editUserMessage || busy) return;
+                      if (!activeDoc || !editUserMessage || interactionBusy) return;
                       const text = editDraft.trim();
                       if (!text) return;
                       void editUserMessage(m.id, {
@@ -392,7 +393,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       autoFocus
                     />
                     <div className="message-edit-actions">
-                      <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
+                      <button type="submit" className="btn btn-primary btn-sm" disabled={interactionBusy}>
                         {t("agent.resend")}
                       </button>
                       <button
@@ -407,7 +408,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 ) : (
                   <>
                     <MessageContent message={m} />
-                    {editUserMessage && !busy && m.id === lastUser?.id && (
+                    {editUserMessage && !interactionBusy && m.id === lastUser?.id && (
                       <button
                         type="button"
                         className="message-edit-btn"
