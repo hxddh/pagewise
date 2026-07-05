@@ -7,12 +7,12 @@ describe("regenerate message selection", () => {
     const messagesRef = { current: [] as UIMessage[] };
 
     messagesRef.current = [
-      { id: "a1", role: "assistant", parts: [{ type: "text", text: "old" }] },
-      { id: "u1", role: "user", parts: [{ type: "text", text: "thread-a" }] },
+      { id: "a1", role: "assistant", parts: [{ type: "text" as const, text: "old" }] },
+      { id: "u1", role: "user", parts: [{ type: "text" as const, text: "thread-a" }] },
     ];
 
-    const staleClosureMessages = [
-      { id: "u0", role: "user" as const, parts: [{ type: "text", text: "stale" }] },
+    const staleClosureMessages: UIMessage[] = [
+      { id: "u0", role: "user", parts: [{ type: "text", text: "stale" }] },
     ];
 
     const fromRef = findLastMessage(messagesRef.current, (m) => m.role === "user");
