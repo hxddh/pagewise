@@ -9,7 +9,7 @@ import { clearPdfCache } from "../lib/pdf";
 import { docCache } from "../lib/doc-cache";
 import { subscribePageIndex, clearDocumentIndexState, clearPageIndexState } from "../lib/index-events";
 import { isSupportedDocument } from "../lib/load-document";
-import { loadPreferences } from "../lib/preferences";
+import { loadPreferences, DEFAULT_PREFERENCES } from "../lib/preferences";
 import { getLastAgentMessageContext } from "../lib/agent-view-context";
 import { shouldFollowAgentToPage } from "../lib/page-intent";
 import { indexSparsePages, setBackgroundIndexAbortController } from "../lib/vision-index";
@@ -26,7 +26,9 @@ export function useDocumentWorkspace(
   const [activeDoc, setActiveDoc] = useState<LoadedDocument | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
   const [followAgent, setFollowAgent] = useState(true);
-  const [includeViewingPage, setIncludeViewingPage] = useState(true);
+  const [includeViewingPage, setIncludeViewingPage] = useState(
+    DEFAULT_PREFERENCES.includeViewingPageDefault,
+  );
   const [fileError, setFileError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [docLoadSeq, setDocLoadSeq] = useState(0);

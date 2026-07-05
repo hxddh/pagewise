@@ -4,6 +4,13 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.36] - 2026-07-05
+
+### Fixed
+
+- Agent: `sendMessage` failures are detected via `onError` (AI SDK does not throw) — image fallback, rollback, and regenerate error handling now work
+- Preferences: “Include current page” no longer defaults to on before preferences load
+
 ## [0.2.35] - 2026-07-05
 
 ### Fixed
