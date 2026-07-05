@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.28] - 2026-07-05
+
+### Fixed
+
+- Chat: stop streaming when switching threads or reloading the same document
+- Chat: skip autosave of truncated replies while a stream is in progress
+- Chat: update loaded snapshot after autosave to avoid redundant writes
+- Indexing: reopen merge prefers cached vision/OCR text over Rust re-extract when both meet threshold
+- Indexing: Stop aborts in-flight tool-time page indexing via shared abort signal
+- Indexing: unified per-page inflight dedupe (no duplicate pool/single runs)
+- Search: semantic index build uses single-flight lock (no concurrent double-build)
+- Search: toast when semantic embedding hits the 50-page cap
+- Reload: same-path reopen preserves index UI state instead of clearing badges
+- Settings: custom provider with empty scan model no longer falls back to agent model (OCR-only)
+
 ## [0.2.27] - 2026-07-05
 
 ### Fixed

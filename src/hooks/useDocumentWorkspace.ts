@@ -13,6 +13,7 @@ import { loadPreferences } from "../lib/preferences";
 import { getLastAgentMessageContext } from "../lib/agent-view-context";
 import { shouldFollowAgentToPage } from "../lib/page-intent";
 import { indexSparsePages, setBackgroundIndexAbortController } from "../lib/vision-index";
+import { setSemanticEmbedCapHandler } from "../lib/semantic-index";
 import type { RecentFile } from "../lib/recent-files";
 import type { LoadedDocument } from "../lib/types";
 
@@ -47,6 +48,21 @@ export function useDocumentWorkspace(
   }, []);
 
   useEffect(() => {
+    setSemanticEmbedCapHandler((path, info) => {
+      const doc = activeDocRef.current;
+      if (!doc || doc.path !== path || !showToast || !translate) return;
+      showToast(
+        translate("toast.embedPageCap", {
+          embedded: info.embedded,
+          total: info.eligible,
+        }),
+        "default",
+      );
+    });
+    return () => setSemanticEmbedCapHandler(null);
+  }, [showToast, translate]);
+
+  useEffect(() => {
     return subscribePageIndex((state) => {
       if (state.status !== "done" && state.status !== "failed") return;
       setActiveDoc((doc) => {
@@ -71,11 +87,14 @@ export function useDocumentWorkspace(
     indexAbortRef.current = controller;
     setBackgroundIndexAbortController(controller);
     const prevPath = prevDocPathRef.current;
-    if (prevPath && prevPath !== doc.path) {
-      clearDocumentIndexState(prevPath);
-      docCache.remove(prevPath);
+    const pathChanged = prevPath !== doc.path;
+    if (pathChanged) {
+      if (prevPath) {
+        clearDocumentIndexState(prevPath);
+        docCache.remove(prevPath);
+      }
+      clearDocumentIndexState(doc.path);
     }
-    clearDocumentIndexState(doc.path);
     prevDocPathRef.current = doc.path;
     clearPdfCache();
     setActiveDoc(doc);

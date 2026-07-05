@@ -24,6 +24,14 @@ interface EmbedTextsOptions {
   maxPages?: number;
 }
 
+export interface EmbedTextsResult {
+  embeddings: Array<number[] | null>;
+  /** True when eligible pages exceeded {@link DEFAULT_MAX_INDEX_PAGES}. */
+  capped: boolean;
+  eligible: number;
+  embedded: number;
+}
+
 function warn(message: string, error?: unknown): void {
   if (import.meta.env.DEV) {
     if (error !== undefined) console.warn(message, error);
@@ -139,14 +147,14 @@ export async function embedTexts(
   settings: LlmSettings,
   values: string[],
   options: EmbedTextsOptions = {},
-): Promise<Array<number[] | null>> {
+): Promise<EmbedTextsResult> {
   const result: Array<number[] | null> = new Array(values.length).fill(null);
 
   if (!isEmbeddingCapableProvider(settings.provider)) {
     warn(
       `[embeddings] provider "${settings.provider}" has no known embeddings endpoint; skipping semantic embedding (keyword-only search).`,
     );
-    return result;
+    return { embeddings: result, capped: false, eligible: 0, embedded: 0 };
   }
 
   const prepared = values.map((v) => v.trim().slice(0, 8000));
@@ -156,12 +164,16 @@ export async function embedTexts(
   for (let i = 0; i < prepared.length; i++) {
     if (prepared[i]) embeddable.push(i);
   }
-  if (embeddable.length === 0) return result;
+  if (embeddable.length === 0) {
+    return { embeddings: result, capped: false, eligible: 0, embedded: 0 };
+  }
 
   const maxPages = Math.max(0, options.maxPages ?? DEFAULT_MAX_INDEX_PAGES);
   let targets = embeddable;
+  let capped = false;
   if (embeddable.length > maxPages) {
     targets = embeddable.slice(0, maxPages);
+    capped = true;
     warn(
       `[embeddings] page cap reached: embedding ${targets.length} of ${embeddable.length} pages; remaining skipped this build.`,
     );
@@ -181,7 +193,7 @@ export async function embedTexts(
     }
   }
 
-  return result;
+  return { embeddings: result, capped, eligible: embeddable.length, embedded: targets.length };
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

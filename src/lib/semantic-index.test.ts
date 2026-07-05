@@ -13,9 +13,12 @@ vi.mock("./settings", () => ({
 
 vi.mock("./embeddings", () => ({
   embeddingModelKey: () => "openai:text-embedding-3-small",
-  embedTexts: vi.fn(async (_settings: unknown, values: string[]) =>
-    values.map(() => [0.1, 0.2]),
-  ),
+  embedTexts: vi.fn(async (_settings: unknown, values: string[]) => ({
+    embeddings: values.map(() => [0.1, 0.2]),
+    capped: false,
+    eligible: values.length,
+    embedded: values.length,
+  })),
   embedText: vi.fn(async () => [0.1, 0.2]),
   cosineSimilarity: () => 0.9,
 }));
