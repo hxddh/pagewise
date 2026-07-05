@@ -1,7 +1,6 @@
 import type { ModelMessage } from "ai";
 import { hasWholeDocumentIntent, isTargetedFactualQuery } from "./page-intent";
 import {
-  countToolCalls,
   hasReadToolInSteps,
   type AgentStepSnapshot,
 } from "./agent-loop-guards";
@@ -40,9 +39,7 @@ export function shouldSynthesizeAfterTools(steps: AgentStepSnapshot[]): boolean 
   const answer = last.text?.trim();
   if (answer) return false;
 
-  if (hasReadToolInSteps(steps)) return true;
-  if (countToolCalls(steps, "search_in_document") >= 1 && steps.length >= 2) return true;
-  return false;
+  return hasReadToolInSteps(steps);
 }
 
 /** Reserve the last step for a guaranteed text answer (fallback only near the cap). */

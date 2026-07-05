@@ -17,7 +17,7 @@ vi.mock("./llm", () => ({
   resolveBaseURL: () => "https://api.openai.com/v1",
 }));
 
-import { EMBED_BATCH_SIZE, embedTexts } from "./embeddings";
+import { EMBED_BATCH_SIZE, embedTexts, pickEmbedTargetIndices } from "./embeddings";
 
 const openai: LlmSettings = {
   provider: "openai",
@@ -94,11 +94,27 @@ describe("embedTexts", () => {
 
     expect(out.embeddings).toHaveLength(120);
     expect(out.embeddings.filter((v) => v !== null)).toHaveLength(50);
-    expect(out.embeddings[49]).not.toBeNull();
-    expect(out.embeddings[50]).toBeNull();
     expect(out.capped).toBe(true);
     expect(out.eligible).toBe(120);
     expect(out.embedded).toBe(50);
+    expect(out.nextPageOffset).toBe(50);
+    // Spread sampling — not prefix-only; some mid/tail indices are embedded.
+    const embeddedIndices = out.embeddings
+      .map((v, i) => (v !== null ? i : -1))
+      .filter((i) => i >= 0);
+    expect(embeddedIndices.some((i) => i > 59)).toBe(true);
+  });
+
+  it("spreads embed targets across the document and rotates on offset", () => {
+    const embeddable = Array.from({ length: 100 }, (_, i) => i);
+    const first = pickEmbedTargetIndices(embeddable, 10, 0);
+    expect(first.capped).toBe(true);
+    expect(first.targets).toHaveLength(10);
+    expect(first.targets[0]).toBe(0);
+    expect(first.targets[9]).toBeGreaterThan(50);
+
+    const second = pickEmbedTargetIndices(embeddable, 10, first.nextOffset);
+    expect(second.targets[0]).not.toBe(first.targets[0]);
   });
 
   it("retries once on a rate limit then succeeds", async () => {

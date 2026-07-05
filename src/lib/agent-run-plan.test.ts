@@ -35,13 +35,21 @@ describe("agent-run-plan", () => {
     ).toBe(true);
   });
 
-  it("synthesizes after search when at least two steps ran", () => {
+  it("synthesizes after search when a read tool already ran", () => {
     expect(
       shouldSynthesizeAfterTools([
         { toolCalls: [{ toolName: "search_in_document" }], text: "" },
         { toolCalls: [{ toolName: "read_pdf_page" }], text: "" },
       ]),
     ).toBe(true);
+  });
+
+  it("does not synthesize after search alone without a read", () => {
+    expect(
+      shouldSynthesizeAfterTools([
+        { toolCalls: [{ toolName: "search_in_document" }], text: "" },
+      ]),
+    ).toBe(false);
   });
 
   it("does not synthesize when the model already wrote an answer", () => {

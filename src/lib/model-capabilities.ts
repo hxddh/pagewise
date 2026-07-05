@@ -99,6 +99,21 @@ export function isVisionModel(provider: ProviderId, model: string): boolean {
   return false;
 }
 
+/**
+ * Whether the agent may attach a page screenshot to the user message.
+ * Requires a known capability entry with both vision and tool calling — never guess
+ * for OpenRouter (optimistic vision caused upstream "Provider returned error").
+ */
+export function isAgentMultimodalModel(provider: ProviderId, model: string): boolean {
+  const known = lookupCapabilities(model);
+  if (known) return known.vision && known.tools;
+  if (provider === "openai") {
+    const m = model.toLowerCase();
+    return m.includes("gpt-4o") || m.includes("gpt-4.1") || m.includes("gpt-5");
+  }
+  return false;
+}
+
 export function isToolModel(_provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.tools;

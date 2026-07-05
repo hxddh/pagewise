@@ -22,6 +22,11 @@ interface EmbedTextsOptions {
   signal?: AbortSignal;
   /** Override the per-document page cap. Defaults to {@link DEFAULT_MAX_INDEX_PAGES}. */
   maxPages?: number;
+  /**
+   * Rotate the embed window across eligible pages (spread sampling, not prefix-only).
+   * Pass the previous {@link EmbedTextsResult.nextPageOffset} on rebuild when capped.
+   */
+  pageOffset?: number;
 }
 
 export interface EmbedTextsResult {
@@ -30,6 +35,38 @@ export interface EmbedTextsResult {
   capped: boolean;
   eligible: number;
   embedded: number;
+  /** Next rotation offset when {@link capped}; undefined when all eligible pages fit. */
+  nextPageOffset?: number;
+}
+
+/**
+ * Pick up to `maxPages` index slots spread across `embeddable`, rotated by `offset`
+ * so capped rebuilds eventually cover tail pages instead of always embedding the prefix.
+ */
+export function pickEmbedTargetIndices(
+  embeddable: number[],
+  maxPages: number,
+  offset = 0,
+): { targets: number[]; nextOffset: number; capped: boolean } {
+  if (embeddable.length === 0 || maxPages <= 0) {
+    return { targets: [], nextOffset: 0, capped: false };
+  }
+  if (embeddable.length <= maxPages) {
+    return { targets: embeddable, nextOffset: 0, capped: false };
+  }
+  const n = embeddable.length;
+  const start = ((offset % n) + n) % n;
+  const rotated = [...embeddable.slice(start), ...embeddable.slice(0, start)];
+  const targets: number[] = [];
+  const step = rotated.length / maxPages;
+  for (let i = 0; i < maxPages; i++) {
+    targets.push(rotated[Math.min(rotated.length - 1, Math.floor(i * step))]!);
+  }
+  return {
+    targets,
+    nextOffset: (start + maxPages) % n,
+    capped: true,
+  };
 }
 
 function warn(message: string, error?: unknown): void {
@@ -169,13 +206,14 @@ export async function embedTexts(
   }
 
   const maxPages = Math.max(0, options.maxPages ?? DEFAULT_MAX_INDEX_PAGES);
-  let targets = embeddable;
-  let capped = false;
-  if (embeddable.length > maxPages) {
-    targets = embeddable.slice(0, maxPages);
-    capped = true;
+  const { targets, nextOffset, capped } = pickEmbedTargetIndices(
+    embeddable,
+    maxPages,
+    options.pageOffset ?? 0,
+  );
+  if (capped) {
     warn(
-      `[embeddings] page cap reached: embedding ${targets.length} of ${embeddable.length} pages; remaining skipped this build.`,
+      `[embeddings] page cap reached: embedding ${targets.length} of ${embeddable.length} pages (spread sample); remaining skipped this build.`,
     );
   }
 
@@ -198,6 +236,7 @@ export async function embedTexts(
     capped,
     eligible: embeddable.length,
     embedded: result.filter((v) => v !== null).length,
+    nextPageOffset: capped ? nextOffset : undefined,
   };
 }
 

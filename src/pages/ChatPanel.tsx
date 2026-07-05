@@ -108,6 +108,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const messagesRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
+  useEffect(() => {
+    setEditingUserId(null);
+    setEditDraft("");
+  }, [activeDoc?.path, activeThreadId, chatLoading]);
+
   useImperativeHandle(ref, () => ({
     focusComposer: () => composerRef.current?.focus(),
   }));
@@ -317,13 +322,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
       </header>
 
-      <div className="messages" ref={messagesRef} onScroll={onMessagesScroll}>
-        {chatLoading && messages.length === 0 ? (
-          <div className="chat-loading" aria-live="polite">
+      <div className="messages messages-panel" ref={messagesRef} onScroll={onMessagesScroll}>
+        {chatLoading && (
+          <div className="chat-loading chat-loading-overlay" aria-live="polite">
             <span className="preview-loading-spinner" aria-hidden />
             {t("agent.loadingHistory")}
           </div>
-        ) : messages.length === 0 ? (
+        )}
+        {!chatLoading && messages.length === 0 ? (
           <EmptyState
             hasApiKey={hasApiKey}
             agentToolsSupported={agentToolsSupported}

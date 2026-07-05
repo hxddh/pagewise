@@ -4,7 +4,7 @@ import { beginAgentMessage, rollbackLastAgentMessage } from "../lib/agent-view-c
 import { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
 import { formatAgentError, validateAgentModel, assertApiKeyForAgent } from "../lib/llm";
-import { isVisionModel } from "../lib/model-capabilities";
+import { isAgentMultimodalModel } from "../lib/model-capabilities";
 import {
   extractAssistantText,
   extractToolExcerpts,
@@ -75,6 +75,9 @@ export function useDocAgent(chatId: string | null = null) {
 
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
   const resolvedChatId = chatId ?? "pagewise-local";
+  const pruneChatIdRef = useRef(resolvedChatId);
+  const pruneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  pruneChatIdRef.current = resolvedChatId;
 
   const chat = useChat<PageWiseUIMessage>({
     id: resolvedChatId,
@@ -124,11 +127,13 @@ export function useDocAgent(chatId: string | null = null) {
       const excerpts = extractToolExcerpts(message);
       if (!answer) return;
 
+      const citationGen = citationGenRef.current;
       void streamStructuredCitations(
         answer,
         excerpts,
         lastTotalPagesRef.current,
         (citations) => {
+          if (citationGen !== citationGenRef.current) return;
           if (citations.length === 0) return;
           setMessagesRef.current?.((prev) =>
             prev.map((m) => {
@@ -141,7 +146,20 @@ export function useDocAgent(chatId: string | null = null) {
             }),
           );
         },
-      );
+      ).then((result) => {
+        if (citationGen !== citationGenRef.current) return;
+        if (!result.error) return;
+        setMessagesRef.current?.((prev) =>
+          prev.map((m) => {
+            if (m.id !== message.id) return m;
+            const existing = getPageWiseMetadata(m) ?? {};
+            return {
+              ...m,
+              metadata: { ...existing, citationsError: result.error },
+            };
+          }),
+        );
+      });
     },
   });
   setMessagesRef.current = chat.setMessages;
@@ -150,6 +168,11 @@ export function useDocAgent(chatId: string | null = null) {
   const sendingRef = useRef(false);
   const [historySettling, setHistorySettling] = useState(false);
   const lastTotalPagesRef = useRef<number | undefined>(undefined);
+  const citationGenRef = useRef(0);
+
+  useEffect(() => {
+    citationGenRef.current += 1;
+  }, [resolvedChatId]);
 
   useEffect(() => {
     const wasBusy =
@@ -163,13 +186,24 @@ export function useDocAgent(chatId: string | null = null) {
 
     if (wasBusy && chat.status === "ready") {
       setHistorySettling(true);
-      const id = window.setTimeout(() => {
+      const pruneForChatId = resolvedChatId;
+      if (pruneTimeoutRef.current != null) {
+        window.clearTimeout(pruneTimeoutRef.current);
+      }
+      pruneTimeoutRef.current = window.setTimeout(() => {
+        pruneTimeoutRef.current = null;
+        if (pruneChatIdRef.current !== pruneForChatId) return;
         chat.setMessages((prev) => pruneToolOutputsForHistory(prev) as typeof prev);
         window.setTimeout(() => setHistorySettling(false), 300);
       }, 0);
-      return () => window.clearTimeout(id);
+      return () => {
+        if (pruneTimeoutRef.current != null) {
+          window.clearTimeout(pruneTimeoutRef.current);
+          pruneTimeoutRef.current = null;
+        }
+      };
     }
-  }, [chat.status, chat.setMessages]);
+  }, [chat.status, chat.setMessages, resolvedChatId]);
 
   const [sendError, setSendError] = useState<Error | undefined>();
 
@@ -199,7 +233,7 @@ export function useDocAgent(chatId: string | null = null) {
     async (opts: SendDocumentMessageOptions, text: string) => {
       if (opts.includeViewingPage) {
         const settings = await loadSettings();
-        if (isVisionModel(settings.provider, settings.model)) {
+        if (isAgentMultimodalModel(settings.provider, settings.model)) {
           const file = await capturePageFilePart(opts.path, opts.viewingPage, opts.docKind);
           if (file) {
             return { text, files: [file] };
@@ -369,6 +403,11 @@ export function useDocAgent(chatId: string | null = null) {
       historySettling,
       chatId: resolvedChatId,
       resetForDocumentSwitch: () => {
+        citationGenRef.current += 1;
+        if (pruneTimeoutRef.current != null) {
+          window.clearTimeout(pruneTimeoutRef.current);
+          pruneTimeoutRef.current = null;
+        }
         chat.stop();
         clearAgentRunAbortSignal();
         chat.clearError();

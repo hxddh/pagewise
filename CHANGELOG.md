@@ -4,6 +4,43 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+### Fixed
+
+- Search: capped semantic embed merges vectors across rotations (full-doc coverage over rebuilds)
+- Search: partial capped indexes no longer permanently disable semantic search after retry cap
+- Search: opening a document no longer aborts its own in-flight embed build
+- Chat: quit/hide while streaming stops the agent and flushes before close
+- Chat: window stays open when flush fails on quit (no silent data loss)
+- Chat: document-switch save failure reverts preview to the previous document
+- Chat: `persist_cancelled` no longer surfaces as a user-facing error toast
+- Chat: thread switch hydrates messages before updating `chatId`
+- Chat: composer draft clears on thread switch
+- Agent: structured citation extraction skips `reasoning` (provider compatibility)
+- Agent: citation extraction ignores stale callbacks after thread/doc switch
+- Agent: `read_pdf_range` rejects inverted ranges and out-of-range start pages
+
+## [0.2.33] - 2026-07-05
+
+### Fixed
+
+- Agent: force read tools before synthesis/meta-loop guards (search→read flow)
+- Agent: detect `budgetExceeded` inside AI SDK JSON tool-result envelopes
+- Agent: do not reset read offset when page text shrinks after re-index
+- Agent: `read_pdf_range` reports `requestedEnd`, `actualEnd`, and `rangeClamped` when end exceeds document length
+- Chat: `messagesDocPathRef` prevents cross-document autosave corruption
+- Chat: abort document switch when pre-save fails; clear messages on load failure
+- Chat: loading overlay during thread/doc switch; cancel edit mode on switch
+- Chat: history prune scoped to `chatId` (no cross-thread truncation)
+- Chat: Tauri `onCloseRequested` awaits flush before window destroy (replaces unreliable `beforeunload`)
+- Preview: follow-agent skips loaded history when no live agent context
+- Search: per-document semantic embed abort (switching docs no longer cancels other builds)
+- Search: embed cap uses spread sampling + rotation so tail pages eventually get vectors
+- Search: drop partial semantic index after embed retry cap (rebuild on next open)
+- Agent: `isAgentMultimodalModel` — only known vision+tools models get page screenshots
+- Agent: structured citation extraction records `citationsError` metadata on failure
+- LLM: parse OpenRouter `metadata.raw` for actionable provider errors
+- LLM: skip fast-model routing for unknown OpenRouter model ids (no invalid fallback)
+
 ## [0.2.32] - 2026-07-05
 
 ### Fixed

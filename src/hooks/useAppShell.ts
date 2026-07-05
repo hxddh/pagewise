@@ -41,6 +41,23 @@ export function useAppShell() {
     clearAgentMessageContext();
   }, []);
 
+  const handleThreadSwitch = useCallback(() => {
+    agentRef.current.setComposerDraft("");
+  }, []);
+
+  const documentCommitRef = useRef(document.commitDocumentSwitch);
+  documentCommitRef.current = document.commitDocumentSwitch;
+  const documentAbortRef = useRef(document.abortDocumentSwitch);
+  documentAbortRef.current = document.abortDocumentSwitch;
+
+  const handleDocumentSwitchCommitted = useCallback(() => {
+    documentCommitRef.current();
+  }, []);
+
+  const handleDocumentSwitchFailed = useCallback(() => {
+    documentAbortRef.current();
+  }, []);
+
   const handlePersistError = useCallback(
     (message: string) => {
       showToast(message, "error");
@@ -57,6 +74,9 @@ export function useAppShell() {
     recentFiles,
     setRecentFiles,
     onDocumentSwitch: handleDocumentSwitch,
+    onDocumentSwitchCommitted: handleDocumentSwitchCommitted,
+    onDocumentSwitchFailed: handleDocumentSwitchFailed,
+    onThreadSwitch: handleThreadSwitch,
     onStopStream: agent.stop,
     isStreaming: agent.busy,
     onPersistError: handlePersistError,

@@ -229,10 +229,18 @@ function createDocumentTools(budget: ReadBudget) {
           }
 
           const { text, source } = await readPageText(path, page);
-          let from = Math.min(offset, text.length);
           if (text.length > 0 && offset > text.length) {
-            from = 0;
+            return {
+              page,
+              text: "",
+              source,
+              truncated: false,
+              nextOffset: null,
+              charCount: 0,
+              note: "Page text changed since the prior read; call read_pdf_page again from the start if needed.",
+            };
           }
+          const from = Math.min(offset, text.length);
           const room = Math.min(maxChars, budget.max - budget.used);
           const slice = text.slice(from, from + room);
           budget.used += slice.length;
@@ -294,11 +302,23 @@ function createDocumentTools(budget: ReadBudget) {
         }, options) => {
           const path = resolvePathInput(inputPath, options);
           const doc = requireLoadedDoc(path);
-          const from = Math.min(start, end);
-          const to = Math.max(start, end);
+          if (start > end) {
+            throw new Error(
+              `invalid page range: start (${start}) cannot be greater than end (${end}).`,
+            );
+          }
+          if (doc.totalPages > 0 && start > doc.totalPages) {
+            throw new Error(
+              `start page ${start} is out of range: "${doc.name}" has ${doc.totalPages} page(s).`,
+            );
+          }
+          const from = start;
+          const to = end;
           assertPageInBounds(doc, from);
 
+          const requestedEnd = to;
           const pageLimit = doc.totalPages > 0 ? Math.min(to, doc.totalPages) : to;
+          const rangeClamped = doc.totalPages > 0 && to > doc.totalPages;
 
           const parts: string[] = [];
           let charCount = 0;
@@ -362,6 +382,9 @@ function createDocumentTools(budget: ReadBudget) {
             nextOffset,
             startPage: from,
             endPage: lastPage,
+            requestedEnd,
+            actualEnd: pageLimit,
+            rangeClamped,
             charCount,
             ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
           };
