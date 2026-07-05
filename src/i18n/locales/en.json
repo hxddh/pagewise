@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "PageWise"
+    "name": "PageWise",
+    "panelLoading": "Loading panel…"
   },
   "common": {
     "cancel": "Cancel",
@@ -69,7 +70,14 @@
     "indexFailedNeedVision": "Indexing failed · pick a scan model in Settings",
     "indexFailedOcrMissing": "Indexing failed · install Tesseract for local OCR, or pick a scan model in Settings",
     "indexFailedVision": "Indexing failed · check your API key and scan model in Settings",
+    "indexFailedInsufficient": "Indexing failed · scan and OCR returned too little text",
     "indexFailedUnknown": "Indexing failed · could not extract text",
+    "indexError": {
+      "rate_limited": "rate limited",
+      "auth": "check API key",
+      "timeout": "timed out",
+      "sparse": "too little text"
+    },
     "textLayer": "Text layer",
     "scan": "Scan",
     "ocr": "OCR",
@@ -261,6 +269,7 @@
     "testSuccessWithScan": "Connected · assistant & scan OK · {{reply}}",
     "testFailed": "Connection failed",
     "saved": "Settings saved",
+    "savedPreviewNotActive": "Saved — click “Set as active” to use this provider for chat",
     "loading": "Loading settings…",
     "unsaved": "Unsaved changes",
     "save": "Save",

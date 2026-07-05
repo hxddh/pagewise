@@ -179,6 +179,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const handleRegenerate = useCallback(async () => {
     if (!activeDoc || !regenerateDocumentMessage || busy) return;
+    if (!hasApiKey || !agentToolsSupported) {
+      onConfigureApi();
+      return;
+    }
     stickToBottomRef.current = true;
     await regenerateDocumentMessage({
       path: activeDoc.path,
@@ -191,6 +195,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     activeDoc,
     regenerateDocumentMessage,
     busy,
+    hasApiKey,
+    agentToolsSupported,
+    onConfigureApi,
     previewPage,
     includeViewingPage,
   ]);

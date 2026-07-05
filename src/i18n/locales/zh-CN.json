@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "PageWise"
+    "name": "PageWise",
+    "panelLoading": "正在加载面板…"
   },
   "common": {
     "cancel": "取消",
@@ -69,7 +70,14 @@
     "indexFailedNeedVision": "索引失败 · 请在设置中选择扫页模型",
     "indexFailedOcrMissing": "索引失败 · 请安装 Tesseract 进行本地 OCR，或在设置中选择扫页模型",
     "indexFailedVision": "索引失败 · 请检查 API 密钥与设置中的扫页模型",
+    "indexFailedInsufficient": "索引失败 · 扫页与 OCR 返回的文本过少",
     "indexFailedUnknown": "索引失败 · 无法提取文本",
+    "indexError": {
+      "rate_limited": "触发限速",
+      "auth": "请检查 API 密钥",
+      "timeout": "请求超时",
+      "sparse": "文本过少"
+    },
     "textLayer": "文本层",
     "scan": "扫描件",
     "ocr": "OCR",
@@ -261,6 +269,7 @@
     "testSuccessWithScan": "已连接 · 助手与扫页均可用 · {{reply}}",
     "testFailed": "连接失败",
     "saved": "设置已保存",
+    "savedPreviewNotActive": "已保存 — 点击「设为当前」后对话才会使用此提供商",
     "loading": "加载设置中…",
     "unsaved": "有未保存的更改",
     "save": "保存",

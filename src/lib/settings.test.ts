@@ -228,7 +228,7 @@ describe("settingsPersistSnapshot — apiKey change detection", () => {
 });
 
 describe("migrateProviderProfile", () => {
-  it("splits a vision-only OpenRouter model into agent + vision models", async () => {
+  it("preserves a vision-only OpenRouter model in the agent slot (validated at send)", async () => {
     __resetSettingsStoreForTests({
       store: {
         version: 2,
@@ -245,9 +245,9 @@ describe("migrateProviderProfile", () => {
 
     const store = await loadLlmStore();
     const profile = store.profiles.openrouter!;
-    expect(profile.model).toBe("openai/gpt-4o-mini");
+    expect(profile.model).toBe("qwen/qwen2.5-vl-72b-instruct");
     expect(profile.visionModel).toBe("qwen/qwen2.5-vl-72b-instruct");
-    expect(profile.connectionVerified).toBe(false);
+    expect(profile.connectionVerified).toBe(true);
   });
 
   it("resets legacy shared agent/scan model id to default scan preset", async () => {
@@ -398,12 +398,12 @@ describe("store I/O — working keychain", () => {
     __resetSettingsStoreForTests();
   });
 
-  it("mirrors plaintext to settings.json even when the keychain works", async () => {
+  it("keeps API keys off settings.json when the keychain works", async () => {
     __resetSettingsStoreForTests({ keychain: memoryKeychain() });
     await saveProviderProfile("openai", { model: "gpt-4o-mini" }, "sk-openai");
 
     expect((await loadProviderSettings("openai")).apiKey).toBe("sk-openai");
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBe("sk-openai");
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBeUndefined();
   });
 
   it("prefers settings.json mirror over keychain reads", async () => {

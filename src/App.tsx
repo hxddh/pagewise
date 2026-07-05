@@ -30,9 +30,11 @@ const ChatPanel = lazy(() =>
 );
 
 function PanelFallback() {
+  const { t } = useI18n();
   return (
     <div className="panel-loading" aria-live="polite">
       <span className="preview-loading-spinner" aria-hidden />
+      <span className="sr-only">{t("app.panelLoading")}</span>
     </div>
   );
 }

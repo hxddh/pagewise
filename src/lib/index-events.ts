@@ -5,6 +5,7 @@ export type IndexFailureReason =
   | "need_vision"
   | "ocr_unavailable"
   | "vision_failed"
+  | "insufficient_text"
   | "unknown";
 
 export interface PageIndexState {

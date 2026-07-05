@@ -83,7 +83,11 @@ class DocCache {
   clear(): void {
     const paths = [...this.docs.keys()];
     this.docs.clear();
-    for (const path of paths) this.notify(path);
+    for (const path of paths) {
+      clearDocumentIndexState(path);
+      clearSemanticIndex(path);
+      this.notify(path);
+    }
   }
 
   list(): LoadedDocument[] {

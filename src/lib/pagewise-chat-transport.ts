@@ -94,7 +94,6 @@ export class PagewiseChatTransport<
 
       return wrapStreamWithAgentProgress(uiStream, earlyProgress);
     } finally {
-      setAgentRunAbortSignal(undefined);
       unsubEarly();
     }
   }

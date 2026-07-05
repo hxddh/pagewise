@@ -5,7 +5,6 @@ import {
   DEFAULT_SETTINGS,
   LEGACY_MODEL_MAP,
   PROVIDER_PRESETS,
-  defaultAgentModel,
   defaultVisionModel,
   visionPresetModels,
   type LlmSettings,
@@ -160,7 +159,8 @@ function migrateProviderProfile(
     } else if (
       visionPresets.length > 0 &&
       !visionPresets.includes(visionModel) &&
-      visionModel === model
+      visionModel === model &&
+      isToolModel(provider, model)
     ) {
       visionModel = defaultVisionModel(presetProvider);
     } else if (
@@ -168,10 +168,6 @@ function migrateProviderProfile(
       visionPresets.length > 0
     ) {
       visionModel = defaultVisionModel(presetProvider);
-    }
-    if (!isToolModel(provider, model)) {
-      model = defaultAgentModel(presetProvider);
-      connectionVerified = false;
     }
     if (thinkingEnabled && !isThinkingCapableModel(provider, model)) {
       thinkingEnabled = false;
@@ -267,7 +263,7 @@ function normalizeStore(raw: LlmStoreV2): LlmStoreV2 {
  */
 async function writeStoreV2(
   storeData: LlmStoreV2,
-  keyUpdate?: { provider: ProviderId; apiKey: string },
+  keyUpdate?: { provider: ProviderId; apiKey: string; keychainOk?: boolean },
 ): Promise<void> {
   const s = await getStore();
   const prior = await s.get<RawStored>(SETTINGS_KEY);
@@ -285,7 +281,11 @@ async function writeStoreV2(
 
   if (keyUpdate) {
     if (keyUpdate.apiKey.trim()) {
-      fallbackKeys[keyUpdate.provider] = keyUpdate.apiKey;
+      if (keyUpdate.keychainOk === false) {
+        fallbackKeys[keyUpdate.provider] = keyUpdate.apiKey;
+      } else {
+        delete fallbackKeys[keyUpdate.provider];
+      }
       delete clearedKeys[keyUpdate.provider];
     } else {
       delete fallbackKeys[keyUpdate.provider];
@@ -381,7 +381,17 @@ function ensureApiKeysMigrated(): Promise<void> {
  */
 async function loadApiKey(provider: ProviderId): Promise<string> {
   await ensureApiKeysMigrated();
-  return (await getFallbackKey(provider)).trim();
+  const s = await getStore();
+  const raw = await s.get<RawStored>(SETTINGS_KEY);
+  if (raw?.apiKeysCleared?.[provider]) return "";
+  const fallback = (await getFallbackKey(provider)).trim();
+  if (fallback) return fallback;
+  if (provider === "ollama") return "ollama";
+  try {
+    return (await keychainGet(provider)).trim();
+  } catch {
+    return "";
+  }
 }
 
 /** The plaintext fallback key stored in settings.json for a provider (keychain-less machines). */
@@ -536,8 +546,8 @@ export async function saveProviderProfile(
 
   let resolvedKey = apiKey;
   if (resolvedKey !== undefined && resolvedKey.trim()) {
-    await persistApiKey(provider, resolvedKey);
-    await writeStoreV2(storeData, { provider, apiKey: resolvedKey });
+    const keychainOk = await persistApiKey(provider, resolvedKey);
+    await writeStoreV2(storeData, { provider, apiKey: resolvedKey, keychainOk });
   } else if (resolvedKey === undefined) {
     // No key change requested — preserve existing local mirror.
     await writeStoreV2(storeData);

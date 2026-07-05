@@ -315,9 +315,11 @@ export async function switchThread(docPath: string, sessionId: string): Promise<
     const data = await readStore();
     const doc = getDoc(data, docPath);
     if (!doc) return [];
+    const thread = doc.threads.find((t) => t.id === sessionId);
+    if (!thread) return doc.threads.find((t) => t.id === doc.activeSessionId)?.messages ?? [];
     doc.activeSessionId = sessionId;
     await writeStore(data);
-    return doc.threads.find((t) => t.id === sessionId)?.messages ?? [];
+    return thread.messages;
   });
 }
 

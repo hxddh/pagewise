@@ -723,10 +723,14 @@ export async function renderPageToJpegBytes(
 export async function renderPageToPngBytes(
   path: string,
   pageNumber: number,
-  scale = OCR_RENDER_SCALE,
+  maxEdge = 1568,
 ): Promise<Uint8Array> {
   const doc = await getPdfDocument(path);
   const page = await doc.getPage(pageNumber);
+  const base = page.getViewport({ scale: 1 });
+  const edge = Math.max(base.width, base.height);
+  const scale = edge > maxEdge ? maxEdge / edge : OCR_RENDER_SCALE;
+
   const offscreen = document.createElement("canvas");
   await paintPage(page, scale, "performance", offscreen, "print");
 

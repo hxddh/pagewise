@@ -51,7 +51,11 @@ export function sanitizeDanglingToolParts(messages: UIMessage[]): UIMessage[] {
     let msgChanged = false;
     const parts = msg.parts.map((part) => {
       if (!isToolUIPart(part)) return part;
-      if (part.state !== "input-streaming" && part.state !== "input-available") {
+      if (
+        part.state !== "input-streaming" &&
+        part.state !== "input-available" &&
+        part.state !== "output-error"
+      ) {
         return part;
       }
 

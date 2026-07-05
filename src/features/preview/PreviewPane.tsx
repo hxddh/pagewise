@@ -2,7 +2,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { memo, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
-import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
+import { getPageIndexState } from "../../lib/index-events";
+import { sanitizeIndexErrorDetail } from "../../lib/index-error-display";
 import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { isRasterHeavyPage } from "../../lib/pdf";
 import { indexPageInBackground } from "../../lib/vision-index";
@@ -39,22 +40,15 @@ function PreviewPaneInner({
   const pageTextLen = getPageTextLen(doc.path, indexPage, doc.pages);
 
   useEffect(() => {
-    if (pageHasIndexableText(doc.path, indexPage, doc.pages)) {
-      if (getPageIndexState(doc.path, indexPage)?.status === "failed") {
-        clearPageIndexState(doc.path, indexPage);
-      }
-      return;
-    }
+    if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return;
     const state = getPageIndexState(doc.path, indexPage);
     if (state?.status === "indexing") return;
+    if (state?.status === "failed") return;
     if (state?.status === "done" && pageHasIndexableText(doc.path, indexPage, doc.pages)) {
       return;
     }
-    if (state?.status === "failed") {
-      clearPageIndexState(doc.path, indexPage);
-    }
     indexPageInBackground(doc.path, indexPage, doc.kind);
-  }, [doc.path, doc.kind, indexPage, pageTextLen, doc.pages, indexRevision]);
+  }, [doc.path, doc.kind, indexPage, pageTextLen, indexRevision]);
 
   const indexHint = useMemo(() => {
     if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return null;
@@ -77,17 +71,15 @@ function PreviewPaneInner({
         case "vision_failed":
           hint = t("preview.indexFailedVision");
           break;
+        case "insufficient_text":
+          hint = t("preview.indexFailedInsufficient");
+          break;
         default:
           hint = t("preview.indexFailedUnknown");
       }
-      const detail = indexState.error?.trim();
-      if (
-        detail &&
-        detail !== indexState.failureReason &&
-        !hint.includes(detail)
-      ) {
-        const short = detail.length > 100 ? `${detail.slice(0, 97)}…` : detail;
-        return `${hint} · ${short}`;
+      const detail = sanitizeIndexErrorDetail(indexState.error);
+      if (detail && detail !== indexState.failureReason) {
+        return `${hint} · ${t(`preview.indexError.${detail}`)}`;
       }
       return hint;
     }
@@ -143,7 +135,7 @@ function PreviewPaneInner({
             onClick={viewer.prevPage}
             disabled={page <= 1}
             aria-label={t("preview.previousPage")}
-            tabIndex={-1}
+            tabIndex={0}
           />
           <button
             type="button"
@@ -151,7 +143,7 @@ function PreviewPaneInner({
             onClick={viewer.nextPage}
             disabled={page >= totalPages}
             aria-label={t("preview.nextPage")}
-            tabIndex={-1}
+            tabIndex={0}
           />
         </>
       )}

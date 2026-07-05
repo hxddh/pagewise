@@ -88,12 +88,12 @@ function SettingsDrawerInner({
   }, [open]);
 
   const requestClose = useCallback(() => {
-    if (tab === "ai" && aiFooter?.dirty) {
+    if (aiFooter?.dirty) {
       setCloseConfirmOpen(true);
       return;
     }
     onClose();
-  }, [tab, aiFooter?.dirty, onClose]);
+  }, [aiFooter?.dirty, onClose]);
 
   useEffect(() => {
     if (!open) return;

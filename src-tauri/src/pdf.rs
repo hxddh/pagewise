@@ -23,18 +23,31 @@ const MAX_CACHED_DOCS: usize = 12;
 #[derive(Default)]
 struct CacheInner {
     map: HashMap<PathBuf, (SystemTime, Arc<Vec<String>>)>,
-    /// Insertion order (oldest first) used for simple FIFO eviction.
+    /// LRU order (oldest first) used for eviction.
     order: Vec<PathBuf>,
 }
 
 impl CacheInner {
-    fn get(&self, key: &PathBuf) -> Option<&(SystemTime, Arc<Vec<String>>)> {
-        self.map.get(key)
+    fn touch(&mut self, key: &PathBuf) {
+        if !self.map.contains_key(key) {
+            return;
+        }
+        self.order.retain(|k| k != key);
+        self.order.push(key.clone());
+    }
+
+    fn get(&mut self, key: &PathBuf) -> Option<(SystemTime, Arc<Vec<String>>)> {
+        if self.map.contains_key(key) {
+            self.touch(key);
+        }
+        self.map.get(key).cloned()
     }
 
     fn insert(&mut self, key: PathBuf, mtime: SystemTime, pages: Arc<Vec<String>>) {
         if self.map.insert(key.clone(), (mtime, pages)).is_none() {
-            self.order.push(key);
+            self.order.push(key.clone());
+        } else {
+            self.touch(&key);
         }
         while self.map.len() > MAX_CACHED_DOCS {
             if self.order.is_empty() {
@@ -67,30 +80,23 @@ fn parse_pages(path: &str, cache: &PdfCache) -> Result<Arc<Vec<String>>, String>
         .and_then(|m| m.modified())
         .map_err(|e| format!("Failed to read PDF metadata: {e}"))?;
 
-    // Fast path: check the cache under the lock, then RELEASE it before doing
-    // the slow full-document parse. Holding the lock across extraction would
-    // block a cache hit for one document while another document parses.
     {
-        let guard = cache.lock_map()?;
+        let mut guard = cache.lock_map()?;
         if let Some((cached_mtime, cached_pages)) = guard.get(&key) {
-            if *cached_mtime == mtime {
-                return Ok(Arc::clone(cached_pages));
+            if cached_mtime == mtime {
+                return Ok(cached_pages);
             }
         }
     }
 
-    // Extract WITHOUT holding the lock. Concurrent duplicate extraction of the
-    // same file is acceptable; the double-check below dedupes the stored value.
     let pages_raw =
         pdf_extract::extract_text_by_pages(path).map_err(|e| format!("PDF extract failed: {e}"))?;
     let arc = Arc::new(pages_raw);
 
-    // Re-acquire and double-check: another thread may have inserted a fresh
-    // entry while we parsed — prefer it so callers share the same Arc.
     let mut guard = cache.lock_map()?;
     if let Some((cached_mtime, cached_pages)) = guard.get(&key) {
-        if *cached_mtime == mtime {
-            return Ok(Arc::clone(cached_pages));
+        if cached_mtime == mtime {
+            return Ok(cached_pages);
         }
     }
     guard.insert(key, mtime, Arc::clone(&arc));

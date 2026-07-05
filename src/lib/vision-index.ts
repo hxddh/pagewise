@@ -36,10 +36,12 @@ let backgroundIndexController: AbortController | null = null;
 let agentRunAbortSignal: AbortSignal | undefined;
 
 /** In-flight dedupe: one index run per path+page at a time. */
-const inflightIndex = new Map<
-  string,
-  Promise<{ text: string; source: "vision" | "ocr" | "cache" }>
->();
+interface InflightIndexEntry {
+  promise: Promise<{ text: string; source: "vision" | "ocr" | "cache" }>;
+  localAbort: AbortController;
+}
+
+const inflightIndex = new Map<string, InflightIndexEntry>();
 
 export interface IndexPageOptions {
   /** Abort in-flight work (e.g. when the active document switches). */
@@ -80,6 +82,10 @@ export function setAgentRunAbortSignal(signal: AbortSignal | undefined): void {
   agentRunAbortSignal = signal;
 }
 
+export function clearAgentRunAbortSignal(): void {
+  agentRunAbortSignal = undefined;
+}
+
 function inflightKey(path: string, page: number): string {
   return `${path}:${page}`;
 }
@@ -115,8 +121,11 @@ function handleIndexAbort(
   path: string,
   page: number,
   cached: { text: string } | undefined,
-): { text: string; source: "ocr" | "cache" } {
+): { text: string; source: "vision" | "ocr" | "cache" } {
   clearPageIndexState(path, page);
+  if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
+    return { text: cached.text, source: "cache" };
+  }
   return { text: cached?.text ?? "", source: "ocr" };
 }
 
@@ -256,6 +265,7 @@ export function resolveIndexFailureReason(
   }
 
   if (!tesseractAvailable && ocrFailed) return "ocr_unavailable";
+  if (visionAttempted && visionFailed && ocrFailed) return "insufficient_text";
   return "unknown";
 }
 
@@ -398,18 +408,32 @@ export async function indexPageText(
   kind: "pdf" | "image",
   options: IndexPageOptions = {},
 ): Promise<{ text: string; source: "vision" | "ocr" | "cache" }> {
-  const signal = resolveIndexSignal(options);
-  const resolvedOptions = { ...options, signal };
   const key = inflightKey(path, page);
-
   const existing = inflightIndex.get(key);
-  if (existing) return existing;
+  if (existing) {
+    if (options.signal) {
+      options.signal.addEventListener("abort", () => existing.localAbort.abort(), {
+        once: true,
+      });
+    }
+    return existing.promise;
+  }
+
+  const localAbort = new AbortController();
+  const parts = [options.signal, localAbort.signal].filter(Boolean) as AbortSignal[];
+  const combined =
+    parts.length === 0
+      ? undefined
+      : parts.length === 1
+        ? parts[0]
+        : AbortSignal.any(parts);
+  const resolvedOptions = { ...options, signal: resolveIndexSignal({ ...options, signal: combined }) };
 
   const work = indexPageTextInner(path, page, kind, resolvedOptions).finally(() => {
     inflightIndex.delete(key);
   });
 
-  inflightIndex.set(key, work);
+  inflightIndex.set(key, { promise: work, localAbort });
   return work;
 }
 
