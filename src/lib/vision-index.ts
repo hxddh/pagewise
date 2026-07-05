@@ -1,4 +1,11 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { docCache } from "./doc-cache";
+import {
+  clearPageIndexState,
+  emitPageIndex,
+  getPageIndexState,
+  type IndexFailureReason,
+} from "./index-events";
 import { assertApiKeyForAgent, formatLlmError } from "./llm";
 import { generateVisionText } from "./vision-api";
 import { isVisionModel } from "./model-capabilities";
