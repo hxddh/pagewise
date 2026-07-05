@@ -89,63 +89,25 @@ export const PROVIDER_PRESETS: Record<
   },
 };
 
-/** Grouped model options for settings UI. */
-export const PROVIDER_MODEL_GROUPS: Record<
-  Exclude<ProviderId, "custom">,
-  { labelKey: string; models: string[] }[]
-> = {
-  openai: [
-    {
-      labelKey: "settings.modelGroupFast",
-      models: ["gpt-4o-mini", "gpt-4.1-mini"],
-    },
-    {
-      labelKey: "settings.modelGroupPro",
-      models: ["gpt-4o", "gpt-4.1"],
-    },
-  ],
-  deepseek: [
-    {
-      labelKey: "settings.modelGroupFast",
-      models: ["deepseek-v4-flash"],
-    },
-    {
-      labelKey: "settings.modelGroupPro",
-      models: ["deepseek-v4-pro"],
-    },
-  ],
+/** Flat preset lists for the assistant (tool) model dropdown. */
+export const PROVIDER_AGENT_MODELS: Record<Exclude<ProviderId, "custom">, string[]> = {
+  openai: ["gpt-4o-mini", "gpt-4.1-mini"],
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
+  openrouter: ["openai/gpt-4o-mini", "google/gemini-2.5-flash-lite"],
+  ollama: ["llama3.2", "qwen2.5"],
+};
+
+/** Flat preset lists for scan/OCR (vision) model dropdown; empty = no presets. */
+export const PROVIDER_VISION_MODELS: Record<Exclude<ProviderId, "custom">, string[]> = {
+  openai: ["gpt-4o-mini", "gpt-4.1-mini"],
+  deepseek: [],
   openrouter: [
-    {
-      labelKey: "settings.modelGroupAgent",
-      models: [
-        "openai/gpt-4o-mini",
-        "anthropic/claude-3.5-sonnet",
-        "google/gemini-2.5-flash-lite",
-      ],
-    },
-    {
-      labelKey: "settings.modelGroupVision",
-      models: [
-        "openai/gpt-4o-mini",
-        "qwen/qwen2.5-vl-72b-instruct",
-        "google/gemini-2.5-flash-lite",
-      ],
-    },
-    {
-      labelKey: "settings.modelGroupChatOnly",
-      models: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
-    },
+    "google/gemini-2.5-flash-lite",
+    "qwen/qwen3-vl-8b-instruct",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-3-4b-it",
   ],
-  ollama: [
-    {
-      labelKey: "settings.modelGroupLocal",
-      models: ["llama3.2", "llama3.1", "qwen2.5", "mistral"],
-    },
-    {
-      labelKey: "settings.modelGroupVision",
-      models: ["qwen2.5vl", "llava"],
-    },
-  ],
+  ollama: ["qwen2.5vl"],
 };
 
 export const LEGACY_MODEL_MAP: Record<string, { model: string; thinkingEnabled: boolean }> = {
@@ -153,8 +115,13 @@ export const LEGACY_MODEL_MAP: Record<string, { model: string; thinkingEnabled: 
   "deepseek-reasoner": { model: "deepseek-v4-flash", thinkingEnabled: true },
 };
 
+export function agentPresetModels(provider: Exclude<ProviderId, "custom">): string[] {
+  return PROVIDER_AGENT_MODELS[provider];
+}
+
+/** @deprecated Use agentPresetModels */
 export function allProviderModels(provider: Exclude<ProviderId, "custom">): string[] {
-  return PROVIDER_MODEL_GROUPS[provider].flatMap((g) => g.models);
+  return agentPresetModels(provider);
 }
 
 /** Default agent (tool-capable) model per provider. */
@@ -164,19 +131,17 @@ export function defaultAgentModel(provider: Exclude<ProviderId, "custom">): stri
 
 /** Default vision model for background page indexing. */
 export function defaultVisionModel(provider: Exclude<ProviderId, "custom">): string {
+  const presets = PROVIDER_VISION_MODELS[provider];
+  if (presets.length > 0) return presets[0]!;
   if (provider === "openai") return "gpt-4o-mini";
-  if (provider === "openrouter") return "openai/gpt-4o-mini";
-  if (provider === "ollama") return "qwen2.5vl";
   return "";
 }
 
+export function visionPresetModels(provider: Exclude<ProviderId, "custom">): string[] {
+  return PROVIDER_VISION_MODELS[provider];
+}
+
+/** @deprecated Use visionPresetModels */
 export function visionModelsForProvider(provider: Exclude<ProviderId, "custom">): string[] {
-  const visionGroups = PROVIDER_MODEL_GROUPS[provider].filter((g) =>
-    g.labelKey.includes("Vision") || g.labelKey.includes("vision"),
-  );
-  const fromGroups = visionGroups.flatMap((g) => g.models);
-  const agentDefault = defaultAgentModel(provider);
-  const merged = new Set(fromGroups);
-  if (agentDefault) merged.add(agentDefault);
-  return [...merged];
+  return visionPresetModels(provider);
 }

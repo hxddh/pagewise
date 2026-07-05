@@ -11,11 +11,11 @@ import {
   setActiveProvider,
 } from "../../lib/settings";
 import {
-  allProviderModels,
+  agentPresetModels,
   DEFAULT_SETTINGS,
   defaultVisionModel,
   PROVIDER_PRESETS,
-  visionModelsForProvider,
+  visionPresetModels,
   type LlmSettings,
   type ProviderId,
   type ProviderProfile,
@@ -115,10 +115,10 @@ export function AiProviderSettings({
       setApiKeyTouched(false);
       setDirty(false);
       const presetModels =
-        active.provider !== "custom" ? allProviderModels(active.provider) : [];
+        active.provider !== "custom" ? agentPresetModels(active.provider) : [];
       setCustomModel(active.provider === "custom" || !presetModels.includes(active.model));
       const visionPresets =
-        active.provider !== "custom" ? visionModelsForProvider(active.provider) : [];
+        active.provider !== "custom" ? visionPresetModels(active.provider) : [];
       setCustomVisionModel(active.provider === "custom" || !visionPresets.includes(vm));
       setMigratedNotice(
         active.model.includes("v4") &&
@@ -153,12 +153,12 @@ export function AiProviderSettings({
       setApiKeyTouched(false);
       setTestError(null);
       const presetModels =
-        next.provider !== "custom" ? allProviderModels(next.provider) : [];
+        next.provider !== "custom" ? agentPresetModels(next.provider) : [];
       setCustomModel(next.provider === "custom" || !presetModels.includes(next.model));
       if (nextVisionModel !== undefined) {
         setVisionModel(nextVisionModel);
         const visionPresets =
-          next.provider !== "custom" ? visionModelsForProvider(next.provider) : [];
+          next.provider !== "custom" ? visionPresetModels(next.provider) : [];
         setCustomVisionModel(
           next.provider === "custom" || !visionPresets.includes(nextVisionModel),
         );
@@ -576,16 +576,24 @@ export function AiProviderSettings({
             onCustom={() => setCustomModel(true)}
           />
 
-          <div className="settings-card-divider" />
-
-          <ModelSelect
-            provider={settings.provider}
-            model={visionModel}
-            customModel={customVisionModel}
-            purpose="vision"
-            onSelect={onVisionModelSelect}
-            onCustom={() => setCustomVisionModel(true)}
-          />
+          {visionPresetModels(settings.provider).length > 0 ? (
+            <>
+              <div className="settings-card-divider" />
+              <ModelSelect
+                provider={settings.provider}
+                model={visionModel}
+                customModel={customVisionModel}
+                purpose="vision"
+                onSelect={onVisionModelSelect}
+                onCustom={() => setCustomVisionModel(true)}
+              />
+            </>
+          ) : (
+            <>
+              <div className="settings-card-divider" />
+              <p className="settings-field-hint">{t("settings.visionUnavailableHint")}</p>
+            </>
+          )}
 
           {showThinking && (
             <>

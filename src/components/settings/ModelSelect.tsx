@@ -3,9 +3,8 @@ import { ChevronDown } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { AnchoredMenu } from "../AnchoredMenu";
 import {
-  allProviderModels,
-  PROVIDER_MODEL_GROUPS,
-  visionModelsForProvider,
+  agentPresetModels,
+  visionPresetModels,
   type ProviderId,
 } from "../../lib/types";
 import { isVisionModel, isToolModel } from "../../lib/model-capabilities";
@@ -32,15 +31,10 @@ export function ModelSelect({
   const anchorRef = useRef<HTMLDivElement>(null);
 
   const presetModels =
-    purpose === "vision" ? visionModelsForProvider(provider) : allProviderModels(provider);
+    purpose === "vision" ? visionPresetModels(provider) : agentPresetModels(provider);
   const inPreset = !customModel && presetModels.includes(model);
   const vision = isVisionModel(provider, model);
   const tools = isToolModel(provider, model);
-
-  const groups =
-    purpose === "vision"
-      ? PROVIDER_MODEL_GROUPS[provider].filter((g) => g.labelKey.includes("Vision") || g.labelKey.includes("vision") || g.labelKey.includes("Agent"))
-      : PROVIDER_MODEL_GROUPS[provider].filter((g) => !g.labelKey.includes("Vision") && !g.labelKey.includes("vision"));
 
   const labelKey = purpose === "agent" ? "settings.agentModel" : "settings.visionModel";
 
@@ -85,33 +79,28 @@ export function ModelSelect({
             align="start"
             role="listbox"
           >
-            {groups.map((group) => (
-              <div key={group.labelKey} className="model-select-group">
-                <div className="model-select-group-label">{t(group.labelKey)}</div>
-                {group.models.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    role="option"
-                    aria-selected={model === m}
-                    className={`model-select-option ${model === m ? "active" : ""}`}
-                    onClick={() => {
-                      onSelect(m);
-                      setOpen(false);
-                    }}
-                  >
-                    <span>{m}</span>
-                    {isVisionModel(provider, m) ? (
-                      <span className="model-select-badge">{t("settings.modelVisionBadge")}</span>
-                    ) : null}
-                    {isToolModel(provider, m) ? (
-                      <span className="model-select-badge">{t("settings.modelToolsBadge")}</span>
-                    ) : (
-                      <span className="model-select-badge muted">{t("settings.modelChatOnlyBadge")}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
+            {presetModels.map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="option"
+                aria-selected={model === m}
+                className={`model-select-option ${model === m ? "active" : ""}`}
+                onClick={() => {
+                  onSelect(m);
+                  setOpen(false);
+                }}
+              >
+                <span>{m}</span>
+                {isVisionModel(provider, m) ? (
+                  <span className="model-select-badge">{t("settings.modelVisionBadge")}</span>
+                ) : null}
+                {isToolModel(provider, m) ? (
+                  <span className="model-select-badge">{t("settings.modelToolsBadge")}</span>
+                ) : (
+                  <span className="model-select-badge muted">{t("settings.modelChatOnlyBadge")}</span>
+                )}
+              </button>
             ))}
             <div className="model-select-divider" role="separator" />
             <button

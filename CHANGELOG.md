@@ -4,6 +4,14 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.21] - 2026-07-05
+
+### Changed
+
+- Settings: simplify AI provider presets to flat assistant + scan model lists (OpenRouter 2+4 models)
+- OpenRouter scan default → `google/gemini-2.5-flash-lite`; add Gemma/Qwen3-VL free and budget options
+- Remove outdated OpenRouter presets (72B VL, Claude, Chat-only DeepSeek routes)
+
 ## [0.2.20] - 2026-07-04
 
 ### Fixed
@@ -320,7 +328,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.20...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.21...HEAD
+[0.2.21]: https://github.com/hxddh/pagewise/compare/v0.2.20...v0.2.21
 [0.2.20]: https://github.com/hxddh/pagewise/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/hxddh/pagewise/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/hxddh/pagewise/compare/v0.2.17...v0.2.18
