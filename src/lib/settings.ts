@@ -470,12 +470,16 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
   const provider = storeData.activeProvider;
   const profile = getProfileFromStore(storeData, provider);
   const apiKey = await loadApiKey(provider);
-  const visionModel =
+  let model =
     profile.visionModel?.trim() ||
     (provider !== "custom"
       ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
       : profile.model);
-  return profileToSettings(provider, { ...profile, model: visionModel || profile.model }, apiKey);
+  if (provider !== "custom" && model && !isVisionModel(provider, model)) {
+    model =
+      defaultVisionModel(provider as Exclude<ProviderId, "custom">) || profile.model;
+  }
+  return profileToSettings(provider, { ...profile, model: model || profile.model }, apiKey);
 }
 
 export async function loadProviderSettings(provider: ProviderId): Promise<LlmSettings> {

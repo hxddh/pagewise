@@ -137,6 +137,7 @@ function AppShell() {
                   page={document.previewPage}
                   onPageChange={document.setPreviewPage}
                   prefsRevision={shell.prefsRevision}
+                  indexRevision={shell.indexRevision}
                   onOpenAiSettings={() => shell.openSettings("ai")}
                 />
               </Suspense>

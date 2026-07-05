@@ -90,6 +90,8 @@ export function AiProviderSettings({
 
   const profileCacheRef = useRef<Map<ProviderId, LlmSettings>>(new Map());
   const loadSeqRef = useRef(0);
+  const lastPersistedVisionRef = useRef<string | null>(null);
+  const settingsReadyRef = useRef(false);
 
   const previewProvider = settings.provider;
   const previewIsActive = previewProvider === activeProvider;
@@ -121,11 +123,13 @@ export function AiProviderSettings({
       const visionPresets =
         active.provider !== "custom" ? visionPresetModels(active.provider) : [];
       setCustomVisionModel(active.provider === "custom" || !visionPresets.includes(vm));
+      lastPersistedVisionRef.current = vm;
       setMigratedNotice(
         active.model.includes("v4") &&
           localStorage.getItem("pagewise.modelMigrated") !== "1",
       );
       setLoaded(true);
+      settingsReadyRef.current = true;
     });
     return () => {
       cancelled = true;
@@ -189,9 +193,16 @@ export function AiProviderSettings({
       }
       if (saved.provider === activeProvider) {
         onLlmSettingsSaved?.();
+        if (
+          settingsReadyRef.current &&
+          lastPersistedVisionRef.current !== visionModel
+        ) {
+          lastPersistedVisionRef.current = visionModel;
+          onReindexDoc?.();
+        }
       }
     },
-    [previewProvider, activeProvider, onLlmSettingsSaved, visionModel],
+    [previewProvider, activeProvider, onLlmSettingsSaved, onReindexDoc, visionModel],
   );
 
   const { persistNow, markSaved } = useDebouncedSave({
