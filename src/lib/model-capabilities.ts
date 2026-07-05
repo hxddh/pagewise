@@ -99,12 +99,24 @@ export function isVisionModel(provider: ProviderId, model: string): boolean {
   return false;
 }
 
+/** OpenRouter routes verified to accept tool calls + a page screenshot in one request. */
+const OPENROUTER_AGENT_MULTIMODAL_IDS = new Set([
+  "openai/gpt-4o-mini",
+  "openai/gpt-4o",
+  "openai/gpt-4.1-mini",
+  "openai/gpt-4.1",
+]);
+
 /**
  * Whether the agent may attach a page screenshot to the user message.
- * Requires a known capability entry with both vision and tool calling — never guess
- * for OpenRouter (optimistic vision caused upstream "Provider returned error").
+ * OpenRouter uses a strict allowlist — many vision+tools presets reject image payloads in practice.
  */
 export function isAgentMultimodalModel(provider: ProviderId, model: string): boolean {
+  if (provider === "openrouter") {
+    const trimmed = model.trim();
+    if (OPENROUTER_AGENT_MULTIMODAL_IDS.has(trimmed)) return true;
+    return OPENROUTER_AGENT_MULTIMODAL_IDS.has(normalizeModelId(trimmed));
+  }
   const known = lookupCapabilities(model);
   if (known) return known.vision && known.tools;
   if (provider === "openai") {

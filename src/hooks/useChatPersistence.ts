@@ -15,6 +15,7 @@ import {
 } from "../lib/chat-sessions";
 import { messagesSignature } from "../lib/messages-signature";
 import { prepareMessagesForPersist } from "../lib/persist-messages";
+import { sanitizeMessagesForChat } from "../lib/messages-utils";
 import { isTauriRuntime } from "../lib/runtime";
 
 const PERSIST_CANCELLED = "persist_cancelled";
@@ -270,7 +271,7 @@ export function useChatPersistence({
 
         if (cancelled || gen !== opGenRef.current) return;
 
-        setMessagesRef.current(loaded.messages);
+        setMessagesRef.current(sanitizeMessagesForChat(loaded.messages));
         loadedSnapshotRef.current = messagesSignature(loaded.messages);
         messagesDocPathRef.current = docPath!;
         setActiveSessionId(loaded.sessionId);
@@ -373,7 +374,7 @@ export function useChatPersistence({
       try {
         const switched = await switchThread(docPath, sessionId);
         if (gen !== opGenRef.current) return;
-        setMessagesRef.current(switched.messages);
+        setMessagesRef.current(sanitizeMessagesForChat(switched.messages));
         loadedSnapshotRef.current = messagesSignature(switched.messages);
         messagesDocPathRef.current = docPath;
         setActiveSessionId(switched.sessionId);
@@ -475,7 +476,7 @@ export function useChatPersistence({
         try {
           const loaded = await loadActiveMessages(docPath);
           if (gen !== opGenRef.current) return;
-          setMessagesRef.current(loaded.messages);
+          setMessagesRef.current(sanitizeMessagesForChat(loaded.messages));
           loadedSnapshotRef.current = messagesSignature(loaded.messages);
           messagesDocPathRef.current = docPath;
           setActiveSessionId(loaded.sessionId);

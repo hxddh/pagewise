@@ -23,7 +23,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   locale: "system",
   lastSettingsTab: "general",
   followAgentDefault: true,
-  includeViewingPageDefault: true,
+  includeViewingPageDefault: false,
   previewQuality: "crisp",
 };
 

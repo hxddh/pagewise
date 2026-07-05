@@ -33,6 +33,11 @@ export function dropEmptyPartMessages(messages: UIMessage[]): UIMessage[] {
   return messages.filter((m) => Array.isArray(m.parts) && m.parts.length > 0);
 }
 
+/** Repair persisted/hydrated rows before binding to useChat (no history compaction). */
+export function sanitizeMessagesForChat(messages: UIMessage[]): UIMessage[] {
+  return dropEmptyPartMessages(messages);
+}
+
 export function normalizeUIMessages(raw: unknown): UIMessage[] {
   if (!Array.isArray(raw)) return [];
   const out: UIMessage[] = [];

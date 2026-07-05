@@ -338,7 +338,7 @@ async function indexPageTextInner(
         visionError = `Scan model returned too little text (${text.trim().length} chars)`;
       } catch (err) {
         visionFailed = true;
-        visionError = formatLlmError(err);
+        visionError = formatLlmError(err, undefined, "scan");
         console.warn("[vision-index] vision extraction failed:", visionError);
         if (isRateLimitError(err)) {
           if (throwOnRateLimit) {

@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.35] - 2026-07-05
+
+### Fixed
+
+- Agent: OpenRouter page screenshots limited to verified routes (`openai/gpt-4o*`); Gemini/Claude no longer attach images (fixes false “scan model” errors and send failures)
+- Agent: image-reject retry removes duplicate optimistic user row before resending text-only
+- Agent: distinguish assistant vs scan image errors; auto-retry without screenshot when provider rejects images
+- Chat: sanitize loaded sessions (drop `parts: []`) so corrupted history cannot block all sends
+- Preferences: default “Include current page when asking” off — page context still injected as text
+
 ## [0.2.34] - 2026-07-05
 
 ### Fixed

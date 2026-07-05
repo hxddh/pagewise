@@ -3,14 +3,14 @@ import { useChat } from "@ai-sdk/react";
 import { beginAgentMessage, rollbackLastAgentMessage } from "../lib/agent-view-context";
 import { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
-import { formatAgentError, validateAgentModel, assertApiKeyForAgent } from "../lib/llm";
+import { formatAgentError, validateAgentModel, assertApiKeyForAgent, isImageInputError } from "../lib/llm";
 import { isAgentMultimodalModel } from "../lib/model-capabilities";
 import {
-  dropEmptyPartMessages,
   extractAssistantText,
   extractToolExcerpts,
   extractUserText,
   findLastMessage,
+  sanitizeMessagesForChat,
 } from "../lib/messages-utils";
 import { getPageWiseMetadata, type PageWiseUIMessage } from "../lib/message-metadata";
 import { PagewiseChatTransport } from "../lib/pagewise-chat-transport";
@@ -32,6 +32,33 @@ export interface SendDocumentMessageOptions {
   viewingPage: number;
   totalPages: number;
   includeViewingPage: boolean;
+}
+
+type AgentSendPayload = {
+  text: string;
+  files?: Array<{ type: "file"; mediaType: string; url: string }>;
+  messageId?: string;
+};
+
+function payloadHasFiles(payload: AgentSendPayload): boolean {
+  return (payload.files?.length ?? 0) > 0;
+}
+
+async function sendWithImageFallback(
+  payload: AgentSendPayload,
+  send: (p: AgentSendPayload) => Promise<void>,
+  onRetryWithoutImage: () => void,
+): Promise<void> {
+  try {
+    await send(payload);
+  } catch (e) {
+    if (payloadHasFiles(payload) && isImageInputError(e)) {
+      onRetryWithoutImage();
+      await send({ text: payload.text, messageId: payload.messageId });
+      return;
+    }
+    throw e;
+  }
 }
 
 export type RegenerateDocumentMessageOptions = Omit<SendDocumentMessageOptions, "text">;
@@ -228,7 +255,7 @@ export function useDocAgent(chatId: string | null = null) {
     setSendError(undefined);
     chat.setMessages(
       (prev) =>
-        dropEmptyPartMessages(
+        sanitizeMessagesForChat(
           sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)),
         ) as typeof prev,
     );
@@ -277,7 +304,18 @@ export function useDocAgent(chatId: string | null = null) {
 
         try {
           const payload = await buildSendPayload(opts, opts.text);
-          await chat.sendMessage(payload);
+          await sendWithImageFallback(
+            payload,
+            (p) => chat.sendMessage(p),
+            () => {
+              chat.setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role !== "user") return prev;
+                if (extractUserText(last) !== opts.text.trim()) return prev;
+                return prev.slice(0, -1);
+              });
+            },
+          );
           return true;
         } catch (e) {
           rollbackLastAgentMessage();
@@ -318,7 +356,18 @@ export function useDocAgent(chatId: string | null = null) {
 
         try {
           const payload = await buildSendPayload(opts, opts.text);
-          await chat.sendMessage({ ...payload, messageId });
+          await sendWithImageFallback(
+            { ...payload, messageId },
+            (p) => chat.sendMessage(p),
+            () => {
+              chat.setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role !== "user") return prev;
+                if (extractUserText(last) !== opts.text.trim()) return prev;
+                return prev.slice(0, -1);
+              });
+            },
+          );
           return true;
         } catch (e) {
           rollbackLastAgentMessage();

@@ -106,6 +106,40 @@ export function resolveModel(settings: LlmSettings = DEFAULT_SETTINGS): Language
 
 export type TranslateFn = (key: string, vars?: Record<string, string | number>) => string;
 
+/** Where the LLM call originated — drives image-error copy (agent vs background scan). */
+export type LlmErrorKind = "agent" | "scan" | "general";
+
+/** True when the provider rejected a multimodal / image payload. */
+export function isImageInputError(error: unknown): boolean {
+  const unwrapped = unwrapApiError(error);
+  const msg = unwrapped instanceof Error ? unwrapped.message : String(unwrapped);
+  const m = msg.toLowerCase();
+  if (m.includes("does not support image") || m.includes("image input")) return true;
+  if (m.includes("multimodal") && (m.includes("not support") || m.includes("unsupported"))) {
+    return true;
+  }
+  if (
+    m.includes("vision") &&
+    (m.includes("not support") || m.includes("unsupported") || m.includes("not allowed"))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function imageInputErrorMessage(t: TranslateFn | undefined, kind: LlmErrorKind): string {
+  if (kind === "agent") {
+    return (
+      t?.("llm.agentImageNotSupported") ??
+      "The assistant model rejected the page screenshot — turn off “Include current page when asking” in Settings → General, or switch to a multimodal agent model (e.g. openai/gpt-4o-mini). Indexed page text still works."
+    );
+  }
+  return (
+    t?.("llm.visionNotSupported") ??
+    "This model does not support image input — pick another scan model in Settings → AI Provider."
+  );
+}
+
 function parseApiErrorBody(body: unknown): string | null {
   if (!body) return null;
   const text = typeof body === "string" ? body : null;
@@ -186,7 +220,11 @@ export function validateAgentModel(
   return null;
 }
 
-export function formatLlmError(error: unknown, t?: TranslateFn): string {
+export function formatLlmError(
+  error: unknown,
+  t?: TranslateFn,
+  kind: LlmErrorKind = "general",
+): string {
   const unwrapped = unwrapApiError(error);
   // Prefer the AI SDK's structured status code; substring digit matching (e.g. "429") is
   // only a fallback, since a model id like "gpt-4-0429" would otherwise be misclassified.
@@ -201,7 +239,10 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
     const msg = unwrapped.message;
     if (msg === "An error occurred.") {
       const cause = (unwrapped as Error & { cause?: unknown }).cause;
-      if (cause) return formatLlmError(cause, t);
+      if (cause) return formatLlmError(cause, t, kind);
+    }
+    if (isImageInputError(unwrapped)) {
+      return imageInputErrorMessage(t, kind);
     }
     if (
       msg === "Provider returned error" ||
@@ -211,16 +252,6 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
       return (
         t?.("llm.providerReturnedError") ??
         "The upstream model provider rejected the request — try openai/gpt-4o-mini (OpenRouter), another provider, or retry shortly. Page context still works via text when “Include current page” is on."
-      );
-    }
-    if (
-      msg.toLowerCase().includes("image") ||
-      msg.toLowerCase().includes("multimodal") ||
-      msg.toLowerCase().includes("vision")
-    ) {
-      return (
-        t?.("llm.visionNotSupported") ??
-        "This model does not support image input — pick another scan model in Settings → AI Provider."
       );
     }
     if (msg.includes("/responses")) {
@@ -245,16 +276,6 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
       return (
         t?.("llm.toolsNotSupportedOpenRouter") ??
         "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → AI Provider."
-      );
-    }
-    if (
-      msg.toLowerCase().includes("does not support image") ||
-      msg.toLowerCase().includes("multimodal") ||
-      msg.toLowerCase().includes("image input")
-    ) {
-      return (
-        t?.("llm.visionNotSupported") ??
-        "This model does not support image input — pick another scan model in Settings → AI Provider."
       );
     }
     if (statusCode === 404 || (!hasStatus && msg.includes("404"))) {
@@ -288,7 +309,7 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
     return msg;
   }
   if (typeof error === "string") {
-    return formatLlmError(new Error(error), t);
+    return formatLlmError(new Error(error), t, kind);
   }
   return String(error);
 }
@@ -299,9 +320,9 @@ export function formatAgentError(error: unknown, t?: TranslateFn): string {
     return t?.("agent.errorUnknown") ?? "Unknown error";
   }
   if (error instanceof Error) {
-    return formatLlmError(error, t);
+    return formatLlmError(error, t, "agent");
   }
-  return formatLlmError(String(error), t);
+  return formatLlmError(String(error), t, "agent");
 }
 
 /** Minimal valid JPEG for scan-model connectivity checks. */
@@ -340,10 +361,7 @@ export async function testVisionConnection(
     throw new Error(t?.("llm.modelRequired") ?? "Model ID is required");
   }
   if (!isVisionModel(settings.provider, settings.model)) {
-    throw new Error(
-      t?.("llm.visionNotSupported") ??
-        "This model does not support image input — pick another scan model in Settings → AI Provider.",
-    );
+    throw new Error(imageInputErrorMessage(t, "scan"));
   }
 
   try {
@@ -353,7 +371,7 @@ export async function testVisionConnection(
       VISION_PROBE_JPEG,
     );
   } catch (e) {
-    throw new Error(formatLlmError(e, t));
+    throw new Error(formatLlmError(e, t, "scan"));
   }
 }
 

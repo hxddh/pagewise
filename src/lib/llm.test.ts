@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APICallError } from "ai";
-import { formatLlmError, validateModel } from "./llm";
+import { formatLlmError, isImageInputError, validateModel } from "./llm";
 
 describe("formatLlmError", () => {
   it("maps OpenRouter tool-use 404 before generic notFound", () => {
@@ -38,8 +38,11 @@ describe("formatLlmError", () => {
       }),
       isRetryable: false,
     });
-    const msg = formatLlmError(err);
-    expect(msg.toLowerCase()).toContain("image");
+    expect(isImageInputError(err)).toBe(true);
+    const agentMsg = formatLlmError(err, undefined, "agent");
+    expect(agentMsg.toLowerCase()).toMatch(/screenshot|当前页/);
+    const scanMsg = formatLlmError(err, undefined, "scan");
+    expect(scanMsg.toLowerCase()).toContain("scan");
   });
 });
 
