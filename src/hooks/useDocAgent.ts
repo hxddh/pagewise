@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { beginAgentMessage, rollbackLastAgentMessage } from "../lib/agent-view-context";
+import { sendWithImageFallback } from "../lib/agent-send";
 import { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
-import { formatAgentError, validateAgentModel, assertApiKeyForAgent, isImageInputError } from "../lib/llm";
+import { formatAgentError, validateAgentModel, assertApiKeyForAgent } from "../lib/llm";
 import { isAgentMultimodalModel } from "../lib/model-capabilities";
 import {
   extractAssistantText,
@@ -32,33 +33,6 @@ export interface SendDocumentMessageOptions {
   viewingPage: number;
   totalPages: number;
   includeViewingPage: boolean;
-}
-
-type AgentSendPayload = {
-  text: string;
-  files?: Array<{ type: "file"; mediaType: string; url: string }>;
-  messageId?: string;
-};
-
-function payloadHasFiles(payload: AgentSendPayload): boolean {
-  return (payload.files?.length ?? 0) > 0;
-}
-
-async function sendWithImageFallback(
-  payload: AgentSendPayload,
-  send: (p: AgentSendPayload) => Promise<void>,
-  onRetryWithoutImage: () => void,
-): Promise<void> {
-  try {
-    await send(payload);
-  } catch (e) {
-    if (payloadHasFiles(payload) && isImageInputError(e)) {
-      onRetryWithoutImage();
-      await send({ text: payload.text, messageId: payload.messageId });
-      return;
-    }
-    throw e;
-  }
 }
 
 export type RegenerateDocumentMessageOptions = Omit<SendDocumentMessageOptions, "text">;
@@ -106,11 +80,13 @@ export function useDocAgent(chatId: string | null = null) {
   const pruneChatIdRef = useRef(resolvedChatId);
   const pruneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   pruneChatIdRef.current = resolvedChatId;
+  const pendingSendErrorRef = useRef<Error | undefined>(undefined);
 
   const chat = useChat<PageWiseUIMessage>({
     id: resolvedChatId,
     transport: transportRef.current,
     onError: (error) => {
+      pendingSendErrorRef.current = error;
       if (import.meta.env.DEV) {
         console.error("[PageWise agent]", error);
       }
@@ -120,8 +96,9 @@ export function useDocAgent(chatId: string | null = null) {
         setStreamProgress(part.data.message || null);
       }
     },
-    onFinish: ({ message, isAbort }) => {
+    onFinish: ({ message, isAbort, isError }) => {
       setStreamProgress(null);
+      if (!isError) pendingSendErrorRef.current = undefined;
 
       const meta = getPageWiseMetadata(message);
       if (!isAbort && meta?.finishedAt == null) {
@@ -238,6 +215,16 @@ export function useDocAgent(chatId: string | null = null) {
 
   const [sendError, setSendError] = useState<Error | undefined>();
 
+  const readSendError = useCallback(
+    () => pendingSendErrorRef.current ?? chat.error,
+    [chat.error],
+  );
+
+  const clearSendError = useCallback(() => {
+    pendingSendErrorRef.current = undefined;
+    chat.clearError();
+  }, [chat.clearError]);
+
   const prepareForAgentSend = useCallback(async (): Promise<boolean> => {
     const settings = await loadSettings();
     const modelError = validateAgentModel(settings, t);
@@ -251,7 +238,7 @@ export function useDocAgent(chatId: string | null = null) {
       setSendError(e instanceof Error ? e : new Error(String(e)));
       return false;
     }
-    chat.clearError();
+    clearSendError();
     setSendError(undefined);
     chat.setMessages(
       (prev) =>
@@ -260,7 +247,7 @@ export function useDocAgent(chatId: string | null = null) {
         ) as typeof prev,
     );
     return true;
-  }, [chat.clearError, chat.setMessages, t]);
+  }, [clearSendError, chat.setMessages, t]);
 
   const buildSendPayload = useCallback(
     async (opts: SendDocumentMessageOptions, text: string) => {
@@ -307,6 +294,8 @@ export function useDocAgent(chatId: string | null = null) {
           await sendWithImageFallback(
             payload,
             (p) => chat.sendMessage(p),
+            readSendError,
+            clearSendError,
             () => {
               chat.setMessages((prev) => {
                 const last = prev[prev.length - 1];
@@ -327,7 +316,7 @@ export function useDocAgent(chatId: string | null = null) {
         sendingRef.current = false;
       }
     },
-    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload],
+    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload, readSendError, clearSendError],
   );
 
   const editUserMessage = useCallback(
@@ -359,6 +348,8 @@ export function useDocAgent(chatId: string | null = null) {
           await sendWithImageFallback(
             { ...payload, messageId },
             (p) => chat.sendMessage(p),
+            readSendError,
+            clearSendError,
             () => {
               chat.setMessages((prev) => {
                 const last = prev[prev.length - 1];
@@ -379,7 +370,7 @@ export function useDocAgent(chatId: string | null = null) {
         sendingRef.current = false;
       }
     },
-    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload],
+    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload, readSendError, clearSendError],
   );
 
   const regenerateDocumentMessage = useCallback(
@@ -412,7 +403,11 @@ export function useDocAgent(chatId: string | null = null) {
         });
 
         try {
+          pendingSendErrorRef.current = undefined;
+          chat.clearError();
           await chat.regenerate();
+          const err = readSendError();
+          if (err) throw err;
           return true;
         } catch (e) {
           rollbackLastAgentMessage();
@@ -424,7 +419,7 @@ export function useDocAgent(chatId: string | null = null) {
         sendingRef.current = false;
       }
     },
-    [chat.messages, chat.regenerate, chat.status, prepareForAgentSend],
+    [chat.messages, chat.regenerate, chat.status, prepareForAgentSend, readSendError, chat.clearError],
   );
 
   const clearChat = useCallback(() => {
