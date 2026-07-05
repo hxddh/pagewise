@@ -86,6 +86,10 @@ export function clearAgentRunAbortSignal(): void {
   agentRunAbortSignal = undefined;
 }
 
+export function getAgentRunAbortSignal(): AbortSignal | undefined {
+  return agentRunAbortSignal;
+}
+
 function inflightKey(path: string, page: number): string {
   return `${path}:${page}`;
 }

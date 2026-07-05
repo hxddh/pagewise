@@ -209,10 +209,12 @@
     "editMessage": "编辑",
     "resend": "重新发送",
     "cancelEdit": "取消",
+    "editFailed": "无法重新发送编辑后的消息，请查看上方错误后重试。",
     "toolFailed": "失败",
     "usageFinalTools": "最后一步工具",
     "usageProviderMeta": "提供商元数据",
-    "structuredCitations": "结构化引用"
+    "structuredCitations": "结构化引用",
+    "citationsError": "未能为此回复生成结构化引用。"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

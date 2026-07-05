@@ -115,6 +115,7 @@ function MessageAssistantFooterInner({
   const agentIn = resolveAgentTokenTotals(metadata).input;
   const agentOut = resolveAgentTokenTotals(metadata).output;
   const citations = metadata?.structuredCitations ?? [];
+  const citationsError = metadata?.citationsError;
 
   return (
     <div className="message-assistant-footer">
@@ -130,6 +131,11 @@ function MessageAssistantFooterInner({
             </li>
           ))}
         </ul>
+      )}
+      {citations.length === 0 && citationsError && (
+        <p className="structured-citations-error" role="note">
+          {t("agent.citationsError")}
+        </p>
       )}
 
       <div className="message-assistant-toolbar">

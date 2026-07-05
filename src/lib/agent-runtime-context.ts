@@ -17,10 +17,11 @@ export interface PageWiseDocToolContext extends Context {
 export function buildRuntimeContext(
   viewCtx: AgentMessageContext | null,
 ): PageWiseRuntimeContext {
-  const fallback = docCache.list()[0];
+  const loaded = docCache.list();
+  const soleDoc = loaded.length === 1 ? loaded[0] : undefined;
   return {
-    activeDocPath: viewCtx?.path ?? fallback?.path ?? null,
-    activeDocName: viewCtx?.docName ?? fallback?.name ?? null,
+    activeDocPath: viewCtx?.path ?? soleDoc?.path ?? null,
+    activeDocName: viewCtx?.docName ?? soleDoc?.name ?? null,
     viewingPage: viewCtx?.viewingPage ?? null,
   };
 }

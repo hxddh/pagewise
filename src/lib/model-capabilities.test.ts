@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isAgentMultimodalModel,
   isKnownNonVisionModel,
+  isToolModel,
   isVisionModel,
 } from "./model-capabilities";
 
@@ -52,5 +53,15 @@ describe("isAgentMultimodalModel", () => {
     expect(isAgentMultimodalModel("openrouter", "qwen/qwen2.5-vl-72b-instruct")).toBe(
       false,
     );
+  });
+});
+
+describe("isToolModel", () => {
+  it("rejects unknown OpenRouter models", () => {
+    expect(isToolModel("openrouter", "vendor/unknown-v9")).toBe(false);
+  });
+
+  it("allows unknown custom models", () => {
+    expect(isToolModel("custom", "my-local-agent")).toBe(true);
   });
 });

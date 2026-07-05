@@ -209,10 +209,12 @@
     "editMessage": "Edit",
     "resend": "Resend",
     "cancelEdit": "Cancel",
+    "editFailed": "Could not resend the edited message. Check the error above and try again.",
     "toolFailed": "failed",
     "usageFinalTools": "Final step tools",
     "usageProviderMeta": "Provider metadata",
-    "structuredCitations": "Structured citations"
+    "structuredCitations": "Structured citations",
+    "citationsError": "Could not generate structured citations for this reply."
   },
   "empty": {
     "lead": "Ask questions about your document",

@@ -254,7 +254,6 @@ export async function saveActiveSession(
     }
 
     doc.docName = docName;
-    doc.activeSessionId = sessionId;
 
     const idx = doc.threads.findIndex((t) => t.id === sessionId);
     const updated: ChatThread = {
@@ -266,6 +265,11 @@ export async function saveActiveSession(
 
     if (idx >= 0) doc.threads[idx] = updated;
     else doc.threads.push(updated);
+
+    // Saving a background thread must not steal the active-session pointer.
+    if (doc.activeSessionId === sessionId || doc.threads.length === 1) {
+      doc.activeSessionId = sessionId;
+    }
 
     await writeStore(data);
   });

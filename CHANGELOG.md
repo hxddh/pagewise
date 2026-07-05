@@ -4,6 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.39] - 2026-07-05
+
+### Fixed
+
+- Agent: honor Stop during PDF text extract and semantic search (abort checks + embed signal)
+- Agent: snapshot settings per run so mid-run provider changes cannot swap models
+- Agent: regenerate rebuilds page screenshot via `buildSendPayload` (same as edit/send)
+- Agent: citation generation cancelled on new send; `citationsError` shown in footer
+- Vision: block scan API when custom provider has no Base URL
+- Model: unknown OpenRouter models no longer assumed tool-capable
+- Runtime: default doc path only when exactly one document is loaded
+- Chat: edit resend failures show inline error; autosave signature matches pruned disk shape
+- Sessions: saving a background thread no longer steals `activeSessionId`
+- Settings: prefer local API key mirror over keychain on every read
+- Preferences: serialize read-modify-write with store lock
+
 ## [0.2.38] - 2026-07-05
 
 ### Fixed

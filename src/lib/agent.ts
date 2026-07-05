@@ -1,3 +1,4 @@
+import { throwIfAborted } from "./abort-utils";
 import { extractPageText } from "./pdf";
 import { ToolLoopAgent, stepCountIs, tool } from "ai";
 import { z } from "zod";
@@ -23,7 +24,7 @@ import { buildPrepareStepOverrides } from "./agent-context-compaction";
 import { resolveMaxAgentSteps, MAX_AGENT_STEPS_FULL } from "./agent-run-plan";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { pickBetterPageText } from "./page-text-merge";
-import { indexPageText, MIN_INDEX_CHARS } from "./vision-index";
+import { indexPageText, MIN_INDEX_CHARS, getAgentRunAbortSignal } from "./vision-index";
 import { yieldToUi } from "./yield-to-ui";
 
 /** Default cap per read_pdf_range call — keeps tool results out of context blowups. */
@@ -66,6 +67,9 @@ function assertPageInBounds(doc: LoadedDocument, page: number): void {
 }
 
 async function readPageText(path: string, page: number) {
+  const signal = getAgentRunAbortSignal();
+  throwIfAborted(signal);
+
   const doc = docCache.get(path);
   const kind = doc?.kind ?? (path.split(".").pop()?.toLowerCase() === "pdf" ? "pdf" : "image");
 
@@ -77,7 +81,9 @@ async function readPageText(path: string, page: number) {
   emitAgentProgress(`Indexing page ${page}…`, "index");
 
   if (kind === "pdf") {
+    throwIfAborted(signal);
     const text = await extractPageText(path, page);
+    throwIfAborted(signal);
     if (text.trim().length >= MIN_INDEX_CHARS) {
       const merged = pickBetterPageText(cached?.text ?? "", text);
       docCache.upsertPageText(path, page, merged);
@@ -86,6 +92,7 @@ async function readPageText(path: string, page: number) {
   }
 
   const indexed = await indexPageText(path, page, kind);
+  throwIfAborted(signal);
   const source =
     indexed.source === "vision"
       ? ("vision" as const)
@@ -219,7 +226,6 @@ function createDocumentTools(budget: ReadBudget) {
             return {
               page,
               text: "",
-              source: "cache" as const,
               truncated: false,
               nextOffset: null,
               charCount: 0,
@@ -410,7 +416,9 @@ function createDocumentTools(budget: ReadBudget) {
           const path = resolvePathInput(inputPath, options);
           requireLoadedDoc(path);
           const pages = docCache.getPages(path);
-          const hits = await semanticSearchPages(path, pages, query);
+          const hits = await semanticSearchPages(path, pages, query, 30, {
+            signal: getAgentRunAbortSignal(),
+          });
           const preview = formatSearchPreview(hits);
           if (preview) emitAgentProgress(preview, "search");
           return hits;
@@ -460,6 +468,7 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
 export function createDocAgent() {
   const budget: ReadBudget = { used: 0, max: RUN_CHAR_BUDGET };
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
+  let runSettings: Awaited<ReturnType<typeof loadSettings>> | null = null;
   const tools = createDocumentTools(budget);
   const defaultRuntime = buildRuntimeContext(null);
 
@@ -473,6 +482,7 @@ export function createDocAgent() {
       budget.used = 0;
 
       const settings = await loadSettings();
+      runSettings = settings;
       const viewCtx = consumePendingAgentContext();
       runMaxSteps = resolveMaxAgentSteps(viewCtx?.userText ?? "");
       const runtimeContext = buildRuntimeContext(viewCtx);
@@ -496,7 +506,7 @@ export function createDocAgent() {
       };
     },
     prepareStep: async ({ stepNumber, steps, messages }) => {
-      const settings = await loadSettings();
+      const settings = runSettings ?? (await loadSettings());
       return buildPrepareStepOverrides({
         settings,
         stepNumber,
