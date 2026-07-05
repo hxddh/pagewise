@@ -99,24 +99,17 @@ export function isVisionModel(provider: ProviderId, model: string): boolean {
   return false;
 }
 
-/** OpenRouter routes verified to accept tool calls + a page screenshot in one request. */
-const OPENROUTER_AGENT_MULTIMODAL_IDS = new Set([
-  "openai/gpt-4o-mini",
-  "openai/gpt-4o",
-  "openai/gpt-4.1-mini",
-  "openai/gpt-4.1",
-]);
+/** OpenRouter cannot accept AI SDK image parts (raw base64 in image_url). Use text page context instead. */
+export function providerBreaksAgentImageAttachments(provider: ProviderId): boolean {
+  return provider === "openrouter";
+}
 
 /**
  * Whether the agent may attach a page screenshot to the user message.
- * OpenRouter uses a strict allowlist — many vision+tools presets reject image payloads in practice.
+ * OpenRouter always uses text page context — AI SDK encodes images as raw base64, which OpenRouter rejects.
  */
 export function isAgentMultimodalModel(provider: ProviderId, model: string): boolean {
-  if (provider === "openrouter") {
-    const trimmed = model.trim();
-    if (OPENROUTER_AGENT_MULTIMODAL_IDS.has(trimmed)) return true;
-    return OPENROUTER_AGENT_MULTIMODAL_IDS.has(normalizeModelId(trimmed));
-  }
+  if (providerBreaksAgentImageAttachments(provider)) return false;
   const known = lookupCapabilities(model);
   if (known) return known.vision && known.tools;
   if (provider === "openai") {

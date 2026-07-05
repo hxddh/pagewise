@@ -7,7 +7,8 @@ import {
   type ChatTransport,
   type UIMessageChunk,
 } from "ai";
-import { dropEmptyPartMessages } from "./messages-utils";
+import type { ProviderId } from "./types";
+import { dropEmptyPartMessages, stripUserFileParts } from "./messages-utils";
 import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
@@ -26,6 +27,7 @@ export interface PagewiseChatTransportOptions<
   agent: Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>;
   onError?: (error: unknown) => string;
   resolveModelLabel: () => Promise<string>;
+  resolveProvider: () => Promise<ProviderId>;
 }
 
 export class PagewiseChatTransport<
@@ -37,15 +39,18 @@ export class PagewiseChatTransport<
   private readonly agent: Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>;
   private readonly onError: (error: unknown) => string;
   private readonly resolveModelLabel: () => Promise<string>;
+  private readonly resolveProvider: () => Promise<ProviderId>;
 
   constructor({
     agent,
     onError = () => "An error occurred.",
     resolveModelLabel,
+    resolveProvider,
   }: PagewiseChatTransportOptions<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>) {
     this.agent = agent;
     this.onError = onError;
     this.resolveModelLabel = resolveModelLabel;
+    this.resolveProvider = resolveProvider;
   }
 
   async sendMessages({
@@ -56,8 +61,12 @@ export class PagewiseChatTransport<
   > {
     clearAgentProgress();
 
+    const provider = await this.resolveProvider();
     const validatedMessages = (await validateUIMessages({
-      messages: dropEmptyPartMessages(messages),
+      messages: stripUserFileParts(
+        dropEmptyPartMessages(messages),
+        provider,
+      ),
       tools: this.agent.tools as Parameters<typeof validateUIMessages>[0]["tools"],
     })) as PageWiseUIMessage[];
 

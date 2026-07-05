@@ -1,4 +1,7 @@
 import type { UIMessage } from "ai";
+import type { ProviderId } from "./types";
+import { loadSettings } from "./settings";
+import { providerBreaksAgentImageAttachments } from "./model-capabilities";
 
 /** Coerce persisted / legacy chat rows into valid UIMessage shape. */
 export function normalizeUIMessage(raw: unknown): UIMessage | null {
@@ -36,6 +39,42 @@ export function dropEmptyPartMessages(messages: UIMessage[]): UIMessage[] {
 /** Repair persisted/hydrated rows before binding to useChat (no history compaction). */
 export function sanitizeMessagesForChat(messages: UIMessage[]): UIMessage[] {
   return dropEmptyPartMessages(messages);
+}
+
+/** Drop page-screenshot file parts when the provider cannot accept AI SDK image encoding. */
+export function stripUserFileParts(
+  messages: UIMessage[],
+  provider: ProviderId,
+): UIMessage[] {
+  if (!providerBreaksAgentImageAttachments(provider)) return messages;
+
+  let changed = false;
+  const next: UIMessage[] = [];
+
+  for (const message of messages) {
+    if (message.role !== "user") {
+      next.push(message);
+      continue;
+    }
+
+    const parts = message.parts.filter((part) => part.type !== "file");
+    if (parts.length === message.parts.length) {
+      next.push(message);
+      continue;
+    }
+
+    changed = true;
+    if (parts.length === 0) continue;
+    next.push({ ...message, parts });
+  }
+
+  return changed ? next : messages;
+}
+
+/** Sanitize persisted rows for useChat, including provider-specific image stripping. */
+export async function hydrateChatMessages(messages: UIMessage[]): Promise<UIMessage[]> {
+  const settings = await loadSettings();
+  return sanitizeMessagesForChat(stripUserFileParts(messages, settings.provider));
 }
 
 export function normalizeUIMessages(raw: unknown): UIMessage[] {

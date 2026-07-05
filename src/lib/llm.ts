@@ -115,6 +115,7 @@ export function isImageInputError(error: unknown): boolean {
   const msg = unwrapped instanceof Error ? unwrapped.message : String(unwrapped);
   const m = msg.toLowerCase();
   if (m.includes("does not support image") || m.includes("image input")) return true;
+  if (m.includes("failed to download image")) return true;
   if (m.includes("multimodal") && (m.includes("not support") || m.includes("unsupported"))) {
     return true;
   }

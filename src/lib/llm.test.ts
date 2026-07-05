@@ -44,6 +44,13 @@ describe("formatLlmError", () => {
     const scanMsg = formatLlmError(err, undefined, "scan");
     expect(scanMsg.toLowerCase()).toContain("scan");
   });
+
+  it("treats OpenRouter failed image download as image input error", () => {
+    const err = new Error(
+      'Failed to download image from iVBORw0KGgoAAAANSUhEUgAABMgAAAYwCAYAAACHkHNS',
+    );
+    expect(isImageInputError(err)).toBe(true);
+  });
 });
 
 describe("validateModel", () => {
