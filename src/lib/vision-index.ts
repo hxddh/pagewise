@@ -1,19 +1,11 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { generateText } from "ai";
-import { docCache } from "./doc-cache";
-import {
-  clearPageIndexState,
-  emitPageIndex,
-  getPageIndexState,
-  type IndexFailureReason,
-} from "./index-events";
-import { resolveModel, assertApiKeyForAgent, formatLlmError } from "./llm";
+import { assertApiKeyForAgent, formatLlmError } from "./llm";
+import { generateVisionText } from "./vision-api";
 import { isVisionModel } from "./model-capabilities";
 import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
 import { loadVisionSettings } from "./settings";
 import type { LoadedDocument } from "./types";
 import type { LlmSettings } from "./types";
-import { addIndexUsage } from "./usage-tracker";
 
 export const MIN_INDEX_CHARS = 20;
 
@@ -148,20 +140,12 @@ export async function visionExtractPage(
   const image = await compressImageForVision(raw);
   const focus = input.focus ?? (input.kind === "image" ? "structure" : "text");
 
-  const { text } = await generateText({
-    model: resolveModel(settings),
-    abortSignal: withTimeoutSignal(options.signal, options.timeoutMs ?? VISION_TIMEOUT_MS),
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: VISION_PROMPTS[focus] },
-          { type: "image", image, mediaType: "image/jpeg" },
-        ],
-      },
-    ],
-    onEnd: ({ usage }) => addIndexUsage(usage),
-  });
+  const text = await generateVisionText(
+    settings,
+    VISION_PROMPTS[focus],
+    image,
+    { signal: withTimeoutSignal(options.signal, options.timeoutMs ?? VISION_TIMEOUT_MS) },
+  );
 
   return { text: text.trim() };
 }
