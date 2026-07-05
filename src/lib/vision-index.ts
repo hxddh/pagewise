@@ -13,8 +13,9 @@ import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
 import { loadVisionSettings } from "./settings";
 import type { LoadedDocument } from "./types";
 import type { LlmSettings } from "./types";
+import { MIN_INDEX_CHARS } from "./page-text-merge";
 
-export const MIN_INDEX_CHARS = 20;
+export { MIN_INDEX_CHARS } from "./page-text-merge";
 
 const VISION_MAX_EDGE = 1568;
 const VISION_JPEG_QUALITY = 0.85;
@@ -53,7 +54,10 @@ export interface IndexSparsePagesOptions {
 }
 
 export interface IndexSparsePagesResult {
+  /** Pages that ended with sufficient indexed text. */
   indexed: number;
+  /** Pages scheduled in this sweep (may include failures). */
+  scheduled: number;
   skipped: number;
   capped: boolean;
 }
@@ -68,8 +72,8 @@ export function getBackgroundIndexSignal(): AbortSignal | undefined {
   return backgroundIndexController?.signal;
 }
 
-function inflightKey(path: string, page: number): string {
-  return `${path}:${page}`;
+function inflightKey(path: string, page: number, throwOnRateLimit: boolean): string {
+  return `${path}:${page}:${throwOnRateLimit ? "pool" : "single"}`;
 }
 
 function resolveIndexSignal(options: IndexPageOptions): AbortSignal | undefined {
@@ -383,7 +387,7 @@ export async function indexPageText(
 ): Promise<{ text: string; source: "vision" | "ocr" | "cache" }> {
   const signal = resolveIndexSignal(options);
   const resolvedOptions = { ...options, signal };
-  const key = inflightKey(path, page);
+  const key = inflightKey(path, page, resolvedOptions.throwOnRateLimit ?? false);
 
   const existing = inflightIndex.get(key);
   if (existing) return existing;
@@ -445,10 +449,16 @@ export function indexSparsePages(
     clearPageIndexState(doc.path, page);
   }
 
-  return runIndexPool(limited, Math.max(1, concurrency), signal, (page) =>
-    indexPageText(doc.path, page, doc.kind, { signal, throwOnRateLimit: true }),
-  ).then(() => ({
-    indexed: limited.length,
+  let succeeded = 0;
+  return runIndexPool(limited, Math.max(1, concurrency), signal, async (page) => {
+    const result = await indexPageText(doc.path, page, doc.kind, {
+      signal,
+      throwOnRateLimit: true,
+    });
+    if (result.text.trim().length >= MIN_INDEX_CHARS) succeeded++;
+  }).then(() => ({
+    indexed: succeeded,
+    scheduled: limited.length,
     skipped: targets.length - limited.length,
     capped,
   }));

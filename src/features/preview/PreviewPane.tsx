@@ -47,7 +47,9 @@ function PreviewPaneInner({
     }
     const state = getPageIndexState(doc.path, indexPage);
     if (state?.status === "indexing") return;
-    if (state?.status === "done") return;
+    if (state?.status === "done" && pageHasIndexableText(doc.path, indexPage, doc.pages)) {
+      return;
+    }
     if (state?.status === "failed") {
       clearPageIndexState(doc.path, indexPage);
     }

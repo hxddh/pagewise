@@ -198,14 +198,24 @@ export function useDocumentWorkspace(
     indexAbortRef.current = controller;
     setBackgroundIndexAbortController(controller);
     void indexSparsePages(doc, pages, { signal: controller.signal }).then((result) => {
-      if (result.capped && showToast && translate) {
-        showToast(
-          translate("toast.indexPageCap", {
-            indexed: result.indexed,
-            total: result.indexed + result.skipped,
-          }),
-          "default",
-        );
+      if (showToast && translate) {
+        if (result.capped) {
+          showToast(
+            translate("toast.indexPageCap", {
+              indexed: result.indexed,
+              total: result.scheduled + result.skipped,
+            }),
+            "default",
+          );
+        } else if (result.scheduled > 0 && result.indexed < result.scheduled) {
+          showToast(
+            translate("toast.indexPartial", {
+              indexed: result.indexed,
+              scheduled: result.scheduled,
+            }),
+            "default",
+          );
+        }
       }
     });
   }, [showToast, translate]);

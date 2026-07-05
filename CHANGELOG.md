@@ -4,6 +4,25 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.27] - 2026-07-05
+
+### Fixed
+
+- Agent: PDF extract path now requires ≥20 chars before returning (aligned with vision index threshold)
+- Indexing: reopening the same file preserves vision/OCR text instead of wiping the cache
+- Search: semantic index rebuilds correctly after background indexing and document reload
+- Chat: unsaved messages are persisted before same-path document reload
+- Indexing: separate in-flight dedupe for preview vs bulk sweep (429 halt works correctly)
+- Preview: re-index when status is `done` but page text is still too short
+- Settings: block provider switch / set active when save fails
+- Settings: preserve explicit DeepSeek scan model distinct from agent model
+
+### Changed
+
+- Settings: custom provider gets a dedicated scan model field
+- Indexing: cap toast reports successful pages; partial-failure toast when some pages fail
+- Doc cache: `remove()` also clears per-page index state
+
 ## [0.2.26] - 2026-07-05
 
 ### Fixed

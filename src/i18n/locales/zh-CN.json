@@ -296,6 +296,7 @@
     "scanUnavailableHint": "此提供商无扫页预置。扫描 PDF 将使用本地 OCR，或改用 OpenRouter 进行视觉索引。",
     "scanModelOptionalHint": "可选：若提供商支持图像输入，可填写多模态模型 ID。",
     "scanModelOptionalPlaceholder": "model-id（可选）",
+    "customScanModelHint": "可选：用于扫页/索引的多模态模型；留空则使用助手模型。",
     "visionNeedMultimodal": "当前模型不支持图片识别。请选择支持视觉的扫页预置（如 gemini-2.5-flash-lite、Qwen3-VL）。",
     "visionUnavailableHint": "此提供商无扫页预置。扫描 PDF 将使用本地 OCR，或改用 OpenRouter 进行视觉索引。",
     "thinkingMode": "扩展思考",
@@ -372,6 +373,7 @@
     "opened": "已打开 {{name}}",
     "pathRestoreFailed": "{{count}} 个已保存路径无法恢复访问，请重新打开文件",
     "indexPageCap": "本次索引 {{indexed}}/{{total}} 页稀疏内容 — 可重新打开或翻页继续索引",
+    "indexPartial": "本次成功索引 {{indexed}}/{{scheduled}} 页 — 部分页面失败",
     "dismiss": "关闭"
   },
   "errors": {

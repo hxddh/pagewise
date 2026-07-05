@@ -296,6 +296,7 @@
     "scanUnavailableHint": "This provider has no scan presets. Scanned PDFs use local OCR, or switch to OpenRouter for vision indexing.",
     "scanModelOptionalHint": "Optional: enter a multimodal model ID if your provider supports image input.",
     "scanModelOptionalPlaceholder": "model-id (optional)",
+    "customScanModelHint": "Optional multimodal model for scan/indexing; defaults to the assistant model when empty.",
     "visionNeedMultimodal": "This model cannot read images. Pick a scan preset that supports vision (e.g. gemini-2.5-flash-lite, Qwen3-VL).",
     "visionUnavailableHint": "This provider has no scan presets. Scanned PDFs use local OCR, or switch to OpenRouter for vision indexing.",
     "thinkingMode": "Extended thinking",
@@ -372,6 +373,7 @@
     "opened": "Opened {{name}}",
     "pathRestoreFailed": "{{count}} saved path(s) could not be restored — reopen the file",
     "indexPageCap": "Indexing {{indexed}} of {{total}} sparse pages this pass — reopen or scroll to index more",
+    "indexPartial": "Indexed {{indexed}} of {{scheduled}} pages this pass — some pages failed",
     "dismiss": "Dismiss"
   },
   "errors": {

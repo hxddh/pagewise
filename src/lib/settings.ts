@@ -480,8 +480,15 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
     (provider !== "custom"
       ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
       : profile.model);
-  // Replace only when the stored id is a *known* non-vision model (e.g. agent text-only preset).
-  if (provider !== "custom" && model && isKnownNonVisionModel(model)) {
+  // Replace only when the stored id is a known non-vision model and matches the agent model
+  // (legacy shared slot). Explicit user scan models are preserved even on DeepSeek.
+  const userScan = profile.visionModel?.trim();
+  if (
+    provider !== "custom" &&
+    model &&
+    isKnownNonVisionModel(model) &&
+    (!userScan || userScan === profile.model)
+  ) {
     model =
       defaultVisionModel(provider as Exclude<ProviderId, "custom">) || profile.model;
   }
