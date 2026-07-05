@@ -38,6 +38,19 @@ describe("saveActiveSession", () => {
     expect(loaded.messages).toHaveLength(1);
   });
 
+  it("does not steal active session when touchActive is false", async () => {
+    await saveActiveSession("/a.pdf", "a.pdf", "default", [msg("1", "one")]);
+    await saveActiveSession("/a.pdf", "a.pdf", "second", [msg("2", "two")]);
+    await switchThread("/a.pdf", "default");
+    await saveActiveSession("/a.pdf", "a.pdf", "second", [msg("2", "updated")], {
+      touchActive: false,
+    });
+    const loaded = await loadActiveMessages("/a.pdf");
+    expect(loaded.sessionId).toBe("default");
+    const second = loaded.threads.find((t) => t.id === "second");
+    expect(second?.messages[0].parts[0]).toMatchObject({ text: "updated" });
+  });
+
   it("clearActiveThread removes stored thread", async () => {
     await saveActiveSession("/a.pdf", "a.pdf", "default", [msg("1", "bye")]);
     await clearActiveThread("/a.pdf", "default");

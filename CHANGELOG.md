@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.40] - 2026-07-05
+
+### Fixed
+
+- Chat: `validateChatMessagesForSend` repairs corrupt history (dangling tools, empty assistants) instead of blocking sends
+- Agent: PDF page text extract honors AbortSignal — Stop returns immediately even if Rust IPC is still running
+- Sessions: `saveActiveSession({ touchActive: false })` for background/doc-switch saves; explicit API prevents stealing active thread
+
+### Added
+
+- Tests: `validate-chat-messages`, `structured-citations`, `chat-persistence-flow`, transport abort lifecycle
+
 ## [0.2.39] - 2026-07-05
 
 ### Fixed
