@@ -294,6 +294,8 @@
     "agentNeedTools": "This model cannot use tool calling, so the document assistant will not work. Pick an assistant preset (e.g. openai/gpt-4o-mini).",
     "scanNeedMultimodal": "This model cannot read images. Pick a scan preset that supports vision (e.g. gemini-2.5-flash-lite, Qwen3-VL).",
     "scanUnavailableHint": "This provider has no scan presets. Scanned PDFs use local OCR, or switch to OpenRouter for vision indexing.",
+    "scanModelOptionalHint": "Optional: enter a multimodal model ID if your provider supports image input.",
+    "scanModelOptionalPlaceholder": "model-id (optional)",
     "visionNeedMultimodal": "This model cannot read images. Pick a scan preset that supports vision (e.g. gemini-2.5-flash-lite, Qwen3-VL).",
     "visionUnavailableHint": "This provider has no scan presets. Scanned PDFs use local OCR, or switch to OpenRouter for vision indexing.",
     "thinkingMode": "Extended thinking",
@@ -369,6 +371,7 @@
     "collapseHint": "Assistant collapsed · ⌘\\ to expand",
     "opened": "Opened {{name}}",
     "pathRestoreFailed": "{{count}} saved path(s) could not be restored — reopen the file",
+    "indexPageCap": "Indexing {{indexed}} of {{total}} sparse pages this pass — reopen or scroll to index more",
     "dismiss": "Dismiss"
   },
   "errors": {

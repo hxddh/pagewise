@@ -1,11 +1,13 @@
 import { formatLlmError, resolveBaseURL } from "./llm";
+import { addIndexUsage } from "./usage-tracker";
 import type { LlmSettings } from "./types";
 
 /** Encode JPEG bytes as a data URL (OpenRouter requires this, not raw base64). */
 export function imageBytesToDataUrl(bytes: Uint8Array, mediaType = "image/jpeg"): string {
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
   return `data:${mediaType};base64,${btoa(binary)}`;
 }
@@ -38,6 +40,27 @@ function parseChatCompletionText(body: unknown): string {
       .trim();
   }
   return "";
+}
+
+function parseChatCompletionUsage(
+  body: unknown,
+): { inputTokens?: number; outputTokens?: number } | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const usage = (
+    body as {
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        input_tokens?: number;
+        output_tokens?: number;
+      };
+    }
+  ).usage;
+  if (!usage) return undefined;
+  return {
+    inputTokens: usage.prompt_tokens ?? usage.input_tokens,
+    outputTokens: usage.completion_tokens ?? usage.output_tokens,
+  };
 }
 
 /** OpenAI-compatible chat/completions with a single JPEG image (bypasses SDK base64 URL bug). */
@@ -82,7 +105,15 @@ export async function generateVisionText(
   }
 
   try {
-    return parseChatCompletionText(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    const usage = parseChatCompletionUsage(parsed);
+    if (usage) {
+      addIndexUsage({
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+      });
+    }
+    return parseChatCompletionText(parsed);
   } catch {
     throw new Error(formatLlmError(new Error("Invalid response from vision model")));
   }

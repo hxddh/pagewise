@@ -312,6 +312,26 @@ describe("migrateProviderProfile", () => {
     expect(vision.model).toBe("google/gemini-2.5-flash-lite");
   });
 
+  it("loadVisionSettings preserves custom OpenRouter scan model", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openrouter",
+        profiles: {
+          openrouter: {
+            model: "openai/gpt-4o-mini",
+            visionModel: "anthropic/claude-3.5-sonnet",
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+
+    const vision = await loadVisionSettings();
+    expect(vision.model).toBe("anthropic/claude-3.5-sonnet");
+  });
+
   it("migrates unreliable gemma-4 free scan model to default", async () => {
     __resetSettingsStoreForTests({
       store: {

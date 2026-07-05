@@ -5,7 +5,6 @@ import { z } from "zod";
 import { isToolModel, isVisionModel } from "./model-capabilities";
 import { generateVisionText } from "./vision-api";
 import {
-  allProviderModels,
   DEFAULT_SETTINGS,
   PROVIDER_PRESETS,
   type LlmSettings,
@@ -111,21 +110,14 @@ export function validateModel(
   settings: LlmSettings,
   t?: TranslateFn,
 ): string | null {
+  if (!settings.model.trim()) {
+    return t?.("llm.modelRequired") ?? "Model ID is required";
+  }
   if (settings.provider === "custom") {
-    if (!settings.model.trim()) {
-      return t?.("llm.modelRequired") ?? "Model ID is required";
-    }
     if (!resolveBaseURL(settings).trim()) {
       return t?.("llm.baseUrlRequired") ?? "Base URL is required";
     }
     return null;
-  }
-  const known = allProviderModels(settings.provider);
-  if (!known.includes(settings.model)) {
-    return (
-      t?.("llm.unknownModel", { model: settings.model, provider: settings.provider }) ??
-      `Unknown model "${settings.model}" for ${settings.provider}`
-    );
   }
   return null;
 }

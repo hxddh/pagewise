@@ -13,7 +13,7 @@ import {
   type ProviderId,
   type ProviderProfile,
 } from "./types";
-import { isThinkingCapableModel, isToolModel, isVisionModel } from "./model-capabilities";
+import { isThinkingCapableModel, isKnownNonVisionModel, isToolModel, isVisionModel } from "./model-capabilities";
 
 const STORE_PATH = "settings.json";
 const SETTINGS_KEY = "llm";
@@ -480,7 +480,8 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
     (provider !== "custom"
       ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
       : profile.model);
-  if (provider !== "custom" && model && !isVisionModel(provider, model)) {
+  // Replace only when the stored id is a *known* non-vision model (e.g. agent text-only preset).
+  if (provider !== "custom" && model && isKnownNonVisionModel(model)) {
     model =
       defaultVisionModel(provider as Exclude<ProviderId, "custom">) || profile.model;
   }

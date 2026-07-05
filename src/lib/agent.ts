@@ -22,7 +22,7 @@ import { semanticSearchPages } from "./semantic-index";
 import { buildPrepareStepOverrides } from "./agent-context-compaction";
 import { resolveMaxAgentSteps, MAX_AGENT_STEPS_FULL } from "./agent-run-plan";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
-import { indexPageText } from "./vision-index";
+import { indexPageText, MIN_INDEX_CHARS } from "./vision-index";
 import { yieldToUi } from "./yield-to-ui";
 
 /** Default cap per read_pdf_range call — keeps tool results out of context blowups. */
@@ -69,7 +69,7 @@ async function readPageText(path: string, page: number) {
   const kind = doc?.kind ?? (path.split(".").pop()?.toLowerCase() === "pdf" ? "pdf" : "image");
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
-  if (cached?.text.trim()) {
+  if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
     return { page, text: cached.text, source: "cache" as const };
   }
 
