@@ -4,6 +4,7 @@ import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
 import { ensureSemanticIndex } from "./semantic-index";
+import { indexSparsePages } from "./vision-index";
 import { allowPath } from "./fs-access";
 
 const SUPPORTED_EXT = new Set([
@@ -66,6 +67,7 @@ export async function loadDocument(
 
     docCache.set(doc);
     void ensureSemanticIndex(path, doc.pages);
+    void indexSparsePages(doc, undefined, { signal }).catch(() => {});
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
     doc = {
@@ -77,6 +79,7 @@ export async function loadDocument(
     };
     docCache.set(doc);
     void ensureSemanticIndex(path, doc.pages);
+    void indexSparsePages(doc, [1], { signal }).catch(() => {});
   }
 
   report(onProgress, { stage: "done", message: "load.ready", percent: 100 });

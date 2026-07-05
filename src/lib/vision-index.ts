@@ -8,7 +8,7 @@ import {
 } from "./index-events";
 import { assertApiKeyForAgent, formatLlmError } from "./llm";
 import { generateVisionText } from "./vision-api";
-import { isVisionModel } from "./model-capabilities";
+import { isVisionModel, canAttemptVisionIndexing } from "./model-capabilities";
 import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
 import { loadVisionSettings } from "./settings";
 import type { LoadedDocument } from "./types";
@@ -152,6 +152,10 @@ async function readImageBytes(path: string): Promise<Uint8Array> {
     const raw = await invoke<unknown>("read_file_bytes", { path });
     if (raw instanceof Uint8Array) return raw;
     if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+    if (ArrayBuffer.isView(raw)) {
+      const view = raw as ArrayBufferView;
+      return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    }
     if (Array.isArray(raw)) return new Uint8Array(raw);
   } catch {
     /* fall through */
@@ -196,9 +200,10 @@ async function loadPageImageBytes(
   path: string,
   page: number,
   kind: "pdf" | "image",
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
   if (kind === "image") return readImageBytes(path);
-  return renderPageToJpegBytes(path, page);
+  return renderPageToJpegBytes(path, page, 1568, 0.85, signal);
 }
 
 export async function visionExtractPage(
@@ -215,7 +220,7 @@ export async function visionExtractPage(
     throw new VisionNotSupportedError(settings.model);
   }
 
-  const raw = await loadPageImageBytes(input.path, input.page, input.kind);
+  const raw = await loadPageImageBytes(input.path, input.page, input.kind, options.signal);
   const image = await compressImageForVision(raw);
   const focus = input.focus ?? (input.kind === "image" ? "structure" : "text");
 
@@ -233,8 +238,9 @@ async function localOcrPage(
   path: string,
   page: number,
   kind: "pdf" | "image",
+  signal?: AbortSignal,
 ): Promise<string> {
-  if (kind === "pdf") return ocrPdfPage(path, page);
+  if (kind === "pdf") return ocrPdfPage(path, page, signal);
   return invoke<string>("ocr_image", { path });
 }
 
@@ -316,7 +322,7 @@ async function indexPageTextInner(
   try {
     const settings = await loadVisionSettings();
     assertIndexContinues(path, signal);
-    const hasVision = isVisionModel(settings.provider, settings.model);
+    const hasVision = canAttemptVisionIndexing(settings.provider, settings.model);
     let visionAttempted = false;
     let visionFailed = false;
     let visionError: string | undefined;
@@ -367,7 +373,7 @@ async function indexPageTextInner(
     }
 
     try {
-      const text = await localOcrPage(path, page, kind);
+      const text = await localOcrPage(path, page, kind, signal);
       if (text.trim().length >= MIN_INDEX_CHARS) {
         docCache.upsertPageText(path, page, text);
         emitPageIndex({ path, page, status: "done", source: "ocr" });

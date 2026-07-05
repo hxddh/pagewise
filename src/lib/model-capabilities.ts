@@ -96,7 +96,7 @@ function looksLikeVisionModel(model: string): boolean {
 export function isVisionModel(provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.vision;
-  if (provider === "custom") return true;
+  if (provider === "custom") return model.trim().length > 0;
   if (provider === "openai") return true;
   if (provider === "openrouter" || provider === "ollama") {
     return looksLikeVisionModel(model);
@@ -127,13 +127,15 @@ export function isAgentMultimodalModel(provider: ProviderId, model: string): boo
 export function isToolModel(provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.tools;
-  if (provider === "openrouter" || provider === "ollama") return false;
+  if (provider === "openrouter") return false;
+  if (provider === "ollama") return true;
   // Custom base URL: user explicitly configured the endpoint.
   return true;
 }
 
-export function modelSupportsVision(provider: ProviderId, model: string): boolean {
-  return isVisionModel(provider, model);
+/** Whether background vision indexing should run for the configured scan model. */
+export function canAttemptVisionIndexing(provider: ProviderId, visionModel: string): boolean {
+  return isVisionModel(provider, visionModel);
 }
 
 /** Providers known to expose an OpenAI-style `/embeddings` endpoint. */

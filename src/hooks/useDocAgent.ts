@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { beginAgentMessage, rollbackLastAgentMessage } from "../lib/agent-view-context";
+import { beginAgentMessage, rollbackLastAgentMessage, type AgentMessageContext } from "../lib/agent-view-context";
 import { sendWithImageFallback } from "../lib/agent-send";
 import { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
@@ -42,10 +42,12 @@ export type RegenerateDocumentMessageOptions = Omit<SendDocumentMessageOptions, 
 function createTransport(
   agent: ReturnType<typeof createDocAgent>,
   onError: (error: unknown) => string,
+  onMessagesRepaired?: (messages: PageWiseUIMessage[]) => void,
 ) {
   return new PagewiseChatTransport({
     agent,
     onError,
+    onMessagesRepaired,
     resolveModelLabel: async () => {
       const settings = await loadSettings();
       return settings.model?.trim() || settings.provider;
@@ -69,8 +71,10 @@ export function useDocAgent(chatId: string | null = null) {
 
   const transportRef = useRef<ReturnType<typeof createTransport> | null>(null);
   if (transportRef.current === null) {
-    transportRef.current = createTransport(agentRef.current, (error) =>
-      formatErrorRef.current(error),
+    transportRef.current = createTransport(
+      agentRef.current,
+      (error) => formatErrorRef.current(error),
+      (repaired) => setMessagesRef.current?.(repaired),
     );
   }
 
@@ -184,6 +188,11 @@ export function useDocAgent(chatId: string | null = null) {
 
   const prevStatusRef = useRef(chat.status);
   const sendingRef = useRef(false);
+  const [sendPhase, setSendPhase] = useState(false);
+  const sendGenRef = useRef(0);
+  const pendingSendContextRef = useRef<AgentMessageContext | null>(null);
+  const lastSendOptionsRef = useRef<{ includeViewingPage: boolean } | null>(null);
+  const isAgentBusyRef = useRef<() => boolean>(() => false);
   const [historySettling, setHistorySettling] = useState(false);
   const lastTotalPagesRef = useRef<number | undefined>(undefined);
   const citationGenRef = useRef(0);
@@ -195,10 +204,30 @@ export function useDocAgent(chatId: string | null = null) {
     citationAbortRef.current = null;
   }, []);
 
+  const abortPendingSend = useCallback(() => {
+    if (!sendingRef.current) return;
+    sendGenRef.current += 1;
+    sendingRef.current = false;
+    setSendPhase(false);
+    pendingSendContextRef.current = null;
+    rollbackLastAgentMessage();
+  }, []);
+
+  isAgentBusyRef.current = () =>
+    sendPhase ||
+    sendingRef.current ||
+    chat.status === "streaming" ||
+    chat.status === "submitted";
+
   useEffect(() => {
+    sendGenRef.current += 1;
+    sendingRef.current = false;
+    setSendPhase(false);
+    pendingSendContextRef.current = null;
     abortCitationStream();
     citationGenRef.current += 1;
-  }, [resolvedChatId, abortCitationStream]);
+    chat.stop();
+  }, [resolvedChatId, abortCitationStream, chat.stop]);
 
   useEffect(() => {
     const wasBusy =
@@ -286,179 +315,157 @@ export function useDocAgent(chatId: string | null = null) {
     [],
   );
 
-  const sendDocumentMessage = useCallback(
-    async (opts: SendDocumentMessageOptions): Promise<boolean> => {
-      if (
-        sendingRef.current ||
-        chat.status === "streaming" ||
-        chat.status === "submitted"
-      ) {
+  const rollbackOptimisticUser = useCallback(
+    (messageId: string | undefined, fallbackText: string) => {
+      chat.setMessages((prev) => {
+        if (messageId) {
+          const idx = prev.findIndex((m) => m.id === messageId);
+          if (idx >= 0 && prev[idx]?.role === "user") {
+            return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+          }
+        }
+        const last = prev[prev.length - 1];
+        if (last?.role !== "user") return prev;
+        if (extractUserText(last) !== fallbackText.trim()) return prev;
+        return prev.slice(0, -1);
+      });
+    },
+    [chat.setMessages],
+  );
+
+  const runAgentSend = useCallback(
+    async (
+      opts: SendDocumentMessageOptions,
+      text: string,
+      messageId: string | undefined,
+      sendGen: number,
+    ): Promise<boolean> => {
+      const ctx: AgentMessageContext = {
+        path: opts.path,
+        docName: opts.docName,
+        viewingPage: opts.viewingPage,
+        totalPages: opts.totalPages,
+        userText: text,
+        includeViewingPage: opts.includeViewingPage,
+      };
+      pendingSendContextRef.current = ctx;
+      beginAgentMessage(ctx);
+      lastSendOptionsRef.current = { includeViewingPage: opts.includeViewingPage };
+
+      try {
+        if (sendGen !== sendGenRef.current) return false;
+        const payload = await buildSendPayload({ ...opts, text }, text);
+        if (sendGen !== sendGenRef.current) {
+          rollbackLastAgentMessage();
+          return false;
+        }
+        await sendWithImageFallback(
+          { ...payload, messageId },
+          (p) => chat.sendMessage(p),
+          readSendError,
+          clearSendError,
+          () => rollbackOptimisticUser(messageId, text),
+          () => {
+            if (pendingSendContextRef.current) {
+              beginAgentMessage(pendingSendContextRef.current);
+            }
+          },
+        );
+        return sendGen === sendGenRef.current;
+      } catch (e) {
+        rollbackLastAgentMessage();
+        const err = e instanceof Error ? e : new Error(String(e));
+        setSendError(err);
         return false;
       }
+    },
+    [
+      buildSendPayload,
+      chat.sendMessage,
+      readSendError,
+      clearSendError,
+      rollbackOptimisticUser,
+    ],
+  );
 
+  const sendDocumentMessage = useCallback(
+    async (opts: SendDocumentMessageOptions): Promise<boolean> => {
+      if (isAgentBusyRef.current()) return false;
+
+      const sendGen = sendGenRef.current;
       sendingRef.current = true;
+      setSendPhase(true);
       lastTotalPagesRef.current = opts.totalPages;
       abortCitationStream();
       citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;
-
-        beginAgentMessage({
-          path: opts.path,
-          docName: opts.docName,
-          viewingPage: opts.viewingPage,
-          totalPages: opts.totalPages,
-          userText: opts.text,
-          includeViewingPage: opts.includeViewingPage,
-        });
-
-        try {
-          const payload = await buildSendPayload(opts, opts.text);
-          await sendWithImageFallback(
-            payload,
-            (p) => chat.sendMessage(p),
-            readSendError,
-            clearSendError,
-            () => {
-              chat.setMessages((prev) => {
-                const last = prev[prev.length - 1];
-                if (last?.role !== "user") return prev;
-                if (extractUserText(last) !== opts.text.trim()) return prev;
-                return prev.slice(0, -1);
-              });
-            },
-          );
-          return true;
-        } catch (e) {
-          rollbackLastAgentMessage();
-          const err = e instanceof Error ? e : new Error(String(e));
-          setSendError(err);
-          return false;
-        }
+        if (sendGen !== sendGenRef.current) return false;
+        return await runAgentSend(opts, opts.text, undefined, sendGen);
       } finally {
         sendingRef.current = false;
+        setSendPhase(false);
+        pendingSendContextRef.current = null;
       }
     },
-    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload, readSendError, clearSendError],
+    [chat.status, prepareForAgentSend, runAgentSend],
   );
 
   const editUserMessage = useCallback(
     async (messageId: string, opts: SendDocumentMessageOptions): Promise<boolean> => {
-      if (
-        sendingRef.current ||
-        chat.status === "streaming" ||
-        chat.status === "submitted"
-      ) {
-        return false;
-      }
+      if (isAgentBusyRef.current()) return false;
 
+      const sendGen = sendGenRef.current;
       sendingRef.current = true;
+      setSendPhase(true);
       lastTotalPagesRef.current = opts.totalPages;
       abortCitationStream();
       citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;
-
-        beginAgentMessage({
-          path: opts.path,
-          docName: opts.docName,
-          viewingPage: opts.viewingPage,
-          totalPages: opts.totalPages,
-          userText: opts.text,
-          includeViewingPage: opts.includeViewingPage,
-        });
-
-        try {
-          const payload = await buildSendPayload(opts, opts.text);
-          await sendWithImageFallback(
-            { ...payload, messageId },
-            (p) => chat.sendMessage(p),
-            readSendError,
-            clearSendError,
-            () => {
-              chat.setMessages((prev) => {
-                const last = prev[prev.length - 1];
-                if (last?.role !== "user") return prev;
-                if (extractUserText(last) !== opts.text.trim()) return prev;
-                return prev.slice(0, -1);
-              });
-            },
-          );
-          return true;
-        } catch (e) {
-          rollbackLastAgentMessage();
-          const err = e instanceof Error ? e : new Error(String(e));
-          setSendError(err);
-          return false;
-        }
+        if (sendGen !== sendGenRef.current) return false;
+        return await runAgentSend(opts, opts.text, messageId, sendGen);
       } finally {
         sendingRef.current = false;
+        setSendPhase(false);
+        pendingSendContextRef.current = null;
       }
     },
-    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload, readSendError, clearSendError],
+    [chat.status, prepareForAgentSend, runAgentSend],
   );
 
   const regenerateDocumentMessage = useCallback(
     async (opts: RegenerateDocumentMessageOptions): Promise<boolean> => {
-      if (
-        sendingRef.current ||
-        chat.status === "streaming" ||
-        chat.status === "submitted"
-      ) {
-        return false;
-      }
+      if (isAgentBusyRef.current()) return false;
 
       const lastUser = findLastMessage(messagesRef.current, (m) => m.role === "user");
       if (!lastUser) return false;
       const text = extractUserText(lastUser);
       if (!text.trim()) return false;
 
+      const includeViewingPage =
+        lastSendOptionsRef.current?.includeViewingPage ?? opts.includeViewingPage;
+      const sendOpts: SendDocumentMessageOptions = { ...opts, text, includeViewingPage };
+
+      const sendGen = sendGenRef.current;
       sendingRef.current = true;
+      setSendPhase(true);
       lastTotalPagesRef.current = opts.totalPages;
       abortCitationStream();
       citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;
-
-        beginAgentMessage({
-          path: opts.path,
-          docName: opts.docName,
-          viewingPage: opts.viewingPage,
-          totalPages: opts.totalPages,
-          userText: text,
-          includeViewingPage: opts.includeViewingPage,
-        });
-
-        try {
-          const payload = await buildSendPayload({ ...opts, text }, text);
-          pendingSendErrorRef.current = undefined;
-          clearSendError();
-          await sendWithImageFallback(
-            { ...payload, messageId: lastUser.id },
-            (p) => chat.sendMessage(p),
-            readSendError,
-            clearSendError,
-            () => {
-              chat.setMessages((prev) => {
-                const last = prev[prev.length - 1];
-                if (last?.role !== "user") return prev;
-                if (extractUserText(last) !== text.trim()) return prev;
-                return prev.slice(0, -1);
-              });
-            },
-          );
-          return true;
-        } catch (e) {
-          rollbackLastAgentMessage();
-          const err = e instanceof Error ? e : new Error(String(e));
-          setSendError(err);
-          return false;
-        }
+        if (sendGen !== sendGenRef.current) return false;
+        pendingSendErrorRef.current = undefined;
+        clearSendError();
+        return await runAgentSend(sendOpts, text, lastUser.id, sendGen);
       } finally {
         sendingRef.current = false;
+        setSendPhase(false);
+        pendingSendContextRef.current = null;
       }
     },
-    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload, readSendError, clearSendError],
+    [chat.status, prepareForAgentSend, runAgentSend, clearSendError],
   );
 
   const clearChat = useCallback(() => {
@@ -492,6 +499,8 @@ export function useDocAgent(chatId: string | null = null) {
       historySettling,
       chatId: resolvedChatId,
       resetForDocumentSwitch: () => {
+        abortPendingSend();
+        sendGenRef.current += 1;
         abortCitationStream();
         citationGenRef.current += 1;
         if (pruneTimeoutRef.current != null) {
@@ -504,6 +513,8 @@ export function useDocAgent(chatId: string | null = null) {
         setSendError(undefined);
         setStreamProgress(null);
       },
+      isAgentBusy: () => isAgentBusyRef.current(),
+      abortPendingSend,
     }),
     [
       chat.messages,
@@ -520,6 +531,9 @@ export function useDocAgent(chatId: string | null = null) {
       streamProgress,
       historySettling,
       resolvedChatId,
+      abortPendingSend,
+      abortCitationStream,
+      sendPhase,
     ],
   );
 }

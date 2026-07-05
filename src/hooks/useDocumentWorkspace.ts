@@ -5,7 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useDocumentLoader } from "./useDocumentLoader";
 import { useTauriFileDrop } from "./useTauriFileDrop";
 import { useI18n } from "../i18n";
-import { clearPdfCache } from "../lib/pdf";
+import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { docCache } from "../lib/doc-cache";
 import { subscribePageIndex, clearDocumentIndexState, clearPageIndexState } from "../lib/index-events";
 import { isSupportedDocument } from "../lib/load-document";
@@ -105,6 +105,7 @@ export function useDocumentWorkspace(
     prevDocPathRef.current = doc.path;
     if (pathChanged) {
       clearPdfCache();
+      setActivePdfPath(doc.path);
     }
     setActiveDoc(doc);
     setPreviewPage(1);
@@ -142,6 +143,10 @@ export function useDocumentWorkspace(
     if (prevPath) {
       const prevDoc = docCache.get(prevPath);
       prevDocPathRef.current = prevPath;
+      setActivePdfPath(prevPath);
+      const controller = new AbortController();
+      indexAbortRef.current = controller;
+      setBackgroundIndexAbortController(controller);
       if (prevDoc) {
         setActiveDoc(prevDoc);
         setPreviewPage(1);
@@ -149,6 +154,7 @@ export function useDocumentWorkspace(
       }
     } else {
       prevDocPathRef.current = null;
+      setActivePdfPath(null);
       setActiveDoc(null);
       setDocLoadSeq((n) => n + 1);
     }

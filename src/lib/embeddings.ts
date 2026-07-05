@@ -158,7 +158,7 @@ async function embedBatch(
   for (let attempt = 0; attempt <= MAX_EMBED_RETRIES; attempt++) {
     if (signal?.aborted) return null;
     try {
-      const { embeddings } = await embedMany({ model, values });
+      const { embeddings } = await embedMany({ model, values, abortSignal: signal });
       return embeddings;
     } catch (error) {
       if (attempt < MAX_EMBED_RETRIES && isRateLimit(error)) {

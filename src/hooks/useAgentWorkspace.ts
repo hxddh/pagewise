@@ -37,6 +37,8 @@ export function useAgentWorkspace(chatId: string | null = null) {
     setMessages,
     clearChat,
     resetForDocumentSwitch,
+    isAgentBusy,
+    abortPendingSend,
     historySettling,
   } = useDocAgent(chatId);
 
@@ -44,7 +46,7 @@ export function useAgentWorkspace(chatId: string | null = null) {
     localStorage.setItem("pagewise.agentOpen", agentOpen ? "1" : "0");
   }, [agentOpen]);
 
-  const busy = status === "streaming" || status === "submitted";
+  const busy = isAgentBusy();
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (!busy) return;
@@ -97,6 +99,8 @@ export function useAgentWorkspace(chatId: string | null = null) {
       clearChat,
       resetForDocumentSwitch,
       busy,
+      isAgentBusy,
+      abortPendingSend,
       activity,
       historySettling,
       focusComposer,
@@ -126,6 +130,8 @@ export function useAgentWorkspace(chatId: string | null = null) {
       clearChat,
       resetForDocumentSwitch,
       busy,
+      isAgentBusy,
+      abortPendingSend,
       activity,
       historySettling,
       focusComposer,

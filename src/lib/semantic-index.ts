@@ -1,6 +1,6 @@
 import { docCache } from "./doc-cache";
 import { throwIfAborted } from "./abort-utils";
-import { getAgentRunAbortSignal } from "./vision-index";
+import { getAgentRunAbortSignal, indexSparsePages } from "./vision-index";
 import {
   cosineSimilarity,
   embedText,
@@ -266,7 +266,22 @@ export async function semanticSearchPages(
   throwIfAborted(signal);
 
   const livePages = resolvePages(path, pages);
-  const keywordHits = searchDocumentPages(livePages, query, limit);
+  let keywordHits = searchDocumentPages(livePages, query, limit);
+
+  const sparsePages = livePages
+    .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
+    .map((p) => p.page)
+    .slice(0, 5);
+  if (keywordHits.length === 0 && sparsePages.length > 0) {
+    const doc = docCache.get(path);
+    if (doc) {
+      await indexSparsePages(doc, sparsePages, { signal });
+      throwIfAborted(signal);
+      const refreshed = resolvePages(path, pages);
+      keywordHits = searchDocumentPages(refreshed, query, limit);
+    }
+  }
+
   await ensureSemanticIndex(path, livePages, signal);
   throwIfAborted(signal);
   const indexed = store.get(path);

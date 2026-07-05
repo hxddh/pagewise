@@ -6,8 +6,9 @@ import {
   type ChatTransport,
   type UIMessageChunk,
 } from "ai";
-import type { ProviderId } from "./types";
+import { messagesSignature } from "./messages-signature";
 import { validateChatMessagesForSend } from "./validate-chat-messages";
+import type { ProviderId } from "./types";
 import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
@@ -27,6 +28,8 @@ export interface PagewiseChatTransportOptions<
   onError?: (error: unknown) => string;
   resolveModelLabel: () => Promise<string>;
   resolveProvider: () => Promise<ProviderId>;
+  /** Sync UI when send-time validation repairs history (may drop trailing rows). */
+  onMessagesRepaired?: (messages: PageWiseUIMessage[]) => void;
 }
 
 export class PagewiseChatTransport<
@@ -39,17 +42,20 @@ export class PagewiseChatTransport<
   private readonly onError: (error: unknown) => string;
   private readonly resolveModelLabel: () => Promise<string>;
   private readonly resolveProvider: () => Promise<ProviderId>;
+  private readonly onMessagesRepaired?: (messages: PageWiseUIMessage[]) => void;
 
   constructor({
     agent,
     onError = () => "An error occurred.",
     resolveModelLabel,
     resolveProvider,
+    onMessagesRepaired,
   }: PagewiseChatTransportOptions<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>) {
     this.agent = agent;
     this.onError = onError;
     this.resolveModelLabel = resolveModelLabel;
     this.resolveProvider = resolveProvider;
+    this.onMessagesRepaired = onMessagesRepaired;
   }
 
   async sendMessages({
@@ -66,6 +72,9 @@ export class PagewiseChatTransport<
       provider,
       tools: this.agent.tools as Parameters<typeof validateChatMessagesForSend>[0]["tools"],
     });
+    if (messagesSignature(validatedMessages) !== messagesSignature(messages)) {
+      this.onMessagesRepaired?.(validatedMessages);
+    }
 
     const modelMessages = await convertToModelMessages(validatedMessages, {
       tools: this.agent.tools,

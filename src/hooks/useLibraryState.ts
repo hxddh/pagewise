@@ -18,7 +18,9 @@ interface UseLibraryStateOptions {
   /** Stop an in-flight agent stream (thread switch / reload). */
   onStopStream?: () => void;
   isStreaming?: boolean;
-  onPersistError?: (message: string) => void;
+  isAgentBusy?: () => boolean;
+  onAbortPendingSend?: () => void;
+  onPersistError?: (messageKey: string) => void;
   onActiveSessionIdChange?: (sessionId: string) => void;
 }
 
@@ -36,6 +38,8 @@ export function useLibraryState({
   onThreadSwitch,
   onStopStream,
   isStreaming = false,
+  isAgentBusy,
+  onAbortPendingSend,
   onPersistError,
   onActiveSessionIdChange,
 }: UseLibraryStateOptions) {
@@ -64,6 +68,8 @@ export function useLibraryState({
     onThreadSwitch,
     onStopStream,
     isStreaming,
+    isAgentBusy,
+    onAbortPendingSend,
     onPersistError,
     onActiveSessionIdChange,
   });
