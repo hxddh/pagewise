@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use pdf::{extract_pdf_text, PdfCache, PdfExtractResult};
+use pdf::{extract_pdf_text, pdf_page_count, PdfCache, PdfExtractCancel, PdfExtractResult};
 use serde::Serialize;
 use tauri::State;
 
@@ -47,18 +47,40 @@ async fn register_allowed_path(path: String, state: State<'_, AllowedPaths>) -> 
 }
 
 #[tauri::command]
+fn cancel_pdf_extract_cmd(cancel: State<'_, PdfExtractCancel>) {
+    cancel.bump();
+}
+
+#[tauri::command]
+async fn pdf_page_count_cmd(
+    path: String,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<u32, String> {
+    let canon = ensure_allowed(&allowed, &path)?;
+    let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
+    tauri::async_runtime::spawn_blocking(move || pdf_page_count(&canon_str))
+        .await
+        .map_err(|e| format!("Task join failed: {e}"))?
+}
+
+#[tauri::command]
 async fn extract_pdf_text_cmd(
     path: String,
     page: Option<u32>,
     allowed: State<'_, AllowedPaths>,
     cache: State<'_, PdfCache>,
+    cancel: State<'_, PdfExtractCancel>,
 ) -> Result<PdfExtractResult, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
     let cache = cache.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || extract_pdf_text(&canon_str, page, &cache))
-        .await
-        .map_err(|e| format!("Task join failed: {e}"))?
+    let cancel = cancel.inner().clone();
+    let gen = cancel.capture_generation();
+    tauri::async_runtime::spawn_blocking(move || {
+        extract_pdf_text(&canon_str, page, &cache, &cancel, gen)
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -187,8 +209,11 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AllowedPaths::default())
         .manage(PdfCache::default())
+        .manage(PdfExtractCancel::default())
         .invoke_handler(tauri::generate_handler![
             register_allowed_path,
+            cancel_pdf_extract_cmd,
+            pdf_page_count_cmd,
             extract_pdf_text_cmd,
             read_file_bytes,
             ocr_image,

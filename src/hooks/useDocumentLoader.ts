@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadDocument } from "../lib/load-document";
+import { abortSemanticIndexBuild } from "../lib/semantic-index";
 import { addRecentFile } from "../lib/recent-files";
 import type { LoadProgress } from "../lib/load-progress";
 import type { LoadedDocument } from "../lib/types";
@@ -24,6 +25,7 @@ export function useDocumentLoader({
 
   // Monotonic sequence so a slow earlier load can't clobber a newer one.
   const loadSeqRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
   // Handle for the deferred "clear progress" timer so it can be cancelled on a
   // new load / unmount (it must not clear the NEXT load's progress).
   const clearProgressTimerRef = useRef<number | undefined>(undefined);
@@ -35,12 +37,19 @@ export function useDocumentLoader({
     }
   };
 
-  useEffect(() => () => cancelClearProgressTimer(), []);
+  useEffect(() => () => {
+    cancelClearProgressTimer();
+    loadAbortRef.current?.abort();
+  }, []);
 
   const openPath = useCallback(
     async (path: string) => {
       const seq = ++loadSeqRef.current;
       const isLatest = () => loadSeqRef.current === seq;
+
+      loadAbortRef.current?.abort();
+      const controller = new AbortController();
+      loadAbortRef.current = controller;
 
       // A brand-new load owns the overlay: drop any pending clear timer.
       cancelClearProgressTimer();
@@ -50,7 +59,7 @@ export function useDocumentLoader({
       try {
         const doc = await loadDocument(path, (p) => {
           if (isLatest()) setProgress(p);
-        });
+        }, controller.signal);
         if (!isLatest()) return;
         onLoaded(doc);
         const recent = await addRecentFile({
@@ -62,6 +71,10 @@ export function useDocumentLoader({
         onRecentChange(recent);
         showToast(t("toast.opened", { name: doc.name }), "success");
       } catch (e) {
+        if (controller.signal.aborted) {
+          abortSemanticIndexBuild(path);
+          return;
+        }
         if (!isLatest()) return;
         const raw = e instanceof Error ? e.message : "";
         const msg =

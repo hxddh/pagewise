@@ -4,6 +4,15 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.42] - 2026-07-05
+
+### Fixed
+
+- PDF (Rust): single-page `read_pdf_page` extracts one page only — no longer parses the entire document on cache miss
+- PDF (Rust): cooperative cancellation via `cancel_pdf_extract_cmd` — Stop, doc switch, and superseded opens bail out between pages
+- PDF: `getPdfPageCount` uses fast `pdf_page_count_cmd` instead of full text extraction
+- Load: opening a document accepts `AbortSignal`; switching files aborts the previous Rust parse
+
 ## [0.2.41] - 2026-07-05
 
 ### Fixed

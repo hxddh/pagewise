@@ -1,5 +1,6 @@
 import { docCache } from "./doc-cache";
 import { extractPdfFromRust } from "./pdf";
+import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
 import { ensureSemanticIndex } from "./semantic-index";
@@ -25,6 +26,7 @@ export function isSupportedDocument(path: string): boolean {
 export async function loadDocument(
   path: string,
   onProgress?: LoadProgressCallback,
+  signal?: AbortSignal,
 ): Promise<LoadedDocument> {
   if (!isSupportedDocument(path)) {
     throw new Error("errors.unsupportedFile");
@@ -41,9 +43,11 @@ export async function loadDocument(
 
   if (ext === "pdf") {
     report(onProgress, { stage: "extracting", message: "load.extracting", percent: 20 });
+    throwIfAborted(signal);
 
     // Rust extract on open — pdf.js text layer is unreliable in Tauri WebView.
-    const extracted = await extractPdfFromRust(path);
+    const extracted = await extractPdfFromRust(path, signal);
+    throwIfAborted(signal);
 
     report(onProgress, {
       stage: "extracting",
