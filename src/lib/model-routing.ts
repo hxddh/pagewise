@@ -27,9 +27,8 @@ export function pickFastModelId(settings: LlmSettings): string | null {
   if (/mini|flash|haiku|small/i.test(current)) return null;
   if (settings.provider === "openai") return "gpt-4o-mini";
   if (settings.provider === "deepseek") return "deepseek-v4-flash";
-  if (settings.provider === "openrouter" && !current.includes("mini")) {
-    return "openai/gpt-4o-mini";
-  }
+  // OpenRouter model ids are provider-prefixed and unknown here — skip fast routing
+  // rather than guessing a fallback that may not exist on the user's account.
   return null;
 }
 

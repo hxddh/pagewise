@@ -112,14 +112,35 @@ function parseApiErrorBody(body: unknown): string | null {
   if (!text?.trim()) return null;
   try {
     const parsed = JSON.parse(text) as {
-      error?: { message?: string };
+      error?: {
+        message?: string;
+        metadata?: { raw?: unknown; provider_name?: unknown };
+      };
       message?: string;
     };
+    const raw = parsed.error?.metadata?.raw;
+    if (typeof raw === "string" && raw.trim()) {
+      const trimmed = raw.trim();
+      if (trimmed.toLowerCase() !== "provider returned error") {
+        return trimmed;
+      }
+    }
     const msg = parsed.error?.message ?? parsed.message;
-    return typeof msg === "string" && msg.trim() ? msg.trim() : null;
+    if (typeof msg === "string" && msg.trim()) {
+      const provider = parsed.error?.metadata?.provider_name;
+      if (
+        typeof provider === "string" &&
+        provider.trim() &&
+        msg.trim().toLowerCase() === "provider returned error"
+      ) {
+        return `${msg.trim()} (${provider.trim()})`;
+      }
+      return msg.trim();
+    }
   } catch {
     return null;
   }
+  return null;
 }
 
 function unwrapApiError(error: unknown): unknown {
@@ -184,11 +205,22 @@ export function formatLlmError(error: unknown, t?: TranslateFn): string {
     }
     if (
       msg === "Provider returned error" ||
-      msg.toLowerCase() === "provider returned error"
+      msg.toLowerCase() === "provider returned error" ||
+      /^Provider returned error\s*\(/i.test(msg)
     ) {
       return (
         t?.("llm.providerReturnedError") ??
-        "The AI provider returned an error — try another model in Settings → AI Provider. If “Include current page” is on, pick a vision-capable assistant model or turn that option off."
+        "The upstream model provider rejected the request — try openai/gpt-4o-mini (OpenRouter), another provider, or retry shortly. Page context still works via text when “Include current page” is on."
+      );
+    }
+    if (
+      msg.toLowerCase().includes("image") ||
+      msg.toLowerCase().includes("multimodal") ||
+      msg.toLowerCase().includes("vision")
+    ) {
+      return (
+        t?.("llm.visionNotSupported") ??
+        "This model does not support image input — pick another scan model in Settings → AI Provider."
       );
     }
     if (msg.includes("/responses")) {

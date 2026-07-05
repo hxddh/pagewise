@@ -12,6 +12,9 @@ interface UseLibraryStateOptions {
   recentFiles: RecentFile[];
   setRecentFiles: (files: RecentFile[]) => void;
   onDocumentSwitch?: (nextPath: string | null) => void;
+  onDocumentSwitchCommitted?: () => void;
+  onDocumentSwitchFailed?: () => void;
+  onThreadSwitch?: () => void;
   /** Stop an in-flight agent stream (thread switch / reload). */
   onStopStream?: () => void;
   isStreaming?: boolean;
@@ -28,6 +31,9 @@ export function useLibraryState({
   recentFiles,
   setRecentFiles,
   onDocumentSwitch,
+  onDocumentSwitchCommitted,
+  onDocumentSwitchFailed,
+  onThreadSwitch,
   onStopStream,
   isStreaming = false,
   onPersistError,
@@ -53,6 +59,9 @@ export function useLibraryState({
     messages,
     setMessages,
     onDocumentSwitch,
+    onDocumentSwitchCommitted,
+    onDocumentSwitchFailed,
+    onThreadSwitch,
     onStopStream,
     isStreaming,
     onPersistError,

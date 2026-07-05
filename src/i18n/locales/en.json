@@ -25,7 +25,7 @@
     "toolsNotSupportedOpenRouter": "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → AI Provider.",
     "reasoningNotSupported": "This provider does not support the reasoning setting — turn off Extended thinking in Settings → AI Provider.",
     "visionNotSupported": "This model does not support image input — pick another scan model in Settings → AI Provider.",
-    "providerReturnedError": "The AI provider returned an error — try another model in Settings → AI Provider. If “Include current page” is on, use a vision-capable assistant model or turn that option off."
+    "providerReturnedError": "The upstream model provider rejected the request — try openai/gpt-4o-mini on OpenRouter, switch provider, or retry shortly. “Include current page” still works via text page context without a vision model."
   },
   "workbench": {
     "nav": "Main navigation"

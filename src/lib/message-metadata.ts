@@ -31,6 +31,8 @@ export interface PageWiseMessageMetadata {
   includesToolContext?: boolean;
   /** Structured citations extracted post-reply via streamObject. */
   structuredCitations?: StructuredCitation[];
+  /** Set when structured citation extraction failed (provider/schema error). */
+  citationsError?: string;
   /** Provider-specific metadata from the final model response (AI SDK). */
   providerMetadata?: Record<string, unknown>;
   /** Tool names invoked on the agent loop's final step. */

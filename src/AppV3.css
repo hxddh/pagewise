@@ -526,6 +526,18 @@
   height: 18px;
 }
 
+.messages-panel {
+  position: relative;
+}
+
+.chat-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
+  min-height: 0;
+}
+
 .welcome-app-name {
   margin: 0;
   font-size: 13px;

@@ -46,15 +46,29 @@ export function sumStepInputTokens(steps: AgentStep[]): number {
   return steps.reduce((sum, step) => sum + (step.usage?.inputTokens ?? 0), 0);
 }
 
+function toolResultBudgetExceeded(output: unknown): boolean {
+  if (output == null || typeof output !== "object" || Array.isArray(output)) {
+    return false;
+  }
+  const record = output as Record<string, unknown>;
+  if (record.budgetExceeded === true) return true;
+  if (
+    record.type === "json" &&
+    record.value != null &&
+    typeof record.value === "object" &&
+    !Array.isArray(record.value)
+  ) {
+    return (record.value as Record<string, unknown>).budgetExceeded === true;
+  }
+  return false;
+}
+
 export function hasBudgetExceededInMessages(messages: ModelMessage[]): boolean {
   for (const message of messages) {
     if (!Array.isArray(message.content)) continue;
     for (const part of message.content) {
       if (part.type !== "tool-result") continue;
-      const output = part.output;
-      if (output && typeof output === "object" && !Array.isArray(output)) {
-        if ((output as Record<string, unknown>).budgetExceeded === true) return true;
-      }
+      if (toolResultBudgetExceeded(part.output)) return true;
     }
   }
   return false;
@@ -197,6 +211,27 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
     };
   }
 
+  if (shouldForceReadTools(steps)) {
+    emitAgentProgress("Reading matched pages…", "read");
+    let model = baseModel;
+    if (shouldUseFastModelForStep(stepNumber, steps)) {
+      const fast = resolveFastModel(settings);
+      if (fast) {
+        model = fast;
+        const fastId = pickFastModelId(settings);
+        if (fastId) {
+          emitAgentProgress(`Routing step ${stepNumber + 1} to ${fastId}…`, "tool");
+        }
+      }
+    }
+    return {
+      model,
+      messages: prunedMessages,
+      activeTools: [...READ_TOOL_NAMES],
+      toolChoice: "required",
+    };
+  }
+
   if (isMetaToolOnlyLoop(steps)) {
     emitAgentProgress("Stopping repeated scans — synthesizing answer…", "tool");
     return {
@@ -235,31 +270,6 @@ export function buildPrepareStepOverrides(ctx: PrepareStepContext): PrepareStepO
       messages: prunedMessages,
       activeTools: [],
       toolChoice: "none",
-    };
-  }
-
-  if (shouldForceReadTools(steps)) {
-    emitAgentProgress("Reading matched pages…", "read");
-    // A forced read step is provably intermediate (toolChoice:"required" — the
-    // model must emit a read call, not a final answer), so it is safe to route
-    // to the cheaper model. The free-choice answer step never gets the fast
-    // model, which previously risked sending the user-visible answer to it.
-    let model = baseModel;
-    if (shouldUseFastModelForStep(stepNumber, steps)) {
-      const fast = resolveFastModel(settings);
-      if (fast) {
-        model = fast;
-        const fastId = pickFastModelId(settings);
-        if (fastId) {
-          emitAgentProgress(`Routing step ${stepNumber + 1} to ${fastId}…`, "tool");
-        }
-      }
-    }
-    return {
-      model,
-      messages: prunedMessages,
-      activeTools: [...READ_TOOL_NAMES],
-      toolChoice: "required",
     };
   }
 

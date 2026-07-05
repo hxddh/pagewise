@@ -1,6 +1,6 @@
 import { generateObject, streamObject } from "ai";
 import { z } from "zod";
-import { resolveModel, resolveReasoning } from "./llm";
+import { resolveModel } from "./llm";
 import { loadSettings } from "./settings";
 
 export const structuredCitationSchema = z.object({
@@ -15,7 +15,35 @@ export const structuredCitationSchema = z.object({
 
 export type StructuredCitation = z.infer<typeof structuredCitationSchema>["citations"][number];
 
+export interface StructuredCitationResult {
+  citations: StructuredCitation[];
+  /** Set when extraction failed (provider error, schema rejection, etc.). */
+  error?: string;
+}
+
 const extractionSchema = structuredCitationSchema;
+
+function citationErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  return "Citation extraction failed";
+}
+
+function isPartialCitation(value: unknown): value is StructuredCitation {
+  if (!value || typeof value !== "object") return false;
+  const c = value as StructuredCitation;
+  return (
+    typeof c.page === "number" &&
+    Number.isInteger(c.page) &&
+    c.page >= 1 &&
+    typeof c.quote === "string" &&
+    c.quote.trim().length > 0
+  );
+}
+
+function filterValidPartials(citations: unknown[] | undefined): StructuredCitation[] {
+  if (!citations?.length) return [];
+  return citations.filter(isPartialCitation);
+}
 
 const CITATION_PROMPT = (answer: string, excerpts: string) =>
   `Extract page citations from the assistant answer. Use only pages evidenced in the tool excerpts.
@@ -63,21 +91,23 @@ export async function extractStructuredCitations(
   answerText: string,
   toolExcerpts: string,
   totalPages?: number,
-): Promise<StructuredCitation[]> {
+): Promise<StructuredCitationResult> {
   const answer = answerText.trim();
-  if (!answer) return [];
+  if (!answer) return { citations: [] };
 
   const settings = await loadSettings();
   try {
     const { object } = await generateObject({
       model: resolveModel(settings),
-      reasoning: resolveReasoning(settings),
       schema: extractionSchema,
       prompt: CITATION_PROMPT(answer, toolExcerpts),
     });
-    return normalizeStructuredCitations(object.citations, totalPages);
-  } catch {
-    return [];
+    return {
+      citations: normalizeStructuredCitations(object.citations, totalPages),
+    };
+  } catch (error) {
+    if (import.meta.env.DEV) console.warn("[structured-citations] extract failed:", error);
+    return { citations: [], error: citationErrorMessage(error) };
   }
 }
 
@@ -87,31 +117,32 @@ export async function streamStructuredCitations(
   toolExcerpts: string,
   totalPages: number | undefined,
   onPartial: (citations: StructuredCitation[]) => void,
-): Promise<StructuredCitation[]> {
+): Promise<StructuredCitationResult> {
   const answer = answerText.trim();
-  if (!answer) return [];
+  if (!answer) return { citations: [] };
 
   const settings = await loadSettings();
   try {
     const { partialObjectStream, object } = streamObject({
       model: resolveModel(settings),
-      reasoning: resolveReasoning(settings),
       schema: extractionSchema,
       prompt: CITATION_PROMPT(answer, toolExcerpts),
     });
 
     for await (const partial of partialObjectStream) {
-      if (partial.citations?.length) {
-        onPartial(normalizeStructuredCitations(partial.citations as StructuredCitation[], totalPages));
+      const valid = filterValidPartials(partial.citations);
+      if (valid.length > 0) {
+        onPartial(normalizeStructuredCitations(valid, totalPages));
       }
     }
 
     const final = await object;
     const normalized = normalizeStructuredCitations(final.citations, totalPages);
     onPartial(normalized);
-    return normalized;
-  } catch {
-    return [];
+    return { citations: normalized };
+  } catch (error) {
+    if (import.meta.env.DEV) console.warn("[structured-citations] stream failed:", error);
+    return { citations: [], error: citationErrorMessage(error) };
   }
 }
 

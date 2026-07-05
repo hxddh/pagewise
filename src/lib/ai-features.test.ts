@@ -38,6 +38,16 @@ describe("model-routing", () => {
     ).toBeNull();
   });
 
+  it("skips fast routing for unknown OpenRouter models", () => {
+    expect(
+      pickFastModelId({
+        provider: "openrouter",
+        apiKey: "x",
+        model: "anthropic/claude-sonnet-4",
+      }),
+    ).toBeNull();
+  });
+
   it("routes intermediate tool steps to fast model", () => {
     expect(
       shouldUseFastModelForStep(2, [{ toolCalls: [{}], text: "" }]),

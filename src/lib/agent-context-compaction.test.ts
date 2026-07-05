@@ -98,6 +98,12 @@ describe("agent-context-compaction", () => {
             toolName: "read_pdf_range",
             output: { budgetExceeded: true, text: "partial" },
           },
+          {
+            type: "tool-result",
+            toolCallId: "b",
+            toolName: "read_pdf_range",
+            output: { type: "json", value: { budgetExceeded: true, text: "partial" } },
+          },
         ],
       },
     ] as unknown as ModelMessage[];

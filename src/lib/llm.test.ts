@@ -20,21 +20,26 @@ describe("formatLlmError", () => {
 
   it("maps generic Provider returned error to actionable guidance", () => {
     const msg = formatLlmError(new Error("Provider returned error"));
-    expect(msg).toContain("Include current page");
+    expect(msg).toContain("gpt-4o-mini");
   });
 
-  it("unwraps nested API error bodies", () => {
+  it("unwraps OpenRouter metadata.raw before generic provider message", () => {
     const err = new APICallError({
       message: "Bad Request",
       url: "https://openrouter.ai/api/v1/chat/completions",
       requestBodyValues: {},
       statusCode: 400,
       responseHeaders: {},
-      responseBody: JSON.stringify({ error: { message: "Provider returned error" } }),
+      responseBody: JSON.stringify({
+        error: {
+          message: "Provider returned error",
+          metadata: { raw: "image input is not supported for this model" },
+        },
+      }),
       isRetryable: false,
     });
     const msg = formatLlmError(err);
-    expect(msg).toContain("Include current page");
+    expect(msg.toLowerCase()).toContain("image");
   });
 });
 

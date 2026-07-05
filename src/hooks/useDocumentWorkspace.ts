@@ -39,6 +39,8 @@ export function useDocumentWorkspace(
   // Cancels in-flight vision/OCR indexing when the document changes.
   const indexAbortRef = useRef<AbortController | null>(null);
   const prevDocPathRef = useRef<string | null>(null);
+  /** Previous doc path held until chat persistence confirms the switch. */
+  const pendingSwitchRef = useRef<{ prevPath: string | null } | null>(null);
 
   useEffect(() => {
     loadPreferences().then((p) => {
@@ -83,18 +85,19 @@ export function useDocumentWorkspace(
 
   const handleDocumentLoaded = useCallback((doc: LoadedDocument) => {
     indexAbortRef.current?.abort();
-    abortSemanticIndexBuild();
+    const prevPath = prevDocPathRef.current;
+    const pathChanged = prevPath !== doc.path;
+    if (pathChanged && prevPath) {
+      abortSemanticIndexBuild(prevPath);
+    }
     const controller = new AbortController();
     indexAbortRef.current = controller;
     setBackgroundIndexAbortController(controller);
-    const prevPath = prevDocPathRef.current;
-    const pathChanged = prevPath !== doc.path;
     if (pathChanged) {
-      if (prevPath) {
-        clearDocumentIndexState(prevPath);
-        docCache.remove(prevPath);
-      }
       clearDocumentIndexState(doc.path);
+      pendingSwitchRef.current = { prevPath };
+    } else {
+      pendingSwitchRef.current = null;
     }
     prevDocPathRef.current = doc.path;
     if (pathChanged) {
@@ -106,6 +109,44 @@ export function useDocumentWorkspace(
     setDocLoadSeq((n) => n + 1);
     lastSyncedToolRef.current = null;
     onLoadedRef.current?.(doc);
+  }, []);
+
+  const commitDocumentSwitch = useCallback(() => {
+    const pending = pendingSwitchRef.current;
+    if (!pending) return;
+    if (pending.prevPath && pending.prevPath !== prevDocPathRef.current) {
+      clearDocumentIndexState(pending.prevPath);
+      docCache.remove(pending.prevPath);
+    }
+    pendingSwitchRef.current = null;
+  }, []);
+
+  const abortDocumentSwitch = useCallback(() => {
+    const pending = pendingSwitchRef.current;
+    if (!pending) return;
+    const { prevPath } = pending;
+    pendingSwitchRef.current = null;
+
+    const currentPath = prevDocPathRef.current;
+    if (currentPath) {
+      clearDocumentIndexState(currentPath);
+      docCache.remove(currentPath);
+      abortSemanticIndexBuild(currentPath);
+    }
+
+    if (prevPath) {
+      const prevDoc = docCache.get(prevPath);
+      prevDocPathRef.current = prevPath;
+      if (prevDoc) {
+        setActiveDoc(prevDoc);
+        setPreviewPage(1);
+        setDocLoadSeq((n) => n + 1);
+      }
+    } else {
+      prevDocPathRef.current = null;
+      setActiveDoc(null);
+      setDocLoadSeq((n) => n + 1);
+    }
   }, []);
 
   const handleLoadError = useCallback(
@@ -163,9 +204,8 @@ export function useDocumentWorkspace(
     (messages: import("ai").UIMessage[]) => {
       if (!followAgent) return;
       const msgCtx = getLastAgentMessageContext();
-      const followCtx = msgCtx
-        ? { userText: msgCtx.userText, viewingPage: msgCtx.viewingPage }
-        : null;
+      if (!msgCtx) return;
+      const followCtx = { userText: msgCtx.userText, viewingPage: msgCtx.viewingPage };
 
       const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
       if (!lastAssistant?.parts) return;
@@ -263,6 +303,8 @@ export function useDocumentWorkspace(
       syncPageFromAgent,
       reindexActiveDoc,
       docLoadSeq,
+      commitDocumentSwitch,
+      abortDocumentSwitch,
     }),
     [
       activeDoc,
@@ -280,6 +322,8 @@ export function useDocumentWorkspace(
       syncPageFromAgent,
       reindexActiveDoc,
       docLoadSeq,
+      commitDocumentSwitch,
+      abortDocumentSwitch,
     ],
   );
 }
