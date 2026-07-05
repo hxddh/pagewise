@@ -64,20 +64,34 @@ function PreviewPaneInner({
       return t("preview.indexedOcr");
     }
     if (indexState?.status === "failed") {
+      let hint: string;
       switch (indexState.failureReason) {
         case "need_vision":
-          return t("preview.indexFailedNeedVision");
+          hint = t("preview.indexFailedNeedVision");
+          break;
         case "ocr_unavailable":
-          return t("preview.indexFailedOcrMissing");
+          hint = t("preview.indexFailedOcrMissing");
+          break;
         case "vision_failed":
-          return t("preview.indexFailedVision");
+          hint = t("preview.indexFailedVision");
+          break;
         default:
-          return t("preview.indexFailedUnknown");
+          hint = t("preview.indexFailedUnknown");
       }
+      const detail = indexState.error?.trim();
+      if (
+        detail &&
+        detail !== indexState.failureReason &&
+        !hint.includes(detail)
+      ) {
+        const short = detail.length > 100 ? `${detail.slice(0, 97)}…` : detail;
+        return `${hint} · ${short}`;
+      }
+      return hint;
     }
     if (pageTextLen === 0) return t("preview.indexing");
     return null;
-  }, [pageTextLen, indexState, t]);
+  }, [doc.path, doc.pages, indexPage, indexState, pageTextLen, t]);
 
   const indexHintActionable =
     indexState?.status === "failed" &&

@@ -104,7 +104,6 @@ export const PROVIDER_VISION_MODELS: Record<Exclude<ProviderId, "custom">, strin
   openrouter: [
     "google/gemini-2.5-flash-lite",
     "qwen/qwen3-vl-8b-instruct",
-    "google/gemma-4-31b-it:free",
     "google/gemma-3-4b-it",
   ],
   ollama: ["qwen2.5vl"],

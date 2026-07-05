@@ -4,6 +4,17 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.24] - 2026-07-05
+
+### Fixed
+
+- Indexing: migrate away from unreliable `google/gemma-4-31b-it:free` scan preset; test scan model on “Test connection”
+- Indexing: surface API error details in preview badge when vision extraction fails
+
+### Changed
+
+- OpenRouter scan presets: remove Gemma 4 free tier; keep Gemini Flash Lite, Qwen3-VL, Gemma 3
+
 ## [0.2.23] - 2026-07-05
 
 ### Fixed
@@ -350,7 +361,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.23...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.24...HEAD
+[0.2.24]: https://github.com/hxddh/pagewise/compare/v0.2.23...v0.2.24
 [0.2.23]: https://github.com/hxddh/pagewise/compare/v0.2.22...v0.2.23
 [0.2.22]: https://github.com/hxddh/pagewise/compare/v0.2.21...v0.2.22
 [0.2.21]: https://github.com/hxddh/pagewise/compare/v0.2.20...v0.2.21
