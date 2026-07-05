@@ -47,26 +47,34 @@ async fn register_allowed_path(path: String, state: State<'_, AllowedPaths>) -> 
 }
 
 #[tauri::command]
-fn cancel_pdf_extract_cmd(cancel: State<'_, PdfExtractCancel>) {
-    cancel.bump();
+fn cancel_pdf_extract_cmd(scope: String, cancel: State<'_, PdfExtractCancel>) {
+    cancel.bump_scope(pdf::PdfExtractScope::parse(&scope));
 }
 
 #[tauri::command]
 async fn pdf_page_count_cmd(
     path: String,
+    scope: String,
     allowed: State<'_, AllowedPaths>,
+    cancel: State<'_, PdfExtractCancel>,
 ) -> Result<u32, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
-    tauri::async_runtime::spawn_blocking(move || pdf_page_count(&canon_str))
-        .await
-        .map_err(|e| format!("Task join failed: {e}"))?
+    let cancel = cancel.inner().clone();
+    let pdf_scope = pdf::PdfExtractScope::parse(&scope);
+    let gen = cancel.capture(pdf_scope);
+    tauri::async_runtime::spawn_blocking(move || {
+        pdf_page_count(&canon_str, &cancel, pdf_scope, gen)
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
 }
 
 #[tauri::command]
 async fn extract_pdf_text_cmd(
     path: String,
     page: Option<u32>,
+    scope: String,
     allowed: State<'_, AllowedPaths>,
     cache: State<'_, PdfCache>,
     cancel: State<'_, PdfExtractCancel>,
@@ -75,9 +83,10 @@ async fn extract_pdf_text_cmd(
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
     let cache = cache.inner().clone();
     let cancel = cancel.inner().clone();
-    let gen = cancel.capture_generation();
+    let pdf_scope = pdf::PdfExtractScope::parse(&scope);
+    let gen = cancel.capture(pdf_scope);
     tauri::async_runtime::spawn_blocking(move || {
-        extract_pdf_text(&canon_str, page, &cache, &cancel, gen)
+        extract_pdf_text(&canon_str, page, &cache, &cancel, pdf_scope, gen)
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?

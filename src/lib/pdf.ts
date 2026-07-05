@@ -257,20 +257,23 @@ export function isPdfExtractCancelledError(err: unknown): boolean {
   return err instanceof Error && /cancelled/i.test(err.message);
 }
 
-/** Bump the Rust PDF extract generation so blocking parses can bail out. */
-export async function cancelPdfExtract(): Promise<void> {
+export type PdfExtractScope = "load" | "agent";
+
+/** Bump the Rust PDF extract generation for one scope (load vs agent tools). */
+export async function cancelPdfExtract(scope: PdfExtractScope = "load"): Promise<void> {
   if (!isTauriRuntime()) return;
-  await invoke("cancel_pdf_extract_cmd");
+  await invoke("cancel_pdf_extract_cmd", { scope });
 }
 
 async function invokePdfExtract<T>(
   run: () => Promise<T>,
   signal?: AbortSignal,
+  scope: PdfExtractScope = "agent",
 ): Promise<T> {
   if (!signal) return run();
   throwIfAborted(signal);
   const onAbort = () => {
-    void cancelPdfExtract();
+    void cancelPdfExtract(scope);
   };
   signal.addEventListener("abort", onAbort, { once: true });
   try {
@@ -290,8 +293,14 @@ export async function extractPdfFromRust(
   signal?: AbortSignal,
 ): Promise<PdfExtractResult> {
   return invokePdfExtract(
-    () => invoke<PdfExtractResult>("extract_pdf_text_cmd", { path, page: null }),
+    () =>
+      invoke<PdfExtractResult>("extract_pdf_text_cmd", {
+        path,
+        page: null,
+        scope: "load",
+      }),
     signal,
+    "load",
   );
 }
 
@@ -305,8 +314,10 @@ export async function extractPageTextFromRust(
       invoke<PdfExtractResult>("extract_pdf_text_cmd", {
         path,
         page: pageNumber,
+        scope: "agent",
       }),
     signal,
+    "agent",
   );
   return result.pages[0]?.text?.trim() ?? "";
 }
@@ -399,7 +410,11 @@ export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
 
 export async function getPdfPageCount(path: string, signal?: AbortSignal): Promise<number> {
   if (pdfDocCache?.path === path) return pdfDocCache.doc.numPages;
-  return invokePdfExtract(() => invoke<number>("pdf_page_count_cmd", { path }), signal);
+  return invokePdfExtract(
+    () => invoke<number>("pdf_page_count_cmd", { path, scope: "load" }),
+    signal,
+    "load",
+  );
 }
 
 /** Extract plain text for one page — Rust pdf-extract (reliable in Tauri). */

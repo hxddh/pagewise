@@ -77,6 +77,7 @@ export function useDocAgent(chatId: string | null = null) {
   const setMessagesRef = useRef<
     ReturnType<typeof useChat<PageWiseUIMessage>>["setMessages"] | null
   >(null);
+  const messagesRef = useRef<PageWiseUIMessage[]>([]);
 
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
   const resolvedChatId = chatId ?? "pagewise-local";
@@ -179,6 +180,7 @@ export function useDocAgent(chatId: string | null = null) {
     },
   });
   setMessagesRef.current = chat.setMessages;
+  messagesRef.current = chat.messages;
 
   const prevStatusRef = useRef(chat.status);
   const sendingRef = useRef(false);
@@ -205,7 +207,6 @@ export function useDocAgent(chatId: string | null = null) {
 
     if (wasBusy && (chat.status === "ready" || chat.status === "error")) {
       setStreamProgress(null);
-      clearAgentRunAbortSignal();
     }
 
     if (wasBusy && (chat.status === "ready" || chat.status === "error")) {
@@ -407,7 +408,7 @@ export function useDocAgent(chatId: string | null = null) {
         return false;
       }
 
-      const lastUser = findLastMessage(chat.messages, (m) => m.role === "user");
+      const lastUser = findLastMessage(messagesRef.current, (m) => m.role === "user");
       if (!lastUser) return false;
       const text = extractUserText(lastUser);
       if (!text.trim()) return false;
@@ -491,6 +492,7 @@ export function useDocAgent(chatId: string | null = null) {
       historySettling,
       chatId: resolvedChatId,
       resetForDocumentSwitch: () => {
+        abortCitationStream();
         citationGenRef.current += 1;
         if (pruneTimeoutRef.current != null) {
           window.clearTimeout(pruneTimeoutRef.current);

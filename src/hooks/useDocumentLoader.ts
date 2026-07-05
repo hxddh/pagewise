@@ -11,12 +11,15 @@ interface UseDocumentLoaderOptions {
   onLoaded: (doc: LoadedDocument) => void;
   onRecentChange: (files: Awaited<ReturnType<typeof addRecentFile>>) => void;
   onError: (message: string) => void;
+  /** Stop agent / clear context before Rust parse begins. */
+  onBeforeLoad?: () => void;
 }
 
 export function useDocumentLoader({
   onLoaded,
   onRecentChange,
   onError,
+  onBeforeLoad,
 }: UseDocumentLoaderOptions) {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -42,11 +45,15 @@ export function useDocumentLoader({
     loadAbortRef.current?.abort();
   }, []);
 
+  const onBeforeLoadRef = useRef(onBeforeLoad);
+  onBeforeLoadRef.current = onBeforeLoad;
+
   const openPath = useCallback(
     async (path: string) => {
       const seq = ++loadSeqRef.current;
       const isLatest = () => loadSeqRef.current === seq;
 
+      onBeforeLoadRef.current?.();
       loadAbortRef.current?.abort();
       const controller = new AbortController();
       loadAbortRef.current = controller;

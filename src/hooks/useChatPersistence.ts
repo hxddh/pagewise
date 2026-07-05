@@ -28,6 +28,10 @@ const PERSIST_CANCELLED = "persist_cancelled";
 const STREAM_SETTLE_MS = 5000;
 const STREAM_POLL_MS = 50;
 
+function persistSignature(messages: UIMessage[]): string {
+  return messagesSignature(prepareMessagesForPersist(messages));
+}
+
 function isPersistCancelled(err: unknown): boolean {
   return err instanceof Error && err.message === PERSIST_CANCELLED;
 }
@@ -168,7 +172,7 @@ export function useChatPersistence({
       onActiveSessionIdChangeRef.current?.(sessionId);
       setActiveSessionId(sessionId);
       setMessagesRef.current(await hydrateChatMessages(rawMessages));
-      loadedSnapshotRef.current = messagesSignature(rawMessages);
+      loadedSnapshotRef.current = persistSignature(rawMessages);
       messagesDocPathRef.current = bindPath;
     },
     [],
@@ -179,7 +183,7 @@ export function useChatPersistence({
     if (messagesDocPathRef.current !== docPathRef.current) return true;
     const snapshot = messagesRef.current;
     if (snapshot.length === 0) return true;
-    if (messagesSignature(snapshot) === loadedSnapshotRef.current) return true;
+    if (persistSignature(snapshot) === loadedSnapshotRef.current) return true;
 
     const idle = await waitForStreamIdle();
     if (!idle) return false;
@@ -191,7 +195,7 @@ export function useChatPersistence({
         sessionIdRef.current,
         messagesRef.current,
       );
-      loadedSnapshotRef.current = messagesSignature(prepareMessagesForPersist(messagesRef.current));
+      loadedSnapshotRef.current = persistSignature(prepareMessagesForPersist(messagesRef.current));
       return true;
     } catch (err) {
       reportPersistError(err, "Failed to save conversation");
@@ -204,18 +208,23 @@ export function useChatPersistence({
     if (messagesDocPathRef.current !== docPathRef.current) return false;
     const snapshot = messagesRef.current;
     if (snapshot.length === 0) return false;
-    return messagesSignature(snapshot) !== loadedSnapshotRef.current;
+    return persistSignature(snapshot) !== loadedSnapshotRef.current;
   }, []);
 
   useEffect(() => {
     const onHide = () => {
-      if (document.visibilityState === "hidden") void flushPendingSave();
+      if (document.visibilityState !== "hidden") return;
+      void flushPendingSave().then((ok) => {
+        if (!ok) {
+          reportPersistError(new Error("Save failed"), "Failed to save conversation");
+        }
+      });
     };
     document.addEventListener("visibilitychange", onHide);
     return () => {
       document.removeEventListener("visibilitychange", onHide);
     };
-  }, [flushPendingSave]);
+  }, [flushPendingSave, reportPersistError]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -302,7 +311,7 @@ export function useChatPersistence({
             pendingSave.outgoing,
             { touchActive: false },
           );
-          loadedSnapshotRef.current = messagesSignature(pendingSave.outgoing);
+          loadedSnapshotRef.current = persistSignature(pendingSave.outgoing);
           docMessageCacheRef.current.set(pendingSave.savePath, {
             path: pendingSave.savePath,
             messages: pendingSave.outgoing,
@@ -374,12 +383,12 @@ export function useChatPersistence({
       if (sessionIdRef.current !== saveSessionId) return;
       const snapshot = messagesRef.current;
       if (snapshot.length === 0) return;
-      if (messagesSignature(snapshot) === loadedSnapshotRef.current) return;
+      if (persistSignature(snapshot) === loadedSnapshotRef.current) return;
 
       void persistOutgoing(savePath, saveName, saveSessionId, snapshot)
         .then(async () => {
           if (docPathRef.current !== savePath || sessionIdRef.current !== saveSessionId) return;
-          loadedSnapshotRef.current = messagesSignature(prepareMessagesForPersist(snapshot));
+          loadedSnapshotRef.current = persistSignature(prepareMessagesForPersist(snapshot));
           const loaded = await loadActiveMessages(savePath, undefined, { readOnly: true });
           setThreads(loaded.threads);
           await refreshSessions();
@@ -426,11 +435,11 @@ export function useChatPersistence({
       const snapshot = messagesRef.current;
       if (
         snapshot.length > 0 &&
-        messagesSignature(snapshot) !== loadedSnapshotRef.current
+        persistSignature(snapshot) !== loadedSnapshotRef.current
       ) {
         try {
           await persistOutgoing(docPath, docName ?? "", sessionIdRef.current, snapshot);
-          loadedSnapshotRef.current = messagesSignature(snapshot);
+          loadedSnapshotRef.current = persistSignature(snapshot);
         } catch (err) {
           reportPersistError(err, "Failed to save before thread switch");
           if (gen === opGenRef.current) {
@@ -448,6 +457,8 @@ export function useChatPersistence({
         const meta = await loadActiveMessages(docPath, undefined, { readOnly: true });
         setThreads(meta.threads);
         await refreshSessions();
+      } catch (err) {
+        reportPersistError(err, "Failed to switch thread");
       } finally {
         if (gen === opGenRef.current) {
           skipSaveRef.current = false;
@@ -481,11 +492,11 @@ export function useChatPersistence({
     const snapshot = messagesRef.current;
     if (
       snapshot.length > 0 &&
-      messagesSignature(snapshot) !== loadedSnapshotRef.current
+      persistSignature(snapshot) !== loadedSnapshotRef.current
     ) {
       try {
         await persistOutgoing(docPath, docName, sessionIdRef.current, snapshot);
-        loadedSnapshotRef.current = messagesSignature(snapshot);
+        loadedSnapshotRef.current = persistSignature(snapshot);
       } catch (err) {
         reportPersistError(err, "Failed to save before new thread");
         if (gen === opGenRef.current) {
