@@ -8,7 +8,8 @@ import {
 } from "./pdf-loader";
 import type { PreviewQuality } from "./types";
 import type { PdfExtractResult } from "./types";
-import { raceWithAbort } from "./abort-utils";
+import { raceWithAbort, throwIfAborted } from "./abort-utils";
+import { isTauriRuntime } from "./runtime";
 
 const MAX_CACHE_BYTES = 128 * 1024 * 1024;
 const RASTER_TEXT_THRESHOLD = 48;
@@ -252,8 +253,46 @@ async function drainQueue(): Promise<void> {
   }
 }
 
-export async function extractPdfFromRust(path: string): Promise<PdfExtractResult> {
-  return invoke<PdfExtractResult>("extract_pdf_text_cmd", { path, page: null });
+export function isPdfExtractCancelledError(err: unknown): boolean {
+  return err instanceof Error && /cancelled/i.test(err.message);
+}
+
+/** Bump the Rust PDF extract generation so blocking parses can bail out. */
+export async function cancelPdfExtract(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("cancel_pdf_extract_cmd");
+}
+
+async function invokePdfExtract<T>(
+  run: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) return run();
+  throwIfAborted(signal);
+  const onAbort = () => {
+    void cancelPdfExtract();
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    return await raceWithAbort(run(), signal);
+  } catch (err) {
+    if (signal.aborted || isPdfExtractCancelledError(err)) {
+      throw new DOMException("Operation aborted", "AbortError");
+    }
+    throw err;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+export async function extractPdfFromRust(
+  path: string,
+  signal?: AbortSignal,
+): Promise<PdfExtractResult> {
+  return invokePdfExtract(
+    () => invoke<PdfExtractResult>("extract_pdf_text_cmd", { path, page: null }),
+    signal,
+  );
 }
 
 export async function extractPageTextFromRust(
@@ -261,11 +300,12 @@ export async function extractPageTextFromRust(
   pageNumber: number,
   signal?: AbortSignal,
 ): Promise<string> {
-  const result = await raceWithAbort(
-    invoke<PdfExtractResult>("extract_pdf_text_cmd", {
-      path,
-      page: pageNumber,
-    }),
+  const result = await invokePdfExtract(
+    () =>
+      invoke<PdfExtractResult>("extract_pdf_text_cmd", {
+        path,
+        page: pageNumber,
+      }),
     signal,
   );
   return result.pages[0]?.text?.trim() ?? "";
@@ -357,10 +397,9 @@ export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
   }
 }
 
-export async function getPdfPageCount(path: string): Promise<number> {
+export async function getPdfPageCount(path: string, signal?: AbortSignal): Promise<number> {
   if (pdfDocCache?.path === path) return pdfDocCache.doc.numPages;
-  const extracted = await extractPdfFromRust(path);
-  return extracted.total_pages;
+  return invokePdfExtract(() => invoke<number>("pdf_page_count_cmd", { path }), signal);
 }
 
 /** Extract plain text for one page — Rust pdf-extract (reliable in Tauri). */
