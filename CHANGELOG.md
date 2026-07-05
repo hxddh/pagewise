@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.32] - 2026-07-05
+
+### Fixed
+
+- Chat: `useChat({ id })` binds synchronously — thread switch no longer writes messages to stale chat instance
+- Chat: delete session syncs `chatId` with persistence (`onActiveSessionIdChange`)
+- Chat: document switch blocks autosave during transition; persist failure no longer leaves cross-doc corruption
+- Chat: `chatLoading` gates composer during thread/doc switch (prevents send during load)
+- Chat: `switchThread` returns resolved session id when requested thread is missing
+- Settings: V1 migration and keychain migration preserve plaintext mirror when keychain write fails
+- Settings: keychain preferred over stale disk mirror; reconcile no longer aborts all providers on one failure
+- Settings: `useConnectionStatus` handles load failures instead of hanging unconfigured
+- Agent: only attach page screenshot when assistant model supports vision (fixes OpenRouter “Provider returned error”)
+- Agent: map generic provider errors to actionable guidance
+
 ## [0.2.31] - 2026-07-05
 
 ### Fixed

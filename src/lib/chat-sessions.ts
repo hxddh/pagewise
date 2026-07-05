@@ -321,16 +321,23 @@ export async function createThread(
   });
 }
 
-export async function switchThread(docPath: string, sessionId: string): Promise<UIMessage[]> {
+export async function switchThread(
+  docPath: string,
+  sessionId: string,
+): Promise<{ messages: UIMessage[]; sessionId: string }> {
   return withStoreLock(async () => {
     const data = await readStore();
     const doc = getDoc(data, docPath);
-    if (!doc) return [];
+    if (!doc) return { messages: [], sessionId: DEFAULT_THREAD_ID };
     const thread = doc.threads.find((t) => t.id === sessionId);
-    if (!thread) return doc.threads.find((t) => t.id === doc.activeSessionId)?.messages ?? [];
+    if (!thread) {
+      const activeId = doc.activeSessionId;
+      const active = doc.threads.find((t) => t.id === activeId);
+      return { messages: active?.messages ?? [], sessionId: activeId };
+    }
     doc.activeSessionId = sessionId;
     await writeStore(data);
-    return thread.messages;
+    return { messages: thread.messages, sessionId };
   });
 }
 

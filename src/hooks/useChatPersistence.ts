@@ -159,6 +159,10 @@ export function useChatPersistence({
         outgoing.length > 0 &&
         messagesSignature(outgoing) !== loadedSnapshotRef.current;
 
+      skipSaveRef.current = true;
+      bumpSaveEpoch();
+      setChatLoading(true);
+
       if (isStreamingRef.current) onStopStreamRef.current?.();
 
       try {
@@ -172,13 +176,12 @@ export function useChatPersistence({
         onPersistErrorRef.current?.(
           err instanceof Error ? err.message : "Failed to save conversation",
         );
-        return;
+        // Continue loading the new document — blocking leaves docPath/messages mismatched
+        // and enables cross-doc autosave corruption.
       }
 
       if (cancelled || gen !== opGenRef.current) return;
 
-      skipSaveRef.current = true;
-      setChatLoading(true);
       onDocumentSwitchRef.current?.(docPath);
 
       try {
@@ -190,6 +193,7 @@ export function useChatPersistence({
 
         if (cancelled || gen !== opGenRef.current) return;
 
+        onActiveSessionIdChangeRef.current?.(loaded.sessionId);
         setMessagesRef.current(loaded.messages);
         loadedSnapshotRef.current = messagesSignature(loaded.messages);
         setActiveSessionId(loaded.sessionId);
@@ -198,6 +202,9 @@ export function useChatPersistence({
         appliedLoadKeyRef.current = loadKey;
         await refreshSessions();
       } catch (err) {
+        onPersistErrorRef.current?.(
+          err instanceof Error ? err.message : "Failed to load conversation",
+        );
         if (import.meta.env.DEV) console.warn("[chat-persistence] document switch failed:", err);
       } finally {
         if (gen === opGenRef.current) {
@@ -211,7 +218,7 @@ export function useChatPersistence({
     return () => {
       cancelled = true;
     };
-  }, [docPath, docLoadSeq, loadKey, refreshSessions, persistOutgoing, bumpOpGen]);
+  }, [docPath, docLoadSeq, loadKey, refreshSessions, persistOutgoing, bumpOpGen, bumpSaveEpoch]);
 
   useEffect(() => {
     if (!docPath || !docName || skipSaveRef.current || chatLoading || isStreaming) return;
@@ -260,6 +267,11 @@ export function useChatPersistence({
       if (!docPath) return;
       const gen = bumpOpGen();
       onStopStreamRef.current?.();
+
+      skipSaveRef.current = true;
+      bumpSaveEpoch();
+      setChatLoading(true);
+
       const snapshot = messagesRef.current;
       if (
         snapshot.length > 0 &&
@@ -272,17 +284,21 @@ export function useChatPersistence({
           onPersistErrorRef.current?.(
             err instanceof Error ? err.message : "Failed to save before thread switch",
           );
+          if (gen === opGenRef.current) {
+            skipSaveRef.current = false;
+            setChatLoading(false);
+          }
           return;
         }
       }
-      skipSaveRef.current = true;
-      setChatLoading(true);
+
       try {
-        const loaded = await switchThread(docPath, sessionId);
+        const switched = await switchThread(docPath, sessionId);
         if (gen !== opGenRef.current) return;
-        setActiveSessionId(sessionId);
-        setMessagesRef.current(loaded);
-        loadedSnapshotRef.current = messagesSignature(loaded);
+        onActiveSessionIdChangeRef.current?.(switched.sessionId);
+        setMessagesRef.current(switched.messages);
+        loadedSnapshotRef.current = messagesSignature(switched.messages);
+        setActiveSessionId(switched.sessionId);
         const meta = await loadActiveMessages(docPath, undefined, { readOnly: true });
         setThreads(meta.threads);
         await refreshSessions();
@@ -293,13 +309,18 @@ export function useChatPersistence({
         }
       }
     },
-    [docPath, docName, refreshSessions, persistOutgoing, bumpOpGen],
+    [docPath, docName, refreshSessions, persistOutgoing, bumpOpGen, bumpSaveEpoch],
   );
 
   const newThread = useCallback(async () => {
     if (!docPath || !docName) return;
     const gen = bumpOpGen();
     onStopStreamRef.current?.();
+
+    skipSaveRef.current = true;
+    bumpSaveEpoch();
+    setChatLoading(true);
+
     const snapshot = messagesRef.current;
     if (
       snapshot.length > 0 &&
@@ -312,14 +333,18 @@ export function useChatPersistence({
         onPersistErrorRef.current?.(
           err instanceof Error ? err.message : "Failed to save before new thread",
         );
+        if (gen === opGenRef.current) {
+          skipSaveRef.current = false;
+          setChatLoading(false);
+        }
         return;
       }
     }
-    skipSaveRef.current = true;
-    setChatLoading(true);
+
     try {
       const { sessionId, threads: nextThreads } = await createThread(docPath, docName);
       if (gen !== opGenRef.current) return;
+      onActiveSessionIdChangeRef.current?.(sessionId);
       setActiveSessionId(sessionId);
       setThreads(nextThreads);
       setMessagesRef.current([]);
@@ -331,25 +356,33 @@ export function useChatPersistence({
       }
     }
     await refreshSessions();
-  }, [docPath, docName, refreshSessions, persistOutgoing, bumpOpGen]);
+  }, [docPath, docName, refreshSessions, persistOutgoing, bumpOpGen, bumpSaveEpoch]);
 
   const clearCurrentThread = useCallback(async () => {
     if (!docPath) return;
+    const gen = bumpOpGen();
+    onStopStreamRef.current?.();
     bumpSaveEpoch();
     skipSaveRef.current = true;
+    setChatLoading(true);
     try {
       await clearActiveThread(docPath, sessionIdRef.current);
       setMessagesRef.current([]);
       loadedSnapshotRef.current = messagesSignature([]);
       const loaded = await loadActiveMessages(docPath);
+      if (gen !== opGenRef.current) return;
+      onActiveSessionIdChangeRef.current?.(loaded.sessionId);
       setActiveSessionId(loaded.sessionId);
       setThreads(loaded.threads);
       appliedLoadKeyRef.current = loadKey;
       await refreshSessions();
     } finally {
-      skipSaveRef.current = false;
+      if (gen === opGenRef.current) {
+        skipSaveRef.current = false;
+        setChatLoading(false);
+      }
     }
-  }, [docPath, loadKey, refreshSessions, bumpSaveEpoch]);
+  }, [docPath, loadKey, refreshSessions, bumpOpGen, bumpSaveEpoch]);
 
   const removeThread = useCallback(
     async (sessionId: string) => {
@@ -362,6 +395,7 @@ export function useChatPersistence({
         try {
           const loaded = await loadActiveMessages(docPath);
           if (gen !== opGenRef.current) return;
+          onActiveSessionIdChangeRef.current?.(loaded.sessionId);
           setMessagesRef.current(loaded.messages);
           loadedSnapshotRef.current = messagesSignature(loaded.messages);
           setActiveSessionId(loaded.sessionId);
@@ -388,6 +422,7 @@ export function useChatPersistence({
         bumpOpGen();
         skipSaveRef.current = true;
         try {
+          onActiveSessionIdChangeRef.current?.("default");
           setMessagesRef.current([]);
           setThreads([]);
           setActiveSessionId("default");

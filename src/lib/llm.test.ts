@@ -17,6 +17,25 @@ describe("formatLlmError", () => {
     expect(msg).toContain("tool");
     expect(msg).not.toContain("verify base URL");
   });
+
+  it("maps generic Provider returned error to actionable guidance", () => {
+    const msg = formatLlmError(new Error("Provider returned error"));
+    expect(msg).toContain("Include current page");
+  });
+
+  it("unwraps nested API error bodies", () => {
+    const err = new APICallError({
+      message: "Bad Request",
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode: 400,
+      responseHeaders: {},
+      responseBody: JSON.stringify({ error: { message: "Provider returned error" } }),
+      isRetryable: false,
+    });
+    const msg = formatLlmError(err);
+    expect(msg).toContain("Include current page");
+  });
 });
 
 describe("validateModel", () => {

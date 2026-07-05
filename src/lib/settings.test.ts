@@ -6,6 +6,7 @@ import {
   loadApiKeyForProvider,
   loadLlmStore,
   loadProviderSettings,
+  loadSettingsMeta,
   loadVisionSettings,
   migrateLlmSettings,
   migrateV1ToV2,
@@ -406,7 +407,7 @@ describe("store I/O — working keychain", () => {
     expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBeUndefined();
   });
 
-  it("prefers settings.json mirror over keychain reads", async () => {
+  it("prefers keychain over stale plaintext mirror when both exist", async () => {
     const keychain = memoryKeychain();
     __resetSettingsStoreForTests({
       store: {
@@ -420,7 +421,26 @@ describe("store I/O — working keychain", () => {
     });
     await keychain.set("openai", "sk-from-keychain");
 
-    expect((await loadProviderSettings("openai")).apiKey).toBe("sk-from-disk");
+    expect((await loadProviderSettings("openai")).apiKey).toBe("sk-from-keychain");
+  });
+
+  it("scrubs stale plaintext mirrors when keychain is available", async () => {
+    const keychain = memoryKeychain();
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openai",
+        profiles: { openai: defaultProviderProfile("openai") },
+        apiKeys: { openai: "sk-on-disk" },
+        apiKeysMigratedFromKeychain: true,
+      },
+      keychain,
+    });
+
+    expect((await loadSettingsMeta()).plaintextKeysOnDisk).toBe(false);
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBeUndefined();
+    expect(await keychain.get("openai")).toBe("sk-on-disk");
+    expect((await loadProviderSettings("openai")).apiKey).toBe("sk-on-disk");
   });
 
   it("migrates all provider keys from keychain into local mirror once", async () => {

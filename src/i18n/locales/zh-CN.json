@@ -24,7 +24,8 @@
     "toolsNotSupported": "模型「{{model}}」不支持助手所需的工具调用。请在设置中换用支持工具的模型（如 openai/gpt-4o-mini），或直接使用 DeepSeek 提供商。",
     "toolsNotSupportedOpenRouter": "当前 OpenRouter 模型没有支持工具调用的路由。请在设置 → AI 提供商中换用 openai/gpt-4o-mini 等支持工具的模型。",
     "reasoningNotSupported": "当前提供商不支持推理强度参数 — 请在设置 → AI 提供商中关闭「扩展思考」。",
-    "visionNotSupported": "此模型不支持图片输入 — 请在设置 → AI 提供商中换用其他扫页模型。"
+    "visionNotSupported": "此模型不支持图片输入 — 请在设置 → AI 提供商中换用其他扫页模型。",
+    "providerReturnedError": "AI 提供商返回错误 — 请在设置 → AI 提供商中更换模型。若开启了「提问时包含当前页」，请选用支持视觉的助手模型，或关闭该选项。"
   },
   "workbench": {
     "nav": "主导航"
@@ -292,7 +293,7 @@
     "connectionPendingShort": "未配置",
     "connectionReadyShort": "待测试",
     "modelMigrated": "模型已升级至 DeepSeek V4，请重新测试连接。",
-    "plaintextKeysWarning": "安全存储不可用 — API 密钥以明文保存在磁盘上。在 Keychain 恢复前请避免在共享设备上使用。",
+    "plaintextKeysWarning": "安全存储不可用 — API 密钥以明文保存在磁盘上。在 Keychain 恢复前请避免在共享设备上使用。可在下方重新输入并保存密钥以尝试迁回 Keychain。",
     "modelGroupFast": "快速",
     "modelGroupPro": "高质量",
     "modelGroupAgent": "助手（支持工具调用）",

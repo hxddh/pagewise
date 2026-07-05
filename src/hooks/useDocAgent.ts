@@ -4,6 +4,7 @@ import { beginAgentMessage, rollbackLastAgentMessage } from "../lib/agent-view-c
 import { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
 import { formatAgentError, validateAgentModel, assertApiKeyForAgent } from "../lib/llm";
+import { isVisionModel } from "../lib/model-capabilities";
 import {
   extractAssistantText,
   extractToolExcerpts,
@@ -73,19 +74,10 @@ export function useDocAgent(chatId: string | null = null) {
   >(null);
 
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
-  const [boundChatId, setBoundChatId] = useState(chatId ?? "pagewise-local");
-  const prevChatIdRef = useRef(boundChatId);
-
-  useEffect(() => {
-    const next = chatId ?? "pagewise-local";
-    if (next !== prevChatIdRef.current) {
-      prevChatIdRef.current = next;
-      setBoundChatId(next);
-    }
-  }, [chatId]);
+  const resolvedChatId = chatId ?? "pagewise-local";
 
   const chat = useChat<PageWiseUIMessage>({
-    id: boundChatId,
+    id: resolvedChatId,
     transport: transportRef.current,
     onError: (error) => {
       if (import.meta.env.DEV) {
@@ -206,9 +198,12 @@ export function useDocAgent(chatId: string | null = null) {
   const buildSendPayload = useCallback(
     async (opts: SendDocumentMessageOptions, text: string) => {
       if (opts.includeViewingPage) {
-        const file = await capturePageFilePart(opts.path, opts.viewingPage, opts.docKind);
-        if (file) {
-          return { text, files: [file] };
+        const settings = await loadSettings();
+        if (isVisionModel(settings.provider, settings.model)) {
+          const file = await capturePageFilePart(opts.path, opts.viewingPage, opts.docKind);
+          if (file) {
+            return { text, files: [file] };
+          }
         }
       }
       return { text };
@@ -372,7 +367,7 @@ export function useDocAgent(chatId: string | null = null) {
       clearError: chat.clearError,
       clearChat,
       historySettling,
-      chatId: boundChatId,
+      chatId: resolvedChatId,
       resetForDocumentSwitch: () => {
         chat.stop();
         clearAgentRunAbortSignal();
@@ -395,7 +390,7 @@ export function useDocAgent(chatId: string | null = null) {
       regenerateDocumentMessage,
       streamProgress,
       historySettling,
-      boundChatId,
+      resolvedChatId,
     ],
   );
 }

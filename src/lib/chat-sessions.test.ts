@@ -90,10 +90,17 @@ describe("createThread / switchThread / deleteThread", () => {
   it("switchThread returns that thread's messages and sets it active", async () => {
     await saveActiveSession("/a.pdf", "a.pdf", "default", [msg("1", "one")]);
     await saveActiveSession("/a.pdf", "a.pdf", "second", [msg("2", "two")]);
-    const messages = await switchThread("/a.pdf", "default");
+    const { messages } = await switchThread("/a.pdf", "default");
     expect(messages[0].parts[0]).toMatchObject({ text: "one" });
     const loaded = await loadActiveMessages("/a.pdf");
     expect(loaded.sessionId).toBe("default");
+  });
+
+  it("switchThread falls back to active thread when id is missing", async () => {
+    await saveActiveSession("/a.pdf", "a.pdf", "default", [msg("1", "one")]);
+    const { messages, sessionId } = await switchThread("/a.pdf", "missing-id");
+    expect(sessionId).toBe("default");
+    expect(messages[0].parts[0]).toMatchObject({ text: "one" });
   });
 
   it("deleteThread removes a thread and reassigns active when needed", async () => {
