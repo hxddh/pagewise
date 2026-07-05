@@ -4,6 +4,29 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.44] - 2026-07-06
+
+### Fixed
+
+- PDF: `getPdfDocument` load-generation guard — stale loads no longer destroy the active preview document
+- PDF: LRU cap on `pdfBytesCache`; prefetch skips non-active paths
+- Agent: block doc/thread switch during pre-stream send (`sendGen`, `isAgentBusy`, `abortPendingSend`)
+- Agent: `chatId` change stops in-flight send; image-fallback restores view context on retry
+- Agent: regenerate reuses original `includeViewingPage`; rollback by `messageId`
+- Chat: `waitForStreamIdle` waits for pre-stream send; 10s settle timeout
+- Chat: `clearChat` creates a fresh empty thread instead of loading another thread's history
+- Chat: `persistSignature` unified in doc-switch dirty detection
+- Transport: sync UI when `validateChatMessagesForSend` repairs history
+- Index: `abortDocumentSwitch` resets background index controller for rollback
+- Index: OCR/render paths honor `AbortSignal`; `embedMany` passes `abortSignal`
+- Index: search indexes sparse pages before keyword pass; background sparse index on doc open
+- Index: `mergePageTextsOnReload` keeps vision/OCR text when PDF page count shrinks
+- Agent: `assertPageInBounds` rejects reads when `totalPages === 0`
+- Preview: no auto-retry on permanent `vision_failed`; indexed badge requires usable text
+- Settings: custom provider skips vision without scan model; Ollama unknown models assumed tool-capable
+- Settings:「设为活跃」shows model validation error
+- UI: sidebar「已连接」requires tool-capable agent; persistence errors i18n (zh-CN)
+
 ## [0.2.43] - 2026-07-05
 
 ### Fixed

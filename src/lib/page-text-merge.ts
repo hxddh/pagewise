@@ -18,10 +18,17 @@ export function pickBetterPageText(existing: string, incoming: string): string {
 /** Merge freshly extracted pages with any cached vision/OCR text for the same path. */
 export function mergePageTextsOnReload(existing: PageText[], incoming: PageText[]): PageText[] {
   const byPage = new Map(existing.map((p) => [p.page, p.text]));
-  return incoming.map((p) => ({
+  const incomingPages = new Set(incoming.map((p) => p.page));
+  const merged = incoming.map((p) => ({
     page: p.page,
     text: pickBetterPageText(byPage.get(p.page) ?? "", p.text),
   }));
+  for (const p of existing) {
+    if (!incomingPages.has(p.page) && p.text.trim().length >= MIN_INDEX_CHARS) {
+      merged.push({ page: p.page, text: p.text });
+    }
+  }
+  return merged.sort((a, b) => a.page - b.page);
 }
 
 export function pagesTextChanged(before: PageText[], after: PageText[]): boolean {

@@ -100,7 +100,7 @@ function AppShell() {
           onLibrary={() => library.setLibraryOpen((o) => !o)}
           onOpenFile={document.openFileDialog}
           onSettings={() => shell.openSettings()}
-          connected={agent.hasApiKey && agent.settingsReady}
+          connected={agent.canUseAgent && agent.settingsReady}
           opening={document.loading || document.pickerOpen}
         />
 

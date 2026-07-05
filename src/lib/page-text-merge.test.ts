@@ -23,9 +23,16 @@ describe("mergePageTextsOnReload", () => {
     expect(merged[0]!.text).toBe(vision);
   });
 
-  it("prefers substantially longer native extract when both meet threshold", () => {
+  it("preserves vision text for pages dropped from a shorter reload", () => {
     const vision = "v".repeat(40);
-    const extract = "x".repeat(120);
-    expect(pickBetterPageText(vision, extract)).toBe(extract);
+    const merged = mergePageTextsOnReload(
+      [
+        { page: 1, text: vision },
+        { page: 2, text: "y".repeat(30) },
+      ],
+      [{ page: 1, text: "x" }],
+    );
+    expect(merged).toHaveLength(2);
+    expect(merged.find((p) => p.page === 2)?.text).toBe("y".repeat(30));
   });
 });

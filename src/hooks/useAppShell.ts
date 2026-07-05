@@ -71,10 +71,10 @@ export function useAppShell() {
   }, []);
 
   const handlePersistError = useCallback(
-    (message: string) => {
-      showToast(message, "error");
+    (messageKey: string) => {
+      showToast(t(messageKey), "error");
     },
-    [showToast],
+    [showToast, t],
   );
 
   const library = useLibraryState({
@@ -91,6 +91,8 @@ export function useAppShell() {
     onThreadSwitch: handleThreadSwitch,
     onStopStream: agent.stop,
     isStreaming: agent.busy,
+    isAgentBusy: agent.isAgentBusy,
+    onAbortPendingSend: agent.abortPendingSend,
     onPersistError: handlePersistError,
     onActiveSessionIdChange: (id) => {
       flushSync(() => setThreadSessionId(id));
@@ -193,7 +195,8 @@ export function useAppShell() {
   }, [agent.messages.length, agent.error]);
 
   const clearChat = useCallback(() => {
-    agentRef.current.clearChat();
+    agentRef.current.stop();
+    agentRef.current.abortPendingSend();
     agentRef.current.setComposerDraft("");
     void library.clearCurrentThread();
     setClearConfirmOpen(false);

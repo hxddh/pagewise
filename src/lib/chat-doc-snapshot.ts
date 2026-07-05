@@ -1,5 +1,10 @@
 import type { UIMessage } from "ai";
 import { messagesSignature } from "./messages-signature";
+import { prepareMessagesForPersist } from "./persist-messages";
+
+function persistSignature(messages: UIMessage[]): string {
+  return messagesSignature(prepareMessagesForPersist(messages));
+}
 
 export interface DocMessageSnapshot {
   path: string;
@@ -22,7 +27,8 @@ export function resolveOutgoingBeforeDocSwitch(options: {
   prevPath: string | null;
   pathChanged: boolean;
   currentMessages: UIMessage[];
-  currentSignature: string;
+  /** @deprecated Use persistSignature internally; kept for call-site compat. */
+  currentSignature?: string;
   loadedSignature: string;
   cache: Map<string, DocMessageSnapshot>;
   currentSessionId: string;
@@ -38,7 +44,6 @@ export function resolveOutgoingBeforeDocSwitch(options: {
     prevPath,
     pathChanged,
     currentMessages,
-    currentSignature,
     loadedSignature,
     cache,
     currentSessionId,
@@ -47,7 +52,7 @@ export function resolveOutgoingBeforeDocSwitch(options: {
 
   const cached = pathChanged && prevPath ? cache.get(prevPath) : undefined;
   const outgoing = cached?.messages ?? currentMessages;
-  const outgoingSignature = cached?.signature ?? currentSignature;
+  const outgoingSignature = cached?.signature ?? persistSignature(currentMessages);
   const unsaved = outgoing.length > 0 && outgoingSignature !== loadedSignature;
   if (!unsaved) return null;
 
@@ -73,7 +78,7 @@ export function snapshotFromMessages(
   return {
     path,
     messages,
-    signature: messagesSignature(messages),
+    signature: persistSignature(messages),
     sessionId,
     docName,
   };

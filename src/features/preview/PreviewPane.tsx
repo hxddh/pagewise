@@ -56,8 +56,7 @@ function PreviewPaneInner({
     const detail = sanitizeIndexErrorDetail(state.error);
     const transient =
       detail === "rate_limited" ||
-      detail === "timeout" ||
-      state.failureReason === "vision_failed";
+      detail === "timeout";
     if (!transient) return;
 
     const timer = window.setTimeout(() => {
@@ -70,14 +69,15 @@ function PreviewPaneInner({
   }, [doc.path, doc.kind, indexPage, indexState?.status, indexState?.error, indexState?.failureReason]);
 
   const indexHint = useMemo(() => {
-    if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return null;
+    const hasText = pageHasIndexableText(doc.path, indexPage, doc.pages);
+    if (hasText) {
+      if (indexState?.status === "done") {
+        if (indexState.source === "vision") return t("preview.indexedVision");
+        if (indexState.source === "ocr") return t("preview.indexedOcr");
+      }
+      return null;
+    }
     if (indexState?.status === "indexing") return t("preview.indexing");
-    if (indexState?.status === "done" && indexState.source === "vision") {
-      return t("preview.indexedVision");
-    }
-    if (indexState?.status === "done" && indexState.source === "ocr") {
-      return t("preview.indexedOcr");
-    }
     if (indexState?.status === "failed") {
       let hint: string;
       switch (indexState.failureReason) {

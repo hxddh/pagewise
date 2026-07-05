@@ -27,6 +27,11 @@ describe("isVisionModel", () => {
     expect(isKnownNonVisionModel("deepseek-v4-flash")).toBe(true);
     expect(isKnownNonVisionModel("anthropic/claude-3.5-sonnet")).toBe(false);
   });
+
+  it("rejects custom provider without a scan model id", () => {
+    expect(isVisionModel("custom", "")).toBe(false);
+    expect(isVisionModel("custom", "my-vision-model")).toBe(true);
+  });
 });
 
 describe("isAgentMultimodalModel", () => {
@@ -69,8 +74,8 @@ describe("isToolModel", () => {
     expect(isToolModel("openrouter", "vendor/unknown-v9")).toBe(false);
   });
 
-  it("rejects unknown Ollama models", () => {
-    expect(isToolModel("ollama", "some-new-model")).toBe(false);
+  it("allows unknown Ollama models", () => {
+    expect(isToolModel("ollama", "some-new-model")).toBe(true);
   });
 
   it("allows unknown custom models", () => {

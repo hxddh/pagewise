@@ -406,6 +406,22 @@
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",
     "saveFailed": "Save failed"
   },
+  "chat": {
+    "persist": {
+      "saveFailed": "Failed to save conversation",
+      "loadFailed": "Failed to load conversation",
+      "autosaveFailed": "Autosave failed",
+      "agentBusy": "Could not save — agent is still running",
+      "threadSwitchBusy": "Could not switch thread while the agent is running",
+      "threadSaveFailed": "Failed to save before switching thread",
+      "threadSwitchFailed": "Failed to switch thread",
+      "newThreadBusy": "Could not create a new thread while the agent is running",
+      "newThreadSaveFailed": "Failed to save before creating a new thread",
+      "clearBusy": "Could not clear chat while the agent is running",
+      "deleteThreadBusy": "Could not delete thread while the agent is running",
+      "deleteSessionBusy": "Could not delete session while the agent is running"
+    }
+  },
   "library": {
     "emptyRecent": "No recent files",
     "emptySessions": "No saved chats",

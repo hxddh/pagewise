@@ -59,7 +59,15 @@ function requireLoadedDoc(path: string): LoadedDocument {
 
 /** Validate a 1-based page against the document's page count. */
 function assertPageInBounds(doc: LoadedDocument, page: number): void {
-  if (doc.totalPages > 0 && page > doc.totalPages) {
+  if (page < 1) {
+    throw new Error(`page ${page} is invalid.`);
+  }
+  if (doc.totalPages === 0) {
+    throw new Error(
+      `Cannot read page ${page}: "${doc.name}" has no known page count.`,
+    );
+  }
+  if (page > doc.totalPages) {
     throw new Error(
       `page ${page} is out of range: "${doc.name}" has ${doc.totalPages} page(s).`,
     );

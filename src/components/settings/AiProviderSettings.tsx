@@ -333,8 +333,11 @@ export function AiProviderSettings({
       onLlmSettingsSaved?.();
       onReindexDoc?.();
       if (next.connectionVerified) onApiReady?.();
-    } catch {
+    } catch (err) {
       setSaveStatus("error");
+      const message =
+        err instanceof Error && err.message ? err.message : t("errors.saveFailed");
+      setTestError(message);
       onSaveError?.();
     } finally {
       setSettingActive(false);

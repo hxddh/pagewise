@@ -20,6 +20,7 @@ export async function sendWithImageFallback(
   readError: () => Error | undefined,
   clearError: () => void,
   onRetryWithoutImage: () => void,
+  onAfterRetryWithoutImage?: () => void,
 ): Promise<void> {
   const attempt = async (p: AgentSendPayload): Promise<Error | undefined> => {
     clearError();
@@ -30,6 +31,7 @@ export async function sendWithImageFallback(
   let err = await attempt(payload);
   if (err && payloadHasFiles(payload) && isImageInputError(err)) {
     onRetryWithoutImage();
+    onAfterRetryWithoutImage?.();
     err = await attempt({ text: payload.text, messageId: payload.messageId });
   }
 

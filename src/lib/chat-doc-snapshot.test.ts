@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
-import { resolveOutgoingBeforeDocSwitch } from "./chat-doc-snapshot";
+import { resolveOutgoingBeforeDocSwitch, snapshotFromMessages } from "./chat-doc-snapshot";
 
 const user = (id: string, text: string): UIMessage => ({
   id,
@@ -40,12 +40,14 @@ describe("resolveOutgoingBeforeDocSwitch", () => {
   });
 
   it("returns null when nothing changed", () => {
+    const messages = [user("u1", "hello")];
+    const signature = snapshotFromMessages("/docs/a.pdf", messages, "default", "a.pdf").signature;
     const result = resolveOutgoingBeforeDocSwitch({
       prevPath: "/docs/a.pdf",
       pathChanged: false,
-      currentMessages: [user("u1", "hello")],
-      currentSignature: "same",
-      loadedSignature: "same",
+      currentMessages: messages,
+      currentSignature: signature,
+      loadedSignature: signature,
       cache: new Map(),
       currentSessionId: "default",
       currentDocName: "a.pdf",

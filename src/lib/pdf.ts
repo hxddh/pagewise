@@ -24,9 +24,33 @@ const QUALITY_RANK: Record<PreviewQuality, number> = {
 
 let pdfDocCache: { path: string; doc: PDFDocumentProxy } | null = null;
 const pdfBytesCache = new Map<string, Uint8Array>();
+const pdfBytesCacheOrder: string[] = [];
+const MAX_PDF_BYTES_CACHE = 3;
 const inFlightDocs = new Map<string, Promise<PDFDocumentProxy>>();
 let renderEpoch = 0;
 let pageCacheBytes = 0;
+/** Bumped on doc switch / clearPdfCache — stale loads must not destroy the active document. */
+let pdfDocEpoch = 0;
+/** Path the UI is currently viewing; late loads for other paths are discarded. */
+let pdfActivePath: string | null = null;
+
+export function setActivePdfPath(path: string | null): void {
+  pdfActivePath = path;
+}
+
+function touchPdfBytesCache(path: string): void {
+  const idx = pdfBytesCacheOrder.indexOf(path);
+  if (idx >= 0) pdfBytesCacheOrder.splice(idx, 1);
+  pdfBytesCacheOrder.push(path);
+  while (pdfBytesCacheOrder.length > MAX_PDF_BYTES_CACHE) {
+    const evict = pdfBytesCacheOrder.shift();
+    if (evict) pdfBytesCache.delete(evict);
+  }
+}
+
+function shouldCommitPdfLoad(path: string, epochAtStart: number): boolean {
+  return epochAtStart === pdfDocEpoch && (pdfActivePath === null || pdfActivePath === path);
+}
 
 // "thumb" is a dedicated lower-priority lane for sidebar thumbnails. Unlike
 // "low", it is NOT purged by page navigation/zoom/resize, so a thumbnail render
@@ -379,6 +403,7 @@ async function loadPdfBytes(path: string): Promise<Uint8Array> {
 
   if (data.byteLength === 0) throw new Error("Empty PDF file");
   pdfBytesCache.set(path, data);
+  touchPdfBytesCache(path);
   return data;
 }
 
@@ -388,11 +413,16 @@ export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
   const inFlight = inFlightDocs.get(path);
   if (inFlight) return inFlight;
 
+  const epochAtStart = pdfDocEpoch;
   const load = (async () => {
     const pdfjs = await getPdfJs();
     const data = await loadPdfBytes(path);
     const doc = await pdfjs.getDocument(pdfDocumentInit(data)).promise;
 
+    if (!shouldCommitPdfLoad(path, epochAtStart)) {
+      void doc.loadingTask.destroy();
+      return doc;
+    }
     if (pdfDocCache && pdfDocCache.path !== path) {
       void pdfDocCache.doc.loadingTask.destroy();
     }
@@ -632,8 +662,10 @@ export function prefetchPage(
 ): void {
   const key = scaleKey ?? `fixed:${scale.toFixed(4)}`;
   if (hasPageCache(path, pageNumber, key, quality)) return;
+  if (pdfActivePath !== null && pdfActivePath !== path) return;
 
   void enqueueRender("low", async () => {
+    if (pdfActivePath !== null && pdfActivePath !== path) return;
     const offscreen = document.createElement("canvas");
     await renderAndCache(
       path,
@@ -643,7 +675,7 @@ export function prefetchPage(
       quality,
       offscreen,
       "display",
-      () => false,
+      () => pdfActivePath !== null && pdfActivePath !== path,
     );
   });
 }
@@ -698,6 +730,7 @@ export function clearPageBitmapCache(): void {
 
 export function clearPdfCache(): void {
   renderEpoch += 1;
+  pdfDocEpoch += 1;
   for (const item of renderQueue) item.cancel();
   renderQueue.length = 0;
   if (pdfDocCache) {
@@ -705,6 +738,7 @@ export function clearPdfCache(): void {
     pdfDocCache = null;
   }
   pdfBytesCache.clear();
+  pdfBytesCacheOrder.length = 0;
   fitScaleCache.clear();
   textLayerCache.clear();
   for (const snap of pageCache.values()) snap.bitmap.close();
@@ -765,8 +799,11 @@ export async function renderPageToJpegBytes(
   pageNumber: number,
   maxEdge = 1568,
   quality = 0.85,
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
+  throwIfAborted(signal);
   const doc = await getPdfDocument(path);
+  throwIfAborted(signal);
   const page = await doc.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
   const edge = Math.max(base.width, base.height);
@@ -790,8 +827,11 @@ export async function renderPageToPngBytes(
   path: string,
   pageNumber: number,
   maxEdge = 1568,
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
+  throwIfAborted(signal);
   const doc = await getPdfDocument(path);
+  throwIfAborted(signal);
   const page = await doc.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
   const edge = Math.max(base.width, base.height);
@@ -807,8 +847,13 @@ export async function renderPageToPngBytes(
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-export async function ocrPdfPage(path: string, pageNumber: number): Promise<string> {
-  const bytes = await renderPageToPngBytes(path, pageNumber);
+export async function ocrPdfPage(
+  path: string,
+  pageNumber: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  const bytes = await renderPageToPngBytes(path, pageNumber, 1568, signal);
+  throwIfAborted(signal);
   return invoke<string>("ocr_bytes", { data: bytes });
 }
 

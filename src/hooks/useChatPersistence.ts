@@ -25,7 +25,7 @@ import { hydrateChatMessages } from "../lib/messages-utils";
 import { isTauriRuntime } from "../lib/runtime";
 
 const PERSIST_CANCELLED = "persist_cancelled";
-const STREAM_SETTLE_MS = 5000;
+const STREAM_SETTLE_MS = 10000;
 const STREAM_POLL_MS = 50;
 
 function persistSignature(messages: UIMessage[]): string {
@@ -48,7 +48,9 @@ interface UseChatPersistenceOptions {
   onThreadSwitch?: () => void;
   onStopStream?: () => void;
   isStreaming?: boolean;
-  onPersistError?: (message: string) => void;
+  isAgentBusy?: () => boolean;
+  onAbortPendingSend?: () => void;
+  onPersistError?: (messageKey: string) => void;
   onActiveSessionIdChange?: (sessionId: string) => void;
 }
 
@@ -64,6 +66,8 @@ export function useChatPersistence({
   onThreadSwitch,
   onStopStream,
   isStreaming = false,
+  isAgentBusy,
+  onAbortPendingSend,
   onPersistError,
   onActiveSessionIdChange,
 }: UseChatPersistenceOptions) {
@@ -88,6 +92,8 @@ export function useChatPersistence({
   const onDocumentSwitchFailedRef = useRef(onDocumentSwitchFailed);
   const onThreadSwitchRef = useRef(onThreadSwitch);
   const onStopStreamRef = useRef(onStopStream);
+  const onAbortPendingSendRef = useRef(onAbortPendingSend);
+  const isAgentBusyRef = useRef(isAgentBusy);
   const onPersistErrorRef = useRef(onPersistError);
   const onActiveSessionIdChangeRef = useRef(onActiveSessionIdChange);
   const isStreamingRef = useRef(isStreaming);
@@ -106,6 +112,8 @@ export function useChatPersistence({
   onDocumentSwitchFailedRef.current = onDocumentSwitchFailed;
   onThreadSwitchRef.current = onThreadSwitch;
   onStopStreamRef.current = onStopStream;
+  onAbortPendingSendRef.current = onAbortPendingSend;
+  isAgentBusyRef.current = isAgentBusy;
   onPersistErrorRef.current = onPersistError;
   onActiveSessionIdChangeRef.current = onActiveSessionIdChange;
   isStreamingRef.current = isStreaming;
@@ -158,13 +166,16 @@ export function useChatPersistence({
   }, []);
 
   const waitForStreamIdle = useCallback(async (): Promise<boolean> => {
-    if (!isStreamingRef.current) return true;
+    const busy = () =>
+      isStreamingRef.current || (isAgentBusyRef.current?.() ?? false);
+    if (!busy()) return true;
     onStopStreamRef.current?.();
+    onAbortPendingSendRef.current?.();
     const deadline = Date.now() + STREAM_SETTLE_MS;
-    while (isStreamingRef.current && Date.now() < deadline) {
+    while (busy() && Date.now() < deadline) {
       await new Promise((resolve) => window.setTimeout(resolve, STREAM_POLL_MS));
     }
-    return !isStreamingRef.current;
+    return !busy();
   }, []);
 
   const applyHydratedSession = useCallback(
@@ -198,7 +209,7 @@ export function useChatPersistence({
       loadedSnapshotRef.current = persistSignature(prepareMessagesForPersist(messagesRef.current));
       return true;
     } catch (err) {
-      reportPersistError(err, "Failed to save conversation");
+      reportPersistError(err, "chat.persist.saveFailed");
       return false;
     }
   }, [persistOutgoing, waitForStreamIdle, reportPersistError]);
@@ -216,7 +227,7 @@ export function useChatPersistence({
       if (document.visibilityState !== "hidden") return;
       void flushPendingSave().then((ok) => {
         if (!ok) {
-          reportPersistError(new Error("Save failed"), "Failed to save conversation");
+          reportPersistError(new Error("Save failed"), "chat.persist.saveFailed");
         }
       });
     };
@@ -293,7 +304,7 @@ export function useChatPersistence({
 
       const idle = await waitForStreamIdle();
       if (!idle) {
-        reportPersistError(new Error("Agent still running"), "Could not save before switching document");
+        reportPersistError(new Error("Agent still running"), "chat.persist.agentBusy");
         onDocumentSwitchFailedRef.current?.();
         if (gen === opGenRef.current) {
           skipSaveRef.current = false;
@@ -321,7 +332,7 @@ export function useChatPersistence({
           });
         }
       } catch (err) {
-        reportPersistError(err, "Failed to save conversation");
+        reportPersistError(err, "chat.persist.saveFailed");
         onDocumentSwitchFailedRef.current?.();
         if (gen === opGenRef.current) {
           skipSaveRef.current = false;
@@ -351,7 +362,7 @@ export function useChatPersistence({
         onDocumentSwitchCommittedRef.current?.();
         await refreshSessions();
       } catch (err) {
-        reportPersistError(err, "Failed to load conversation");
+        reportPersistError(err, "chat.persist.loadFailed");
         setMessagesRef.current([]);
         loadedSnapshotRef.current = messagesSignature([]);
         messagesDocPathRef.current = docPath ?? null;
@@ -395,7 +406,7 @@ export function useChatPersistence({
         })
         .catch((err) => {
           if (import.meta.env.DEV) console.warn("[chat-persistence] autosave failed:", err);
-          reportPersistError(err, "Autosave failed");
+          reportPersistError(err, "chat.persist.autosaveFailed");
         });
     }, 600);
 
@@ -424,7 +435,7 @@ export function useChatPersistence({
 
       const idle = await waitForStreamIdle();
       if (!idle) {
-        reportPersistError(new Error("Agent still running"), "Could not save before switching thread");
+        reportPersistError(new Error("Agent still running"), "chat.persist.threadSwitchBusy");
         if (gen === opGenRef.current) {
           skipSaveRef.current = false;
           setChatLoading(false);
@@ -441,7 +452,7 @@ export function useChatPersistence({
           await persistOutgoing(docPath, docName ?? "", sessionIdRef.current, snapshot);
           loadedSnapshotRef.current = persistSignature(snapshot);
         } catch (err) {
-          reportPersistError(err, "Failed to save before thread switch");
+          reportPersistError(err, "chat.persist.threadSaveFailed");
           if (gen === opGenRef.current) {
             skipSaveRef.current = false;
             setChatLoading(false);
@@ -458,7 +469,7 @@ export function useChatPersistence({
         setThreads(meta.threads);
         await refreshSessions();
       } catch (err) {
-        reportPersistError(err, "Failed to switch thread");
+        reportPersistError(err, "chat.persist.threadSwitchFailed");
       } finally {
         if (gen === opGenRef.current) {
           skipSaveRef.current = false;
@@ -481,7 +492,7 @@ export function useChatPersistence({
 
     const idle = await waitForStreamIdle();
     if (!idle) {
-      reportPersistError(new Error("Agent still running"), "Could not save before creating thread");
+      reportPersistError(new Error("Agent still running"), "chat.persist.newThreadBusy");
       if (gen === opGenRef.current) {
         skipSaveRef.current = false;
         setChatLoading(false);
@@ -498,7 +509,7 @@ export function useChatPersistence({
         await persistOutgoing(docPath, docName, sessionIdRef.current, snapshot);
         loadedSnapshotRef.current = persistSignature(snapshot);
       } catch (err) {
-        reportPersistError(err, "Failed to save before new thread");
+        reportPersistError(err, "chat.persist.newThreadSaveFailed");
         if (gen === opGenRef.current) {
           skipSaveRef.current = false;
           setChatLoading(false);
@@ -526,16 +537,17 @@ export function useChatPersistence({
   }, [docPath, docName, refreshSessions, persistOutgoing, bumpOpGen, bumpSaveEpoch, reportPersistError, waitForStreamIdle]);
 
   const clearCurrentThread = useCallback(async () => {
-    if (!docPath) return;
+    if (!docPath || !docName) return;
     const gen = bumpOpGen();
     onStopStreamRef.current?.();
+    onAbortPendingSendRef.current?.();
     bumpSaveEpoch();
     skipSaveRef.current = true;
     setChatLoading(true);
 
     const idle = await waitForStreamIdle();
     if (!idle) {
-      reportPersistError(new Error("Agent still running"), "Could not clear chat while agent is running");
+      reportPersistError(new Error("Agent still running"), "chat.persist.clearBusy");
       if (gen === opGenRef.current) {
         skipSaveRef.current = false;
         setChatLoading(false);
@@ -545,12 +557,14 @@ export function useChatPersistence({
 
     try {
       await clearActiveThread(docPath, sessionIdRef.current);
+      const { sessionId, threads } = await createThread(docPath, docName);
+      if (gen !== opGenRef.current) return;
+      onActiveSessionIdChangeRef.current?.(sessionId);
+      setActiveSessionId(sessionId);
       setMessagesRef.current([]);
       loadedSnapshotRef.current = messagesSignature([]);
-      const loaded = await loadActiveMessages(docPath);
-      if (gen !== opGenRef.current) return;
-      await applyHydratedSession(loaded.sessionId, loaded.messages, docPath);
-      setThreads(loaded.threads);
+      messagesDocPathRef.current = docPath;
+      setThreads(threads);
       appliedLoadKeyRef.current = loadKey;
       await refreshSessions();
     } finally {
@@ -559,7 +573,7 @@ export function useChatPersistence({
         setChatLoading(false);
       }
     }
-  }, [docPath, loadKey, refreshSessions, bumpOpGen, bumpSaveEpoch, applyHydratedSession, waitForStreamIdle, reportPersistError]);
+  }, [docPath, docName, loadKey, refreshSessions, bumpOpGen, bumpSaveEpoch, waitForStreamIdle, reportPersistError]);
 
   const removeThread = useCallback(
     async (sessionId: string) => {
@@ -573,7 +587,7 @@ export function useChatPersistence({
         setChatLoading(true);
         const idle = await waitForStreamIdle();
         if (!idle) {
-          reportPersistError(new Error("Agent still running"), "Could not delete thread while agent is running");
+          reportPersistError(new Error("Agent still running"), "chat.persist.deleteThreadBusy");
           if (gen === opGenRef.current) {
             skipSaveRef.current = false;
             setChatLoading(false);
@@ -610,7 +624,7 @@ export function useChatPersistence({
         skipSaveRef.current = true;
         const idle = await waitForStreamIdle();
         if (!idle) {
-          reportPersistError(new Error("Agent still running"), "Could not delete session while agent is running");
+          reportPersistError(new Error("Agent still running"), "chat.persist.deleteSessionBusy");
           skipSaveRef.current = false;
           return;
         }

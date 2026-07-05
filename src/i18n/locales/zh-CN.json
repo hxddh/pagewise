@@ -406,6 +406,22 @@
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",
     "saveFailed": "保存失败"
   },
+  "chat": {
+    "persist": {
+      "saveFailed": "保存对话失败",
+      "loadFailed": "加载对话失败",
+      "autosaveFailed": "自动保存失败",
+      "agentBusy": "无法保存 — 助手仍在运行",
+      "threadSwitchBusy": "助手运行中，无法切换线程",
+      "threadSaveFailed": "切换线程前保存失败",
+      "threadSwitchFailed": "切换线程失败",
+      "newThreadBusy": "助手运行中，无法新建线程",
+      "newThreadSaveFailed": "新建线程前保存失败",
+      "clearBusy": "助手运行中，无法清空聊天",
+      "deleteThreadBusy": "助手运行中，无法删除线程",
+      "deleteSessionBusy": "助手运行中，无法删除会话"
+    }
+  },
   "library": {
     "emptyRecent": "暂无最近文件",
     "emptySessions": "暂无已保存会话",
