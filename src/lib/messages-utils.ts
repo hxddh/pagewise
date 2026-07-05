@@ -8,14 +8,16 @@ export function normalizeUIMessage(raw: unknown): UIMessage | null {
   if (role !== "user" && role !== "assistant" && role !== "system") return null;
   if (typeof m.id !== "string" || !m.id) return null;
 
-  let parts = m.parts;
-  if (!Array.isArray(parts)) {
-    if (typeof m.content === "string") {
-      parts = [{ type: "text", text: m.content }];
-    } else {
-      parts = [];
-    }
+  let parts: UIMessage["parts"];
+  if (Array.isArray(m.parts)) {
+    parts = m.parts as UIMessage["parts"];
+  } else if (typeof m.content === "string" && m.content.length > 0) {
+    parts = [{ type: "text", text: m.content }];
+  } else {
+    return null;
   }
+
+  if (parts.length === 0) return null;
 
   const metadata = m.metadata;
   return {
@@ -24,6 +26,11 @@ export function normalizeUIMessage(raw: unknown): UIMessage | null {
     parts: parts as UIMessage["parts"],
     ...(metadata != null && typeof metadata === "object" ? { metadata } : {}),
   };
+}
+
+/** Drop rows with no parts — AI SDK validateUIMessages rejects `parts: []`. */
+export function dropEmptyPartMessages(messages: UIMessage[]): UIMessage[] {
+  return messages.filter((m) => Array.isArray(m.parts) && m.parts.length > 0);
 }
 
 export function normalizeUIMessages(raw: unknown): UIMessage[] {

@@ -6,6 +6,7 @@ import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
 import { formatAgentError, validateAgentModel, assertApiKeyForAgent } from "../lib/llm";
 import { isAgentMultimodalModel } from "../lib/model-capabilities";
 import {
+  dropEmptyPartMessages,
   extractAssistantText,
   extractToolExcerpts,
   extractUserText,
@@ -108,17 +109,20 @@ export function useDocAgent(chatId: string | null = null) {
           }),
         );
       } else if (isAbort) {
-        setMessagesRef.current?.((prev) =>
-          prev.map((m) => {
-            if (m.id !== message.id) return m;
-            const existing = getPageWiseMetadata(m) ?? {};
-            if (existing.finishedAt != null) return m;
-            return {
-              ...m,
-              metadata: { ...existing, finishedAt: Date.now() },
-            };
-          }),
-        );
+        setMessagesRef.current?.((prev) => {
+          const next = prev
+            .filter((m) => !(m.id === message.id && m.parts.length === 0))
+            .map((m) => {
+              if (m.id !== message.id) return m;
+              const existing = getPageWiseMetadata(m) ?? {};
+              if (existing.finishedAt != null) return m;
+              return {
+                ...m,
+                metadata: { ...existing, finishedAt: Date.now() },
+              };
+            });
+          return next;
+        });
       }
 
       if (isAbort || message.role !== "assistant") return;
@@ -224,7 +228,9 @@ export function useDocAgent(chatId: string | null = null) {
     setSendError(undefined);
     chat.setMessages(
       (prev) =>
-        sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)) as typeof prev,
+        dropEmptyPartMessages(
+          sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)),
+        ) as typeof prev,
     );
     return true;
   }, [chat.clearError, chat.setMessages, t]);

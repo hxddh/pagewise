@@ -4,6 +4,7 @@ import {
   hasSubstantialAssistantText,
   hasSubstantialAnswerText,
   isAwaitingAssistantReply,
+  dropEmptyPartMessages,
   normalizeUIMessage,
   normalizeUIMessages,
 } from "./messages-utils";
@@ -76,6 +77,29 @@ describe("normalizeUIMessages", () => {
 
   it("drops invalid rows", () => {
     expect(normalizeUIMessages([null, { id: "x", role: "nope" }])).toHaveLength(0);
+  });
+
+  it("drops messages with empty parts array", () => {
+    expect(
+      normalizeUIMessage({ id: "e", role: "assistant", parts: [] }),
+    ).toBeNull();
+    expect(
+      normalizeUIMessages([
+        userMsg("u1"),
+        { id: "e", role: "assistant", parts: [] },
+      ]),
+    ).toHaveLength(1);
+  });
+});
+
+describe("dropEmptyPartMessages", () => {
+  it("removes zero-part rows before send/validate", () => {
+    const out = dropEmptyPartMessages([
+      userMsg("u1"),
+      { id: "a1", role: "assistant", parts: [] },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.id).toBe("u1");
   });
 
   it("counts reasoning text toward substantial assistant output", () => {
