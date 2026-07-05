@@ -194,7 +194,7 @@ export function useDocAgent(chatId: string | null = null) {
       clearAgentRunAbortSignal();
     }
 
-    if (wasBusy && chat.status === "ready") {
+    if (wasBusy && (chat.status === "ready" || chat.status === "error")) {
       setHistorySettling(true);
       const pruneForChatId = resolvedChatId;
       if (pruneTimeoutRef.current != null) {

@@ -12,7 +12,7 @@ import { dropEmptyPartMessages, stripUserFileParts } from "./messages-utils";
 import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
-import { setAgentRunAbortSignal } from "./vision-index";
+import { setAgentRunAbortSignal, clearAgentRunAbortSignal } from "./vision-index";
 import {
   createUsageMetadataTracker,
   type PageWiseMessageMetadata,
@@ -105,6 +105,7 @@ export class PagewiseChatTransport<
       return wrapStreamWithAgentProgress(uiStream, earlyProgress);
     } finally {
       unsubEarly();
+      clearAgentRunAbortSignal();
     }
   }
 

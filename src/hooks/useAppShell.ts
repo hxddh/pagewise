@@ -122,8 +122,8 @@ export function useAppShell() {
   }, [document.onLoadedRef]);
 
   useEffect(() => {
-    document.syncPageFromAgent(agent.messages);
-  }, [agent.messages, document.followAgent, document.syncPageFromAgent]);
+    document.syncPageFromAgent(agent.messages, agent.busy);
+  }, [agent.messages, agent.busy, document.followAgent, document.syncPageFromAgent]);
 
   const handleLlmSettingsSaved = useCallback(() => {
     agentRef.current.refreshConnection();

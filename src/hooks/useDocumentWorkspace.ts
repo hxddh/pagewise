@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findLastMessage } from "../lib/messages-utils";
+import { findLastMessage, getInFlightAssistantMessage } from "../lib/messages-utils";
 import { getToolName, isToolUIPart } from "ai";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useDocumentLoader } from "./useDocumentLoader";
@@ -203,13 +203,15 @@ export function useDocumentWorkspace(
   const { isDragging } = useTauriFileDrop(handleFileDrop);
 
   const syncPageFromAgent = useCallback(
-    (messages: import("ai").UIMessage[]) => {
+    (messages: import("ai").UIMessage[], busy = false) => {
       if (!followAgent) return;
       const msgCtx = getLastAgentMessageContext();
       if (!msgCtx) return;
       const followCtx = { userText: msgCtx.userText, viewingPage: msgCtx.viewingPage };
 
-      const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
+      const lastAssistant =
+        getInFlightAssistantMessage(messages, busy) ??
+        findLastMessage(messages, (m) => m.role === "assistant");
       if (!lastAssistant?.parts) return;
 
       let syncPage: number | null = null;
