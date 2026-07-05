@@ -15,6 +15,8 @@ interface UseLibraryStateOptions {
   /** Stop an in-flight agent stream (thread switch / reload). */
   onStopStream?: () => void;
   isStreaming?: boolean;
+  onPersistError?: (message: string) => void;
+  onActiveSessionIdChange?: (sessionId: string) => void;
 }
 
 export function useLibraryState({
@@ -28,6 +30,8 @@ export function useLibraryState({
   onDocumentSwitch,
   onStopStream,
   isStreaming = false,
+  onPersistError,
+  onActiveSessionIdChange,
 }: UseLibraryStateOptions) {
   const [libraryOpen, setLibraryOpen] = useState(false);
 
@@ -51,6 +55,8 @@ export function useLibraryState({
     onDocumentSwitch,
     onStopStream,
     isStreaming,
+    onPersistError,
+    onActiveSessionIdChange,
   });
 
   const openSessionFromLibrary = useCallback(

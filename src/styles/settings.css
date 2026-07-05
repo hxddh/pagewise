@@ -720,6 +720,12 @@
   color: var(--text-secondary);
 }
 
+.settings-callout-warning {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border-subtle));
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-elevated));
+  color: var(--text-secondary);
+}
+
 .settings-callout-dismiss {
   flex-shrink: 0;
   border: none;

@@ -12,6 +12,7 @@ export interface ToolStepInfo {
   label: string;
   key: string;
   running: boolean;
+  failed?: boolean;
 }
 
 function numArg(value: unknown): number | undefined {
@@ -94,7 +95,23 @@ export function toolStepLabel(
 export function toolStepFromPart(part: ToolPart, t: TranslateFn): ToolStepInfo {
   const toolName = getToolName(part as Parameters<typeof getToolName>[0]);
   const state = (part as { state?: string }).state;
+  const isError = state === "output-error";
   const running = state !== "output-available" && state !== "output-error";
+  if (isError) {
+    const { label, key, bucket } = toolStepLabel(
+      toolName,
+      (part as { input?: unknown }).input,
+      t,
+    );
+    return {
+      toolName,
+      bucket,
+      label: `${label} — ${t("agent.toolFailed")}`,
+      key: `${key}:err`,
+      running: false,
+      failed: true,
+    };
+  }
   const { label, key, bucket } = running
     ? {
         label: toolActivityLabel(toolName, t),

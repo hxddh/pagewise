@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { useDebouncedSave, type SaveStatus } from "../../hooks/useDebouncedSave";
+import { useConnectionStatus } from "../../hooks/useConnectionStatus";
 import { testConnection, testVisionConnection, validateAgentModel, validateModel, formatLlmError } from "../../lib/llm";
 import {
   loadLlmStore,
@@ -68,6 +69,7 @@ export function AiProviderSettings({
   onFooterState,
 }: AiProviderSettingsProps) {
   const { t } = useI18n();
+  const { plaintextKeysOnDisk } = useConnectionStatus();
   const [activeProvider, setActiveProviderState] = useState<ProviderId>(DEFAULT_SETTINGS.provider);
   const [providerProfiles, setProviderProfiles] = useState<
     Partial<Record<ProviderId, ProviderProfile>>
@@ -401,6 +403,10 @@ export function AiProviderSettings({
       if (saved.provider === activeProvider) {
         onLlmSettingsSaved?.();
         onApiReady?.();
+        if (lastPersistedVisionRef.current !== visionModel) {
+          lastPersistedVisionRef.current = visionModel;
+          onReindexDoc?.();
+        }
       }
       onTestResult?.(
         scanModel && saved.provider !== "custom" && visionPresetModels(saved.provider).length > 0
@@ -425,6 +431,7 @@ export function AiProviderSettings({
     onLlmSettingsSaved,
     onTestResult,
     onApiReady,
+    onReindexDoc,
     visionModel,
   ]);
 
@@ -516,6 +523,12 @@ export function AiProviderSettings({
           >
             ×
           </button>
+        </div>
+      )}
+
+      {plaintextKeysOnDisk && (
+        <div className="settings-callout settings-callout-warning" role="alert">
+          <span>{t("settings.plaintextKeysWarning")}</span>
         </div>
       )}
 

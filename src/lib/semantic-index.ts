@@ -10,7 +10,7 @@ import { isEmbeddingCapableProvider } from "./model-capabilities";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { loadSettings } from "./settings";
 import { searchDocumentPages, type SearchHit } from "./document-search";
-import { fuseSearchHits, type RankableHit } from "./search-rerank";
+import { fuseSearchHits, rerankSearchHits, type RankableHit } from "./search-rerank";
 
 interface PageEmbedding {
   page: number;
@@ -36,6 +36,9 @@ const buildPromises = new Map<string, Promise<void>>();
 const dirty = new Set<string>();
 /** Bumped when dirty is marked during an in-flight build — prevents clearing stale too early. */
 const dirtyGeneration = new Map<string, number>();
+/** Consecutive failed embed builds per path — bail out to keyword-only after cap. */
+const failedBuildAttempts = new Map<string, number>();
+const MAX_EMBED_BUILD_ATTEMPTS = 2;
 /** Providers we've already warned about lacking an embeddings endpoint (DEV only). */
 const warnedNoEmbed = new Set<string>();
 
@@ -80,6 +83,7 @@ export function clearSemanticIndex(path: string): void {
   buildPromises.delete(path);
   dirty.delete(path);
   dirtyGeneration.delete(path);
+  failedBuildAttempts.delete(path);
 }
 
 /**
@@ -96,15 +100,19 @@ export async function ensureSemanticIndex(
   path: string,
   pages: PageText[],
 ): Promise<void> {
-  for (;;) {
+  if (!docCache.has(path)) return;
+
+  for (let attempt = 0; attempt < MAX_EMBED_BUILD_ATTEMPTS + 1; attempt++) {
+    if (!docCache.has(path)) return;
+
     const pending = buildPromises.get(path);
     if (pending) {
       await pending;
+      if (!docCache.has(path)) return;
       continue;
     }
 
     const settings = await loadSettings();
-    // Gate on provider capability: skip embedding entirely rather than attempt+swallow.
     if (!isEmbeddingCapableProvider(settings.provider)) {
       if (import.meta.env.DEV && !warnedNoEmbed.has(settings.provider)) {
         warnedNoEmbed.add(settings.provider);
@@ -112,14 +120,14 @@ export async function ensureSemanticIndex(
           `[semantic-index] provider "${settings.provider}" has no embeddings endpoint; retrieval is keyword-only.`,
         );
       }
-      // Drop any index that predates a provider switch to a non-capable provider.
       store.delete(path);
+      dirty.delete(path);
+      failedBuildAttempts.delete(path);
       return;
     }
 
     const modelKey = embeddingModelKey(settings);
     const existing = store.get(path);
-    // Rebuild when: no index yet, the embedding model changed, or the index is dirty.
     if (existing && existing.model === modelKey && !dirty.has(path)) return;
 
     const dirtyGenAtStart = dirtyGeneration.get(path) ?? 0;
@@ -127,6 +135,8 @@ export async function ensureSemanticIndex(
     let build!: Promise<void>;
     build = (async () => {
       try {
+        if (!docCache.has(path)) return;
+
         const snapshot = resolvePages(path, pages);
         const sparse = snapshot.filter((p) => p.text.trim().length >= MIN_INDEX_CHARS);
         if (sparse.length === 0) {
@@ -134,6 +144,7 @@ export async function ensureSemanticIndex(
           if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
             dirty.delete(path);
           }
+          failedBuildAttempts.delete(path);
           return;
         }
 
@@ -151,6 +162,8 @@ export async function ensureSemanticIndex(
           semanticBuildAbort = null;
           semanticBuildPath = null;
         }
+        if (!docCache.has(path)) return;
+
         if (capped) {
           embedCapHandler?.(path, { embedded, eligible });
         }
@@ -165,15 +178,26 @@ export async function ensureSemanticIndex(
         }
         const aborted = buildAbort.signal.aborted;
         const complete = entries.length >= sparse.length;
-        if (entries.length > 0 && docCache.has(path) && !aborted) {
+        if (entries.length > 0 && !aborted) {
           store.set(path, { model: modelKey, dim, entries });
         } else {
           store.delete(path);
         }
-        if (aborted || !complete) {
-          markSemanticIndexDirty(path);
-        } else if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
-          dirty.delete(path);
+        if (aborted) {
+          if (docCache.has(path)) markSemanticIndexDirty(path);
+        } else if (!complete || entries.length === 0) {
+          const fails = (failedBuildAttempts.get(path) ?? 0) + 1;
+          failedBuildAttempts.set(path, fails);
+          if (fails >= MAX_EMBED_BUILD_ATTEMPTS) {
+            dirty.delete(path);
+          } else if (docCache.has(path)) {
+            markSemanticIndexDirty(path);
+          }
+        } else {
+          failedBuildAttempts.delete(path);
+          if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
+            dirty.delete(path);
+          }
         }
       } finally {
         if (buildPromises.get(path) === build) {
@@ -185,7 +209,10 @@ export async function ensureSemanticIndex(
     if (buildPromises.has(path)) continue;
     buildPromises.set(path, build);
     await build;
+
+    if (!docCache.has(path)) return;
     if (!dirty.has(path)) return;
+    if ((failedBuildAttempts.get(path) ?? 0) >= MAX_EMBED_BUILD_ATTEMPTS) return;
   }
 }
 
@@ -264,5 +291,5 @@ export async function semanticSearchPages(
     if (merged.length >= limit) break;
   }
 
-  return fuseSearchHits(query, merged, pageText, limit);
+  return rerankSearchHits(query, fuseSearchHits(query, merged, pageText, limit), pageText, limit);
 }

@@ -4,6 +4,30 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.31] - 2026-07-05
+
+### Fixed
+
+- Agent: Stop now cancels in-flight tool-time indexing (abort signal kept until stream ends)
+- Indexing: semantic embed build capped with failure backoff; no infinite retry loops
+- Indexing: closed documents abort background indexing via doc cache guards
+- Chat: persist failure blocks thread/document switch; autosave epoch bumped on delete
+- Chat: `visibilitychange` / `beforeunload` flush reduces message loss on crash
+- Search: document search always clears loading state on error
+- Settings: test connection triggers reindex when scan model changes
+- Settings: plaintext API key fallback surfaces a security warning in AI provider settings
+- Preview: transient index failures auto-retry after 4s
+
+### Added
+
+- Vercel AI SDK: `useChat({ id })` binds chat to document thread session
+- Vercel AI SDK: `rerank()` on semantic search hits (fuse + rerank path)
+- Vercel AI SDK: `streamObject` for streaming structured citations in message metadata
+- Vercel AI SDK: `output-error` tool steps shown with failed state in chat UI
+- Vercel AI SDK: `sendMessage({ messageId })` edit-and-resend for last user message
+- Vercel AI SDK: multimodal `files` part when sending with viewing page attached
+- Vercel AI SDK: provider metadata and final-step tool names in usage stats popover
+
 ## [0.2.30] - 2026-07-05
 
 ### Fixed

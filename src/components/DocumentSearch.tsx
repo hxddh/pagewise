@@ -48,11 +48,18 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
     setSearching(true);
     const id = window.setTimeout(() => {
       const pages = docCache.getPages(doc.path);
-      void semanticSearchPages(doc.path, pages, query, 30).then((results) => {
-        if (gen !== searchGenRef.current) return;
-        setHits(results);
-        setSearching(false);
-      });
+      void semanticSearchPages(doc.path, pages, query, 30)
+        .then((results) => {
+          if (gen !== searchGenRef.current) return;
+          setHits(results);
+        })
+        .catch(() => {
+          if (gen !== searchGenRef.current) return;
+          setHits([]);
+        })
+        .finally(() => {
+          if (gen === searchGenRef.current) setSearching(false);
+        });
     }, 120);
     return () => {
       window.clearTimeout(id);

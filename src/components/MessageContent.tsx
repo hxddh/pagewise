@@ -75,6 +75,7 @@ function ToolStepsBlock({
 }) {
   const steps = parts.map(({ part }) => toolStepFromPart(part, t));
   const { aggregate, summary, details, anyRunning } = summarizeToolSteps(steps, t);
+  const anyFailed = steps.some((s) => s.failed);
   const useFold = aggregate || live;
 
   if (!useFold) {
@@ -89,11 +90,11 @@ function ToolStepsBlock({
   }
 
   return (
-    <div className={`tool-fold-wrap${settling ? " tool-fold-wrap--settling" : ""}`}>
+    <div className={`tool-fold-wrap${settling ? " tool-fold-wrap--settling" : ""}${anyFailed ? " tool-fold-wrap--error" : ""}`}>
       <details className="tool-fold" open={live && anyRunning}>
         <summary className="tool-fold-summary">
           <span
-            className={`tool-dot ${anyRunning ? "running" : "done"}`}
+            className={`tool-dot ${anyFailed ? "error" : anyRunning ? "running" : "done"}`}
             aria-hidden
           />
           <span className="tool-fold-label">{summary}</span>

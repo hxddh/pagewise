@@ -806,6 +806,55 @@ body {
   color: var(--text);
 }
 
+.message-edit-btn {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: right;
+  width: 100%;
+}
+
+.message-edit-btn:hover {
+  color: var(--accent);
+}
+
+.message-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.message-edit-input {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.message-edit-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.message-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .message.assistant {
   align-self: stretch;
   padding: 0;

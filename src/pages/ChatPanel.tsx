@@ -21,6 +21,7 @@ import type { LoadedDocument } from "../lib/types";
 
 import type { SendDocumentMessageOptions, RegenerateDocumentMessageOptions } from "../hooks/useDocAgent";
 import {
+  extractUserText,
   findLastMessage,
   getInFlightAssistantMessage,
   hasSubstantialAnswerText,
@@ -36,6 +37,7 @@ interface ChatPanelProps {
   includeViewingPage: boolean;
   messages: UIMessage[];
   sendDocumentMessage: (opts: SendDocumentMessageOptions) => Promise<boolean>;
+  editUserMessage?: (messageId: string, opts: SendDocumentMessageOptions) => Promise<boolean>;
   regenerateDocumentMessage?: (opts: RegenerateDocumentMessageOptions) => Promise<boolean>;
   status: ChatStatus;
   error: Error | undefined;
@@ -70,6 +72,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     includeViewingPage,
     messages,
     sendDocumentMessage,
+    editUserMessage,
     regenerateDocumentMessage,
     status,
     error,
@@ -98,6 +101,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 ) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -156,14 +161,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     stickToBottomRef.current = true;
     onComposerDraftChange("");
     try {
-      const sent = await sendDocumentMessage({
+      const payload = {
         text,
         path: activeDoc.path,
         docName: activeDoc.name,
+        docKind: activeDoc.kind,
         viewingPage: previewPage,
         totalPages: activeDoc.totalPages,
         includeViewingPage,
-      });
+      };
+      const sent = await sendDocumentMessage(payload);
       // Only restore the failed send's text if the user hasn't started a new
       // draft in the meantime — otherwise we'd clobber what they just typed.
       if (!sent && !composerDraftRef.current) {
@@ -197,6 +204,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     await regenerateDocumentMessage({
       path: activeDoc.path,
       docName: activeDoc.name,
+      docKind: activeDoc.kind,
       viewingPage: previewPage,
       totalPages: activeDoc.totalPages,
       includeViewingPage,
@@ -355,8 +363,63 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       onRegenerate={() => void handleRegenerate()}
                     />
                   </>
+                ) : editingUserId === m.id ? (
+                  <form
+                    className="message-edit-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!activeDoc || !editUserMessage || busy) return;
+                      const text = editDraft.trim();
+                      if (!text) return;
+                      void editUserMessage(m.id, {
+                        text,
+                        path: activeDoc.path,
+                        docName: activeDoc.name,
+                        docKind: activeDoc.kind,
+                        viewingPage: previewPage,
+                        totalPages: activeDoc.totalPages,
+                        includeViewingPage,
+                      }).then((ok) => {
+                        if (ok) setEditingUserId(null);
+                      });
+                    }}
+                  >
+                    <textarea
+                      className="message-edit-input"
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      rows={3}
+                      autoFocus
+                    />
+                    <div className="message-edit-actions">
+                      <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
+                        {t("agent.resend")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => setEditingUserId(null)}
+                      >
+                        {t("agent.cancelEdit")}
+                      </button>
+                    </div>
+                  </form>
                 ) : (
-                  <MessageContent message={m} />
+                  <>
+                    <MessageContent message={m} />
+                    {editUserMessage && !busy && m.id === lastUser?.id && (
+                      <button
+                        type="button"
+                        className="message-edit-btn"
+                        onClick={() => {
+                          setEditingUserId(m.id);
+                          setEditDraft(extractUserText(m));
+                        }}
+                      >
+                        {t("agent.editMessage")}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             ))}

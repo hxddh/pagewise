@@ -166,6 +166,7 @@ function AppShell() {
                     includeViewingPage={document.includeViewingPage}
                     messages={agent.messages}
                     sendDocumentMessage={agent.sendDocumentMessage}
+                    editUserMessage={agent.editUserMessage}
                     regenerateDocumentMessage={agent.regenerateDocumentMessage}
                     status={agent.status}
                     error={agent.error}

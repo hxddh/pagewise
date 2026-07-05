@@ -57,6 +57,7 @@ export function useConnectionStatus() {
     agentToolsSupported,
     settingsReady,
     verified,
+    plaintextKeysOnDisk: settings?.plaintextKeysOnDisk ?? false,
     providerLabel,
     model: settings?.model ?? null,
     refresh,

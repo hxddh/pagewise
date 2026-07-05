@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateObject, streamObject } from "ai";
 import { z } from "zod";
 import { resolveModel, resolveReasoning } from "./llm";
 import { loadSettings } from "./settings";
@@ -17,12 +17,19 @@ export type StructuredCitation = z.infer<typeof structuredCitationSchema>["citat
 
 const extractionSchema = structuredCitationSchema;
 
+const CITATION_PROMPT = (answer: string, excerpts: string) =>
+  `Extract page citations from the assistant answer. Use only pages evidenced in the tool excerpts.
+Return an empty citations array if none are justified.
+
+Assistant answer:
+${answer.slice(0, 6000)}
+
+Tool excerpts:
+${excerpts.slice(0, 8000)}`;
+
 /**
  * Normalize extracted citations: drop invalid pages, fix inverted ranges, bound to
  * `[1, totalPages]` when a page count is provided, and dedupe by `page:pageEnd`.
- *
- * `totalPages` is optional and backward compatible: when omitted (or invalid) the only
- * lower bound enforced is `page >= 1` with no upper bound.
  */
 export function normalizeStructuredCitations(
   citations: StructuredCitation[],
@@ -38,9 +45,7 @@ export function normalizeStructuredCitations(
     let start = c.page;
     let end = c.pageEnd ?? c.page;
     if (!Number.isInteger(start) || !Number.isInteger(end)) continue;
-    // Normalize inverted ranges (start = min, end = max).
     if (end < start) [start, end] = [end, start];
-    // Bound to [1, totalPages]; drop citations that fall outside.
     if (start < 1 || end < 1 || start > upper || end > upper) continue;
 
     const key = `${start}:${end}`;
@@ -68,16 +73,43 @@ export async function extractStructuredCitations(
       model: resolveModel(settings),
       reasoning: resolveReasoning(settings),
       schema: extractionSchema,
-      prompt: `Extract page citations from the assistant answer. Use only pages evidenced in the tool excerpts.
-Return an empty citations array if none are justified.
-
-Assistant answer:
-${answer.slice(0, 6000)}
-
-Tool excerpts:
-${toolExcerpts.slice(0, 8000)}`,
+      prompt: CITATION_PROMPT(answer, toolExcerpts),
     });
     return normalizeStructuredCitations(object.citations, totalPages);
+  } catch {
+    return [];
+  }
+}
+
+/** Stream citations via AI SDK `streamObject` and emit partial results as they arrive. */
+export async function streamStructuredCitations(
+  answerText: string,
+  toolExcerpts: string,
+  totalPages: number | undefined,
+  onPartial: (citations: StructuredCitation[]) => void,
+): Promise<StructuredCitation[]> {
+  const answer = answerText.trim();
+  if (!answer) return [];
+
+  const settings = await loadSettings();
+  try {
+    const { partialObjectStream, object } = streamObject({
+      model: resolveModel(settings),
+      reasoning: resolveReasoning(settings),
+      schema: extractionSchema,
+      prompt: CITATION_PROMPT(answer, toolExcerpts),
+    });
+
+    for await (const partial of partialObjectStream) {
+      if (partial.citations?.length) {
+        onPartial(normalizeStructuredCitations(partial.citations as StructuredCitation[], totalPages));
+      }
+    }
+
+    const final = await object;
+    const normalized = normalizeStructuredCitations(final.citations, totalPages);
+    onPartial(normalized);
+    return normalized;
   } catch {
     return [];
   }

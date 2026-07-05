@@ -751,3 +751,26 @@ export async function getPageViewport(path: string, pageNumber: number, scale: n
   const page = await doc.getPage(pageNumber);
   return page.getViewport({ scale });
 }
+
+/** Capture the current document page as a multimodal `FileUIPart` for AI SDK messages. */
+export async function capturePageFilePart(
+  path: string,
+  page: number,
+  kind: "pdf" | "image",
+): Promise<{ type: "file"; mediaType: string; url: string } | null> {
+  if (kind === "image") {
+    return { type: "file", mediaType: "image/png", url: convertFileSrc(path) };
+  }
+  const canvas = document.createElement("canvas");
+  try {
+    const result = await renderPageToCanvas(path, page, canvas, 1, "high", "performance");
+    if (result.cancelled || canvas.width === 0) return null;
+    return {
+      type: "file",
+      mediaType: "image/png",
+      url: canvas.toDataURL("image/png", 0.85),
+    };
+  } catch {
+    return null;
+  }
+}
