@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "0.2.22",
+  "version": "0.2.23",
   "description": "Local desktop document agent — PDF, OCR, page-wise AI analysis",
   "license": "MIT",
   "type": "module",

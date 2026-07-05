@@ -4,6 +4,14 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.23] - 2026-07-05
+
+### Fixed
+
+- Indexing: retry after failure when scan model changes; reindex active doc on scan model save
+- Indexing: show “check API key and scan model” when vision API fails (not misleading Tesseract hint)
+- Indexing: use `image` content type for vision API; fall back to default scan model when stored id is not vision-capable
+
 ## [0.2.22] - 2026-07-05
 
 ### Fixed
@@ -342,7 +350,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.22...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.23...HEAD
+[0.2.23]: https://github.com/hxddh/pagewise/compare/v0.2.22...v0.2.23
 [0.2.22]: https://github.com/hxddh/pagewise/compare/v0.2.21...v0.2.22
 [0.2.21]: https://github.com/hxddh/pagewise/compare/v0.2.20...v0.2.21
 [0.2.20]: https://github.com/hxddh/pagewise/compare/v0.2.19...v0.2.20

@@ -17,6 +17,7 @@ interface PreviewPaneProps {
   page: number;
   onPageChange: (page: number) => void;
   prefsRevision?: number;
+  indexRevision?: number;
   onOpenAiSettings?: () => void;
 }
 
@@ -25,6 +26,7 @@ function PreviewPaneInner({
   page,
   onPageChange,
   prefsRevision = 0,
+  indexRevision = 0,
   onOpenAiSettings,
 }: PreviewPaneProps) {
   const { t } = useI18n();
@@ -44,11 +46,13 @@ function PreviewPaneInner({
       return;
     }
     const state = getPageIndexState(doc.path, indexPage);
-    if (state?.status === "indexing" || state?.status === "done" || state?.status === "failed") {
-      return;
+    if (state?.status === "indexing") return;
+    if (state?.status === "done") return;
+    if (state?.status === "failed") {
+      clearPageIndexState(doc.path, indexPage);
     }
     indexPageInBackground(doc.path, indexPage, doc.kind);
-  }, [doc.path, doc.kind, indexPage, pageTextLen, doc.pages]);
+  }, [doc.path, doc.kind, indexPage, pageTextLen, doc.pages, indexRevision]);
 
   const indexHint = useMemo(() => {
     if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return null;

@@ -45,6 +45,7 @@ export function useAppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>();
   const [prefsRevision, setPrefsRevision] = useState(0);
+  const [indexRevision, setIndexRevision] = useState(0);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   useEffect(() => {
@@ -86,6 +87,7 @@ export function useAppShell() {
   }, []);
 
   const handleReindexDoc = useCallback(() => {
+    setIndexRevision((r) => r + 1);
     if (document.activeDoc) {
       reindexRef.current();
     }
@@ -174,6 +176,7 @@ export function useAppShell() {
       setPaletteOpen,
       commands,
       prefsRevision,
+      indexRevision,
       showToast,
       onPreferencesSaved,
       handleApiReady,
@@ -198,6 +201,7 @@ export function useAppShell() {
       setPaletteOpen,
       commands,
       prefsRevision,
+      indexRevision,
       showToast,
       onPreferencesSaved,
       handleApiReady,

@@ -7,7 +7,7 @@ import {
   getPageIndexState,
   type IndexFailureReason,
 } from "./index-events";
-import { resolveModel } from "./llm";
+import { resolveModel, assertApiKeyForAgent } from "./llm";
 import { isVisionModel } from "./model-capabilities";
 import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
 import { loadVisionSettings } from "./settings";
@@ -156,7 +156,7 @@ export async function visionExtractPage(
         role: "user",
         content: [
           { type: "text", text: VISION_PROMPTS[focus] },
-          { type: "file", data: image, mediaType: "image/jpeg" },
+          { type: "image", image, mediaType: "image/jpeg" },
         ],
       },
     ],
@@ -184,7 +184,7 @@ async function isTesseractAvailable(): Promise<boolean> {
   }
 }
 
-function resolveFailureReason(
+export function resolveIndexFailureReason(
   settings: LlmSettings,
   visionAttempted: boolean,
   visionFailed: boolean,
@@ -197,7 +197,7 @@ function resolveFailureReason(
   const hasVision = isVisionModel(settings.provider, settings.model);
 
   if (hasVision && visionAttempted && visionFailed) {
-    return ocrFailed && !tesseractAvailable ? "ocr_unavailable" : "vision_failed";
+    return "vision_failed";
   }
 
   if (!hasVision) {
@@ -228,11 +228,7 @@ export async function indexPageText(
     return { text: cached?.text ?? "", source: "cache" };
   }
   if (priorState?.status === "failed") {
-    if (cached?.text.trim()) {
-      clearPageIndexState(path, page);
-    } else {
-      return { text: "", source: "ocr" };
-    }
+    clearPageIndexState(path, page);
   }
 
   if (signal?.aborted) {
@@ -246,11 +242,13 @@ export async function indexPageText(
     const hasVision = isVisionModel(settings.provider, settings.model);
     let visionAttempted = false;
     let visionFailed = false;
+    let visionError: string | undefined;
     let ocrFailed = false;
 
     if (hasVision) {
       visionAttempted = true;
       try {
+        assertApiKeyForAgent(settings);
         const focus: VisionFocus = kind === "image" ? "structure" : "text";
         const { text } = await visionExtractPage(
           settings,
@@ -265,6 +263,7 @@ export async function indexPageText(
         visionFailed = true;
       } catch (err) {
         visionFailed = true;
+        visionError = err instanceof Error ? err.message : String(err);
         if (isRateLimitError(err)) {
           emitPageIndex({
             path,
@@ -297,7 +296,7 @@ export async function indexPageText(
     }
 
     const tesseractAvailable = await isTesseractAvailable();
-    const failureReason = resolveFailureReason(
+    const failureReason = resolveIndexFailureReason(
       settings,
       visionAttempted,
       visionFailed,
@@ -311,7 +310,7 @@ export async function indexPageText(
       page,
       status: "failed",
       failureReason,
-      error: failureReason,
+      error: visionError ?? failureReason,
     });
     return { text: "", source: "ocr" };
   } catch (err) {

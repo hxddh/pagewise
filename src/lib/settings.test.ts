@@ -6,6 +6,7 @@ import {
   loadApiKeyForProvider,
   loadLlmStore,
   loadProviderSettings,
+  loadVisionSettings,
   migrateLlmSettings,
   migrateV1ToV2,
   saveProviderProfile,
@@ -289,6 +290,26 @@ describe("migrateProviderProfile", () => {
 
     const store = await loadLlmStore();
     expect(store.profiles.openrouter!.thinkingEnabled).toBe(false);
+  });
+
+  it("loadVisionSettings uses default scan model when stored model is not vision-capable", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openrouter",
+        profiles: {
+          openrouter: {
+            model: "openai/gpt-4o-mini",
+            visionModel: "openai/gpt-4o-mini",
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+
+    const vision = await loadVisionSettings();
+    expect(vision.model).toBe("google/gemini-2.5-flash-lite");
   });
 });
 
