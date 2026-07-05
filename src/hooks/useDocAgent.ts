@@ -92,6 +92,7 @@ export function useDocAgent(chatId: string | null = null) {
   const resolvedChatId = chatId ?? "pagewise-local";
   const pruneChatIdRef = useRef(resolvedChatId);
   const pruneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pruneInnerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   pruneChatIdRef.current = resolvedChatId;
   const pendingSendErrorRef = useRef<Error | undefined>(undefined);
 
@@ -237,6 +238,7 @@ export function useDocAgent(chatId: string | null = null) {
     pendingSendContextRef.current = null;
     abortCitationStream();
     citationGenRef.current += 1;
+    clearAgentRunAbortSignal();
     chat.stop();
   }, [resolvedChatId, abortCitationStream, chat.stop]);
 
@@ -262,12 +264,22 @@ export function useDocAgent(chatId: string | null = null) {
           return;
         }
         chat.setMessages((prev) => pruneToolOutputsForHistory(prev) as typeof prev);
-        window.setTimeout(() => setHistorySettling(false), 300);
+        if (pruneInnerTimeoutRef.current != null) {
+          window.clearTimeout(pruneInnerTimeoutRef.current);
+        }
+        pruneInnerTimeoutRef.current = window.setTimeout(() => {
+          pruneInnerTimeoutRef.current = null;
+          setHistorySettling(false);
+        }, 300);
       }, 0);
       return () => {
         if (pruneTimeoutRef.current != null) {
           window.clearTimeout(pruneTimeoutRef.current);
           pruneTimeoutRef.current = null;
+        }
+        if (pruneInnerTimeoutRef.current != null) {
+          window.clearTimeout(pruneInnerTimeoutRef.current);
+          pruneInnerTimeoutRef.current = null;
         }
         setHistorySettling(false);
       };
@@ -287,7 +299,17 @@ export function useDocAgent(chatId: string | null = null) {
   }, [chat.clearError]);
 
   const prepareForAgentSend = useCallback(async (): Promise<boolean> => {
+    const sendGen = sendGenRef.current;
+    const agentGen = agentGenRef.current;
+    const chatIdAtStart = resolvedChatId;
     const settings = await loadSettings();
+    if (
+      sendGen !== sendGenRef.current ||
+      agentGen !== agentGenRef.current ||
+      chatIdAtStart !== resolvedChatId
+    ) {
+      return false;
+    }
     const modelError = validateAgentModel(settings, t);
     if (modelError) {
       setSendError(new Error(modelError));
@@ -302,6 +324,13 @@ export function useDocAgent(chatId: string | null = null) {
     clearSendError();
     setSendError(undefined);
     runSettingsRef.current = settings;
+    if (
+      sendGen !== sendGenRef.current ||
+      agentGen !== agentGenRef.current ||
+      chatIdAtStart !== resolvedChatId
+    ) {
+      return false;
+    }
     chat.setMessages(
       (prev) =>
         sanitizeMessagesForChat(
@@ -312,7 +341,7 @@ export function useDocAgent(chatId: string | null = null) {
         ) as typeof prev,
     );
     return true;
-  }, [clearSendError, chat.setMessages, t]);
+  }, [clearSendError, chat.setMessages, resolvedChatId, t]);
 
   const buildSendPayload = useCallback(
     async (opts: SendDocumentMessageOptions, text: string) => {
@@ -374,7 +403,10 @@ export function useDocAgent(chatId: string | null = null) {
           return false;
         }
         const payload = await buildSendPayload({ ...opts, text }, text);
-        if (sendGen !== sendGenRef.current) {
+        if (
+          sendGen !== sendGenRef.current ||
+          streamAgentGenRef.current !== agentGenRef.current
+        ) {
           rollbackLastAgentMessage();
           return false;
         }
@@ -385,6 +417,7 @@ export function useDocAgent(chatId: string | null = null) {
           clearSendError,
           () => rollbackOptimisticUser(messageId, text),
           () => {
+            rollbackLastAgentMessage();
             if (pendingSendContextRef.current) {
               beginAgentMessage(pendingSendContextRef.current);
             }
@@ -422,9 +455,11 @@ export function useDocAgent(chatId: string | null = null) {
         if (sendGen !== sendGenRef.current) return false;
         return await runAgentSend(opts, opts.text, undefined, sendGen);
       } finally {
-        sendingRef.current = false;
-        setSendPhase(false);
-        pendingSendContextRef.current = null;
+        if (sendGen === sendGenRef.current) {
+          sendingRef.current = false;
+          setSendPhase(false);
+          pendingSendContextRef.current = null;
+        }
       }
     },
     [chat.status, prepareForAgentSend, runAgentSend],
@@ -445,9 +480,11 @@ export function useDocAgent(chatId: string | null = null) {
         if (sendGen !== sendGenRef.current) return false;
         return await runAgentSend(opts, opts.text, messageId, sendGen);
       } finally {
-        sendingRef.current = false;
-        setSendPhase(false);
-        pendingSendContextRef.current = null;
+        if (sendGen === sendGenRef.current) {
+          sendingRef.current = false;
+          setSendPhase(false);
+          pendingSendContextRef.current = null;
+        }
       }
     },
     [chat.status, prepareForAgentSend, runAgentSend],
@@ -493,21 +530,26 @@ export function useDocAgent(chatId: string | null = null) {
         clearSendError();
         return await runAgentSend(sendOpts, text, lastUser.id, sendGen);
       } finally {
-        sendingRef.current = false;
-        setSendPhase(false);
-        pendingSendContextRef.current = null;
+        if (sendGen === sendGenRef.current) {
+          sendingRef.current = false;
+          setSendPhase(false);
+          pendingSendContextRef.current = null;
+        }
       }
     },
-    [chat.status, prepareForAgentSend, runAgentSend, clearSendError],
+    [chat.status, prepareForAgentSend, runAgentSend, clearSendError, chat.setMessages],
   );
 
   const clearChat = useCallback(() => {
     chat.stop();
+    abortCitationStream();
+    citationGenRef.current += 1;
+    clearAgentRunAbortSignal();
     chat.setMessages([]);
     chat.clearError();
     setSendError(undefined);
     setStreamProgress(null);
-  }, [chat.stop, chat.setMessages, chat.clearError]);
+  }, [chat.stop, chat.setMessages, chat.clearError, abortCitationStream]);
 
   const activeError = chat.error ?? sendError;
   const errorMessage = useMemo(

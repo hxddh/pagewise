@@ -12,7 +12,6 @@ export interface ShellContextValue {
   setPaletteOpen: (open: boolean) => void;
   commands: CommandItem[];
   prefsRevision: number;
-  indexRevision: number;
   showToast: (msg: string, tone?: "default" | "success" | "error") => void;
   onPreferencesSaved: () => Promise<void>;
   handleApiReady: () => void;

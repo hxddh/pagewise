@@ -9,7 +9,7 @@ import {
 import { assertApiKeyForAgent, formatLlmError } from "./llm";
 import { generateVisionText } from "./vision-api";
 import { isVisionModel, canAttemptVisionIndexing } from "./model-capabilities";
-import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
+import { ocrPdfPage, renderPageToJpegBytes, readAuthorizedFileBytes } from "./pdf";
 import { loadVisionSettings } from "./settings";
 import type { LoadedDocument } from "./types";
 import type { LlmSettings } from "./types";
@@ -51,12 +51,17 @@ export interface IndexPageOptions {
   timeoutMs?: number;
   /** When true, a rate-limit (429) is re-thrown so a caller can back off. */
   throwOnRateLimit?: boolean;
+  /** Bypass docCache text short-circuit (reindex after model change). */
+  forceReindex?: boolean;
+  /** Honor the active agent stream abort signal (tool-time indexing only). */
+  bindAgentAbort?: boolean;
 }
 
 export interface IndexSparsePagesOptions {
   signal?: AbortSignal;
   concurrency?: number;
   maxPages?: number;
+  forceReindex?: boolean;
 }
 
 export interface IndexSparsePagesResult {
@@ -96,9 +101,10 @@ function inflightKey(path: string, page: number): string {
 }
 
 function resolveIndexSignal(options: IndexPageOptions): AbortSignal | undefined {
-  const parts = [options.signal, agentRunAbortSignal, getBackgroundIndexSignal()].filter(
-    Boolean,
-  ) as AbortSignal[];
+  const parts = [
+    options.signal,
+    options.bindAgentAbort ? agentRunAbortSignal : undefined,
+  ].filter(Boolean) as AbortSignal[];
   if (parts.length === 0) return undefined;
   if (parts.length === 1) return parts[0];
   return AbortSignal.any(parts);
@@ -127,7 +133,7 @@ function handleIndexAbort(
   page: number,
   cached: { text: string } | undefined,
 ): { text: string; source: "vision" | "ocr" | "cache" } {
-  clearPageIndexState(path, page);
+  emitPageIndex({ path, page, status: "idle" });
   if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
     return { text: cached.text, source: "cache" };
   }
@@ -148,16 +154,9 @@ export class VisionNotSupportedError extends Error {
   }
 }
 
-async function readImageBytes(path: string): Promise<Uint8Array> {
+async function readImageBytes(path: string, signal?: AbortSignal): Promise<Uint8Array> {
   try {
-    const raw = await invoke<unknown>("read_file_bytes", { path });
-    if (raw instanceof Uint8Array) return raw;
-    if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
-    if (ArrayBuffer.isView(raw)) {
-      const view = raw as ArrayBufferView;
-      return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-    }
-    if (Array.isArray(raw)) return new Uint8Array(raw);
+    return await readAuthorizedFileBytes(path, signal);
   } catch {
     /* fall through */
   }
@@ -203,7 +202,7 @@ async function loadPageImageBytes(
   kind: "pdf" | "image",
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
-  if (kind === "image") return readImageBytes(path);
+  if (kind === "image") return readImageBytes(path, signal);
   return renderPageToJpegBytes(path, page, 1568, 0.85, signal);
 }
 
@@ -241,8 +240,11 @@ async function localOcrPage(
   kind: "pdf" | "image",
   signal?: AbortSignal,
 ): Promise<string> {
+  if (signal?.aborted) throw new DOMException("Index aborted", "AbortError");
   if (kind === "pdf") return ocrPdfPage(path, page, signal);
-  return invoke<string>("ocr_image", { path });
+  const text = await invoke<string>("ocr_image", { path });
+  if (signal?.aborted) throw new DOMException("Index aborted", "AbortError");
+  return text;
 }
 
 async function isTesseractAvailable(): Promise<boolean> {
@@ -304,21 +306,21 @@ async function indexPageTextInner(
   kind: "pdf" | "image",
   options: IndexPageOptions = {},
 ): Promise<{ text: string; source: "vision" | "ocr" | "cache" }> {
-  const { signal, timeoutMs, throwOnRateLimit = false } = options;
+  const { signal, timeoutMs, throwOnRateLimit = false, forceReindex = false } = options;
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
-  if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
+  if (!forceReindex && cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
     return { text: cached.text, source: "cache" };
   }
 
   const priorState = getPageIndexState(path, page);
-  if (priorState?.status === "done") {
+  if (!forceReindex && priorState?.status === "done") {
     if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
       return { text: cached.text, source: "cache" };
     }
     clearPageIndexState(path, page);
   }
-  if (priorState?.status === "failed") {
+  if (priorState?.status === "failed" || forceReindex) {
     clearPageIndexState(path, page);
   }
 
@@ -361,17 +363,10 @@ async function indexPageTextInner(
         console.warn("[vision-index] vision extraction failed:", visionError);
         if (isRateLimitError(err)) {
           if (throwOnRateLimit) {
-            emitPageIndex({
-              path,
-              page,
-              status: "failed",
-              failureReason: "vision_failed",
-              error: "rate_limited",
-            });
-            throw err;
+            console.warn("[vision-index] rate limited (429); trying local OCR fallback.");
+          } else {
+            console.warn("[vision-index] rate limited (429); trying local OCR fallback.");
           }
-          // Non-pool path: fall through to local OCR instead of failing immediately.
-          console.warn("[vision-index] rate limited (429); trying local OCR fallback.");
         }
         // Non-rate-limit vision error: fall through to local OCR.
       }
@@ -413,11 +408,11 @@ async function indexPageTextInner(
     });
     return { text: "", source: "ocr" };
   } catch (err) {
-    if (signal?.aborted) {
+    if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
       return handleIndexAbort(path, page, cached);
     }
 
-    // Rate-limit that a pool wants to propagate: state already emitted above.
+    // Rate-limit with throwOnRateLimit: OCR was already attempted in the try path.
     if (isRateLimitError(err) && throwOnRateLimit) throw err;
 
     // Any other unexpected throw (e.g. loadSettings rejecting) must still land
@@ -448,23 +443,22 @@ export async function indexPageText(
         once: true,
       });
     }
-    if (agentRunAbortSignal && !agentRunAbortSignal.aborted) {
-      agentRunAbortSignal.addEventListener("abort", () => existing.localAbort.abort(), {
-        once: true,
-      });
-    }
     return existing.promise;
   }
 
   const localAbort = new AbortController();
-  const parts = [options.signal, localAbort.signal].filter(Boolean) as AbortSignal[];
+  const bgSignal = options.signal ?? getBackgroundIndexSignal();
+  const parts = [bgSignal, localAbort.signal].filter(Boolean) as AbortSignal[];
   const combined =
     parts.length === 0
       ? undefined
       : parts.length === 1
         ? parts[0]
         : AbortSignal.any(parts);
-  const resolvedOptions = { ...options, signal: resolveIndexSignal({ ...options, signal: combined }) };
+  const resolvedOptions = {
+    ...options,
+    signal: resolveIndexSignal({ ...options, signal: combined }),
+  };
 
   const work = indexPageTextInner(path, page, kind, resolvedOptions).finally(() => {
     inflightIndex.delete(key);
@@ -503,13 +497,16 @@ export function indexSparsePages(
     signal,
     concurrency = DEFAULT_INDEX_CONCURRENCY,
     maxPages = DEFAULT_MAX_INDEX_PAGES,
+    forceReindex = false,
   } = options;
 
   const targets =
     pages ??
-    doc.pages
-      .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
-      .map((p) => p.page);
+    (forceReindex
+      ? doc.pages.map((p) => p.page)
+      : doc.pages
+          .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
+          .map((p) => p.page));
 
   const limited = targets.slice(0, Math.max(0, maxPages));
   const capped = limited.length < targets.length;
@@ -528,6 +525,7 @@ export function indexSparsePages(
     const result = await indexPageText(doc.path, page, doc.kind, {
       signal,
       throwOnRateLimit: true,
+      forceReindex,
     });
     if (result.text.trim().length >= MIN_INDEX_CHARS) succeeded++;
   }).then(() => ({

@@ -106,6 +106,9 @@ const textLayerCache = new Map<string, unknown>();
 const renderQueue: QueueItem[] = [];
 let queueRunning = false;
 
+/** In-flight paint operations — cancelled on clearPdfCache. */
+const activePaints = new Set<{ cancel: () => void }>();
+
 /** Active render tasks keyed by canvas element (for cancellation). */
 const activeRenderTasks = new WeakMap<HTMLCanvasElement, RenderTask>();
 
@@ -407,6 +410,23 @@ async function loadPdfBytesViaIpc(path: string, readGen: number): Promise<Uint8A
   return coerceInvokeBytes(raw);
 }
 
+/** Read an allowlisted file via IPC with stale-read discard (vision / images). */
+export async function readAuthorizedFileBytes(
+  path: string,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  throwIfAborted(signal);
+  const readGen = fileReadGen;
+  try {
+    const data = await loadPdfBytesViaIpc(path, readGen);
+    throwIfAborted(signal);
+    return data;
+  } catch (e) {
+    if (e instanceof StalePdfLoadError) throw e;
+    throw e;
+  }
+}
+
 async function loadPdfBytes(path: string, readGen: number): Promise<Uint8Array> {
   const cached = pdfBytesCache.get(path);
   if (cached) return cached;
@@ -547,6 +567,8 @@ async function paintPage(
   });
 
   activeRenderTasks.set(canvas, task);
+  const paintHandle = { cancel: () => task.cancel() };
+  activePaints.add(paintHandle);
 
   try {
     await task.promise;
@@ -556,6 +578,7 @@ async function paintPage(
     }
     throw e;
   } finally {
+    activePaints.delete(paintHandle);
     activeRenderTasks.delete(canvas);
   }
 
@@ -628,7 +651,13 @@ async function renderAndCache(
   }
 
   const doc = await getPdfDocument(path);
+  if (isStale()) {
+    return { totalPages: doc.numPages, cacheHit: false, cancelled: true };
+  }
   const page = await doc.getPage(pageNumber);
+  if (isStale()) {
+    return { totalPages: doc.numPages, cacheHit: false, cancelled: true };
+  }
   const paint = await paintPage(page, scale, quality, canvas, intent);
 
   if (paint.cancelled || isStale()) {
@@ -720,15 +749,19 @@ export async function renderTextLayer(
   pageNumber: number,
   scale: number,
   container: HTMLElement,
+  isStale?: () => boolean,
 ): Promise<() => void> {
   const layerKey = `${path}|${pageNumber}|${scale.toFixed(4)}`;
   const doc = await getPdfDocument(path);
+  if (isStale?.()) return () => {};
   const page = await doc.getPage(pageNumber);
+  if (isStale?.()) return () => {};
   const viewport = page.getViewport({ scale });
 
   let textContent = textLayerCache.get(layerKey);
   if (!textContent) {
     textContent = await page.getTextContent();
+    if (isStale?.()) return () => {};
     textLayerCache.set(layerKey, textContent);
   }
 
@@ -737,6 +770,7 @@ export async function renderTextLayer(
   container.style.height = `${Math.round(viewport.height)}px`;
 
   const { TextLayer } = await getPdfJs();
+  if (isStale?.()) return () => {};
   const layer = new TextLayer({
     textContentSource: textContent as Awaited<ReturnType<PDFPageProxy["getTextContent"]>>,
     container,
@@ -744,6 +778,11 @@ export async function renderTextLayer(
   });
 
   await layer.render();
+  if (isStale?.()) {
+    layer.cancel();
+    container.innerHTML = "";
+    return () => {};
+  }
 
   return () => {
     layer.cancel();
@@ -767,8 +806,11 @@ export function clearPdfCache(): void {
   renderEpoch += 1;
   pdfDocEpoch += 1;
   bumpFileReadGeneration();
+  void cancelPdfExtract("load");
   for (const item of renderQueue) item.cancel();
   renderQueue.length = 0;
+  for (const paint of activePaints) paint.cancel();
+  activePaints.clear();
   if (pdfDocCache) {
     void pdfDocCache.doc.loadingTask.destroy();
     pdfDocCache = null;
@@ -818,12 +860,16 @@ export async function renderThumbnail(
   pageNumber: number,
   canvas: HTMLCanvasElement,
   maxWidth = 96,
+  isStale?: () => boolean,
 ): Promise<void> {
   // Use the dedicated "thumb" lane so a page turn/zoom/resize (which purges the
   // "low" lane) does not cancel this render and leave the thumbnail blank.
   await enqueueRender("thumb", async () => {
+    if (isStale?.()) return;
     const doc = await getPdfDocument(path);
+    if (isStale?.()) return;
     const page = await doc.getPage(pageNumber);
+    if (isStale?.()) return;
     const base = page.getViewport({ scale: 1 });
     const scale = maxWidth / base.width;
     await paintPage(page, scale, "performance", canvas, "display");
@@ -847,6 +893,7 @@ export async function renderPageToJpegBytes(
 
   const offscreen = document.createElement("canvas");
   await paintPage(page, scale, "performance", offscreen, "print");
+  throwIfAborted(signal);
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     offscreen.toBlob(
@@ -875,6 +922,7 @@ export async function renderPageToPngBytes(
 
   const offscreen = document.createElement("canvas");
   await paintPage(page, scale, "performance", offscreen, "print");
+  throwIfAborted(signal);
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     offscreen.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");

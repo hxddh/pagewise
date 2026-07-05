@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.46] - 2026-07-06
+
+### Fixed
+
+- Reindex: invalidate `docCache` page text + semantic index; `forceReindex` bypasses cache short-circuit
+- Index: `clearPageIndexState` emits `idle` to subscribers; background index no longer binds agent abort
+- Index: pool 429 falls through to OCR; PreviewPane retries only on timeout (not rate limit)
+- Reindex: single entry via `reindexActiveDoc` (removed `indexRevision` double-sweep)
+- Chat: doc-switch snapshot taken after `waitForStreamIdle`; load failure triggers rollback
+- Agent: send `finally` generation guard; image-fallback rolls back context queue; `clearChat` aborts citations
+- Agent: `prepareForAgentSend` guards after `await`; `ChatPanel` uses `agentBusy` for interaction lock
+- PDF: render stale checks after each `await`; cancel in-flight paints on `clearPdfCache`; text layer on cache hit
+- PDF: thumbnails/text export honour stale callbacks; `readAuthorizedFileBytes` for vision images
+- Rust: `read_file_bytes` size cap (256 MiB), chunked read with cancel generation; Tesseract 120s timeout + kill
+
 ## [0.2.45] - 2026-07-06
 
 ### Fixed

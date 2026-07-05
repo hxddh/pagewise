@@ -99,7 +99,10 @@ async function readPageText(path: string, page: number) {
     }
   }
 
-  const indexed = await indexPageText(path, page, kind);
+  const indexed = await indexPageText(path, page, kind, {
+    bindAgentAbort: true,
+    signal: getAgentRunAbortSignal(),
+  });
   throwIfAborted(signal);
   const source =
     indexed.source === "vision"

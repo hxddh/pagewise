@@ -47,7 +47,7 @@ const ThumbnailItem = memo(function ThumbnailItem({
   useEffect(() => {
     if (!visible || !canvasRef.current) return;
     let cancelled = false;
-    renderThumbnail(path, page, canvasRef.current).catch(() => {
+    renderThumbnail(path, page, canvasRef.current, 96, () => cancelled).catch(() => {
       if (!cancelled && canvasRef.current) {
         const ctx = canvasRef.current.getContext("2d");
         if (ctx) {

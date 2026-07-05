@@ -1,4 +1,4 @@
-import { pickBetterPageText } from "./page-text-merge";
+import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
 import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
 import { clearDocumentIndexState } from "./index-events";
@@ -71,6 +71,28 @@ class DocCache {
     // next search rebuilds it and embeds the newly-recognized page (lazy rebuild
     // avoids thrashing during a burst of per-page upserts).
     markSemanticIndexDirty(path);
+    this.notify(path);
+  }
+
+  /**
+   * Clear indexed page text so vision/OCR reindex can rerun.
+   * When `pages` is omitted, clears every page with ≥ MIN_INDEX_CHARS.
+   */
+  invalidateIndexedPageText(path: string, pages?: number[]): void {
+    const doc = this.docs.get(path);
+    if (!doc) return;
+    const pageSet = pages ? new Set(pages) : null;
+    let changed = false;
+    const nextPages = doc.pages.map((p) => {
+      if (pageSet && !pageSet.has(p.page)) return p;
+      if (!pageSet && p.text.trim().length < MIN_INDEX_CHARS) return p;
+      if (p.text.trim().length === 0) return p;
+      changed = true;
+      return { page: p.page, text: "" };
+    });
+    if (!changed) return;
+    this.docs.set(path, { ...doc, pages: nextPages });
+    clearSemanticIndex(path);
     this.notify(path);
   }
 

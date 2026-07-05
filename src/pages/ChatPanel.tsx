@@ -47,6 +47,7 @@ interface ChatPanelProps {
   settingsReady: boolean;
   loadingDoc: boolean;
   chatLoading?: boolean;
+  agentBusy?: boolean;
   activity: string | null;
   historySettling?: boolean;
   composerDraft: string;
@@ -82,6 +83,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     settingsReady,
     loadingDoc,
     chatLoading = false,
+    agentBusy = false,
     activity,
     historySettling = false,
     composerDraft,
@@ -120,7 +122,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }));
 
   const busy = status === "streaming" || status === "submitted";
-  const interactionBusy = busy || chatLoading;
+  const interactionBusy = busy || chatLoading || agentBusy;
 
   const lastAssistant = useMemo(
     () => findLastMessage(messages, (m) => m.role === "assistant"),
