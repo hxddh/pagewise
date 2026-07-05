@@ -47,6 +47,7 @@ describe("PagewiseChatTransport", () => {
     const transport = new PagewiseChatTransport({
       agent,
       resolveModelLabel: async () => "mock-model",
+      resolveProvider: async () => "openai",
     });
 
     const uiStream = await transport.sendMessages({
@@ -77,6 +78,7 @@ describe("PagewiseChatTransport", () => {
     const transport = new PagewiseChatTransport({
       agent,
       resolveModelLabel: async () => "mock-model",
+      resolveProvider: async () => "openai",
     });
 
     await expect(

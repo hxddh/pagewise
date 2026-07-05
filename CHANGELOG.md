@@ -4,6 +4,13 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.37] - 2026-07-05
+
+### Fixed
+
+- Agent (OpenRouter): stop attaching page screenshots — AI SDK sends raw base64, which OpenRouter tries to fetch as a URL (`Failed to download image from iVBORw0…`)
+- Chat: strip persisted user image parts on load/send for OpenRouter; text page context still injected
+
 ## [0.2.36] - 2026-07-05
 
 ### Fixed

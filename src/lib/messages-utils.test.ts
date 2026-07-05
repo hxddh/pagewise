@@ -7,6 +7,7 @@ import {
   dropEmptyPartMessages,
   normalizeUIMessage,
   normalizeUIMessages,
+  stripUserFileParts,
 } from "./messages-utils";
 import type { UIMessage } from "ai";
 
@@ -110,5 +111,39 @@ describe("dropEmptyPartMessages", () => {
     };
     expect(hasSubstantialAssistantText(msg)).toBe(true);
     expect(hasSubstantialAnswerText(msg)).toBe(false);
+  });
+});
+
+describe("stripUserFileParts", () => {
+  it("removes file parts from user rows on OpenRouter", () => {
+    const out = stripUserFileParts(
+      [
+        {
+          id: "u1",
+          role: "user",
+          parts: [
+            { type: "text", text: "hello" },
+            { type: "file", mediaType: "image/png", url: "data:image/png;base64,abc" },
+          ],
+        },
+      ],
+      "openrouter",
+    );
+    expect(out[0]?.parts).toHaveLength(1);
+    expect(out[0]?.parts[0]?.type).toBe("text");
+  });
+
+  it("keeps file parts on OpenAI direct", () => {
+    const messages: UIMessage[] = [
+      {
+        id: "u1",
+        role: "user",
+        parts: [
+          { type: "text", text: "hello" },
+          { type: "file", mediaType: "image/png", url: "data:image/png;base64,abc" },
+        ],
+      },
+    ];
+    expect(stripUserFileParts(messages, "openai")).toBe(messages);
   });
 });

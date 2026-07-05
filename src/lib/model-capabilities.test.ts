@@ -21,14 +21,18 @@ describe("isVisionModel", () => {
 });
 
 describe("isAgentMultimodalModel", () => {
-  it("allows only verified OpenRouter multimodal+tools routes", () => {
-    expect(isAgentMultimodalModel("openrouter", "openai/gpt-4o-mini")).toBe(true);
+  it("never attaches page screenshots on OpenRouter (AI SDK base64 encoding breaks)", () => {
+    expect(isAgentMultimodalModel("openrouter", "openai/gpt-4o-mini")).toBe(false);
     expect(isAgentMultimodalModel("openrouter", "google/gemini-2.5-flash-lite")).toBe(
       false,
     );
     expect(isAgentMultimodalModel("openrouter", "anthropic/claude-3.5-sonnet")).toBe(
       false,
     );
+  });
+
+  it("allows OpenAI direct multimodal agent models", () => {
+    expect(isAgentMultimodalModel("openai", "gpt-4o-mini")).toBe(true);
   });
 
   it("rejects unknown OpenRouter routes even when isVisionModel is optimistic", () => {

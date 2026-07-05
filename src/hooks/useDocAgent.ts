@@ -12,6 +12,7 @@ import {
   extractUserText,
   findLastMessage,
   sanitizeMessagesForChat,
+  stripUserFileParts,
 } from "../lib/messages-utils";
 import { getPageWiseMetadata, type PageWiseUIMessage } from "../lib/message-metadata";
 import { PagewiseChatTransport } from "../lib/pagewise-chat-transport";
@@ -48,6 +49,7 @@ function createTransport(
       const settings = await loadSettings();
       return settings.model?.trim() || settings.provider;
     },
+    resolveProvider: async () => (await loadSettings()).provider,
   });
 }
 
@@ -243,7 +245,10 @@ export function useDocAgent(chatId: string | null = null) {
     chat.setMessages(
       (prev) =>
         sanitizeMessagesForChat(
-          sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)),
+          stripUserFileParts(
+            sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)),
+            settings.provider,
+          ),
         ) as typeof prev,
     );
     return true;
