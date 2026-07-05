@@ -200,6 +200,40 @@
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
 }
 
+.preview-index-badge-row {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(360px, calc(100% - 24px));
+}
+
+.preview-index-badge-row .preview-index-badge {
+  position: static;
+  max-width: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.preview-index-retry-btn {
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.preview-index-retry-btn:hover {
+  background: var(--accent-muted);
+}
+
 @keyframes badge-in {
   from {
     opacity: 0;

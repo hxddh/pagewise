@@ -43,6 +43,16 @@ type KeychainSet = (provider: ProviderId, key: string) => Promise<void>;
 let store: LazyStore | null = null;
 let migrationPromise: Promise<void> | null = null;
 
+let settingsStoreLock: Promise<unknown> = Promise.resolve();
+function withSettingsStoreLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = settingsStoreLock.then(fn, fn);
+  settingsStoreLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 /** In-memory store + injectable keychain for unit tests (mirrors chat-sessions.ts). */
 let memoryStore: { value: StoredPayload | null } | null = null;
 let keychainGet: KeychainGet = getApiKey;
@@ -265,6 +275,7 @@ async function writeStoreV2(
   storeData: LlmStoreV2,
   keyUpdate?: { provider: ProviderId; apiKey: string; keychainOk?: boolean },
 ): Promise<void> {
+  return withSettingsStoreLock(async () => {
   const s = await getStore();
   const prior = await s.get<RawStored>(SETTINGS_KEY);
 
@@ -307,6 +318,7 @@ async function writeStoreV2(
 
   await s.set(SETTINGS_KEY, payload);
   await s.save();
+  });
 }
 
 async function persistApiKey(provider: ProviderId, apiKey: string): Promise<boolean> {
@@ -320,6 +332,7 @@ async function persistApiKey(provider: ProviderId, apiKey: string): Promise<bool
 
 /** Copy keychain keys into settings.json once so routine reads never touch Keychain. */
 async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
+  return withSettingsStoreLock(async () => {
   const s = await getStore();
   const raw = await s.get<RawStored>(SETTINGS_KEY);
   if (raw?.apiKeysMigratedFromKeychain) return;
@@ -348,9 +361,11 @@ async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
   }
 
   const payload: StoredPayload = { ...normalizeStore(storeData) };
-  const entries = Object.entries(fallbackKeys).filter(([, v]) => v?.trim());
-  if (entries.length > 0) {
-    payload.apiKeys = Object.fromEntries(entries) as Partial<Record<ProviderId, string>>;
+  if (keychainBlocked) {
+    const entries = Object.entries(fallbackKeys).filter(([, v]) => v?.trim());
+    if (entries.length > 0) {
+      payload.apiKeys = Object.fromEntries(entries) as Partial<Record<ProviderId, string>>;
+    }
   }
   // Preserve deliberate clears so a keychain-blocked -> available retry can't
   // resurrect a key the user explicitly removed (the loop above already skips
@@ -368,6 +383,7 @@ async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
   if (keychainBlocked) {
     migrationPromise = null;
   }
+  });
 }
 
 function ensureApiKeysMigrated(): Promise<void> {
@@ -438,7 +454,15 @@ async function readStoreV2(): Promise<LlmStoreV2> {
 async function hasStoredApiKey(provider: ProviderId): Promise<boolean> {
   if (provider === "ollama") return true;
   await ensureApiKeysMigrated();
-  return (await getFallbackKey(provider)).trim().length > 0;
+  if ((await getFallbackKey(provider)).trim().length > 0) return true;
+  const s = await getStore();
+  const raw = await s.get<RawStored>(SETTINGS_KEY);
+  if (raw?.apiKeysCleared?.[provider]) return false;
+  try {
+    return (await keychainGet(provider)).trim().length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function metaFromProfile(

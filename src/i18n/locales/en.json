@@ -72,6 +72,8 @@
     "indexFailedVision": "Indexing failed · check your API key and scan model in Settings",
     "indexFailedInsufficient": "Indexing failed · scan and OCR returned too little text",
     "indexFailedUnknown": "Indexing failed · could not extract text",
+    "retryIndex": "Retry",
+    "searching": "Searching…",
     "indexError": {
       "rate_limited": "rate limited",
       "auth": "check API key",
@@ -335,6 +337,9 @@
     "tesseract": "Tesseract OCR",
     "tesseractOk": "Available",
     "tesseractMissing": "Not found — install for OCR",
+    "tesseractChiSim": "Chinese OCR (chi_sim)",
+    "tesseractChiSimOk": "Installed",
+    "tesseractChiSimMissing": "Not installed — English-only OCR",
     "github": "GitHub repository"
   },
   "commands": {

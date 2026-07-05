@@ -97,7 +97,9 @@ export function useDocumentWorkspace(
       clearDocumentIndexState(doc.path);
     }
     prevDocPathRef.current = doc.path;
-    clearPdfCache();
+    if (pathChanged) {
+      clearPdfCache();
+    }
     setActiveDoc(doc);
     setPreviewPage(1);
     setFileError(null);

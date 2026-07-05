@@ -57,17 +57,27 @@ export function GeneralSettings({
   const { t, localeMode, setLocaleMode } = useI18n();
   const { theme, setTheme } = useTheme();
   const [previewQuality, setPreviewQuality] = useState<PreviewQuality>("auto");
+  const [localFollowAgent, setLocalFollowAgent] = useState(followAgentDefault);
+  const [localIncludeViewingPage, setLocalIncludeViewingPage] = useState(
+    includeViewingPageDefault,
+  );
 
   useEffect(() => {
-    loadPreferences().then((p) => setPreviewQuality(p.previewQuality));
+    loadPreferences().then((p) => {
+      setPreviewQuality(p.previewQuality);
+      setLocalFollowAgent(p.followAgentDefault);
+      setLocalIncludeViewingPage(p.includeViewingPageDefault);
+    });
   }, []);
 
   async function onFollowChange(checked: boolean) {
+    setLocalFollowAgent(checked);
     onFollowAgentDefaultChange(checked);
     await patchPreferences({ followAgentDefault: checked });
   }
 
   async function onIncludeViewingPageChange(checked: boolean) {
+    setLocalIncludeViewingPage(checked);
     onIncludeViewingPageDefaultChange(checked);
     await patchPreferences({ includeViewingPageDefault: checked });
   }
@@ -126,7 +136,7 @@ export function GeneralSettings({
           </div>
           <input
             type="checkbox"
-            checked={includeViewingPageDefault}
+            checked={localIncludeViewingPage}
             onChange={(e) => void onIncludeViewingPageChange(e.target.checked)}
           />
         </label>
@@ -137,7 +147,7 @@ export function GeneralSettings({
           </div>
           <input
             type="checkbox"
-            checked={followAgentDefault}
+            checked={localFollowAgent}
             onChange={(e) => void onFollowChange(e.target.checked)}
           />
         </label>

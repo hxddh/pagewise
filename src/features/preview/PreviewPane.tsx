@@ -2,7 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { memo, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
-import { getPageIndexState } from "../../lib/index-events";
+import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
 import { sanitizeIndexErrorDetail } from "../../lib/index-error-display";
 import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { isRasterHeavyPage } from "../../lib/pdf";
@@ -93,6 +93,13 @@ function PreviewPaneInner({
       indexState.failureReason === "vision_failed") &&
     !!onOpenAiSettings;
 
+  const indexFailed = indexState?.status === "failed";
+
+  const retryIndex = () => {
+    clearPageIndexState(doc.path, indexPage);
+    indexPageInBackground(doc.path, indexPage, doc.kind);
+  };
+
   const rasterHeavy =
     doc.kind === "pdf" && isRasterHeavyPage(doc.pages[page - 1]?.text.trim().length ?? 0);
   const rasterHint = rasterHeavy ? t("preview.rasterHint") : null;
@@ -110,6 +117,13 @@ function PreviewPaneInner({
           >
             {indexHint}
           </button>
+        ) : indexFailed ? (
+          <div className="preview-index-badge-row" aria-live="polite">
+            <div className="preview-index-badge">{indexHint}</div>
+            <button type="button" className="preview-index-retry-btn" onClick={retryIndex}>
+              {t("preview.retryIndex")}
+            </button>
+          </div>
         ) : (
           <div className="preview-index-badge" aria-live="polite">
             {indexHint}

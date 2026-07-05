@@ -163,13 +163,16 @@ export async function ensureSemanticIndex(
             dim = vector.length;
           }
         }
-        if (entries.length > 0 && docCache.has(path)) {
+        const aborted = buildAbort.signal.aborted;
+        const complete = entries.length >= sparse.length;
+        if (entries.length > 0 && docCache.has(path) && !aborted) {
           store.set(path, { model: modelKey, dim, entries });
         } else {
-          // Embedding failed entirely — stay keyword-only for this doc.
           store.delete(path);
         }
-        if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
+        if (aborted || !complete) {
+          markSemanticIndexDirty(path);
+        } else if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
           dirty.delete(path);
         }
       } finally {
@@ -192,8 +195,9 @@ export async function semanticSearchPages(
   query: string,
   limit = 30,
 ): Promise<SearchHit[]> {
-  const keywordHits = searchDocumentPages(pages, query, limit);
-  await ensureSemanticIndex(path, pages);
+  const livePages = resolvePages(path, pages);
+  const keywordHits = searchDocumentPages(livePages, query, limit);
+  await ensureSemanticIndex(path, livePages);
   const indexed = store.get(path);
   if (!indexed?.entries.length) return keywordHits;
 
@@ -212,7 +216,7 @@ export async function semanticSearchPages(
     return keywordHits;
   }
 
-  const pageText = new Map(pages.map((p) => [p.page, p.text]));
+  const pageText = new Map(livePages.map((p) => [p.page, p.text]));
 
   // Dedupe by page (keep best score) BEFORE the top-k cutoff so duplicate page
   // entries can't consume the limit.

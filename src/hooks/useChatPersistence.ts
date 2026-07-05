@@ -22,7 +22,6 @@ interface UseChatPersistenceOptions {
   messages: UIMessage[];
   setMessages: (messages: UIMessage[]) => void;
   onDocumentSwitch?: (nextPath: string | null) => void;
-  /** Stop an in-flight agent stream (thread switch / reload). */
   onStopStream?: () => void;
   isStreaming?: boolean;
 }
@@ -48,8 +47,7 @@ export function useChatPersistence({
   const docNameRef = useRef(docName);
   const prevPathRef = useRef<string | null>(null);
   const skipSaveRef = useRef(false);
-  const switchGenRef = useRef(0);
-  const threadSwitchGenRef = useRef(0);
+  const opGenRef = useRef(0);
   const pendingSessionRef = useRef<{ path: string; sessionId: string } | undefined>(
     undefined,
   );
@@ -84,6 +82,8 @@ export function useChatPersistence({
     [],
   );
 
+  const bumpOpGen = useCallback(() => ++opGenRef.current, []);
+
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
@@ -98,7 +98,7 @@ export function useChatPersistence({
 
     if (loadKey === appliedLoadKeyRef.current) return;
 
-    const gen = ++switchGenRef.current;
+    const gen = bumpOpGen();
     let cancelled = false;
 
     async function switchDocument() {
@@ -118,10 +118,15 @@ export function useChatPersistence({
         if (unsaved) {
           const savePath = pathChanged && prev ? prev : docPath!;
           const saveName = savePath.split(/[/\\]/).pop() ?? savePath;
-          await persistOutgoing(savePath, saveName, sessionIdRef.current, outgoing);
+          try {
+            await persistOutgoing(savePath, saveName, sessionIdRef.current, outgoing);
+            loadedSnapshotRef.current = messagesSignature(outgoing);
+          } catch (err) {
+            if (import.meta.env.DEV) console.warn("[chat-persistence] save on switch failed:", err);
+          }
         }
 
-        if (cancelled || gen !== switchGenRef.current) return;
+        if (cancelled || gen !== opGenRef.current) return;
 
         const pending = pendingSessionRef.current;
         pendingSessionRef.current = undefined;
@@ -129,7 +134,7 @@ export function useChatPersistence({
           pending && pending.path === docPath ? pending.sessionId : undefined;
         const loaded = await loadActiveMessages(docPath!, preferredSession);
 
-        if (cancelled || gen !== switchGenRef.current) return;
+        if (cancelled || gen !== opGenRef.current) return;
 
         setMessagesRef.current(loaded.messages);
         loadedSnapshotRef.current = messagesSignature(loaded.messages);
@@ -138,8 +143,10 @@ export function useChatPersistence({
         prevPathRef.current = docPath;
         appliedLoadKeyRef.current = loadKey;
         await refreshSessions();
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("[chat-persistence] document switch failed:", err);
       } finally {
-        if (gen === switchGenRef.current) {
+        if (gen === opGenRef.current) {
           skipSaveRef.current = false;
           setChatLoading(false);
         }
@@ -150,7 +157,7 @@ export function useChatPersistence({
     return () => {
       cancelled = true;
     };
-  }, [docPath, docLoadSeq, loadKey, refreshSessions, persistOutgoing]);
+  }, [docPath, docLoadSeq, loadKey, refreshSessions, persistOutgoing, bumpOpGen]);
 
   useEffect(() => {
     if (!docPath || !docName || skipSaveRef.current || chatLoading || isStreaming) return;
@@ -166,13 +173,17 @@ export function useChatPersistence({
       if (snapshot.length === 0) return;
       if (messagesSignature(snapshot) === loadedSnapshotRef.current) return;
 
-      void persistOutgoing(savePath, saveName, saveSessionId, snapshot).then(async () => {
-        if (docPathRef.current !== savePath || sessionIdRef.current !== saveSessionId) return;
-        loadedSnapshotRef.current = messagesSignature(messagesRef.current);
-        const loaded = await loadActiveMessages(savePath);
-        setThreads(loaded.threads);
-        await refreshSessions();
-      });
+      void persistOutgoing(savePath, saveName, saveSessionId, snapshot)
+        .then(async () => {
+          if (docPathRef.current !== savePath || sessionIdRef.current !== saveSessionId) return;
+          loadedSnapshotRef.current = messagesSignature(snapshot);
+          const loaded = await loadActiveMessages(savePath, undefined, { readOnly: true });
+          setThreads(loaded.threads);
+          await refreshSessions();
+        })
+        .catch((err) => {
+          if (import.meta.env.DEV) console.warn("[chat-persistence] autosave failed:", err);
+        });
     }, 600);
 
     return () => window.clearTimeout(id);
@@ -190,54 +201,74 @@ export function useChatPersistence({
   const selectThread = useCallback(
     async (sessionId: string) => {
       if (!docPath) return;
-      const gen = ++threadSwitchGenRef.current;
+      const gen = bumpOpGen();
       onStopStreamRef.current?.();
       const snapshot = messagesRef.current;
-      if (snapshot.length > 0) {
-        await persistOutgoing(docPath, docName ?? "", sessionIdRef.current, snapshot);
+      if (
+        snapshot.length > 0 &&
+        messagesSignature(snapshot) !== loadedSnapshotRef.current
+      ) {
+        try {
+          await persistOutgoing(docPath, docName ?? "", sessionIdRef.current, snapshot);
+          loadedSnapshotRef.current = messagesSignature(snapshot);
+        } catch (err) {
+          if (import.meta.env.DEV) console.warn("[chat-persistence] save before thread switch failed:", err);
+        }
       }
       skipSaveRef.current = true;
       setChatLoading(true);
       try {
         const loaded = await switchThread(docPath, sessionId);
-        if (gen !== threadSwitchGenRef.current) return;
+        if (gen !== opGenRef.current) return;
         setActiveSessionId(sessionId);
         setMessagesRef.current(loaded);
         loadedSnapshotRef.current = messagesSignature(loaded);
-        const meta = await loadActiveMessages(docPath);
+        const meta = await loadActiveMessages(docPath, undefined, { readOnly: true });
         setThreads(meta.threads);
         await refreshSessions();
       } finally {
-        if (gen === threadSwitchGenRef.current) {
+        if (gen === opGenRef.current) {
           skipSaveRef.current = false;
           setChatLoading(false);
         }
       }
     },
-    [docPath, docName, refreshSessions, persistOutgoing],
+    [docPath, docName, refreshSessions, persistOutgoing, bumpOpGen],
   );
 
   const newThread = useCallback(async () => {
     if (!docPath || !docName) return;
+    const gen = bumpOpGen();
     onStopStreamRef.current?.();
     const snapshot = messagesRef.current;
-    if (snapshot.length > 0) {
-      await persistOutgoing(docPath, docName, sessionIdRef.current, snapshot);
+    if (
+      snapshot.length > 0 &&
+      messagesSignature(snapshot) !== loadedSnapshotRef.current
+    ) {
+      try {
+        await persistOutgoing(docPath, docName, sessionIdRef.current, snapshot);
+        loadedSnapshotRef.current = messagesSignature(snapshot);
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("[chat-persistence] save before new thread failed:", err);
+      }
     }
     skipSaveRef.current = true;
     setChatLoading(true);
     try {
       const { sessionId, threads: nextThreads } = await createThread(docPath, docName);
+      if (gen !== opGenRef.current) return;
       setActiveSessionId(sessionId);
       setThreads(nextThreads);
       setMessagesRef.current([]);
       loadedSnapshotRef.current = messagesSignature([]);
     } finally {
-      skipSaveRef.current = false;
-      setChatLoading(false);
+      if (gen === opGenRef.current) {
+        skipSaveRef.current = false;
+        setChatLoading(false);
+      }
     }
     await refreshSessions();
-  }, [docPath, docName, refreshSessions, persistOutgoing]);
+  }, [docPath, docName, refreshSessions, persistOutgoing, bumpOpGen]);
 
   const clearCurrentThread = useCallback(async () => {
     if (!docPath) return;
@@ -259,25 +290,29 @@ export function useChatPersistence({
   const removeThread = useCallback(
     async (sessionId: string) => {
       if (!docPath) return;
+      const gen = bumpOpGen();
       await deleteThread(docPath, sessionId);
       if (sessionIdRef.current === sessionId) {
         skipSaveRef.current = true;
         setChatLoading(true);
         try {
           const loaded = await loadActiveMessages(docPath);
+          if (gen !== opGenRef.current) return;
           setMessagesRef.current(loaded.messages);
           loadedSnapshotRef.current = messagesSignature(loaded.messages);
           setActiveSessionId(loaded.sessionId);
           setThreads(loaded.threads);
           appliedLoadKeyRef.current = loadKey;
         } finally {
-          skipSaveRef.current = false;
-          setChatLoading(false);
+          if (gen === opGenRef.current) {
+            skipSaveRef.current = false;
+            setChatLoading(false);
+          }
         }
       }
       await refreshSessions();
     },
-    [docPath, loadKey, refreshSessions],
+    [docPath, loadKey, refreshSessions, bumpOpGen],
   );
 
   const deleteSession = useCallback(
@@ -285,6 +320,7 @@ export function useChatPersistence({
       if (path === docPath) onStopStreamRef.current?.();
       await clearDocSessions(path);
       if (path === docPath) {
+        bumpOpGen();
         skipSaveRef.current = true;
         try {
           setMessagesRef.current([]);
@@ -298,7 +334,7 @@ export function useChatPersistence({
       }
       await refreshSessions();
     },
-    [docPath, refreshSessions],
+    [docPath, refreshSessions, bumpOpGen],
   );
 
   return {

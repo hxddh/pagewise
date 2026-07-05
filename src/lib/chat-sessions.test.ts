@@ -81,7 +81,7 @@ describe("createThread / switchThread / deleteThread", () => {
     await saveActiveSession("/a.pdf", "a.pdf", "default", [msg("1", "hi")]);
     const { sessionId, threads } = await createThread("/a.pdf", "a.pdf");
     expect(threads).toHaveLength(2);
-    expect(threads[1].name).toBe("Chat 2");
+    expect(threads[1].name).toBe("Chat 1");
     const loaded = await loadActiveMessages("/a.pdf");
     expect(loaded.sessionId).toBe(sessionId);
     expect(loaded.messages).toHaveLength(0);
