@@ -3,12 +3,11 @@ import type { Agent } from "ai";
 import {
   convertToModelMessages,
   toUIMessageStream,
-  validateUIMessages,
   type ChatTransport,
   type UIMessageChunk,
 } from "ai";
 import type { ProviderId } from "./types";
-import { dropEmptyPartMessages, stripUserFileParts } from "./messages-utils";
+import { validateChatMessagesForSend } from "./validate-chat-messages";
 import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
@@ -62,13 +61,11 @@ export class PagewiseChatTransport<
     clearAgentProgress();
 
     const provider = await this.resolveProvider();
-    const validatedMessages = (await validateUIMessages({
-      messages: stripUserFileParts(
-        dropEmptyPartMessages(messages),
-        provider,
-      ),
-      tools: this.agent.tools as Parameters<typeof validateUIMessages>[0]["tools"],
-    })) as PageWiseUIMessage[];
+    const validatedMessages = await validateChatMessagesForSend({
+      messages,
+      provider,
+      tools: this.agent.tools as Parameters<typeof validateChatMessagesForSend>[0]["tools"],
+    });
 
     const modelMessages = await convertToModelMessages(validatedMessages, {
       tools: this.agent.tools,

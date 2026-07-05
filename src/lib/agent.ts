@@ -82,7 +82,7 @@ async function readPageText(path: string, page: number) {
 
   if (kind === "pdf") {
     throwIfAborted(signal);
-    const text = await extractPageText(path, page);
+    const text = await extractPageText(path, page, signal);
     throwIfAborted(signal);
     if (text.trim().length >= MIN_INDEX_CHARS) {
       const merged = pickBetterPageText(cached?.text ?? "", text);

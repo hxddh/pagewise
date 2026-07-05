@@ -223,6 +223,7 @@ export async function saveActiveSession(
   docName: string,
   sessionId: string,
   messages: UIMessage[],
+  options?: { touchActive?: boolean },
 ): Promise<void> {
   if (messages.length === 0) return;
 
@@ -266,8 +267,9 @@ export async function saveActiveSession(
     if (idx >= 0) doc.threads[idx] = updated;
     else doc.threads.push(updated);
 
-    // Saving a background thread must not steal the active-session pointer.
-    if (doc.activeSessionId === sessionId || doc.threads.length === 1) {
+    // Background saves must not steal the active-session pointer.
+    const touchActive = options?.touchActive !== false;
+    if (touchActive && (doc.activeSessionId === sessionId || doc.threads.length === 1)) {
       doc.activeSessionId = sessionId;
     }
 

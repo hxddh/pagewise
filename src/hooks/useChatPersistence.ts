@@ -128,11 +128,17 @@ export function useChatPersistence({
   const bumpSaveEpoch = useCallback(() => ++saveEpochRef.current, []);
 
   const persistOutgoing = useCallback(
-    async (savePath: string, saveName: string, sessionId: string, outgoing: UIMessage[]) => {
+    async (
+      savePath: string,
+      saveName: string,
+      sessionId: string,
+      outgoing: UIMessage[],
+      options?: { touchActive?: boolean },
+    ) => {
       if (outgoing.length === 0) return;
       const epoch = saveEpochRef.current;
       const prepared = prepareMessagesForPersist(outgoing);
-      await saveActiveSession(savePath, saveName, sessionId, prepared);
+      await saveActiveSession(savePath, saveName, sessionId, prepared, options);
       if (epoch !== saveEpochRef.current) {
         throw new Error(PERSIST_CANCELLED);
       }
@@ -294,6 +300,7 @@ export function useChatPersistence({
             pendingSave.saveName,
             pendingSave.saveSessionId,
             pendingSave.outgoing,
+            { touchActive: false },
           );
           loadedSnapshotRef.current = messagesSignature(pendingSave.outgoing);
           docMessageCacheRef.current.set(pendingSave.savePath, {
