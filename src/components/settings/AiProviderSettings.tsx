@@ -200,9 +200,11 @@ export function AiProviderSettings({
           lastPersistedVisionRef.current = visionModel;
           onReindexDoc?.();
         }
+      } else {
+        onTestResult?.(t("settings.savedPreviewNotActive"), true);
       }
     },
-    [previewProvider, activeProvider, onLlmSettingsSaved, onReindexDoc, visionModel],
+    [previewProvider, activeProvider, onLlmSettingsSaved, onReindexDoc, visionModel, onTestResult, t],
   );
 
   const { persistNow, markSaved } = useDebouncedSave({

@@ -26,6 +26,7 @@ export function useAppShell() {
 
   const handleDocumentSwitch = useCallback((_nextPath: string | null) => {
     agentRef.current.resetForDocumentSwitch();
+    agentRef.current.setMessages([]);
     agentRef.current.setComposerDraft("");
     clearAgentMessageContext();
   }, []);

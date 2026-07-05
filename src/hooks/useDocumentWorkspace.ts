@@ -13,7 +13,7 @@ import { loadPreferences } from "../lib/preferences";
 import { getLastAgentMessageContext } from "../lib/agent-view-context";
 import { shouldFollowAgentToPage } from "../lib/page-intent";
 import { indexSparsePages, setBackgroundIndexAbortController } from "../lib/vision-index";
-import { setSemanticEmbedCapHandler } from "../lib/semantic-index";
+import { setSemanticEmbedCapHandler, abortSemanticIndexBuild } from "../lib/semantic-index";
 import type { RecentFile } from "../lib/recent-files";
 import type { LoadedDocument } from "../lib/types";
 
@@ -83,6 +83,7 @@ export function useDocumentWorkspace(
 
   const handleDocumentLoaded = useCallback((doc: LoadedDocument) => {
     indexAbortRef.current?.abort();
+    abortSemanticIndexBuild();
     const controller = new AbortController();
     indexAbortRef.current = controller;
     setBackgroundIndexAbortController(controller);

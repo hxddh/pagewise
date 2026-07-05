@@ -4,6 +4,27 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.29] - 2026-07-05
+
+### Fixed
+
+- Preview: stop infinite re-index loop on permanently failed pages (retry only on reindex)
+- Chat: persist messages on document/thread switch even during streaming (sanitized + pruned)
+- Chat: autosave binds session id at schedule time (no cross-thread corruption)
+- Chat: stronger message signature for dirty detection; prune tool outputs on persist
+- Agent: keep abort signal alive until stream ends so Stop cancels tool-time indexing
+- Search: semantic index rebuilds when dirty after in-flight OCR; guard zombie writes on doc close
+- Search: UI document search uses hybrid semantic + keyword (aligned with agent)
+- Indexing: OCR render capped at 1568px edge like vision path
+- Indexing: joined inflight index runs honor caller abort signals
+- Settings: API keys only mirrored to disk when keychain unavailable
+- Settings: no silent reset of user-selected chat-only agent models on restart
+- Settings: close confirm when AI tab dirty on any settings tab
+- Preview: sanitize index error details; i18n render failures
+- Chat: regenerate gated on API key and tool support like send
+- Merge: prefer substantially longer native extract over stale OCR on reopen
+- Rust PDF cache: LRU touch on hit
+
 ## [0.2.28] - 2026-07-05
 
 ### Fixed

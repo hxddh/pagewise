@@ -40,6 +40,16 @@ const dirtyGeneration = new Map<string, number>();
 const warnedNoEmbed = new Set<string>();
 
 let embedCapHandler: ((path: string, info: SemanticEmbedCapInfo) => void) | null = null;
+let semanticBuildAbort: AbortController | null = null;
+let semanticBuildPath: string | null = null;
+
+/** Abort in-flight semantic builds (document switch). */
+export function abortSemanticIndexBuild(path?: string): void {
+  if (path && semanticBuildPath && semanticBuildPath !== path) return;
+  semanticBuildAbort?.abort();
+  semanticBuildAbort = null;
+  semanticBuildPath = null;
+}
 
 /** Register a toast handler when semantic embedding hits the page cap. */
 export function setSemanticEmbedCapHandler(
@@ -65,6 +75,7 @@ function resolvePages(path: string, fallback: PageText[]): PageText[] {
 }
 
 export function clearSemanticIndex(path: string): void {
+  abortSemanticIndexBuild(path);
   store.delete(path);
   buildPromises.delete(path);
   dirty.delete(path);
@@ -127,10 +138,19 @@ export async function ensureSemanticIndex(
         }
 
         const values = sparse.map((p) => pageEmbedText(p.text, p.page));
+        semanticBuildAbort?.abort();
+        const buildAbort = new AbortController();
+        semanticBuildAbort = buildAbort;
+        semanticBuildPath = path;
         const { embeddings: vectors, capped, eligible, embedded } = await embedTexts(
           settings,
           values,
+          { signal: buildAbort.signal },
         );
+        if (semanticBuildAbort === buildAbort) {
+          semanticBuildAbort = null;
+          semanticBuildPath = null;
+        }
         if (capped) {
           embedCapHandler?.(path, { embedded, eligible });
         }
@@ -143,7 +163,7 @@ export async function ensureSemanticIndex(
             dim = vector.length;
           }
         }
-        if (entries.length > 0) {
+        if (entries.length > 0 && docCache.has(path)) {
           store.set(path, { model: modelKey, dim, entries });
         } else {
           // Embedding failed entirely — stay keyword-only for this doc.
@@ -162,7 +182,7 @@ export async function ensureSemanticIndex(
     if (buildPromises.has(path)) continue;
     buildPromises.set(path, build);
     await build;
-    return;
+    if (!dirty.has(path)) return;
   }
 }
 

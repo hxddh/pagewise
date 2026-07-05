@@ -13,6 +13,7 @@ import {
   tryApplyCachedPage,
 } from "../../lib/pdf";
 import { loadPreferences } from "../../lib/preferences";
+import { useI18n } from "../../i18n";
 import { registerPreviewActions } from "../../lib/preview-actions";
 import { isTauriRuntime } from "../../lib/runtime";
 import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
@@ -52,6 +53,7 @@ export function usePdfViewer({
   onPageChange,
   prefsRevision = 0,
 }: UsePdfViewerOptions) {
+  const { t } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const wrapNodeRef = useRef<HTMLDivElement | null>(null);
@@ -488,7 +490,7 @@ export function usePdfViewer({
         }
       } catch (e) {
         if (!isStale()) {
-          setRenderError(e instanceof Error ? e.message : "Failed to render page");
+          setRenderError(e instanceof Error ? e.message : t("preview.renderFailed"));
         }
       } finally {
         if (!isStale()) {

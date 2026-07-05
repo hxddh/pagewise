@@ -12,20 +12,8 @@ import {
   type ChatThread,
   type StoredChatSession,
 } from "../lib/chat-sessions";
-import { sanitizeDanglingToolParts } from "../lib/prune-chat-history";
-
-/**
- * Cheap identity signature for a message list. Used to tell whether the current
- * messages are still exactly what was loaded from disk (so we can skip a
- * pointless autosave that would only bump `updatedAt`).
- */
-function messagesSignature(messages: UIMessage[]): string {
-  let sig = `${messages.length}:`;
-  for (const m of messages) {
-    sig += `${m.id}#${Array.isArray(m.parts) ? m.parts.length : 0};`;
-  }
-  return sig;
-}
+import { messagesSignature } from "../lib/messages-signature";
+import { prepareMessagesForPersist } from "../lib/persist-messages";
 
 interface UseChatPersistenceOptions {
   docPath: string | null;
@@ -61,6 +49,7 @@ export function useChatPersistence({
   const prevPathRef = useRef<string | null>(null);
   const skipSaveRef = useRef(false);
   const switchGenRef = useRef(0);
+  const threadSwitchGenRef = useRef(0);
   const pendingSessionRef = useRef<{ path: string; sessionId: string } | undefined>(
     undefined,
   );
@@ -86,6 +75,15 @@ export function useChatPersistence({
     setSessions(await listChatSessions());
   }, []);
 
+  const persistOutgoing = useCallback(
+    async (savePath: string, saveName: string, sessionId: string, outgoing: UIMessage[]) => {
+      if (outgoing.length === 0) return;
+      const prepared = prepareMessagesForPersist(outgoing);
+      await saveActiveSession(savePath, saveName, sessionId, prepared);
+    },
+    [],
+  );
+
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
@@ -107,26 +105,20 @@ export function useChatPersistence({
       const prev = prevPathRef.current;
       const pathChanged = docPath !== prev;
       const outgoing = messagesRef.current;
-      const wasStreaming = isStreamingRef.current;
       const unsaved =
         outgoing.length > 0 &&
         messagesSignature(outgoing) !== loadedSnapshotRef.current;
 
       skipSaveRef.current = true;
       setChatLoading(true);
-      if (wasStreaming) onStopStreamRef.current?.();
+      if (isStreamingRef.current) onStopStreamRef.current?.();
       onDocumentSwitchRef.current?.(docPath);
 
       try {
-        if (unsaved && !wasStreaming) {
+        if (unsaved) {
           const savePath = pathChanged && prev ? prev : docPath!;
           const saveName = savePath.split(/[/\\]/).pop() ?? savePath;
-          await saveActiveSession(
-            savePath,
-            saveName,
-            sessionIdRef.current,
-            sanitizeDanglingToolParts(outgoing),
-          );
+          await persistOutgoing(savePath, saveName, sessionIdRef.current, outgoing);
         }
 
         if (cancelled || gen !== switchGenRef.current) return;
@@ -158,27 +150,24 @@ export function useChatPersistence({
     return () => {
       cancelled = true;
     };
-  }, [docPath, docLoadSeq, loadKey, refreshSessions]);
+  }, [docPath, docLoadSeq, loadKey, refreshSessions, persistOutgoing]);
 
   useEffect(() => {
     if (!docPath || !docName || skipSaveRef.current || chatLoading || isStreaming) return;
 
     const savePath = docPath;
     const saveName = docName;
+    const saveSessionId = activeSessionId;
     const id = window.setTimeout(() => {
-      if (skipSaveRef.current || chatLoading || isStreaming) return;
+      if (skipSaveRef.current || chatLoading || isStreamingRef.current) return;
       if (docPathRef.current !== savePath || !docNameRef.current) return;
+      if (sessionIdRef.current !== saveSessionId) return;
       const snapshot = messagesRef.current;
       if (snapshot.length === 0) return;
       if (messagesSignature(snapshot) === loadedSnapshotRef.current) return;
 
-      void saveActiveSession(
-        savePath,
-        saveName,
-        sessionIdRef.current,
-        sanitizeDanglingToolParts(snapshot),
-      ).then(async () => {
-        if (docPathRef.current !== savePath) return;
+      void persistOutgoing(savePath, saveName, saveSessionId, snapshot).then(async () => {
+        if (docPathRef.current !== savePath || sessionIdRef.current !== saveSessionId) return;
         loadedSnapshotRef.current = messagesSignature(messagesRef.current);
         const loaded = await loadActiveMessages(savePath);
         setThreads(loaded.threads);
@@ -187,7 +176,7 @@ export function useChatPersistence({
     }, 600);
 
     return () => window.clearTimeout(id);
-  }, [docPath, docName, activeSessionId, messages, refreshSessions, chatLoading, isStreaming]);
+  }, [docPath, docName, activeSessionId, messages, refreshSessions, chatLoading, isStreaming, persistOutgoing]);
 
   const queueSessionForLoad = useCallback((path: string, sessionId: string) => {
     pendingSessionRef.current = { path, sessionId };
@@ -201,21 +190,17 @@ export function useChatPersistence({
   const selectThread = useCallback(
     async (sessionId: string) => {
       if (!docPath) return;
-      const wasStreaming = isStreamingRef.current;
+      const gen = ++threadSwitchGenRef.current;
       onStopStreamRef.current?.();
       const snapshot = messagesRef.current;
-      if (snapshot.length > 0 && !wasStreaming) {
-        await saveActiveSession(
-          docPath,
-          docName ?? "",
-          sessionIdRef.current,
-          sanitizeDanglingToolParts(snapshot),
-        );
+      if (snapshot.length > 0) {
+        await persistOutgoing(docPath, docName ?? "", sessionIdRef.current, snapshot);
       }
       skipSaveRef.current = true;
       setChatLoading(true);
       try {
         const loaded = await switchThread(docPath, sessionId);
+        if (gen !== threadSwitchGenRef.current) return;
         setActiveSessionId(sessionId);
         setMessagesRef.current(loaded);
         loadedSnapshotRef.current = messagesSignature(loaded);
@@ -223,27 +208,24 @@ export function useChatPersistence({
         setThreads(meta.threads);
         await refreshSessions();
       } finally {
-        skipSaveRef.current = false;
-        setChatLoading(false);
+        if (gen === threadSwitchGenRef.current) {
+          skipSaveRef.current = false;
+          setChatLoading(false);
+        }
       }
     },
-    [docPath, docName, refreshSessions],
+    [docPath, docName, refreshSessions, persistOutgoing],
   );
 
   const newThread = useCallback(async () => {
     if (!docPath || !docName) return;
-    const wasStreaming = isStreamingRef.current;
     onStopStreamRef.current?.();
     const snapshot = messagesRef.current;
-    if (snapshot.length > 0 && !wasStreaming) {
-      await saveActiveSession(
-        docPath,
-        docName,
-        sessionIdRef.current,
-        sanitizeDanglingToolParts(snapshot),
-      );
+    if (snapshot.length > 0) {
+      await persistOutgoing(docPath, docName, sessionIdRef.current, snapshot);
     }
     skipSaveRef.current = true;
+    setChatLoading(true);
     try {
       const { sessionId, threads: nextThreads } = await createThread(docPath, docName);
       setActiveSessionId(sessionId);
@@ -252,9 +234,10 @@ export function useChatPersistence({
       loadedSnapshotRef.current = messagesSignature([]);
     } finally {
       skipSaveRef.current = false;
+      setChatLoading(false);
     }
     await refreshSessions();
-  }, [docPath, docName, refreshSessions]);
+  }, [docPath, docName, refreshSessions, persistOutgoing]);
 
   const clearCurrentThread = useCallback(async () => {
     if (!docPath) return;
@@ -299,6 +282,7 @@ export function useChatPersistence({
 
   const deleteSession = useCallback(
     async (path: string) => {
+      if (path === docPath) onStopStreamRef.current?.();
       await clearDocSessions(path);
       if (path === docPath) {
         skipSaveRef.current = true;
@@ -307,6 +291,7 @@ export function useChatPersistence({
           setThreads([]);
           setActiveSessionId("default");
           appliedLoadKeyRef.current = "";
+          loadedSnapshotRef.current = messagesSignature([]);
         } finally {
           skipSaveRef.current = false;
         }

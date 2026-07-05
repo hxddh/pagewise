@@ -12,6 +12,7 @@ import {
 } from "../lib/messages-utils";
 import { getPageWiseMetadata, type PageWiseUIMessage } from "../lib/message-metadata";
 import { PagewiseChatTransport } from "../lib/pagewise-chat-transport";
+import { clearAgentRunAbortSignal } from "../lib/vision-index";
 import {
   pruneToolOutputsForHistory,
   sanitizeDanglingToolParts,
@@ -151,6 +152,7 @@ export function useDocAgent() {
     // that ends in "error" (not just "ready") must not leave a stale indicator.
     if (wasBusy && (chat.status === "ready" || chat.status === "error")) {
       setStreamProgress(null);
+      clearAgentRunAbortSignal();
     }
 
     if (wasBusy && chat.status === "ready") {
@@ -302,6 +304,7 @@ export function useDocAgent() {
       historySettling,
       resetForDocumentSwitch: () => {
         chat.stop();
+        clearAgentRunAbortSignal();
         chat.clearError();
         setSendError(undefined);
         setStreamProgress(null);

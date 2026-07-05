@@ -193,7 +193,12 @@ export async function embedTexts(
     }
   }
 
-  return { embeddings: result, capped, eligible: embeddable.length, embedded: targets.length };
+  return {
+    embeddings: result,
+    capped,
+    eligible: embeddable.length,
+    embedded: result.filter((v) => v !== null).length,
+  };
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

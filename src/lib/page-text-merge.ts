@@ -8,8 +8,10 @@ export function pickBetterPageText(existing: string, incoming: string): string {
   const b = incoming.trim();
   if (a.length >= MIN_INDEX_CHARS && b.length < MIN_INDEX_CHARS) return existing;
   if (b.length >= MIN_INDEX_CHARS && a.length < MIN_INDEX_CHARS) return incoming;
-  // Both sufficient: keep cached (vision/OCR) over a fresh Rust PDF re-extract.
-  if (a.length >= MIN_INDEX_CHARS && b.length >= MIN_INDEX_CHARS) return existing;
+  // Both sufficient: prefer longer text (native extract may beat stale OCR).
+  if (a.length >= MIN_INDEX_CHARS && b.length >= MIN_INDEX_CHARS) {
+    return b.length > a.length * 1.25 ? incoming : existing;
+  }
   return b.length >= a.length ? incoming : existing;
 }
 
@@ -23,9 +25,13 @@ export function mergePageTextsOnReload(existing: PageText[], incoming: PageText[
 }
 
 export function pagesTextChanged(before: PageText[], after: PageText[]): boolean {
+  if (before.length !== after.length) return true;
   const beforeMap = new Map(before.map((p) => [p.page, p.text]));
   for (const p of after) {
     if (beforeMap.get(p.page) !== p.text) return true;
   }
-  return before.length !== after.length;
+  for (const p of before) {
+    if (!after.some((a) => a.page === p.page)) return true;
+  }
+  return false;
 }
