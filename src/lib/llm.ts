@@ -3,6 +3,7 @@ import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { APICallError, generateText, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import { isToolModel, isVisionModel } from "./model-capabilities";
+import { generateVisionText } from "./vision-api";
 import {
   allProviderModels,
   DEFAULT_SETTINGS,
@@ -280,22 +281,11 @@ export async function testVisionConnection(
   }
 
   try {
-    const { text } = await generateText({
-      model: resolveModel(settings),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "If you can see an image, reply with exactly OK.",
-            },
-            { type: "image", image: VISION_PROBE_JPEG, mediaType: "image/jpeg" },
-          ],
-        },
-      ],
-    });
-    return text.trim();
+    return await generateVisionText(
+      settings,
+      "If you can see an image, reply with exactly OK.",
+      VISION_PROBE_JPEG,
+    );
   } catch (e) {
     throw new Error(formatLlmError(e, t));
   }

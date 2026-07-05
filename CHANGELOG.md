@@ -4,6 +4,12 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.25] - 2026-07-05
+
+### Fixed
+
+- Indexing: send scan images as `data:image/jpeg;base64,...` URLs (fixes OpenRouter “Invalid URL format: /9j/…”)
+
 ## [0.2.24] - 2026-07-05
 
 ### Fixed
@@ -361,7 +367,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.24...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.25...HEAD
+[0.2.25]: https://github.com/hxddh/pagewise/compare/v0.2.24...v0.2.25
 [0.2.24]: https://github.com/hxddh/pagewise/compare/v0.2.23...v0.2.24
 [0.2.23]: https://github.com/hxddh/pagewise/compare/v0.2.22...v0.2.23
 [0.2.22]: https://github.com/hxddh/pagewise/compare/v0.2.21...v0.2.22
