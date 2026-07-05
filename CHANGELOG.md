@@ -4,6 +4,15 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.41] - 2026-07-05
+
+### Fixed
+
+- Agent: keep abort signal wired until the UI stream finishes — Stop now cancels in-flight tools (PDF read, search, vision index)
+- Chat: delete thread / clear chat / delete session wait for stream idle before mutating messages
+- Citations: abort in-flight `streamObject` on new send or thread switch; reuse per-run settings snapshot
+- Model: unknown Ollama/OpenRouter ids no longer assumed tool/vision-capable (indexing skips spurious vision attempts)
+
 ## [0.2.40] - 2026-07-05
 
 ### Fixed

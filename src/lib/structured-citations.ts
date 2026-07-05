@@ -2,6 +2,7 @@ import { generateObject, streamObject } from "ai";
 import { z } from "zod";
 import { resolveModel } from "./llm";
 import { loadSettings } from "./settings";
+import type { LlmSettings } from "./types";
 
 export const structuredCitationSchema = z.object({
   citations: z.array(
@@ -91,21 +92,26 @@ export async function extractStructuredCitations(
   answerText: string,
   toolExcerpts: string,
   totalPages?: number,
+  options?: { settings?: LlmSettings; abortSignal?: AbortSignal },
 ): Promise<StructuredCitationResult> {
   const answer = answerText.trim();
   if (!answer) return { citations: [] };
+  if (options?.abortSignal?.aborted) return { citations: [] };
 
-  const settings = await loadSettings();
+  const settings = options?.settings ?? (await loadSettings());
+
   try {
     const { object } = await generateObject({
       model: resolveModel(settings),
       schema: extractionSchema,
       prompt: CITATION_PROMPT(answer, toolExcerpts),
+      abortSignal: options?.abortSignal,
     });
     return {
       citations: normalizeStructuredCitations(object.citations, totalPages),
     };
   } catch (error) {
+    if (options?.abortSignal?.aborted) return { citations: [] };
     if (import.meta.env.DEV) console.warn("[structured-citations] extract failed:", error);
     return { citations: [], error: citationErrorMessage(error) };
   }
@@ -117,19 +123,24 @@ export async function streamStructuredCitations(
   toolExcerpts: string,
   totalPages: number | undefined,
   onPartial: (citations: StructuredCitation[]) => void,
+  options?: { settings?: LlmSettings; abortSignal?: AbortSignal },
 ): Promise<StructuredCitationResult> {
   const answer = answerText.trim();
   if (!answer) return { citations: [] };
+  if (options?.abortSignal?.aborted) return { citations: [] };
 
-  const settings = await loadSettings();
+  const settings = options?.settings ?? (await loadSettings());
+
   try {
     const { partialObjectStream, object } = streamObject({
       model: resolveModel(settings),
       schema: extractionSchema,
       prompt: CITATION_PROMPT(answer, toolExcerpts),
+      abortSignal: options?.abortSignal,
     });
 
     for await (const partial of partialObjectStream) {
+      if (options?.abortSignal?.aborted) return { citations: [] };
       const valid = filterValidPartials(partial.citations);
       if (valid.length > 0) {
         onPartial(normalizeStructuredCitations(valid, totalPages));
@@ -141,6 +152,7 @@ export async function streamStructuredCitations(
     onPartial(normalized);
     return { citations: normalized };
   } catch (error) {
+    if (options?.abortSignal?.aborted) return { citations: [] };
     if (import.meta.env.DEV) console.warn("[structured-citations] stream failed:", error);
     return { citations: [], error: citationErrorMessage(error) };
   }

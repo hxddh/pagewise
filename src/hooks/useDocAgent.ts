@@ -24,6 +24,7 @@ import {
 } from "../lib/prune-chat-history";
 import { streamStructuredCitations } from "../lib/structured-citations";
 import { loadSettings } from "../lib/settings";
+import type { LlmSettings } from "../lib/types";
 import { useI18n } from "../i18n";
 
 export interface SendDocumentMessageOptions {
@@ -138,6 +139,10 @@ export function useDocAgent(chatId: string | null = null) {
       if (!answer) return;
 
       const citationGen = citationGenRef.current;
+      abortCitationStream();
+      const citationController = new AbortController();
+      citationAbortRef.current = citationController;
+      const citationSettings = runSettingsRef.current ?? undefined;
       void streamStructuredCitations(
         answer,
         excerpts,
@@ -156,6 +161,7 @@ export function useDocAgent(chatId: string | null = null) {
             }),
           );
         },
+        { settings: citationSettings, abortSignal: citationController.signal },
       ).then((result) => {
         if (citationGen !== citationGenRef.current) return;
         if (!result.error) return;
@@ -179,10 +185,18 @@ export function useDocAgent(chatId: string | null = null) {
   const [historySettling, setHistorySettling] = useState(false);
   const lastTotalPagesRef = useRef<number | undefined>(undefined);
   const citationGenRef = useRef(0);
+  const citationAbortRef = useRef<AbortController | null>(null);
+  const runSettingsRef = useRef<LlmSettings | null>(null);
+
+  const abortCitationStream = useCallback(() => {
+    citationAbortRef.current?.abort();
+    citationAbortRef.current = null;
+  }, []);
 
   useEffect(() => {
+    abortCitationStream();
     citationGenRef.current += 1;
-  }, [resolvedChatId]);
+  }, [resolvedChatId, abortCitationStream]);
 
   useEffect(() => {
     const wasBusy =
@@ -242,6 +256,7 @@ export function useDocAgent(chatId: string | null = null) {
     }
     clearSendError();
     setSendError(undefined);
+    runSettingsRef.current = settings;
     chat.setMessages(
       (prev) =>
         sanitizeMessagesForChat(
@@ -282,6 +297,7 @@ export function useDocAgent(chatId: string | null = null) {
 
       sendingRef.current = true;
       lastTotalPagesRef.current = opts.totalPages;
+      abortCitationStream();
       citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;
@@ -337,6 +353,7 @@ export function useDocAgent(chatId: string | null = null) {
 
       sendingRef.current = true;
       lastTotalPagesRef.current = opts.totalPages;
+      abortCitationStream();
       citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;
@@ -397,6 +414,7 @@ export function useDocAgent(chatId: string | null = null) {
 
       sendingRef.current = true;
       lastTotalPagesRef.current = opts.totalPages;
+      abortCitationStream();
       citationGenRef.current += 1;
       try {
         if (!(await prepareForAgentSend())) return false;

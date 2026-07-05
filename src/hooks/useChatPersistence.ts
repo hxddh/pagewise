@@ -521,6 +521,17 @@ export function useChatPersistence({
     bumpSaveEpoch();
     skipSaveRef.current = true;
     setChatLoading(true);
+
+    const idle = await waitForStreamIdle();
+    if (!idle) {
+      reportPersistError(new Error("Agent still running"), "Could not clear chat while agent is running");
+      if (gen === opGenRef.current) {
+        skipSaveRef.current = false;
+        setChatLoading(false);
+      }
+      return;
+    }
+
     try {
       await clearActiveThread(docPath, sessionIdRef.current);
       setMessagesRef.current([]);
@@ -537,16 +548,31 @@ export function useChatPersistence({
         setChatLoading(false);
       }
     }
-  }, [docPath, loadKey, refreshSessions, bumpOpGen, bumpSaveEpoch, applyHydratedSession]);
+  }, [docPath, loadKey, refreshSessions, bumpOpGen, bumpSaveEpoch, applyHydratedSession, waitForStreamIdle, reportPersistError]);
 
   const removeThread = useCallback(
     async (sessionId: string) => {
       if (!docPath) return;
       const gen = bumpOpGen();
-      await deleteThread(docPath, sessionId);
-      if (sessionIdRef.current === sessionId) {
+      const deletingActive = sessionIdRef.current === sessionId;
+
+      if (deletingActive) {
+        onStopStreamRef.current?.();
         skipSaveRef.current = true;
         setChatLoading(true);
+        const idle = await waitForStreamIdle();
+        if (!idle) {
+          reportPersistError(new Error("Agent still running"), "Could not delete thread while agent is running");
+          if (gen === opGenRef.current) {
+            skipSaveRef.current = false;
+            setChatLoading(false);
+          }
+          return;
+        }
+      }
+
+      await deleteThread(docPath, sessionId);
+      if (deletingActive) {
         try {
           const loaded = await loadActiveMessages(docPath);
           if (gen !== opGenRef.current) return;
@@ -562,13 +588,22 @@ export function useChatPersistence({
       }
       await refreshSessions();
     },
-    [docPath, loadKey, refreshSessions, bumpOpGen, applyHydratedSession],
+    [docPath, loadKey, refreshSessions, bumpOpGen, applyHydratedSession, waitForStreamIdle, reportPersistError],
   );
 
   const deleteSession = useCallback(
     async (path: string) => {
       bumpSaveEpoch();
-      if (path === docPath) onStopStreamRef.current?.();
+      if (path === docPath) {
+        onStopStreamRef.current?.();
+        skipSaveRef.current = true;
+        const idle = await waitForStreamIdle();
+        if (!idle) {
+          reportPersistError(new Error("Agent still running"), "Could not delete session while agent is running");
+          skipSaveRef.current = false;
+          return;
+        }
+      }
       await clearDocSessions(path);
       if (path === docPath) {
         bumpOpGen();
@@ -587,7 +622,7 @@ export function useChatPersistence({
       }
       await refreshSessions();
     },
-    [docPath, refreshSessions, bumpOpGen, bumpSaveEpoch],
+    [docPath, refreshSessions, bumpOpGen, bumpSaveEpoch, waitForStreamIdle, reportPersistError],
   );
 
   return {

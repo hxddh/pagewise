@@ -7,8 +7,16 @@ import {
 } from "./model-capabilities";
 
 describe("isVisionModel", () => {
-  it("allows unknown multimodal ids on OpenRouter", () => {
+  it("allows known multimodal ids on OpenRouter", () => {
     expect(isVisionModel("openrouter", "anthropic/claude-3.5-sonnet")).toBe(true);
+  });
+
+  it("rejects unknown OpenRouter ids without vision hints", () => {
+    expect(isVisionModel("openrouter", "vendor/unknown-v9")).toBe(false);
+  });
+
+  it("allows unknown Ollama ids with vision family hints", () => {
+    expect(isVisionModel("ollama", "llava:latest")).toBe(true);
   });
 
   it("rejects known non-vision DeepSeek models", () => {
@@ -36,8 +44,8 @@ describe("isAgentMultimodalModel", () => {
     expect(isAgentMultimodalModel("openai", "gpt-4o-mini")).toBe(true);
   });
 
-  it("rejects unknown OpenRouter routes even when isVisionModel is optimistic", () => {
-    expect(isVisionModel("openrouter", "vendor/unknown-multimodal-v9")).toBe(true);
+  it("rejects unknown OpenRouter routes even when name sounds multimodal", () => {
+    expect(isVisionModel("openrouter", "vendor/unknown-multimodal-v9")).toBe(false);
     expect(isAgentMultimodalModel("openrouter", "vendor/unknown-multimodal-v9")).toBe(
       false,
     );
@@ -59,6 +67,10 @@ describe("isAgentMultimodalModel", () => {
 describe("isToolModel", () => {
   it("rejects unknown OpenRouter models", () => {
     expect(isToolModel("openrouter", "vendor/unknown-v9")).toBe(false);
+  });
+
+  it("rejects unknown Ollama models", () => {
+    expect(isToolModel("ollama", "some-new-model")).toBe(false);
   });
 
   it("allows unknown custom models", () => {

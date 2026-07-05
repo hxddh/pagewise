@@ -99,10 +99,16 @@ export class PagewiseChatTransport<
         messageMetadata: tracker.messageMetadata,
       });
 
-      return wrapStreamWithAgentProgress(uiStream, earlyProgress);
-    } finally {
+      return wrapStreamWithAgentProgress(uiStream, earlyProgress, {
+        onStreamEnd: () => {
+          unsubEarly();
+          clearAgentRunAbortSignal();
+        },
+      });
+    } catch (error) {
       unsubEarly();
       clearAgentRunAbortSignal();
+      throw error;
     }
   }
 

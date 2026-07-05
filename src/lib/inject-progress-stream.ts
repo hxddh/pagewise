@@ -17,11 +17,21 @@ export type AgentProgressDataPart = {
 export function wrapStreamWithAgentProgress(
   stream: ReadableStream<UIMessageChunk>,
   initialProgress: AgentProgressPayload[] = [],
+  options?: { onStreamEnd?: () => void },
 ): ReadableStream<UIMessageChunk> {
+  const onStreamEnd = options?.onStreamEnd;
   let streamController: ReadableStreamDefaultController<UIMessageChunk> | null =
     null;
   let closed = false;
   const pendingProgress: AgentProgressPayload[] = [...initialProgress];
+
+  const finish = () => {
+    if (closed) return;
+    closed = true;
+    unsubscribe();
+    clearAgentProgress();
+    onStreamEnd?.();
+  };
 
   const enqueueProgress = (payload: AgentProgressPayload) => {
     if (closed) return;
@@ -51,9 +61,7 @@ export function wrapStreamWithAgentProgress(
       void pump();
     },
     cancel() {
-      closed = true;
-      unsubscribe();
-      clearAgentProgress();
+      finish();
       void source.cancel();
     },
   });
@@ -68,14 +76,10 @@ export function wrapStreamWithAgentProgress(
         if (done) break;
         controller.enqueue(value);
       }
-      closed = true;
-      unsubscribe();
-      clearAgentProgress();
+      finish();
       controller.close();
     } catch (error) {
-      closed = true;
-      unsubscribe();
-      clearAgentProgress();
+      finish();
       controller.error(error);
     }
   }

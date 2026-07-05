@@ -93,6 +93,53 @@ describe("PagewiseChatTransport", () => {
     ).rejects.toThrow("Invalid API key");
   });
 
+  it("keeps agent abort signal until the UI stream finishes", async () => {
+    const agent = new ToolLoopAgent({
+      model: new MockLanguageModelV4({
+        doStream: async () => ({
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "text-start", id: "text-1" },
+              { type: "text-delta", id: "text-1", delta: "Hi" },
+              { type: "text-end", id: "text-1" },
+              {
+                type: "finish",
+                finishReason: { unified: "stop", raw: undefined },
+                logprobs: undefined,
+                usage: finishUsage,
+              },
+            ],
+          }),
+        }),
+      }),
+      instructions: "test",
+    });
+
+    const transport = new PagewiseChatTransport({
+      agent,
+      resolveModelLabel: async () => "mock-model",
+      resolveProvider: async () => "openai",
+    });
+
+    const controller = new AbortController();
+    const uiStream = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "test",
+      messageId: undefined,
+      messages: [{ id: "u1", role: "user", parts: [{ type: "text", text: "Hi" }] }],
+      abortSignal: controller.signal,
+    });
+
+    expect(getAgentRunAbortSignal()).toBe(controller.signal);
+
+    const reader = uiStream.getReader();
+    while (!(await reader.read()).done) {
+      // drain
+    }
+
+    expect(getAgentRunAbortSignal()).toBeUndefined();
+  });
+
   it("clears agent abort signal after stream setup errors", async () => {
     const agent = {
       stream: async () => {
