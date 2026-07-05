@@ -12,13 +12,14 @@ import { isSupportedDocument } from "../lib/load-document";
 import { loadPreferences } from "../lib/preferences";
 import { getLastAgentMessageContext } from "../lib/agent-view-context";
 import { shouldFollowAgentToPage } from "../lib/page-intent";
-import { indexSparsePages } from "../lib/vision-index";
+import { indexSparsePages, setBackgroundIndexAbortController } from "../lib/vision-index";
 import type { RecentFile } from "../lib/recent-files";
 import type { LoadedDocument } from "../lib/types";
 
 export function useDocumentWorkspace(
   onRecentChange?: (files: RecentFile[]) => void,
   showToast?: (msg: string, tone?: "default" | "success" | "error") => void,
+  translate?: (key: string, vars?: Record<string, string | number>) => string,
 ) {
   const { t } = useI18n();
   const [activeDoc, setActiveDoc] = useState<LoadedDocument | null>(null);
@@ -66,7 +67,9 @@ export function useDocumentWorkspace(
 
   const handleDocumentLoaded = useCallback((doc: LoadedDocument) => {
     indexAbortRef.current?.abort();
-    indexAbortRef.current = null;
+    const controller = new AbortController();
+    indexAbortRef.current = controller;
+    setBackgroundIndexAbortController(controller);
     const prevPath = prevDocPathRef.current;
     if (prevPath && prevPath !== doc.path) {
       clearDocumentIndexState(prevPath);
@@ -193,8 +196,19 @@ export function useDocumentWorkspace(
     indexAbortRef.current?.abort();
     const controller = new AbortController();
     indexAbortRef.current = controller;
-    void indexSparsePages(doc, pages, { signal: controller.signal });
-  }, []);
+    setBackgroundIndexAbortController(controller);
+    void indexSparsePages(doc, pages, { signal: controller.signal }).then((result) => {
+      if (result.capped && showToast && translate) {
+        showToast(
+          translate("toast.indexPageCap", {
+            indexed: result.indexed,
+            total: result.indexed + result.skipped,
+          }),
+          "default",
+        );
+      }
+    });
+  }, [showToast, translate]);
 
   return useMemo(
     () => ({

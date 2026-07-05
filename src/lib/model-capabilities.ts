@@ -81,11 +81,21 @@ function lookupCapabilities(model: string): ModelCapabilities | undefined {
   return best;
 }
 
+/** True when the model id is in our capability table and marked non-vision. */
+export function isKnownNonVisionModel(model: string): boolean {
+  const known = lookupCapabilities(model);
+  return known !== undefined && !known.vision;
+}
+
 export function isVisionModel(provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.vision;
   // Custom endpoints may front a vision-capable model we don't know about — allow the attempt.
   if (provider === "custom") return true;
+  // OpenRouter / Ollama / OpenAI often expose newer multimodal ids not yet in our table.
+  if (provider === "openrouter" || provider === "ollama" || provider === "openai") {
+    return true;
+  }
   return false;
 }
 

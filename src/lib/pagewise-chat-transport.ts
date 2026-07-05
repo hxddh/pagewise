@@ -81,19 +81,19 @@ export class PagewiseChatTransport<
         experimental_transform: resolveStreamingTransform(),
         onStepEnd: tracker.onStepEnd,
       } as Parameters<Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>["stream"]>[0]);
+
+      const uiStream = toUIMessageStream({
+        stream: result.stream,
+        tools: this.agent.tools,
+        originalMessages: validatedMessages,
+        onError: this.onError,
+        messageMetadata: tracker.messageMetadata,
+      });
+
+      return wrapStreamWithAgentProgress(uiStream, earlyProgress);
     } finally {
       unsubEarly();
     }
-
-    const uiStream = toUIMessageStream({
-      stream: result.stream,
-      tools: this.agent.tools,
-      originalMessages: validatedMessages,
-      onError: this.onError,
-      messageMetadata: tracker.messageMetadata,
-    });
-
-    return wrapStreamWithAgentProgress(uiStream, earlyProgress);
   }
 
   async reconnectToStream(

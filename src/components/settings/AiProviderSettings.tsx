@@ -234,24 +234,29 @@ export function AiProviderSettings({
   function onProviderChange(provider: ProviderId) {
     if (provider === previewProvider) return;
 
-    cacheCurrentPreview();
-    const seq = ++loadSeqRef.current;
+    void (async () => {
+      if (dirty) {
+        await persistNow();
+      }
 
-    const cached = profileCacheRef.current.get(provider);
-    if (cached) {
-      const profile = providerProfiles[provider];
-      const vm =
-        profile?.visionModel?.trim() ||
-        (provider !== "custom"
-          ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
-          : "");
-      applyLoadedSettings(cached, vm);
-      setDirty(false);
-      setSaveStatus("idle");
-      return;
-    }
+      cacheCurrentPreview();
+      const seq = ++loadSeqRef.current;
 
-    void loadProviderSettings(provider).then((loadedSettings) => {
+      const cached = profileCacheRef.current.get(provider);
+      if (cached) {
+        const profile = providerProfiles[provider];
+        const vm =
+          profile?.visionModel?.trim() ||
+          (provider !== "custom"
+            ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
+            : "");
+        applyLoadedSettings(cached, vm);
+        setDirty(false);
+        setSaveStatus("idle");
+        return;
+      }
+
+      const loadedSettings = await loadProviderSettings(provider);
       if (seq !== loadSeqRef.current) return;
       profileCacheRef.current.set(provider, loadedSettings);
       const profile = providerProfiles[provider];
@@ -263,7 +268,7 @@ export function AiProviderSettings({
       applyLoadedSettings(loadedSettings, vm);
       setDirty(false);
       setSaveStatus("idle");
-    });
+    })();
   }
 
   function onAgentPresetSelect(value: string) {
@@ -368,11 +373,7 @@ export function AiProviderSettings({
 
       const reply = await testConnection(saved, t);
       const scanModel = visionModel.trim();
-      if (
-        saved.provider !== "custom" &&
-        visionPresetModels(saved.provider).length > 0 &&
-        scanModel
-      ) {
+      if (scanModel) {
         await testVisionConnection({ ...saved, model: scanModel }, t);
       }
       const verified = await markProviderVerified(saved.provider, true);
@@ -663,6 +664,20 @@ export function AiProviderSettings({
             <>
               <div className="settings-card-divider" />
               <p className="settings-field-hint">{t("settings.scanUnavailableHint")}</p>
+              <label className="settings-field">
+                <span className="settings-field-label">{t("settings.scanModel")}</span>
+                <p className="settings-field-hint">{t("settings.scanModelOptionalHint")}</p>
+                <input
+                  className="settings-input"
+                  type="text"
+                  value={visionModel}
+                  onChange={(e) => {
+                    setVisionModel(e.target.value);
+                    markDirty();
+                  }}
+                  placeholder={t("settings.scanModelOptionalPlaceholder")}
+                />
+              </label>
             </>
           )}
         </section>

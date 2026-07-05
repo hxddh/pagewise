@@ -4,6 +4,27 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-07-05
+
+### Fixed
+
+- Indexing: clear stuck “Indexing…” badge on document switch or abort
+- Indexing: dedupe concurrent per-page index runs; cancel background index on doc switch
+- Indexing: custom OpenRouter/Ollama scan model IDs are no longer silently replaced at runtime
+- Indexing: fall back to local OCR after vision rate-limit (429), not only on other errors
+- Indexing: retry when index state is `done` but cached text is still too short
+- Agent: `read_pdf_page` waits for sufficient indexed text (≥20 chars), same as background index
+- Agent: stream setup errors propagate correctly (no masked `undefined.stream` TypeError)
+- Settings: persist unsaved edits before switching AI provider tab
+- Settings: custom assistant and scan model IDs allowed; test connection probes scan model for all providers
+
+### Changed
+
+- Settings: optional scan model input when provider has no scan presets (e.g. DeepSeek)
+- Indexing: toast when background sweep hits the 50-page cap
+- Vision API: restore index token usage tracking; faster JPEG data-URL encoding
+- Doc cache: evicting a document also clears its index state
+
 ## [0.2.25] - 2026-07-05
 
 ### Fixed

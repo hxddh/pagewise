@@ -19,7 +19,7 @@ export function useAppShell() {
 
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const agent = useAgentWorkspace();
-  const document = useDocumentWorkspace(setRecentFiles, showToast);
+  const document = useDocumentWorkspace(setRecentFiles, showToast, t);
 
   const agentRef = useRef(agent);
   agentRef.current = agent;

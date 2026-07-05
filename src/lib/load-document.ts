@@ -2,9 +2,8 @@ import { docCache } from "./doc-cache";
 import { extractPdfFromRust } from "./pdf";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
-import { indexPageInBackground, MIN_INDEX_CHARS } from "./vision-index";
-import { allowPath } from "./fs-access";
 import { ensureSemanticIndex } from "./semantic-index";
+import { allowPath } from "./fs-access";
 
 const SUPPORTED_EXT = new Set([
   "pdf",
@@ -21,12 +20,6 @@ const SUPPORTED_EXT = new Set([
 export function isSupportedDocument(path: string): boolean {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return SUPPORTED_EXT.has(ext);
-}
-
-function maybeIndexSparsePage(path: string, page: number, kind: "pdf" | "image"): void {
-  const text = docCache.getPages(path).find((p) => p.page === page)?.text.trim() ?? "";
-  if (text.length >= MIN_INDEX_CHARS) return;
-  indexPageInBackground(path, page, kind);
 }
 
 export async function loadDocument(
@@ -68,7 +61,6 @@ export async function loadDocument(
     };
 
     docCache.set(doc);
-    maybeIndexSparsePage(path, 1, "pdf");
     void ensureSemanticIndex(path, doc.pages);
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
@@ -80,7 +72,6 @@ export async function loadDocument(
       totalPages: 1,
     };
     docCache.set(doc);
-    maybeIndexSparsePage(path, 1, "image");
     void ensureSemanticIndex(path, doc.pages);
   }
 

@@ -65,4 +65,28 @@ describe("PagewiseChatTransport", () => {
     expect(merged.outputTokens).toBe(8);
     expect(merged.firstTokenAt).toEqual(expect.any(Number));
   });
+
+  it("propagates agent stream setup errors instead of masking them", async () => {
+    const agent = {
+      stream: async () => {
+        throw new Error("Invalid API key");
+      },
+      tools: {},
+    } as unknown as InstanceType<typeof ToolLoopAgent>;
+
+    const transport = new PagewiseChatTransport({
+      agent,
+      resolveModelLabel: async () => "mock-model",
+    });
+
+    await expect(
+      transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "test",
+        messageId: undefined,
+        messages: [{ id: "u1", role: "user", parts: [{ type: "text", text: "Hi" }] }],
+        abortSignal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("Invalid API key");
+  });
 });

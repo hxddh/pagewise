@@ -28,6 +28,15 @@ const DEFAULT_INDEX_CONCURRENCY = 3;
 /** Cap on how many pages one background sweep will index (cost control). */
 const DEFAULT_MAX_INDEX_PAGES = 50;
 
+/** Shared abort for preview / single-page background indexing (document switch). */
+let backgroundIndexController: AbortController | null = null;
+
+/** In-flight dedupe: one index run per path+page at a time. */
+const inflightIndex = new Map<
+  string,
+  Promise<{ text: string; source: "vision" | "ocr" | "cache" }>
+>();
+
 export interface IndexPageOptions {
   /** Abort in-flight work (e.g. when the active document switches). */
   signal?: AbortSignal;
@@ -41,6 +50,30 @@ export interface IndexSparsePagesOptions {
   signal?: AbortSignal;
   concurrency?: number;
   maxPages?: number;
+}
+
+export interface IndexSparsePagesResult {
+  indexed: number;
+  skipped: number;
+  capped: boolean;
+}
+
+/** Replace the shared background-index abort controller (aborts the prior one). */
+export function setBackgroundIndexAbortController(controller: AbortController | null): void {
+  backgroundIndexController?.abort();
+  backgroundIndexController = controller;
+}
+
+export function getBackgroundIndexSignal(): AbortSignal | undefined {
+  return backgroundIndexController?.signal;
+}
+
+function inflightKey(path: string, page: number): string {
+  return `${path}:${page}`;
+}
+
+function resolveIndexSignal(options: IndexPageOptions): AbortSignal | undefined {
+  return options.signal ?? getBackgroundIndexSignal();
 }
 
 /** Combine an optional caller signal with a timeout signal. */
@@ -59,6 +92,15 @@ function isRateLimitError(err: unknown): boolean {
   if (anyErr.statusCode === 429 || anyErr.status === 429) return true;
   const message = typeof anyErr.message === "string" ? anyErr.message : String(err);
   return /\b429\b|rate.?limit|too many requests/i.test(message);
+}
+
+function handleIndexAbort(
+  path: string,
+  page: number,
+  cached: { text: string } | undefined,
+): { text: string; source: "ocr" | "cache" } {
+  clearPageIndexState(path, page);
+  return { text: cached?.text ?? "", source: "ocr" };
 }
 
 const VISION_PROMPTS = {
@@ -200,8 +242,7 @@ export function resolveIndexFailureReason(
   return "unknown";
 }
 
-/** Index one page: cache → vision (current model) → local OCR. */
-export async function indexPageText(
+async function indexPageTextInner(
   path: string,
   page: number,
   kind: "pdf" | "image",
@@ -216,14 +257,17 @@ export async function indexPageText(
 
   const priorState = getPageIndexState(path, page);
   if (priorState?.status === "done") {
-    return { text: cached?.text ?? "", source: "cache" };
+    if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
+      return { text: cached.text, source: "cache" };
+    }
+    clearPageIndexState(path, page);
   }
   if (priorState?.status === "failed") {
     clearPageIndexState(path, page);
   }
 
   if (signal?.aborted) {
-    return { text: cached?.text ?? "", source: "ocr" };
+    return handleIndexAbort(path, page, cached);
   }
 
   emitPageIndex({ path, page, status: "indexing" });
@@ -258,22 +302,25 @@ export async function indexPageText(
         visionError = formatLlmError(err);
         console.warn("[vision-index] vision extraction failed:", visionError);
         if (isRateLimitError(err)) {
-          emitPageIndex({
-            path,
-            page,
-            status: "failed",
-            failureReason: "vision_failed",
-            error: "rate_limited",
-          });
-          if (throwOnRateLimit) throw err;
-          return { text: "", source: "vision" };
+          if (throwOnRateLimit) {
+            emitPageIndex({
+              path,
+              page,
+              status: "failed",
+              failureReason: "vision_failed",
+              error: "rate_limited",
+            });
+            throw err;
+          }
+          // Non-pool path: fall through to local OCR instead of failing immediately.
+          console.warn("[vision-index] rate limited (429); trying local OCR fallback.");
         }
         // Non-rate-limit vision error: fall through to local OCR.
       }
     }
 
     if (signal?.aborted) {
-      return { text: cached?.text ?? "", source: "ocr" };
+      return handleIndexAbort(path, page, cached);
     }
 
     try {
@@ -307,6 +354,10 @@ export async function indexPageText(
     });
     return { text: "", source: "ocr" };
   } catch (err) {
+    if (signal?.aborted) {
+      return handleIndexAbort(path, page, cached);
+    }
+
     // Rate-limit that a pool wants to propagate: state already emitted above.
     if (isRateLimitError(err) && throwOnRateLimit) throw err;
 
@@ -321,6 +372,28 @@ export async function indexPageText(
     });
     return { text: "", source: "ocr" };
   }
+}
+
+/** Index one page: cache → vision (current model) → local OCR. */
+export async function indexPageText(
+  path: string,
+  page: number,
+  kind: "pdf" | "image",
+  options: IndexPageOptions = {},
+): Promise<{ text: string; source: "vision" | "ocr" | "cache" }> {
+  const signal = resolveIndexSignal(options);
+  const resolvedOptions = { ...options, signal };
+  const key = inflightKey(path, page);
+
+  const existing = inflightIndex.get(key);
+  if (existing) return existing;
+
+  const work = indexPageTextInner(path, page, kind, resolvedOptions).finally(() => {
+    inflightIndex.delete(key);
+  });
+
+  inflightIndex.set(key, work);
+  return work;
 }
 
 export function indexPageInBackground(
@@ -347,7 +420,7 @@ export function indexSparsePages(
   doc: LoadedDocument,
   pages?: number[],
   options: IndexSparsePagesOptions = {},
-): Promise<void> {
+): Promise<IndexSparsePagesResult> {
   const {
     signal,
     concurrency = DEFAULT_INDEX_CONCURRENCY,
@@ -361,7 +434,8 @@ export function indexSparsePages(
       .map((p) => p.page);
 
   const limited = targets.slice(0, Math.max(0, maxPages));
-  if (limited.length < targets.length) {
+  const capped = limited.length < targets.length;
+  if (capped) {
     console.warn(
       `[vision-index] page cap reached: indexing ${limited.length} of ${targets.length} sparse pages for ${doc.path}; remaining pages skipped this sweep.`,
     );
@@ -373,7 +447,11 @@ export function indexSparsePages(
 
   return runIndexPool(limited, Math.max(1, concurrency), signal, (page) =>
     indexPageText(doc.path, page, doc.kind, { signal, throwOnRateLimit: true }),
-  );
+  ).then(() => ({
+    indexed: limited.length,
+    skipped: targets.length - limited.length,
+    capped,
+  }));
 }
 
 /** Minimal bounded worker pool that stops the whole sweep on a 429. */

@@ -1,5 +1,6 @@
 import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
+import { clearDocumentIndexState } from "./index-events";
 import { clearSemanticIndex, markSemanticIndexDirty } from "./semantic-index";
 
 type DocCacheListener = (path: string) => void;
@@ -13,7 +14,11 @@ class DocCache {
   set(doc: LoadedDocument): void {
     if (!this.docs.has(doc.path) && this.docs.size >= MAX_CACHED_DOCS) {
       const oldest = this.docs.keys().next().value;
-      if (oldest) this.docs.delete(oldest);
+      if (oldest) {
+        this.docs.delete(oldest);
+        clearDocumentIndexState(oldest);
+        clearSemanticIndex(oldest);
+      }
     }
     this.docs.set(doc.path, doc);
     this.notify(doc.path);
