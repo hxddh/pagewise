@@ -93,6 +93,7 @@ export function useAppShell() {
     isStreaming: agent.busy,
     isAgentBusy: agent.isAgentBusy,
     onAbortPendingSend: agent.abortPendingSend,
+    onResetAgent: agent.resetForDocumentSwitch,
     onPersistError: handlePersistError,
     onActiveSessionIdChange: (id) => {
       flushSync(() => setThreadSessionId(id));
@@ -197,6 +198,7 @@ export function useAppShell() {
   const clearChat = useCallback(() => {
     agentRef.current.stop();
     agentRef.current.abortPendingSend();
+    agentRef.current.clearError();
     agentRef.current.setComposerDraft("");
     void library.clearCurrentThread();
     setClearConfirmOpen(false);

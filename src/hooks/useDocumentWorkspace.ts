@@ -113,6 +113,11 @@ export function useDocumentWorkspace(
     setDocLoadSeq((n) => n + 1);
     lastSyncedToolRef.current = null;
     onLoadedRef.current?.(doc);
+    const indexController = indexAbortRef.current;
+    if (indexController && !indexController.signal.aborted) {
+      const pages = doc.kind === "image" ? [1] : undefined;
+      void indexSparsePages(doc, pages, { signal: indexController.signal }).catch(() => {});
+    }
   }, []);
 
   const commitDocumentSwitch = useCallback(() => {
@@ -144,6 +149,7 @@ export function useDocumentWorkspace(
       const prevDoc = docCache.get(prevPath);
       prevDocPathRef.current = prevPath;
       setActivePdfPath(prevPath);
+      clearPdfCache();
       const controller = new AbortController();
       indexAbortRef.current = controller;
       setBackgroundIndexAbortController(controller);

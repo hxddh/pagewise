@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
 import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
@@ -51,6 +51,19 @@ function PreviewPaneInner({
   }, [doc.path, doc.kind, indexPage, pageTextLen, indexRevision]);
 
   useEffect(() => {
+    if (indexRevision <= 0) return;
+    if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return;
+    clearPageIndexState(doc.path, indexPage);
+    indexPageInBackground(doc.path, indexPage, doc.kind);
+  }, [indexRevision, doc.path, doc.kind, indexPage, doc.pages]);
+
+  const transientRetryRef = useRef(0);
+
+  useEffect(() => {
+    transientRetryRef.current = 0;
+  }, [doc.path, indexPage]);
+
+  useEffect(() => {
     const state = getPageIndexState(doc.path, indexPage);
     if (state?.status !== "failed") return;
     const detail = sanitizeIndexErrorDetail(state.error);
@@ -58,12 +71,15 @@ function PreviewPaneInner({
       detail === "rate_limited" ||
       detail === "timeout";
     if (!transient) return;
+    if (transientRetryRef.current >= 6) return;
 
+    const delayMs = Math.min(30_000, 4000 * 2 ** transientRetryRef.current);
     const timer = window.setTimeout(() => {
       if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return;
+      transientRetryRef.current += 1;
       clearPageIndexState(doc.path, indexPage);
       indexPageInBackground(doc.path, indexPage, doc.kind);
-    }, 4000);
+    }, delayMs);
 
     return () => window.clearTimeout(timer);
   }, [doc.path, doc.kind, indexPage, indexState?.status, indexState?.error, indexState?.failureReason]);
@@ -112,6 +128,9 @@ function PreviewPaneInner({
       indexState.failureReason === "vision_failed") &&
     !!onOpenAiSettings;
 
+  const showRetryOnVisionFailed =
+    indexState?.status === "failed" && indexState.failureReason === "vision_failed";
+
   const indexFailed = indexState?.status === "failed";
 
   const retryIndex = () => {
@@ -139,9 +158,20 @@ function PreviewPaneInner({
         ) : indexFailed ? (
           <div className="preview-index-badge-row" aria-live="polite">
             <div className="preview-index-badge">{indexHint}</div>
-            <button type="button" className="preview-index-retry-btn" onClick={retryIndex}>
-              {t("preview.retryIndex")}
-            </button>
+            {indexHintActionable && (
+              <button
+                type="button"
+                className="preview-index-retry-btn"
+                onClick={onOpenAiSettings}
+              >
+                {t("settings.title")}
+              </button>
+            )}
+            {(showRetryOnVisionFailed || !indexHintActionable) && (
+              <button type="button" className="preview-index-retry-btn" onClick={retryIndex}>
+                {t("preview.retryIndex")}
+              </button>
+            )}
           </div>
         ) : (
           <div className="preview-index-badge" aria-live="polite">

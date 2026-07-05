@@ -229,7 +229,8 @@ export async function embedTexts(
     const batchIdx = targets.slice(start, start + EMBED_BATCH_SIZE);
     const batchValues = batchIdx.map((i) => prepared[i]!);
     const vectors = await embedBatch(model, batchValues, settings.provider, options.signal);
-    if (!vectors) continue; // isolate failure: leave this batch's slots null
+    if (options.signal?.aborted) break;
+    if (!vectors) continue;
     for (let j = 0; j < batchIdx.length; j++) {
       const vec = vectors[j];
       if (vec && vec.length > 0) result[batchIdx[j]!] = vec;

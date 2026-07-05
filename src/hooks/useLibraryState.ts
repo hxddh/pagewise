@@ -20,6 +20,7 @@ interface UseLibraryStateOptions {
   isStreaming?: boolean;
   isAgentBusy?: () => boolean;
   onAbortPendingSend?: () => void;
+  onResetAgent?: () => void;
   onPersistError?: (messageKey: string) => void;
   onActiveSessionIdChange?: (sessionId: string) => void;
 }
@@ -40,6 +41,7 @@ export function useLibraryState({
   isStreaming = false,
   isAgentBusy,
   onAbortPendingSend,
+  onResetAgent,
   onPersistError,
   onActiveSessionIdChange,
 }: UseLibraryStateOptions) {
@@ -70,6 +72,7 @@ export function useLibraryState({
     isStreaming,
     isAgentBusy,
     onAbortPendingSend,
+    onResetAgent,
     onPersistError,
     onActiveSessionIdChange,
   });

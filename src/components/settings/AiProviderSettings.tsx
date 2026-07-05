@@ -406,10 +406,8 @@ export function AiProviderSettings({
       if (saved.provider === activeProvider) {
         onLlmSettingsSaved?.();
         onApiReady?.();
-        if (lastPersistedVisionRef.current !== visionModel) {
-          lastPersistedVisionRef.current = visionModel;
-          onReindexDoc?.();
-        }
+        onReindexDoc?.();
+        lastPersistedVisionRef.current = visionModel;
       }
       onTestResult?.(
         scanModel && saved.provider !== "custom" && visionPresetModels(saved.provider).length > 0

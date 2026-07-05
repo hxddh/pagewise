@@ -4,7 +4,8 @@ mod secrets;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use pdf::{extract_pdf_text, pdf_page_count, PdfCache, PdfExtractCancel, PdfExtractResult};
 use serde::Serialize;
@@ -92,19 +93,33 @@ async fn extract_pdf_text_cmd(
     .map_err(|e| format!("Task join failed: {e}"))?
 }
 
+#[derive(Clone, Default)]
+struct FileReadCancel(Arc<AtomicU64>);
+
+impl FileReadCancel {
+    fn bump(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[tauri::command]
+fn cancel_file_read_cmd(cancel: State<'_, FileReadCancel>) {
+    cancel.bump();
+}
+
 #[tauri::command]
 async fn read_file_bytes(
     path: String,
     allowed: State<'_, AllowedPaths>,
+    cancel: State<'_, FileReadCancel>,
 ) -> Result<tauri::ipc::Response, String> {
     let canon = ensure_allowed(&allowed, &path)?;
+    let _gen = cancel.inner().0.load(Ordering::SeqCst);
     let bytes = tauri::async_runtime::spawn_blocking(move || {
         std::fs::read(&canon).map_err(|e| format!("Read failed: {e}"))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))??;
-    // Return raw bytes so the webview receives an ArrayBuffer directly instead
-    // of a JSON number[] (which balloons for large PDFs).
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -219,9 +234,11 @@ pub fn run() {
         .manage(AllowedPaths::default())
         .manage(PdfCache::default())
         .manage(PdfExtractCancel::default())
+        .manage(FileReadCancel::default())
         .invoke_handler(tauri::generate_handler![
             register_allowed_path,
             cancel_pdf_extract_cmd,
+            cancel_file_read_cmd,
             pdf_page_count_cmd,
             extract_pdf_text_cmd,
             read_file_bytes,
