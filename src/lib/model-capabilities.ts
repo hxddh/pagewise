@@ -30,6 +30,9 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
   "qwen/qwen2.5-vl-7b-instruct": cap(true, false),
   "google/gemini-2.5-flash-lite": cap(true, true),
   "google/gemini-2.5-flash": cap(true, true),
+  "google/gemma-3-4b-it": cap(true, false),
+  "google/gemma-4-31b-it": cap(true, false),
+  "qwen/qwen3-vl-8b-instruct": cap(true, false),
   "anthropic/claude-3.5-sonnet": cap(true, true),
 
   // Tool-capable Ollama families (modern Ollama exposes OpenAI-style tool calling).
