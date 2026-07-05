@@ -77,18 +77,20 @@ async function readPageText(path: string, page: number) {
 
   if (kind === "pdf") {
     const text = await extractPageText(path, page);
-    if (text.trim()) {
+    if (text.trim().length >= MIN_INDEX_CHARS) {
       docCache.upsertPageText(path, page, text);
       return { page, text, source: "pdf-text" as const };
     }
   }
 
   const indexed = await indexPageText(path, page, kind);
-  return {
-    page,
-    text: indexed.text,
-    source: indexed.source === "vision" ? ("vision" as const) : ("ocr" as const),
-  };
+  const source =
+    indexed.source === "vision"
+      ? ("vision" as const)
+      : indexed.source === "cache"
+        ? ("cache" as const)
+        : ("ocr" as const);
+  return { page, text: indexed.text, source };
 }
 
 const BUDGET_NOTE =

@@ -332,6 +332,26 @@ describe("migrateProviderProfile", () => {
     expect(vision.model).toBe("anthropic/claude-3.5-sonnet");
   });
 
+  it("loadVisionSettings preserves explicit DeepSeek scan model distinct from agent", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "deepseek",
+        profiles: {
+          deepseek: {
+            model: "deepseek-v4-flash",
+            visionModel: "some-custom-scan-model",
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+
+    const vision = await loadVisionSettings();
+    expect(vision.model).toBe("some-custom-scan-model");
+  });
+
   it("migrates unreliable gemma-4 free scan model to default", async () => {
     __resetSettingsStoreForTests({
       store: {

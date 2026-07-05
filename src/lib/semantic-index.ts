@@ -1,3 +1,4 @@
+import { docCache } from "./doc-cache";
 import type { PageText } from "./types";
 import {
   cosineSimilarity,
@@ -6,6 +7,7 @@ import {
   embeddingModelKey,
 } from "./embeddings";
 import { isEmbeddingCapableProvider } from "./model-capabilities";
+import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { loadSettings } from "./settings";
 import { searchDocumentPages, type SearchHit } from "./document-search";
 import { fuseSearchHits, type RankableHit } from "./search-rerank";
@@ -25,8 +27,11 @@ interface SemanticIndexEntry {
 
 const store = new Map<string, SemanticIndexEntry>();
 const building = new Set<string>();
+const buildPromises = new Map<string, Promise<void>>();
 /** Paths whose cached index is stale (e.g. background OCR landed new page text). */
 const dirty = new Set<string>();
+/** Bumped when dirty is marked during an in-flight build — prevents clearing stale too early. */
+const dirtyGeneration = new Map<string, number>();
 /** Providers we've already warned about lacking an embeddings endpoint (DEV only). */
 const warnedNoEmbed = new Set<string>();
 
@@ -41,10 +46,17 @@ function pageEmbedText(text: string, page: number): string {
   return trimmed.length > 4000 ? `${trimmed.slice(0, 4000)}…` : trimmed;
 }
 
+function resolvePages(path: string, fallback: PageText[]): PageText[] {
+  const live = docCache.getPages(path);
+  return live.length > 0 ? live : fallback;
+}
+
 export function clearSemanticIndex(path: string): void {
   store.delete(path);
   building.delete(path);
+  buildPromises.delete(path);
   dirty.delete(path);
+  dirtyGeneration.delete(path);
 }
 
 /**
@@ -54,12 +66,19 @@ export function clearSemanticIndex(path: string): void {
  */
 export function markSemanticIndexDirty(path: string): void {
   dirty.add(path);
+  dirtyGeneration.set(path, (dirtyGeneration.get(path) ?? 0) + 1);
+}
+
+async function waitForSemanticBuild(path: string): Promise<void> {
+  const pending = buildPromises.get(path);
+  if (pending) await pending;
 }
 
 export async function ensureSemanticIndex(
   path: string,
   pages: PageText[],
 ): Promise<void> {
+  await waitForSemanticBuild(path);
   if (building.has(path)) return;
 
   const settings = await loadSettings();
@@ -81,37 +100,49 @@ export async function ensureSemanticIndex(
   // Rebuild when: no index yet, the embedding model changed, or the index is dirty.
   if (existing && existing.model === modelKey && !dirty.has(path)) return;
 
+  const dirtyGenAtStart = dirtyGeneration.get(path) ?? 0;
   building.add(path);
-  try {
-    const sparse = pages.filter((p) => p.text.trim().length >= 20);
-    if (sparse.length === 0) {
-      store.delete(path);
-      dirty.delete(path);
-      return;
-    }
 
-    const values = sparse.map((p) => pageEmbedText(p.text, p.page));
-    const vectors = await embedTexts(settings, values);
-    const entries: PageEmbedding[] = [];
-    let dim = 0;
-    for (let i = 0; i < sparse.length; i++) {
-      const vector = vectors[i];
-      if (vector && vector.length > 0) {
-        entries.push({ page: sparse[i]!.page, vector });
-        dim = vector.length;
+  const build = (async () => {
+    try {
+      const snapshot = resolvePages(path, pages);
+      const sparse = snapshot.filter((p) => p.text.trim().length >= MIN_INDEX_CHARS);
+      if (sparse.length === 0) {
+        store.delete(path);
+        if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
+          dirty.delete(path);
+        }
+        return;
       }
+
+      const values = sparse.map((p) => pageEmbedText(p.text, p.page));
+      const vectors = await embedTexts(settings, values);
+      const entries: PageEmbedding[] = [];
+      let dim = 0;
+      for (let i = 0; i < sparse.length; i++) {
+        const vector = vectors[i];
+        if (vector && vector.length > 0) {
+          entries.push({ page: sparse[i]!.page, vector });
+          dim = vector.length;
+        }
+      }
+      if (entries.length > 0) {
+        store.set(path, { model: modelKey, dim, entries });
+      } else {
+        // Embedding failed entirely — stay keyword-only for this doc.
+        store.delete(path);
+      }
+      if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
+        dirty.delete(path);
+      }
+    } finally {
+      building.delete(path);
+      buildPromises.delete(path);
     }
-    if (entries.length > 0) {
-      store.set(path, { model: modelKey, dim, entries });
-    } else {
-      // Embedding failed entirely — stay keyword-only for this doc.
-      store.delete(path);
-    }
-    // Either way the dirty flag is consumed; a later upsert re-marks it.
-    dirty.delete(path);
-  } finally {
-    building.delete(path);
-  }
+  })();
+
+  buildPromises.set(path, build);
+  await build;
 }
 
 export async function semanticSearchPages(

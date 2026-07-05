@@ -104,23 +104,25 @@ export function useChatPersistence({
     async function switchDocument() {
       const prev = prevPathRef.current;
       const pathChanged = docPath !== prev;
+      const outgoing = messagesRef.current;
+      const unsaved =
+        outgoing.length > 0 &&
+        messagesSignature(outgoing) !== loadedSnapshotRef.current;
 
       skipSaveRef.current = true;
       setChatLoading(true);
       onDocumentSwitchRef.current?.(docPath);
 
       try {
-        if (pathChanged && prev) {
-          const prevName = prev.split(/[/\\]/).pop() ?? prev;
-          const outgoing = messagesRef.current;
-          if (outgoing.length > 0) {
-            await saveActiveSession(
-              prev,
-              prevName,
-              sessionIdRef.current,
-              sanitizeDanglingToolParts(outgoing),
-            );
-          }
+        if (unsaved) {
+          const savePath = pathChanged && prev ? prev : docPath!;
+          const saveName = savePath.split(/[/\\]/).pop() ?? savePath;
+          await saveActiveSession(
+            savePath,
+            saveName,
+            sessionIdRef.current,
+            sanitizeDanglingToolParts(outgoing),
+          );
         }
 
         if (cancelled || gen !== switchGenRef.current) return;

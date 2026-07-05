@@ -1,6 +1,7 @@
 import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
 import { clearDocumentIndexState } from "./index-events";
+import { mergePageTextsOnReload, pagesTextChanged } from "./page-text-merge";
 import { clearSemanticIndex, markSemanticIndexDirty } from "./semantic-index";
 
 type DocCacheListener = (path: string) => void;
@@ -20,7 +21,16 @@ class DocCache {
         clearSemanticIndex(oldest);
       }
     }
-    this.docs.set(doc.path, doc);
+    const existing = this.docs.get(doc.path);
+    let nextDoc = doc;
+    if (existing) {
+      const mergedPages = mergePageTextsOnReload(existing.pages, doc.pages);
+      nextDoc = { ...doc, pages: mergedPages };
+      if (pagesTextChanged(existing.pages, mergedPages)) {
+        markSemanticIndexDirty(doc.path);
+      }
+    }
+    this.docs.set(doc.path, nextDoc);
     this.notify(doc.path);
   }
 
@@ -64,6 +74,7 @@ class DocCache {
   /** Evict a closed document so its pages don't leak across the session. */
   remove(path: string): void {
     if (this.docs.delete(path)) {
+      clearDocumentIndexState(path);
       clearSemanticIndex(path);
       this.notify(path);
     }

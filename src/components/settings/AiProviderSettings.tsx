@@ -236,7 +236,12 @@ export function AiProviderSettings({
 
     void (async () => {
       if (dirty) {
-        await persistNow();
+        const saved = await persistNow();
+        if (!saved) {
+          setSaveStatus("error");
+          onSaveError?.();
+          return;
+        }
       }
 
       cacheCurrentPreview();
@@ -313,7 +318,8 @@ export function AiProviderSettings({
       const agentError = validateAgentModel(draft, t);
       if (agentError) throw new Error(agentError);
 
-      await persistNow();
+      const saved = await persistNow();
+      if (!saved) throw new Error(t("errors.saveFailed"));
       const next = await setActiveProvider(previewProvider);
       profileCacheRef.current.set(previewProvider, next);
       setActiveProviderState(previewProvider);
@@ -627,6 +633,20 @@ export function AiProviderSettings({
               value={settings.model}
               onChange={(e) => patchSettings({ model: e.target.value })}
               placeholder="model-id"
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field-label">{t("settings.scanModel")}</span>
+            <p className="settings-field-hint">{t("settings.customScanModelHint")}</p>
+            <input
+              className="settings-input"
+              type="text"
+              value={visionModel}
+              onChange={(e) => {
+                setVisionModel(e.target.value);
+                markDirty();
+              }}
+              placeholder={t("settings.scanModelOptionalPlaceholder")}
             />
           </label>
         </section>
