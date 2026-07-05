@@ -4,6 +4,17 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.38] - 2026-07-05
+
+### Fixed
+
+- Chat: document switch no longer loses unsaved messages when `chatId` recreation clears in-memory state (per-doc snapshot cache)
+- Chat: update `threadSessionId` before hydrating messages so thread/doc loads are not wiped
+- Chat: wait for stream idle before doc/thread switch saves; quit flush fails closed after 5s timeout
+- Chat: autosave works after delete-session / failed load while document stays open
+- Agent: prune bulky tool outputs after error responses; clear abort signal in transport `finally`
+- Preview: follow-agent ignores previous assistant tools while a new reply is in flight
+
 ## [0.2.37] - 2026-07-05
 
 ### Fixed

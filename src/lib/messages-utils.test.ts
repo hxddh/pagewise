@@ -146,4 +146,13 @@ describe("stripUserFileParts", () => {
     ];
     expect(stripUserFileParts(messages, "openai")).toBe(messages);
   });
+
+  it("keeps a minimal text part when stripping leaves an empty user row", () => {
+    const out = stripUserFileParts(
+      [{ id: "u1", role: "user", parts: [{ type: "file", mediaType: "image/png", url: "data:x" }] }],
+      "openrouter",
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.parts[0]?.type).toBe("text");
+  });
 });

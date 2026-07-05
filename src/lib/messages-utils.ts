@@ -64,8 +64,11 @@ export function stripUserFileParts(
     }
 
     changed = true;
-    if (parts.length === 0) continue;
-    next.push({ ...message, parts });
+    const kept =
+      parts.length > 0
+        ? parts
+        : ([{ type: "text" as const, text: " " }] satisfies UIMessage["parts"]);
+    next.push({ ...message, parts: kept });
   }
 
   return changed ? next : messages;
