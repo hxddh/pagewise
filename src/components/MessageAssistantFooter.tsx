@@ -230,6 +230,20 @@ function MessageAssistantFooterInner({
               <dt>{t("agent.usageSpeed")}</dt>
               <dd>{formatGenerationSpeed(speed)}</dd>
             </div>
+            {(metadata?.finalStepTools?.length ?? 0) > 0 && (
+              <div className="usage-stats-row usage-stats-sub">
+                <dt>{t("agent.usageFinalTools")}</dt>
+                <dd>{metadata!.finalStepTools!.join(", ")}</dd>
+              </div>
+            )}
+            {metadata?.providerMetadata && Object.keys(metadata.providerMetadata).length > 0 && (
+              <div className="usage-stats-row usage-stats-section">
+                <dt>{t("agent.usageProviderMeta")}</dt>
+                <dd className="usage-stats-provider-meta">
+                  {JSON.stringify(metadata.providerMetadata, null, 0).slice(0, 240)}
+                </dd>
+              </div>
+            )}
             {(metadata?.stepUsage?.length ?? 0) > 1 && (
               <>
                 <div className="usage-stats-row usage-stats-section">

@@ -212,6 +212,8 @@ function profileToSettings(
 export type LlmSettingsMeta = Omit<LlmSettings, "apiKey"> & {
   hasStoredKey: boolean;
   visionModel: string;
+  /** True when API keys are mirrored in plaintext on disk (keychain unavailable). */
+  plaintextKeysOnDisk: boolean;
 };
 
 function settingsToProfile(settings: LlmSettings, visionModel?: string): ProviderProfile {
@@ -465,10 +467,19 @@ async function hasStoredApiKey(provider: ProviderId): Promise<boolean> {
   }
 }
 
+async function hasPlaintextKeysOnDisk(): Promise<boolean> {
+  await ensureApiKeysMigrated();
+  const s = await getStore();
+  const raw = await s.get<RawStored>(SETTINGS_KEY);
+  if (!raw?.apiKeys) return false;
+  return Object.values(raw.apiKeys).some((v) => v?.trim());
+}
+
 function metaFromProfile(
   provider: ProviderId,
   profile: ProviderProfile,
   hasStoredKey: boolean,
+  plaintextKeysOnDisk: boolean,
 ): LlmSettingsMeta {
   const visionModel =
     profile.visionModel?.trim() ||
@@ -481,6 +492,7 @@ function metaFromProfile(
     thinkingEnabled: profile.thinkingEnabled,
     connectionVerified: profile.connectionVerified,
     hasStoredKey,
+    plaintextKeysOnDisk,
   };
 }
 function getProfileFromStore(storeData: LlmStoreV2, provider: ProviderId): ProviderProfile {
@@ -500,7 +512,8 @@ export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
   const provider = storeData.activeProvider;
   const profile = getProfileFromStore(storeData, provider);
   const hasStoredKey = await hasStoredApiKey(provider);
-  return metaFromProfile(provider, profile, hasStoredKey);
+  const plaintextKeysOnDisk = await hasPlaintextKeysOnDisk();
+  return metaFromProfile(provider, profile, hasStoredKey, plaintextKeysOnDisk);
 }
 
 /** Vision indexing model (separate from agent model when configured). */

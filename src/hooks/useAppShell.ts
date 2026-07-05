@@ -18,8 +18,18 @@ export function useAppShell() {
   const { cycleTheme, reloadPreferences } = useTheme();
 
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
-  const agent = useAgentWorkspace();
+  const [threadSessionId, setThreadSessionId] = useState("default");
   const document = useDocumentWorkspace(setRecentFiles, showToast, t);
+
+  const chatId = useMemo(
+    () =>
+      document.activeDoc?.path
+        ? `${document.activeDoc.path}::${threadSessionId}`
+        : "pagewise-local",
+    [document.activeDoc?.path, threadSessionId],
+  );
+
+  const agent = useAgentWorkspace(chatId);
 
   const agentRef = useRef(agent);
   agentRef.current = agent;
@@ -29,6 +39,13 @@ export function useAppShell() {
     agentRef.current.setComposerDraft("");
     clearAgentMessageContext();
   }, []);
+
+  const handlePersistError = useCallback(
+    (message: string) => {
+      showToast(message, "error");
+    },
+    [showToast],
+  );
 
   const library = useLibraryState({
     activeDoc: document.activeDoc,
@@ -41,6 +58,8 @@ export function useAppShell() {
     onDocumentSwitch: handleDocumentSwitch,
     onStopStream: agent.stop,
     isStreaming: agent.busy,
+    onPersistError: handlePersistError,
+    onActiveSessionIdChange: setThreadSessionId,
   });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -163,8 +182,6 @@ export function useAppShell() {
     showToast,
   });
 
-  // Memoize the context value so agent stream ticks (which re-render this shell
-  // frequently) don't hand a brand-new object literal to every consumer.
   const shell = useMemo<ShellContextValue>(
     () => ({
       settingsOpen,

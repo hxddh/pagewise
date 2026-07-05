@@ -50,6 +50,25 @@ function PreviewPaneInner({
     indexPageInBackground(doc.path, indexPage, doc.kind);
   }, [doc.path, doc.kind, indexPage, pageTextLen, indexRevision]);
 
+  useEffect(() => {
+    const state = getPageIndexState(doc.path, indexPage);
+    if (state?.status !== "failed") return;
+    const detail = sanitizeIndexErrorDetail(state.error);
+    const transient =
+      detail === "rate_limited" ||
+      detail === "timeout" ||
+      state.failureReason === "vision_failed";
+    if (!transient) return;
+
+    const timer = window.setTimeout(() => {
+      if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return;
+      clearPageIndexState(doc.path, indexPage);
+      indexPageInBackground(doc.path, indexPage, doc.kind);
+    }, 4000);
+
+    return () => window.clearTimeout(timer);
+  }, [doc.path, doc.kind, indexPage, indexState?.status, indexState?.error, indexState?.failureReason]);
+
   const indexHint = useMemo(() => {
     if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return null;
     if (indexState?.status === "indexing") return t("preview.indexing");

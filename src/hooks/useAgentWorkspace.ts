@@ -7,7 +7,7 @@ import { useI18n } from "../i18n";
 import { getAgentActivity } from "../lib/citations";
 import { formatAgentActivityLine } from "../lib/agent-activity-line";
 
-export function useAgentWorkspace() {
+export function useAgentWorkspace(chatId: string | null = null) {
   const { t } = useI18n();
   const chatPanelRef = useRef<ChatPanelHandle>(null);
   const [agentOpen, setAgentOpen] = useState(
@@ -28,6 +28,7 @@ export function useAgentWorkspace() {
     messages,
     sendDocumentMessage,
     regenerateDocumentMessage,
+    editUserMessage,
     streamProgress,
     status,
     error,
@@ -37,7 +38,7 @@ export function useAgentWorkspace() {
     clearChat,
     resetForDocumentSwitch,
     historySettling,
-  } = useDocAgent();
+  } = useDocAgent(chatId);
 
   useEffect(() => {
     localStorage.setItem("pagewise.agentOpen", agentOpen ? "1" : "0");
@@ -86,6 +87,7 @@ export function useAgentWorkspace() {
       maxWidth,
       messages,
       sendDocumentMessage,
+      editUserMessage,
       regenerateDocumentMessage,
       status,
       error,
@@ -114,6 +116,7 @@ export function useAgentWorkspace() {
       maxWidth,
       messages,
       sendDocumentMessage,
+      editUserMessage,
       regenerateDocumentMessage,
       status,
       error,

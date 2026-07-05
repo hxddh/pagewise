@@ -29,8 +29,12 @@ export interface PageWiseMessageMetadata {
   model?: string;
   /** True when input includes tool-loop context, not just the user turn. */
   includesToolContext?: boolean;
-  /** Structured citations extracted post-reply via generateObject. */
+  /** Structured citations extracted post-reply via streamObject. */
   structuredCitations?: StructuredCitation[];
+  /** Provider-specific metadata from the final model response (AI SDK). */
+  providerMetadata?: Record<string, unknown>;
+  /** Tool names invoked on the agent loop's final step. */
+  finalStepTools?: string[];
   /** Per-step token usage from agent onStepEnd (debug). */
   stepUsage?: StepUsageEntry[];
 }
@@ -248,6 +252,11 @@ export function createUsageMetadataTracker(model: string): {
         const index = getIndexUsageSnapshot();
         const agentIn = usage?.inputTokens ?? 0;
         const agentOut = usage?.outputTokens ?? 0;
+        const lastStep = stepUsage[stepUsage.length - 1];
+        const providerMetadata =
+          "providerMetadata" in part && part.providerMetadata
+            ? (part.providerMetadata as Record<string, unknown>)
+            : undefined;
         return {
           finishedAt: Date.now(),
           ...(firstTokenAt !== undefined ? { firstTokenAt } : {}),
@@ -258,6 +267,8 @@ export function createUsageMetadataTracker(model: string): {
           indexInputTokens: index.inputTokens,
           indexOutputTokens: index.outputTokens,
           includesToolContext: true,
+          ...(providerMetadata ? { providerMetadata } : {}),
+          ...(lastStep?.toolNames?.length ? { finalStepTools: [...lastStep.toolNames] } : {}),
           ...(stepUsage.length > 0 ? { stepUsage: [...stepUsage] } : {}),
         };
       }

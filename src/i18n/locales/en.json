@@ -204,6 +204,12 @@
     "usageSummary": "{{input}} in · {{output}} out",
     "usageSummaryWithSteps": "{{input}} in · {{output}} out · {{steps}} steps",
     "regenerate": "Regenerate",
+    "editMessage": "Edit",
+    "resend": "Resend",
+    "cancelEdit": "Cancel",
+    "toolFailed": "failed",
+    "usageFinalTools": "Final step tools",
+    "usageProviderMeta": "Provider metadata",
     "structuredCitations": "Structured citations"
   },
   "empty": {
@@ -286,6 +292,7 @@
     "connectionPendingShort": "Not configured",
     "connectionReadyShort": "Ready to test",
     "modelMigrated": "Your model was updated to DeepSeek V4. Please test connection.",
+    "plaintextKeysWarning": "Secure storage is unavailable — API keys are saved on disk in plaintext. Avoid shared machines until Keychain access is restored.",
     "modelGroupFast": "Fast",
     "modelGroupPro": "High quality",
     "modelGroupAgent": "Agent (tool calling)",

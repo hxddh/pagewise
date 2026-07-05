@@ -204,6 +204,12 @@
     "usageSummary": "{{input}} 输入 · {{output}} 输出",
     "usageSummaryWithSteps": "{{input}} 输入 · {{output}} 输出 · {{steps}} 步",
     "regenerate": "重新生成",
+    "editMessage": "编辑",
+    "resend": "重新发送",
+    "cancelEdit": "取消",
+    "toolFailed": "失败",
+    "usageFinalTools": "最后一步工具",
+    "usageProviderMeta": "提供商元数据",
     "structuredCitations": "结构化引用"
   },
   "empty": {
@@ -286,6 +292,7 @@
     "connectionPendingShort": "未配置",
     "connectionReadyShort": "待测试",
     "modelMigrated": "模型已升级至 DeepSeek V4，请重新测试连接。",
+    "plaintextKeysWarning": "安全存储不可用 — API 密钥以明文保存在磁盘上。在 Keychain 恢复前请避免在共享设备上使用。",
     "modelGroupFast": "快速",
     "modelGroupPro": "高质量",
     "modelGroupAgent": "助手（支持工具调用）",

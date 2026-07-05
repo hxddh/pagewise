@@ -13,11 +13,12 @@ import {
 import { getPageWiseMetadata, type PageWiseUIMessage } from "../lib/message-metadata";
 import { PagewiseChatTransport } from "../lib/pagewise-chat-transport";
 import { clearAgentRunAbortSignal } from "../lib/vision-index";
+import { capturePageFilePart } from "../lib/pdf";
 import {
   pruneToolOutputsForHistory,
   sanitizeDanglingToolParts,
 } from "../lib/prune-chat-history";
-import { extractStructuredCitations } from "../lib/structured-citations";
+import { streamStructuredCitations } from "../lib/structured-citations";
 import { loadSettings } from "../lib/settings";
 import { useI18n } from "../i18n";
 
@@ -25,6 +26,7 @@ export interface SendDocumentMessageOptions {
   text: string;
   path: string;
   docName: string;
+  docKind: "pdf" | "image";
   viewingPage: number;
   totalPages: number;
   includeViewingPage: boolean;
@@ -46,7 +48,7 @@ function createTransport(
   });
 }
 
-export function useDocAgent() {
+export function useDocAgent(chatId: string | null = null) {
   const { t } = useI18n();
 
   const agentRef = useRef<ReturnType<typeof createDocAgent> | null>(null);
@@ -71,8 +73,19 @@ export function useDocAgent() {
   >(null);
 
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
+  const [boundChatId, setBoundChatId] = useState(chatId ?? "pagewise-local");
+  const prevChatIdRef = useRef(boundChatId);
+
+  useEffect(() => {
+    const next = chatId ?? "pagewise-local";
+    if (next !== prevChatIdRef.current) {
+      prevChatIdRef.current = next;
+      setBoundChatId(next);
+    }
+  }, [chatId]);
 
   const chat = useChat<PageWiseUIMessage>({
+    id: boundChatId,
     transport: transportRef.current,
     onError: (error) => {
       if (import.meta.env.DEV) {
@@ -119,19 +132,24 @@ export function useDocAgent() {
       const excerpts = extractToolExcerpts(message);
       if (!answer) return;
 
-      void extractStructuredCitations(answer, excerpts, lastTotalPagesRef.current).then((citations) => {
-        if (citations.length === 0) return;
-        setMessagesRef.current?.((prev) =>
-          prev.map((m) => {
-            if (m.id !== message.id) return m;
-            const existing = getPageWiseMetadata(m) ?? {};
-            return {
-              ...m,
-              metadata: { ...existing, structuredCitations: citations },
-            };
-          }),
-        );
-      });
+      void streamStructuredCitations(
+        answer,
+        excerpts,
+        lastTotalPagesRef.current,
+        (citations) => {
+          if (citations.length === 0) return;
+          setMessagesRef.current?.((prev) =>
+            prev.map((m) => {
+              if (m.id !== message.id) return m;
+              const existing = getPageWiseMetadata(m) ?? {};
+              return {
+                ...m,
+                metadata: { ...existing, structuredCitations: citations },
+              };
+            }),
+          );
+        },
+      );
     },
   });
   setMessagesRef.current = chat.setMessages;
@@ -139,8 +157,6 @@ export function useDocAgent() {
   const prevStatusRef = useRef(chat.status);
   const sendingRef = useRef(false);
   const [historySettling, setHistorySettling] = useState(false);
-  // Total page count of the document the in-flight message is about, used to
-  // bound structured citations (drop hallucinated pages > totalPages).
   const lastTotalPagesRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -148,8 +164,6 @@ export function useDocAgent() {
       prevStatusRef.current === "streaming" || prevStatusRef.current === "submitted";
     prevStatusRef.current = chat.status;
 
-    // Clear the transient progress label on ANY terminal transition — a stream
-    // that ends in "error" (not just "ready") must not leave a stale indicator.
     if (wasBusy && (chat.status === "ready" || chat.status === "error")) {
       setStreamProgress(null);
       clearAgentRunAbortSignal();
@@ -189,6 +203,19 @@ export function useDocAgent() {
     return true;
   }, [chat.clearError, chat.setMessages, t]);
 
+  const buildSendPayload = useCallback(
+    async (opts: SendDocumentMessageOptions, text: string) => {
+      if (opts.includeViewingPage) {
+        const file = await capturePageFilePart(opts.path, opts.viewingPage, opts.docKind);
+        if (file) {
+          return { text, files: [file] };
+        }
+      }
+      return { text };
+    },
+    [],
+  );
+
   const sendDocumentMessage = useCallback(
     async (opts: SendDocumentMessageOptions): Promise<boolean> => {
       if (
@@ -214,7 +241,8 @@ export function useDocAgent() {
         });
 
         try {
-          await chat.sendMessage({ text: opts.text });
+          const payload = await buildSendPayload(opts, opts.text);
+          await chat.sendMessage(payload);
           return true;
         } catch (e) {
           rollbackLastAgentMessage();
@@ -226,7 +254,48 @@ export function useDocAgent() {
         sendingRef.current = false;
       }
     },
-    [chat.sendMessage, chat.status, prepareForAgentSend],
+    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload],
+  );
+
+  const editUserMessage = useCallback(
+    async (messageId: string, opts: SendDocumentMessageOptions): Promise<boolean> => {
+      if (
+        sendingRef.current ||
+        chat.status === "streaming" ||
+        chat.status === "submitted"
+      ) {
+        return false;
+      }
+
+      sendingRef.current = true;
+      lastTotalPagesRef.current = opts.totalPages;
+      try {
+        if (!(await prepareForAgentSend())) return false;
+
+        beginAgentMessage({
+          path: opts.path,
+          docName: opts.docName,
+          viewingPage: opts.viewingPage,
+          totalPages: opts.totalPages,
+          userText: opts.text,
+          includeViewingPage: opts.includeViewingPage,
+        });
+
+        try {
+          const payload = await buildSendPayload(opts, opts.text);
+          await chat.sendMessage({ ...payload, messageId });
+          return true;
+        } catch (e) {
+          rollbackLastAgentMessage();
+          const err = e instanceof Error ? e : new Error(String(e));
+          setSendError(err);
+          return false;
+        }
+      } finally {
+        sendingRef.current = false;
+      }
+    },
+    [chat.sendMessage, chat.status, prepareForAgentSend, buildSendPayload],
   );
 
   const regenerateDocumentMessage = useCallback(
@@ -292,6 +361,7 @@ export function useDocAgent() {
     () => ({
       messages: chat.messages,
       sendDocumentMessage,
+      editUserMessage,
       regenerateDocumentMessage,
       streamProgress,
       status: chat.status,
@@ -302,6 +372,7 @@ export function useDocAgent() {
       clearError: chat.clearError,
       clearChat,
       historySettling,
+      chatId: boundChatId,
       resetForDocumentSwitch: () => {
         chat.stop();
         clearAgentRunAbortSignal();
@@ -320,9 +391,11 @@ export function useDocAgent() {
       chat.clearError,
       clearChat,
       sendDocumentMessage,
+      editUserMessage,
       regenerateDocumentMessage,
       streamProgress,
       historySettling,
+      boundChatId,
     ],
   );
 }
