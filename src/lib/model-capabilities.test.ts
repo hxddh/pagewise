@@ -21,10 +21,13 @@ describe("isVisionModel", () => {
 });
 
 describe("isAgentMultimodalModel", () => {
-  it("allows known vision+tools presets only", () => {
+  it("allows only verified OpenRouter multimodal+tools routes", () => {
     expect(isAgentMultimodalModel("openrouter", "openai/gpt-4o-mini")).toBe(true);
     expect(isAgentMultimodalModel("openrouter", "google/gemini-2.5-flash-lite")).toBe(
-      true,
+      false,
+    );
+    expect(isAgentMultimodalModel("openrouter", "anthropic/claude-3.5-sonnet")).toBe(
+      false,
     );
   });
 
@@ -37,7 +40,7 @@ describe("isAgentMultimodalModel", () => {
       false,
     );
     expect(isAgentMultimodalModel("openrouter", "anthropic/claude-3.5-sonnet")).toBe(
-      true,
+      false,
     );
   });
 
