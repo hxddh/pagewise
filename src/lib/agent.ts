@@ -22,6 +22,7 @@ import { semanticSearchPages } from "./semantic-index";
 import { buildPrepareStepOverrides } from "./agent-context-compaction";
 import { resolveMaxAgentSteps, MAX_AGENT_STEPS_FULL } from "./agent-run-plan";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
+import { pickBetterPageText } from "./page-text-merge";
 import { indexPageText, MIN_INDEX_CHARS } from "./vision-index";
 import { yieldToUi } from "./yield-to-ui";
 
@@ -78,8 +79,9 @@ async function readPageText(path: string, page: number) {
   if (kind === "pdf") {
     const text = await extractPageText(path, page);
     if (text.trim().length >= MIN_INDEX_CHARS) {
-      docCache.upsertPageText(path, page, text);
-      return { page, text, source: "pdf-text" as const };
+      const merged = pickBetterPageText(cached?.text ?? "", text);
+      docCache.upsertPageText(path, page, merged);
+      return { page, text: merged, source: "pdf-text" as const };
     }
   }
 

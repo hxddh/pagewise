@@ -100,7 +100,7 @@ function AppShell() {
           onLibrary={() => library.setLibraryOpen((o) => !o)}
           onOpenFile={document.openFileDialog}
           onSettings={() => shell.openSettings()}
-          connected={agent.canUseAgent}
+          connected={agent.hasApiKey && agent.settingsReady}
           opening={document.loading || document.pickerOpen}
         />
 
@@ -185,6 +185,10 @@ function AppShell() {
                     onExportChat={shell.exportChat}
                     onExportSummary={shell.exportSummary}
                     onCollapse={() => shell.toggleAgent()}
+                    threads={library.threads}
+                    activeThreadId={library.activeSessionId}
+                    onSelectThread={library.selectThread}
+                    onNewThread={library.newThread}
                   />
                 </Suspense>
               </div>

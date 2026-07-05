@@ -72,6 +72,8 @@
     "indexFailedVision": "索引失败 · 请检查 API 密钥与设置中的扫页模型",
     "indexFailedInsufficient": "索引失败 · 扫页与 OCR 返回的文本过少",
     "indexFailedUnknown": "索引失败 · 无法提取文本",
+    "retryIndex": "重试",
+    "searching": "搜索中…",
     "indexError": {
       "rate_limited": "触发限速",
       "auth": "请检查 API 密钥",
@@ -335,6 +337,9 @@
     "tesseract": "Tesseract OCR",
     "tesseractOk": "可用",
     "tesseractMissing": "未安装 — OCR 需要此工具",
+    "tesseractChiSim": "中文 OCR（chi_sim）",
+    "tesseractChiSimOk": "已安装",
+    "tesseractChiSimMissing": "未安装 — 仅英文 OCR",
     "github": "GitHub 仓库"
   },
   "commands": {

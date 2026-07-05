@@ -15,6 +15,8 @@ import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
 import { MessageContent } from "../components/MessageContent";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
+import { ThreadSelector } from "../components/ThreadSelector";
+import type { ChatThread } from "../lib/chat-sessions";
 import type { LoadedDocument } from "../lib/types";
 
 import type { SendDocumentMessageOptions, RegenerateDocumentMessageOptions } from "../hooks/useDocAgent";
@@ -53,6 +55,10 @@ interface ChatPanelProps {
   onExportChat: () => void;
   onExportSummary: () => void;
   onCollapse?: () => void;
+  threads?: ChatThread[];
+  activeThreadId?: string;
+  onSelectThread?: (sessionId: string) => void;
+  onNewThread?: () => void;
 }
 
 const COMPOSER_MAX_HEIGHT = 200;
@@ -83,6 +89,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onExportChat,
     onExportSummary,
     onCollapse,
+    threads = [],
+    activeThreadId = "default",
+    onSelectThread,
+    onNewThread,
   },
   ref,
 ) {
@@ -219,7 +229,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   return (
     <div className="chat-panel">
       <header className="panel-header">
-        <h2>{t("agent.title")}</h2>
+        <div className="panel-header-main">
+          <h2>{t("agent.title")}</h2>
+          {activeDoc && onSelectThread && onNewThread && (
+            <ThreadSelector
+              threads={threads}
+              activeId={activeThreadId}
+              busy={busy || chatLoading}
+              onSelect={(id) => void onSelectThread(id)}
+              onNew={() => void onNewThread()}
+            />
+          )}
+        </div>
         <div className="header-actions">
           {onCollapse && (
             <button

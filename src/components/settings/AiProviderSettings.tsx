@@ -6,7 +6,6 @@ import { testConnection, testVisionConnection, validateAgentModel, validateModel
 import {
   loadLlmStore,
   loadProviderSettings,
-  markProviderVerified,
   saveProviderProfile,
   setActiveProvider,
 } from "../../lib/settings";
@@ -360,6 +359,12 @@ export function AiProviderSettings({
       const modelError = validateModel(toTest, t);
       if (modelError) throw new Error(modelError);
 
+      const reply = await testConnection(toTest, t);
+      const scanModel = visionModel.trim();
+      if (scanModel) {
+        await testVisionConnection({ ...toTest, model: scanModel }, t);
+      }
+
       const saved = await saveProviderProfile(
         toTest.provider,
         {
@@ -367,7 +372,7 @@ export function AiProviderSettings({
           visionModel,
           baseURL: toTest.baseURL,
           thinkingEnabled: toTest.thinkingEnabled,
-          connectionVerified: false,
+          connectionVerified: true,
         },
         apiKeyTouched ? toTest.apiKey : undefined,
       );
@@ -379,30 +384,21 @@ export function AiProviderSettings({
         setApiKeyDraft("");
       }
 
-      const reply = await testConnection(saved, t);
-      const scanModel = visionModel.trim();
-      if (scanModel) {
-        await testVisionConnection({ ...saved, model: scanModel }, t);
-      }
-      const verified = await markProviderVerified(saved.provider, true);
-      setSettings(verified);
-      profileCacheRef.current.set(verified.provider, verified);
       setProviderProfiles((prev) => ({
         ...prev,
-        [verified.provider]: {
-          model: verified.model,
+        [saved.provider]: {
+          model: saved.model,
           visionModel,
-          baseURL: verified.baseURL,
-          thinkingEnabled: verified.thinkingEnabled,
+          baseURL: saved.baseURL,
+          thinkingEnabled: saved.thinkingEnabled,
           connectionVerified: true,
         },
       }));
-      markSaved(verified);
       setDirty(false);
       setSaveStatus("saved");
       localStorage.setItem("pagewise.modelMigrated", "1");
       setMigratedNotice(false);
-      if (verified.provider === activeProvider) {
+      if (saved.provider === activeProvider) {
         onLlmSettingsSaved?.();
         onApiReady?.();
       }

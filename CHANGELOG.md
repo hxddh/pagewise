@@ -4,6 +4,31 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.30] - 2026-07-05
+
+### Fixed
+
+- Settings: `hasStoredKey` probes Keychain so Agent UI no longer misreports missing API keys
+- Settings: keychain migration no longer writes plaintext keys when Keychain is available
+- Settings: serialized store writes prevent concurrent settings corruption
+- Settings: test connection runs before persisting profile (no save-on-failed-test)
+- Settings: About page shows chi_sim Chinese OCR pack status
+- Settings: General tab keeps preference defaults in local state (decoupled from active doc)
+- Chat: unified `opGenRef` guards document/thread switches against stale loads
+- Chat: autosave updates snapshot from outgoing messages; metadata in signature
+- Chat: persist errors caught on switch/autosave; `newThread` generation guard
+- Chat: thread selector UI (switch / new chat per document)
+- Chat: document switch no longer clears messages before persistence loads
+- Chat: agent abort signal cleared when stream ends
+- Search: semantic index keeps dirty on abort/incomplete builds; live page cache in search
+- Search: document search uses request generation + loading state
+- Indexing: join inflight runs honor agent Stop abort; doc-close abort via cache check
+- Indexing: `insufficient_text` only when both vision and OCR fail
+- Indexing: page text upserts merge with `pickBetterPageText` (agent + cache)
+- Preview: retry button on failed page index; PDF cache cleared only on path change
+- Shell: API ready no longer triggers automatic full reindex
+- Shell: AppRail connected when API key is configured (not gated on tool model)
+
 ## [0.2.29] - 2026-07-05
 
 ### Fixed

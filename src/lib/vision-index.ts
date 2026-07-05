@@ -255,6 +255,10 @@ export function resolveIndexFailureReason(
 
   const hasVision = isVisionModel(settings.provider, settings.model);
 
+  if (hasVision && visionAttempted && visionFailed && ocrFailed) {
+    return "insufficient_text";
+  }
+
   if (hasVision && visionAttempted && visionFailed) {
     return "vision_failed";
   }
@@ -265,8 +269,14 @@ export function resolveIndexFailureReason(
   }
 
   if (!tesseractAvailable && ocrFailed) return "ocr_unavailable";
-  if (visionAttempted && visionFailed && ocrFailed) return "insufficient_text";
   return "unknown";
+}
+
+function assertIndexContinues(path: string, signal?: AbortSignal): void {
+  if (signal?.aborted || !docCache.has(path)) {
+    const err = new DOMException("Index aborted", "AbortError");
+    throw err;
+  }
 }
 
 async function indexPageTextInner(
@@ -301,6 +311,7 @@ async function indexPageTextInner(
 
   try {
     const settings = await loadVisionSettings();
+    assertIndexContinues(path, signal);
     const hasVision = isVisionModel(settings.provider, settings.model);
     let visionAttempted = false;
     let visionFailed = false;
@@ -317,6 +328,7 @@ async function indexPageTextInner(
           { path, page, kind, focus },
           { signal, timeoutMs },
         );
+        assertIndexContinues(path, signal);
         if (text.trim().length >= MIN_INDEX_CHARS) {
           docCache.upsertPageText(path, page, text);
           emitPageIndex({ path, page, status: "done", source: "vision" });
@@ -413,6 +425,11 @@ export async function indexPageText(
   if (existing) {
     if (options.signal) {
       options.signal.addEventListener("abort", () => existing.localAbort.abort(), {
+        once: true,
+      });
+    }
+    if (agentRunAbortSignal && !agentRunAbortSignal.aborted) {
+      agentRunAbortSignal.addEventListener("abort", () => existing.localAbort.abort(), {
         once: true,
       });
     }

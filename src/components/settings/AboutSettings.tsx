@@ -10,6 +10,7 @@ export function AboutSettings() {
   const { t } = useI18n();
   const [appVersion, setAppVersion] = useState(APP_VERSION_FALLBACK);
   const [tesseractOk, setTesseractOk] = useState<boolean | null>(null);
+  const [chiSimOk, setChiSimOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     void resolveAppVersion().then(setAppVersion);
@@ -17,8 +18,14 @@ export function AboutSettings() {
 
   useEffect(() => {
     invoke<{ installed: boolean; chi_sim: boolean }>("check_tesseract")
-      .then((status) => setTesseractOk(status.installed))
-      .catch(() => setTesseractOk(false));
+      .then((status) => {
+        setTesseractOk(status.installed);
+        setChiSimOk(status.chi_sim);
+      })
+      .catch(() => {
+        setTesseractOk(false);
+        setChiSimOk(false);
+      });
   }, []);
 
   return (
@@ -53,6 +60,20 @@ export function AboutSettings() {
                   : t("settings.tesseractMissing")}
             </span>
           </div>
+          {tesseractOk && (
+            <div className="settings-info-row">
+              <span className="settings-info-label">{t("settings.tesseractChiSim")}</span>
+              <span
+                className={`settings-info-value ${chiSimOk ? "ok" : chiSimOk === false ? "warn" : ""}`}
+              >
+                {chiSimOk === null
+                  ? "…"
+                  : chiSimOk
+                    ? t("settings.tesseractChiSimOk")
+                    : t("settings.tesseractChiSimMissing")}
+              </span>
+            </div>
+          )}
           <div className="settings-info-row">
             <span className="settings-info-label">{t("settings.github")}</span>
             <a className="settings-info-link" href={GITHUB_URL} target="_blank" rel="noreferrer">

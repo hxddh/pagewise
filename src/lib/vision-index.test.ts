@@ -11,8 +11,14 @@ const base: LlmSettings = {
 describe("resolveIndexFailureReason", () => {
   it("returns vision_failed when a vision model was tried and failed", () => {
     expect(
-      resolveIndexFailureReason(base, true, true, true, false, false),
+      resolveIndexFailureReason(base, true, true, false, false, false),
     ).toBe("vision_failed");
+  });
+
+  it("returns insufficient_text when vision and OCR both fail", () => {
+    expect(
+      resolveIndexFailureReason(base, true, true, true, false, false),
+    ).toBe("insufficient_text");
   });
 
   it("returns need_vision when no vision model and no tesseract", () => {

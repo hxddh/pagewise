@@ -23,10 +23,11 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
   useOverlayLock(open);
   const layerRef = useRef<number | null>(null);
+  const searchGenRef = useRef(0);
 
-  // Own an escape layer while open so Escape only closes the topmost overlay.
   useEffect(() => {
     if (!open) return;
     const id = pushOverlayLayer();
@@ -40,19 +41,27 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
   useEffect(() => {
     if (!query.trim()) {
       setHits([]);
+      setSearching(false);
       return;
     }
+    const gen = ++searchGenRef.current;
+    setSearching(true);
     const id = window.setTimeout(() => {
       const pages = docCache.getPages(doc.path);
-      void semanticSearchPages(doc.path, pages, query, 30).then(setHits);
+      void semanticSearchPages(doc.path, pages, query, 30).then((results) => {
+        if (gen !== searchGenRef.current) return;
+        setHits(results);
+        setSearching(false);
+      });
     }, 120);
-    return () => window.clearTimeout(id);
-  }, [query, doc.pages]);
+    return () => {
+      window.clearTimeout(id);
+    };
+  }, [query, doc.path]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
-        // Don't open search underneath a modal/drawer/palette.
         if (!open && isOverlayOpen()) return;
         e.preventDefault();
         setOpen(true);
@@ -107,7 +116,11 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
         </button>
         {query.trim() && (
           <div className="doc-search-results">
-            {hits.length === 0 ? (
+            {searching ? (
+              <p className="doc-search-empty" aria-live="polite">
+                {t("preview.searching")}
+              </p>
+            ) : hits.length === 0 ? (
               <p className="doc-search-empty">{t("preview.noMatches")}</p>
             ) : (
               <>

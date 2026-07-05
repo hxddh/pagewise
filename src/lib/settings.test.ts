@@ -442,7 +442,7 @@ describe("store I/O — working keychain", () => {
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("sk-router");
     expect((await loadProviderSettings("openai")).apiKey).toBe("sk-openai");
     expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBe(true);
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBe("sk-router");
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBeUndefined();
   });
 
   it("retries keychain migration after access is denied", async () => {
@@ -531,7 +531,7 @@ describe("store I/O — working keychain", () => {
     // V1 -> V2 migration also remaps the model.
     expect(loaded.model).toBe("openai/gpt-4o-mini");
     expect(loaded.apiKey).toBe("sk-legacy");
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBe("sk-legacy");
+    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBeUndefined();
     expect(await keychain.get("openrouter")).toBe("sk-legacy");
   });
 });

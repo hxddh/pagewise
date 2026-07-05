@@ -1,3 +1,4 @@
+import { pickBetterPageText } from "./page-text-merge";
 import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
 import { clearDocumentIndexState } from "./index-events";
@@ -56,10 +57,12 @@ class DocCache {
     const doc = this.docs.get(path);
     if (!doc) return;
 
+    const existing = doc.pages.find((p) => p.page === page)?.text ?? "";
+    const merged = pickBetterPageText(existing, text);
     const exists = doc.pages.some((p) => p.page === page);
     const nextPages: PageText[] = exists
-      ? doc.pages.map((p) => (p.page === page ? { page, text } : p))
-      : [...doc.pages, { page, text }];
+      ? doc.pages.map((p) => (p.page === page ? { page, text: merged } : p))
+      : [...doc.pages, { page, text: merged }];
     nextPages.sort((a, b) => a.page - b.page);
 
     const nextDoc: LoadedDocument = { ...doc, pages: nextPages };

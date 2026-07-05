@@ -173,6 +173,7 @@ function getDoc(data: SessionStoreV2, docPath: string): DocSessions | undefined 
 export async function loadActiveMessages(
   docPath: string,
   preferredSessionId?: string,
+  options?: { readOnly?: boolean },
 ): Promise<{
   messages: UIMessage[];
   sessionId: string;
@@ -195,6 +196,7 @@ export async function loadActiveMessages(
     // Only persist the preferred session as active when it actually resolved to a
     // real thread — otherwise we'd point activeSessionId at a non-existent thread.
     if (
+      !options?.readOnly &&
       preferredSessionId &&
       thread?.id === preferredSessionId &&
       doc.activeSessionId !== preferredSessionId
@@ -286,6 +288,15 @@ export async function clearActiveThread(docPath: string, sessionId: string): Pro
   });
 }
 
+function nextThreadName(threads: ChatThread[]): string {
+  let max = 0;
+  for (const t of threads) {
+    const m = /^Chat (\d+)$/.exec(t.name);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `Chat ${max + 1}`;
+}
+
 export async function createThread(
   docPath: string,
   docName: string,
@@ -293,7 +304,6 @@ export async function createThread(
   return withStoreLock(async () => {
     const data = await readStore();
     const id = crypto.randomUUID();
-    const name = `Chat ${(getDoc(data, docPath)?.threads.length ?? 0) + 1}`;
 
     let doc = getDoc(data, docPath);
     if (!doc) {
@@ -301,6 +311,7 @@ export async function createThread(
       data.byPath[docPath] = doc;
     }
 
+    const name = nextThreadName(doc.threads);
     doc.threads.push({ id, name, messages: [], updatedAt: Date.now() });
     doc.activeSessionId = id;
     doc.docName = docName;

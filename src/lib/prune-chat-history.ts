@@ -1,6 +1,11 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 
-const PRUNE_TOOLS = new Set(["read_pdf_page", "read_pdf_range"]);
+const PRUNE_TOOLS = new Set([
+  "read_pdf_page",
+  "read_pdf_range",
+  "search_in_document",
+  "get_document_index",
+]);
 
 /** Synthesized output for a tool call that never produced a real result. */
 const CANCELLED_OUTPUT = "[cancelled]";
@@ -53,8 +58,7 @@ export function sanitizeDanglingToolParts(messages: UIMessage[]): UIMessage[] {
       if (!isToolUIPart(part)) return part;
       if (
         part.state !== "input-streaming" &&
-        part.state !== "input-available" &&
-        part.state !== "output-error"
+        part.state !== "input-available"
       ) {
         return part;
       }
@@ -100,6 +104,17 @@ function compactToolOutput(
         : "page range";
     const chars = textLength(output);
     return `[Read ${range}, ${chars} chars — omitted from chat history]`;
+  }
+
+  if (name === "search_in_document") {
+    const q = typeof inp.query === "string" ? inp.query : "query";
+    const hits = Array.isArray(output) ? output.length : textLength(output);
+    return `[Search "${q.slice(0, 40)}", ${hits} hits — omitted from chat history]`;
+  }
+
+  if (name === "get_document_index") {
+    const chars = textLength(output);
+    return `[Document index, ${chars} chars — omitted from chat history]`;
   }
 
   return output as string | Record<string, unknown>;
