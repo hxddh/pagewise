@@ -39,6 +39,7 @@ export function useAppShell() {
     recentFiles,
     setRecentFiles,
     onDocumentSwitch: handleDocumentSwitch,
+    onStopStream: agent.stop,
     isStreaming: agent.busy,
   });
 

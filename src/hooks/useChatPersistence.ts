@@ -34,6 +34,8 @@ interface UseChatPersistenceOptions {
   messages: UIMessage[];
   setMessages: (messages: UIMessage[]) => void;
   onDocumentSwitch?: (nextPath: string | null) => void;
+  /** Stop an in-flight agent stream (thread switch / reload). */
+  onStopStream?: () => void;
   isStreaming?: boolean;
 }
 
@@ -44,6 +46,7 @@ export function useChatPersistence({
   messages,
   setMessages,
   onDocumentSwitch,
+  onStopStream,
   isStreaming = false,
 }: UseChatPersistenceOptions) {
   const [sessions, setSessions] = useState<StoredChatSession[]>([]);
@@ -58,17 +61,14 @@ export function useChatPersistence({
   const prevPathRef = useRef<string | null>(null);
   const skipSaveRef = useRef(false);
   const switchGenRef = useRef(0);
-  // A queued session id is bound to the path it was queued for, so a queued id
-  // whose load never completed can never be applied to a *different* document.
   const pendingSessionRef = useRef<{ path: string; sessionId: string } | undefined>(
     undefined,
   );
   const onDocumentSwitchRef = useRef(onDocumentSwitch);
+  const onStopStreamRef = useRef(onStopStream);
+  const isStreamingRef = useRef(isStreaming);
   const setMessagesRef = useRef(setMessages);
   const appliedLoadKeyRef = useRef("");
-  // Signature of the messages exactly as last loaded from disk. The debounced
-  // autosave skips saving while the live messages still match this, so merely
-  // opening a doc/thread doesn't rewrite it with a fresh updatedAt.
   const loadedSnapshotRef = useRef("");
 
   messagesRef.current = messages;
@@ -76,6 +76,8 @@ export function useChatPersistence({
   docPathRef.current = docPath;
   docNameRef.current = docName;
   onDocumentSwitchRef.current = onDocumentSwitch;
+  onStopStreamRef.current = onStopStream;
+  isStreamingRef.current = isStreaming;
   setMessagesRef.current = setMessages;
 
   const loadKey = docPath ? `${docPath}#${docLoadSeq}` : "";
@@ -105,16 +107,18 @@ export function useChatPersistence({
       const prev = prevPathRef.current;
       const pathChanged = docPath !== prev;
       const outgoing = messagesRef.current;
+      const wasStreaming = isStreamingRef.current;
       const unsaved =
         outgoing.length > 0 &&
         messagesSignature(outgoing) !== loadedSnapshotRef.current;
 
       skipSaveRef.current = true;
       setChatLoading(true);
+      if (wasStreaming) onStopStreamRef.current?.();
       onDocumentSwitchRef.current?.(docPath);
 
       try {
-        if (unsaved) {
+        if (unsaved && !wasStreaming) {
           const savePath = pathChanged && prev ? prev : docPath!;
           const saveName = savePath.split(/[/\\]/).pop() ?? savePath;
           await saveActiveSession(
@@ -166,8 +170,6 @@ export function useChatPersistence({
       if (docPathRef.current !== savePath || !docNameRef.current) return;
       const snapshot = messagesRef.current;
       if (snapshot.length === 0) return;
-      // Nothing actually changed since load — don't re-save (would only churn
-      // updatedAt and scramble the recent-sessions order).
       if (messagesSignature(snapshot) === loadedSnapshotRef.current) return;
 
       void saveActiveSession(
@@ -177,6 +179,7 @@ export function useChatPersistence({
         sanitizeDanglingToolParts(snapshot),
       ).then(async () => {
         if (docPathRef.current !== savePath) return;
+        loadedSnapshotRef.current = messagesSignature(messagesRef.current);
         const loaded = await loadActiveMessages(savePath);
         setThreads(loaded.threads);
         await refreshSessions();
@@ -191,8 +194,6 @@ export function useChatPersistence({
     appliedLoadKeyRef.current = "";
   }, []);
 
-  // Drop a queued session id (e.g. when the open that would have consumed it
-  // failed) so it can't later be applied to the wrong document.
   const clearQueuedSession = useCallback(() => {
     pendingSessionRef.current = undefined;
   }, []);
@@ -200,8 +201,10 @@ export function useChatPersistence({
   const selectThread = useCallback(
     async (sessionId: string) => {
       if (!docPath) return;
+      const wasStreaming = isStreamingRef.current;
+      onStopStreamRef.current?.();
       const snapshot = messagesRef.current;
-      if (snapshot.length > 0) {
+      if (snapshot.length > 0 && !wasStreaming) {
         await saveActiveSession(
           docPath,
           docName ?? "",
@@ -229,8 +232,10 @@ export function useChatPersistence({
 
   const newThread = useCallback(async () => {
     if (!docPath || !docName) return;
+    const wasStreaming = isStreamingRef.current;
+    onStopStreamRef.current?.();
     const snapshot = messagesRef.current;
-    if (snapshot.length > 0) {
+    if (snapshot.length > 0 && !wasStreaming) {
       await saveActiveSession(
         docPath,
         docName,

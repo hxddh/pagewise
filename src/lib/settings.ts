@@ -479,7 +479,7 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
     profile.visionModel?.trim() ||
     (provider !== "custom"
       ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
-      : profile.model);
+      : "");
   // Replace only when the stored id is a known non-vision model and matches the agent model
   // (legacy shared slot). Explicit user scan models are preserved even on DeepSeek.
   const userScan = profile.visionModel?.trim();
@@ -492,7 +492,14 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
     model =
       defaultVisionModel(provider as Exclude<ProviderId, "custom">) || profile.model;
   }
-  return profileToSettings(provider, { ...profile, model: model || profile.model }, apiKey);
+  return profileToSettings(
+    provider,
+    {
+      ...profile,
+      model: provider === "custom" ? model : model || profile.model,
+    },
+    apiKey,
+  );
 }
 
 export async function loadProviderSettings(provider: ProviderId): Promise<LlmSettings> {

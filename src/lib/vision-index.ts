@@ -32,6 +32,9 @@ const DEFAULT_MAX_INDEX_PAGES = 50;
 /** Shared abort for preview / single-page background indexing (document switch). */
 let backgroundIndexController: AbortController | null = null;
 
+/** Abort signal from the active agent stream (Stop / document switch). */
+let agentRunAbortSignal: AbortSignal | undefined;
+
 /** In-flight dedupe: one index run per path+page at a time. */
 const inflightIndex = new Map<
   string,
@@ -72,12 +75,22 @@ export function getBackgroundIndexSignal(): AbortSignal | undefined {
   return backgroundIndexController?.signal;
 }
 
-function inflightKey(path: string, page: number, throwOnRateLimit: boolean): string {
-  return `${path}:${page}:${throwOnRateLimit ? "pool" : "single"}`;
+/** Wire the active chat stream abort signal so tool-time indexing honors Stop. */
+export function setAgentRunAbortSignal(signal: AbortSignal | undefined): void {
+  agentRunAbortSignal = signal;
+}
+
+function inflightKey(path: string, page: number): string {
+  return `${path}:${page}`;
 }
 
 function resolveIndexSignal(options: IndexPageOptions): AbortSignal | undefined {
-  return options.signal ?? getBackgroundIndexSignal();
+  const parts = [options.signal, agentRunAbortSignal, getBackgroundIndexSignal()].filter(
+    Boolean,
+  ) as AbortSignal[];
+  if (parts.length === 0) return undefined;
+  if (parts.length === 1) return parts[0];
+  return AbortSignal.any(parts);
 }
 
 /** Combine an optional caller signal with a timeout signal. */
@@ -387,7 +400,7 @@ export async function indexPageText(
 ): Promise<{ text: string; source: "vision" | "ocr" | "cache" }> {
   const signal = resolveIndexSignal(options);
   const resolvedOptions = { ...options, signal };
-  const key = inflightKey(path, page, resolvedOptions.throwOnRateLimit ?? false);
+  const key = inflightKey(path, page);
 
   const existing = inflightIndex.get(key);
   if (existing) return existing;

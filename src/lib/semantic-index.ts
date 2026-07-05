@@ -25,8 +25,12 @@ interface SemanticIndexEntry {
   entries: PageEmbedding[];
 }
 
+export interface SemanticEmbedCapInfo {
+  embedded: number;
+  eligible: number;
+}
+
 const store = new Map<string, SemanticIndexEntry>();
-const building = new Set<string>();
 const buildPromises = new Map<string, Promise<void>>();
 /** Paths whose cached index is stale (e.g. background OCR landed new page text). */
 const dirty = new Set<string>();
@@ -34,6 +38,15 @@ const dirty = new Set<string>();
 const dirtyGeneration = new Map<string, number>();
 /** Providers we've already warned about lacking an embeddings endpoint (DEV only). */
 const warnedNoEmbed = new Set<string>();
+
+let embedCapHandler: ((path: string, info: SemanticEmbedCapInfo) => void) | null = null;
+
+/** Register a toast handler when semantic embedding hits the page cap. */
+export function setSemanticEmbedCapHandler(
+  handler: ((path: string, info: SemanticEmbedCapInfo) => void) | null,
+): void {
+  embedCapHandler = handler;
+}
 
 /** Relative cutoff: keep semantic hits within this cosine gap of the best hit… */
 const RELATIVE_GAP = 0.15;
@@ -53,7 +66,6 @@ function resolvePages(path: string, fallback: PageText[]): PageText[] {
 
 export function clearSemanticIndex(path: string): void {
   store.delete(path);
-  building.delete(path);
   buildPromises.delete(path);
   dirty.delete(path);
   dirtyGeneration.delete(path);
@@ -69,80 +81,89 @@ export function markSemanticIndexDirty(path: string): void {
   dirtyGeneration.set(path, (dirtyGeneration.get(path) ?? 0) + 1);
 }
 
-async function waitForSemanticBuild(path: string): Promise<void> {
-  const pending = buildPromises.get(path);
-  if (pending) await pending;
-}
-
 export async function ensureSemanticIndex(
   path: string,
   pages: PageText[],
 ): Promise<void> {
-  await waitForSemanticBuild(path);
-  if (building.has(path)) return;
-
-  const settings = await loadSettings();
-  // Gate on provider capability: skip embedding entirely rather than attempt+swallow.
-  if (!isEmbeddingCapableProvider(settings.provider)) {
-    if (import.meta.env.DEV && !warnedNoEmbed.has(settings.provider)) {
-      warnedNoEmbed.add(settings.provider);
-      console.warn(
-        `[semantic-index] provider "${settings.provider}" has no embeddings endpoint; retrieval is keyword-only.`,
-      );
+  for (;;) {
+    const pending = buildPromises.get(path);
+    if (pending) {
+      await pending;
+      continue;
     }
-    // Drop any index that predates a provider switch to a non-capable provider.
-    store.delete(path);
-    return;
-  }
 
-  const modelKey = embeddingModelKey(settings);
-  const existing = store.get(path);
-  // Rebuild when: no index yet, the embedding model changed, or the index is dirty.
-  if (existing && existing.model === modelKey && !dirty.has(path)) return;
+    const settings = await loadSettings();
+    // Gate on provider capability: skip embedding entirely rather than attempt+swallow.
+    if (!isEmbeddingCapableProvider(settings.provider)) {
+      if (import.meta.env.DEV && !warnedNoEmbed.has(settings.provider)) {
+        warnedNoEmbed.add(settings.provider);
+        console.warn(
+          `[semantic-index] provider "${settings.provider}" has no embeddings endpoint; retrieval is keyword-only.`,
+        );
+      }
+      // Drop any index that predates a provider switch to a non-capable provider.
+      store.delete(path);
+      return;
+    }
 
-  const dirtyGenAtStart = dirtyGeneration.get(path) ?? 0;
-  building.add(path);
+    const modelKey = embeddingModelKey(settings);
+    const existing = store.get(path);
+    // Rebuild when: no index yet, the embedding model changed, or the index is dirty.
+    if (existing && existing.model === modelKey && !dirty.has(path)) return;
 
-  const build = (async () => {
-    try {
-      const snapshot = resolvePages(path, pages);
-      const sparse = snapshot.filter((p) => p.text.trim().length >= MIN_INDEX_CHARS);
-      if (sparse.length === 0) {
-        store.delete(path);
+    const dirtyGenAtStart = dirtyGeneration.get(path) ?? 0;
+
+    let build!: Promise<void>;
+    build = (async () => {
+      try {
+        const snapshot = resolvePages(path, pages);
+        const sparse = snapshot.filter((p) => p.text.trim().length >= MIN_INDEX_CHARS);
+        if (sparse.length === 0) {
+          store.delete(path);
+          if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
+            dirty.delete(path);
+          }
+          return;
+        }
+
+        const values = sparse.map((p) => pageEmbedText(p.text, p.page));
+        const { embeddings: vectors, capped, eligible, embedded } = await embedTexts(
+          settings,
+          values,
+        );
+        if (capped) {
+          embedCapHandler?.(path, { embedded, eligible });
+        }
+        const entries: PageEmbedding[] = [];
+        let dim = 0;
+        for (let i = 0; i < sparse.length; i++) {
+          const vector = vectors[i];
+          if (vector && vector.length > 0) {
+            entries.push({ page: sparse[i]!.page, vector });
+            dim = vector.length;
+          }
+        }
+        if (entries.length > 0) {
+          store.set(path, { model: modelKey, dim, entries });
+        } else {
+          // Embedding failed entirely — stay keyword-only for this doc.
+          store.delete(path);
+        }
         if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
           dirty.delete(path);
         }
-        return;
-      }
-
-      const values = sparse.map((p) => pageEmbedText(p.text, p.page));
-      const vectors = await embedTexts(settings, values);
-      const entries: PageEmbedding[] = [];
-      let dim = 0;
-      for (let i = 0; i < sparse.length; i++) {
-        const vector = vectors[i];
-        if (vector && vector.length > 0) {
-          entries.push({ page: sparse[i]!.page, vector });
-          dim = vector.length;
+      } finally {
+        if (buildPromises.get(path) === build) {
+          buildPromises.delete(path);
         }
       }
-      if (entries.length > 0) {
-        store.set(path, { model: modelKey, dim, entries });
-      } else {
-        // Embedding failed entirely — stay keyword-only for this doc.
-        store.delete(path);
-      }
-      if ((dirtyGeneration.get(path) ?? 0) === dirtyGenAtStart) {
-        dirty.delete(path);
-      }
-    } finally {
-      building.delete(path);
-      buildPromises.delete(path);
-    }
-  })();
+    })();
 
-  buildPromises.set(path, build);
-  await build;
+    if (buildPromises.has(path)) continue;
+    buildPromises.set(path, build);
+    await build;
+    return;
+  }
 }
 
 export async function semanticSearchPages(

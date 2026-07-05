@@ -332,6 +332,26 @@ describe("migrateProviderProfile", () => {
     expect(vision.model).toBe("anthropic/claude-3.5-sonnet");
   });
 
+  it("loadVisionSettings does not fall back to agent model for custom provider with empty scan", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "custom",
+        profiles: {
+          custom: {
+            model: "my-agent-model",
+            visionModel: "",
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+
+    const vision = await loadVisionSettings();
+    expect(vision.model).toBe("");
+  });
+
   it("loadVisionSettings preserves explicit DeepSeek scan model distinct from agent", async () => {
     __resetSettingsStoreForTests({
       store: {

@@ -44,7 +44,8 @@ beforeEach(() => {
 describe("embedTexts", () => {
   it("skips providers with no embeddings endpoint (all null, no request)", async () => {
     const out = await embedTexts(deepseek, ["a", "b", "c"]);
-    expect(out).toEqual([null, null, null]);
+    expect(out.embeddings).toEqual([null, null, null]);
+    expect(out.capped).toBe(false);
     expect(embedManyMock).not.toHaveBeenCalled();
   });
 
@@ -53,10 +54,10 @@ describe("embedTexts", () => {
       vectors(values.length),
     );
     const out = await embedTexts(openai, ["hello", "  ", "world"]);
-    expect(out).toHaveLength(3);
-    expect(out[0]).not.toBeNull();
-    expect(out[1]).toBeNull();
-    expect(out[2]).not.toBeNull();
+    expect(out.embeddings).toHaveLength(3);
+    expect(out.embeddings[0]).not.toBeNull();
+    expect(out.embeddings[1]).toBeNull();
+    expect(out.embeddings[2]).not.toBeNull();
   });
 
   it("chunks into batches and isolates a failed batch", async () => {
@@ -72,16 +73,16 @@ describe("embedTexts", () => {
     const out = await embedTexts(openai, texts, { maxPages: 200 });
 
     expect(embedManyMock).toHaveBeenCalledTimes(3);
-    expect(out).toHaveLength(130);
+    expect(out.embeddings).toHaveLength(130);
     // Batch 1 (0..63) succeeded.
-    expect(out[0]).not.toBeNull();
-    expect(out[EMBED_BATCH_SIZE - 1]).not.toBeNull();
+    expect(out.embeddings[0]).not.toBeNull();
+    expect(out.embeddings[EMBED_BATCH_SIZE - 1]).not.toBeNull();
     // Batch 2 (64..127) nulled by isolation.
-    expect(out[EMBED_BATCH_SIZE]).toBeNull();
-    expect(out[127]).toBeNull();
+    expect(out.embeddings[EMBED_BATCH_SIZE]).toBeNull();
+    expect(out.embeddings[127]).toBeNull();
     // Batch 3 (128..129) succeeded.
-    expect(out[128]).not.toBeNull();
-    expect(out[129]).not.toBeNull();
+    expect(out.embeddings[128]).not.toBeNull();
+    expect(out.embeddings[129]).not.toBeNull();
   });
 
   it("caps embedded pages at maxPages and nulls the rest", async () => {
@@ -91,10 +92,13 @@ describe("embedTexts", () => {
     const texts = Array.from({ length: 120 }, (_, i) => `page ${i}`);
     const out = await embedTexts(openai, texts, { maxPages: 50 });
 
-    expect(out).toHaveLength(120);
-    expect(out.filter((v) => v !== null)).toHaveLength(50);
-    expect(out[49]).not.toBeNull();
-    expect(out[50]).toBeNull();
+    expect(out.embeddings).toHaveLength(120);
+    expect(out.embeddings.filter((v) => v !== null)).toHaveLength(50);
+    expect(out.embeddings[49]).not.toBeNull();
+    expect(out.embeddings[50]).toBeNull();
+    expect(out.capped).toBe(true);
+    expect(out.eligible).toBe(120);
+    expect(out.embedded).toBe(50);
   });
 
   it("retries once on a rate limit then succeeds", async () => {
@@ -107,8 +111,8 @@ describe("embedTexts", () => {
 
     const out = await embedTexts(openai, ["a", "b"]);
     expect(embedManyMock).toHaveBeenCalledTimes(2);
-    expect(out[0]).not.toBeNull();
-    expect(out[1]).not.toBeNull();
+    expect(out.embeddings[0]).not.toBeNull();
+    expect(out.embeddings[1]).not.toBeNull();
   });
 
   it("honors an already-aborted signal (no requests, all null)", async () => {
@@ -119,6 +123,6 @@ describe("embedTexts", () => {
     controller.abort();
     const out = await embedTexts(openai, ["a", "b"], { signal: controller.signal });
     expect(embedManyMock).not.toHaveBeenCalled();
-    expect(out).toEqual([null, null]);
+    expect(out.embeddings).toEqual([null, null]);
   });
 });

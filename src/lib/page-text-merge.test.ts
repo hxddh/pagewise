@@ -22,4 +22,10 @@ describe("mergePageTextsOnReload", () => {
     );
     expect(merged[0]!.text).toBe(vision);
   });
+
+  it("prefers cached vision text when both sides meet the index threshold", () => {
+    const vision = "v".repeat(40);
+    const extract = "x".repeat(120);
+    expect(pickBetterPageText(vision, extract)).toBe(vision);
+  });
 });

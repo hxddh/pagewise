@@ -8,6 +8,8 @@ export function pickBetterPageText(existing: string, incoming: string): string {
   const b = incoming.trim();
   if (a.length >= MIN_INDEX_CHARS && b.length < MIN_INDEX_CHARS) return existing;
   if (b.length >= MIN_INDEX_CHARS && a.length < MIN_INDEX_CHARS) return incoming;
+  // Both sufficient: keep cached (vision/OCR) over a fresh Rust PDF re-extract.
+  if (a.length >= MIN_INDEX_CHARS && b.length >= MIN_INDEX_CHARS) return existing;
   return b.length >= a.length ? incoming : existing;
 }
 

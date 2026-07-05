@@ -10,6 +10,7 @@ import {
 import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
+import { setAgentRunAbortSignal } from "./vision-index";
 import {
   createUsageMetadataTracker,
   type PageWiseMessageMetadata,
@@ -75,6 +76,7 @@ export class PagewiseChatTransport<
 
     let result;
     try {
+      setAgentRunAbortSignal(abortSignal);
       result = await this.agent.stream({
         prompt: modelMessages,
         abortSignal,
@@ -92,6 +94,7 @@ export class PagewiseChatTransport<
 
       return wrapStreamWithAgentProgress(uiStream, earlyProgress);
     } finally {
+      setAgentRunAbortSignal(undefined);
       unsubEarly();
     }
   }
