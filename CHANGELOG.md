@@ -4,6 +4,20 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.22] - 2026-07-05
+
+### Fixed
+
+- Settings: scan model always shows preset dropdown (custom input only after choosing “Custom model…”)
+- Settings: migrate legacy shared agent/scan model id to default scan preset on load
+
+### Changed
+
+- Settings: reorganize AI provider into Connection / Models / Advanced sections
+- Settings: rename “Indexing model (vision)” → “Scan model”; add field hints for assistant vs scan
+- Settings: show Extended thinking only for DeepSeek-capable assistant models; auto-clear when unsupported
+- Settings: simplify provider grid (remove badge clutter; dot marks provider in use)
+
 ## [0.2.21] - 2026-07-05
 
 ### Changed
@@ -328,7 +342,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Initial public release with PDF preview, OCR, streaming document agent, and multi-provider LLM support.
 
-[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.21...HEAD
+[Unreleased]: https://github.com/hxddh/pagewise/compare/v0.2.22...HEAD
+[0.2.22]: https://github.com/hxddh/pagewise/compare/v0.2.21...v0.2.22
 [0.2.21]: https://github.com/hxddh/pagewise/compare/v0.2.20...v0.2.21
 [0.2.20]: https://github.com/hxddh/pagewise/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/hxddh/pagewise/compare/v0.2.18...v0.2.19

@@ -120,3 +120,11 @@ const EMBEDDING_CAPABLE_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>
 export function isEmbeddingCapableProvider(provider: ProviderId): boolean {
   return EMBEDDING_CAPABLE_PROVIDERS.has(provider);
 }
+
+/** Whether the assistant model can accept AI SDK `reasoning` (thinking mode). */
+export function isThinkingCapableModel(provider: ProviderId, model: string): boolean {
+  if (provider === "custom" || provider === "ollama" || provider === "openai") return false;
+  if (provider === "deepseek") return true;
+  const m = model.toLowerCase();
+  return m.startsWith("deepseek/") || m.includes("reasoner") || m.includes("/r1");
+}
