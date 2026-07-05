@@ -7,7 +7,7 @@ import {
   getPageIndexState,
   type IndexFailureReason,
 } from "./index-events";
-import { resolveModel, assertApiKeyForAgent } from "./llm";
+import { resolveModel, assertApiKeyForAgent, formatLlmError } from "./llm";
 import { isVisionModel } from "./model-capabilities";
 import { ocrPdfPage, renderPageToJpegBytes } from "./pdf";
 import { loadVisionSettings } from "./settings";
@@ -261,9 +261,11 @@ export async function indexPageText(
           return { text, source: "vision" };
         }
         visionFailed = true;
+        visionError = `Scan model returned too little text (${text.trim().length} chars)`;
       } catch (err) {
         visionFailed = true;
-        visionError = err instanceof Error ? err.message : String(err);
+        visionError = formatLlmError(err);
+        console.warn("[vision-index] vision extraction failed:", visionError);
         if (isRateLimitError(err)) {
           emitPageIndex({
             path,

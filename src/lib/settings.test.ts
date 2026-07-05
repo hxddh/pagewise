@@ -311,6 +311,26 @@ describe("migrateProviderProfile", () => {
     const vision = await loadVisionSettings();
     expect(vision.model).toBe("google/gemini-2.5-flash-lite");
   });
+
+  it("migrates unreliable gemma-4 free scan model to default", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 2,
+        activeProvider: "openrouter",
+        profiles: {
+          openrouter: {
+            model: "openai/gpt-4o-mini",
+            visionModel: "google/gemma-4-31b-it:free",
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+
+    const store = await loadLlmStore();
+    expect(store.profiles.openrouter!.visionModel).toBe("google/gemini-2.5-flash-lite");
+  });
 });
 
 describe("store I/O — working keychain", () => {

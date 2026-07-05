@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { useDebouncedSave, type SaveStatus } from "../../hooks/useDebouncedSave";
-import { testConnection, validateAgentModel, validateModel, formatLlmError } from "../../lib/llm";
+import { testConnection, testVisionConnection, validateAgentModel, validateModel, formatLlmError } from "../../lib/llm";
 import {
   loadLlmStore,
   loadProviderSettings,
@@ -367,6 +367,14 @@ export function AiProviderSettings({
       }
 
       const reply = await testConnection(saved, t);
+      const scanModel = visionModel.trim();
+      if (
+        saved.provider !== "custom" &&
+        visionPresetModels(saved.provider).length > 0 &&
+        scanModel
+      ) {
+        await testVisionConnection({ ...saved, model: scanModel }, t);
+      }
       const verified = await markProviderVerified(saved.provider, true);
       setSettings(verified);
       profileCacheRef.current.set(verified.provider, verified);
@@ -389,7 +397,12 @@ export function AiProviderSettings({
         onLlmSettingsSaved?.();
         onApiReady?.();
       }
-      onTestResult?.(t("settings.testSuccess", { reply }), true);
+      onTestResult?.(
+        scanModel && saved.provider !== "custom" && visionPresetModels(saved.provider).length > 0
+          ? t("settings.testSuccessWithScan", { reply })
+          : t("settings.testSuccess", { reply }),
+        true,
+      );
     } catch (e) {
       const display = e instanceof Error ? e.message : formatLlmError(e, t);
       setTestError(display);

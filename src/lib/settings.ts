@@ -163,6 +163,11 @@ function migrateProviderProfile(
       visionModel === model
     ) {
       visionModel = defaultVisionModel(presetProvider);
+    } else if (
+      visionModel === "google/gemma-4-31b-it:free" &&
+      visionPresets.length > 0
+    ) {
+      visionModel = defaultVisionModel(presetProvider);
     }
     if (!isToolModel(provider, model)) {
       model = defaultAgentModel(presetProvider);
