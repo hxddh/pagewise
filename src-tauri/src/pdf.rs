@@ -6,6 +6,21 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PdfExtractScope {
+    Load,
+    Agent,
+}
+
+impl PdfExtractScope {
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "agent" => PdfExtractScope::Agent,
+            _ => PdfExtractScope::Load,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PageText {
     pub page: u32,
@@ -18,21 +33,32 @@ pub struct PdfExtractResult {
     pub total_pages: u32,
 }
 
-/// Bumped by `cancel_pdf_extract_cmd` so in-flight blocking work can bail out.
+/// Per-scope cancel generations — load abort must not kill agent tool reads.
 #[derive(Clone, Default)]
-pub struct PdfExtractCancel(Arc<AtomicU64>);
+pub struct PdfExtractCancel {
+    load: Arc<AtomicU64>,
+    agent: Arc<AtomicU64>,
+}
 
 impl PdfExtractCancel {
-    pub fn bump(&self) {
-        self.0.fetch_add(1, Ordering::SeqCst);
+    pub fn bump_scope(&self, scope: PdfExtractScope) {
+        let atom = match scope {
+            PdfExtractScope::Load => &self.load,
+            PdfExtractScope::Agent => &self.agent,
+        };
+        atom.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn capture_generation(&self) -> u64 {
-        self.0.load(Ordering::SeqCst)
+    pub fn capture(&self, scope: PdfExtractScope) -> u64 {
+        let atom = match scope {
+            PdfExtractScope::Load => &self.load,
+            PdfExtractScope::Agent => &self.agent,
+        };
+        atom.load(Ordering::SeqCst)
     }
 
-    fn is_stale(&self, captured: u64) -> bool {
-        self.capture_generation() != captured
+    fn is_stale(&self, scope: PdfExtractScope, captured: u64) -> bool {
+        self.capture(scope) != captured
     }
 }
 
@@ -153,9 +179,10 @@ fn parse_all_pages(
     path: &str,
     cache: &PdfCache,
     cancel: &PdfExtractCancel,
+    scope: PdfExtractScope,
     gen: u64,
 ) -> Result<Arc<Vec<String>>, String> {
-    if cancel.is_stale(gen) {
+    if cancel.is_stale(scope, gen) {
         return Err(cancelled());
     }
 
@@ -164,14 +191,14 @@ fn parse_all_pages(
     }
 
     let doc = load_document(path)?;
-    if cancel.is_stale(gen) {
+    if cancel.is_stale(scope, gen) {
         return Err(cancelled());
     }
 
     let total = page_count(&doc);
     let mut pages_raw = Vec::with_capacity(total as usize);
     for page in 1..=total {
-        if cancel.is_stale(gen) {
+        if cancel.is_stale(scope, gen) {
             return Err(cancelled());
         }
         pages_raw.push(extract_page_text(&doc, page)?);
@@ -195,14 +222,15 @@ fn extract_single_page(
     path: &str,
     page: u32,
     cancel: &PdfExtractCancel,
+    scope: PdfExtractScope,
     gen: u64,
 ) -> Result<PdfExtractResult, String> {
-    if cancel.is_stale(gen) {
+    if cancel.is_stale(scope, gen) {
         return Err(cancelled());
     }
 
     let doc = load_document(path)?;
-    if cancel.is_stale(gen) {
+    if cancel.is_stale(scope, gen) {
         return Err(cancelled());
     }
 
@@ -212,7 +240,7 @@ fn extract_single_page(
     }
 
     let text = extract_page_text(&doc, page)?;
-    if cancel.is_stale(gen) {
+    if cancel.is_stale(scope, gen) {
         return Err(cancelled());
     }
 
@@ -222,8 +250,19 @@ fn extract_single_page(
     })
 }
 
-pub fn pdf_page_count(path: &str) -> Result<u32, String> {
+pub fn pdf_page_count(
+    path: &str,
+    cancel: &PdfExtractCancel,
+    scope: PdfExtractScope,
+    gen: u64,
+) -> Result<u32, String> {
+    if cancel.is_stale(scope, gen) {
+        return Err(cancelled());
+    }
     let doc = load_document(path)?;
+    if cancel.is_stale(scope, gen) {
+        return Err(cancelled());
+    }
     Ok(page_count(&doc))
 }
 
@@ -232,9 +271,10 @@ pub fn extract_pdf_text(
     page: Option<u32>,
     cache: &PdfCache,
     cancel: &PdfExtractCancel,
+    scope: PdfExtractScope,
     gen: u64,
 ) -> Result<PdfExtractResult, String> {
-    if cancel.is_stale(gen) {
+    if cancel.is_stale(scope, gen) {
         return Err(cancelled());
     }
 
@@ -251,10 +291,10 @@ pub fn extract_pdf_text(
                     });
                 }
             }
-            extract_single_page(path, p, cancel, gen)
+            extract_single_page(path, p, cancel, scope, gen)
         }
         None => {
-            let pages_raw = parse_all_pages(path, cache, cancel, gen)?;
+            let pages_raw = parse_all_pages(path, cache, cancel, scope, gen)?;
             let total_pages = pages_raw.len() as u32;
             let pages = pages_raw
                 .iter()

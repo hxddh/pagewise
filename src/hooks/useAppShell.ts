@@ -20,7 +20,13 @@ export function useAppShell() {
 
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [threadSessionId, setThreadSessionId] = useState("default");
-  const document = useDocumentWorkspace(setRecentFiles, showToast, t);
+  const prepareOpenRef = useRef<() => void>(() => {});
+  const document = useDocumentWorkspace(
+    setRecentFiles,
+    showToast,
+    t,
+    () => prepareOpenRef.current(),
+  );
 
   const chatId = useMemo(
     () =>
@@ -34,6 +40,12 @@ export function useAppShell() {
 
   const agentRef = useRef(agent);
   agentRef.current = agent;
+
+  prepareOpenRef.current = () => {
+    agentRef.current.resetForDocumentSwitch();
+    agentRef.current.setComposerDraft("");
+    clearAgentMessageContext();
+  };
 
   const handleDocumentSwitch = useCallback((_nextPath: string | null) => {
     agentRef.current.resetForDocumentSwitch();

@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [0.2.43] - 2026-07-05
+
+### Fixed
+
+- Agent: Regenerate reads `messagesRef` — no stale user message after thread switch
+- Agent: stop agent immediately when opening a new document (`onBeforeLoad`)
+- PDF: scoped cancel generations (`load` vs `agent`) — doc load no longer kills agent tool reads
+- Agent: remove duplicate `clearAgentRunAbortSignal` on status ready (transport owns lifecycle)
+- Citations: `resetForDocumentSwitch` aborts in-flight `streamObject`
+- Index: `abortDocumentSwitch` aborts background vision controller
+- Chat: `selectThread` reports errors; `persistSignature` unifies dirty detection
+- Chat: tab-hide save failure surfaces toast
+
 ## [0.2.42] - 2026-07-05
 
 ### Fixed

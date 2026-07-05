@@ -21,6 +21,7 @@ export function useDocumentWorkspace(
   onRecentChange?: (files: RecentFile[]) => void,
   showToast?: (msg: string, tone?: "default" | "success" | "error") => void,
   translate?: (key: string, vars?: Record<string, string | number>) => string,
+  onBeforeOpen?: () => void,
 ) {
   const { t } = useI18n();
   const [activeDoc, setActiveDoc] = useState<LoadedDocument | null>(null);
@@ -129,6 +130,8 @@ export function useDocumentWorkspace(
     const { prevPath } = pending;
     pendingSwitchRef.current = null;
 
+    indexAbortRef.current?.abort();
+
     const currentPath = prevDocPathRef.current;
     if (currentPath) {
       clearDocumentIndexState(currentPath);
@@ -157,6 +160,7 @@ export function useDocumentWorkspace(
   );
 
   const { openPath, loading, progress } = useDocumentLoader({
+    onBeforeLoad: onBeforeOpen,
     onLoaded: handleDocumentLoaded,
     onRecentChange: onRecentChange ?? (() => {}),
     onError: handleLoadError,
