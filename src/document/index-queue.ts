@@ -11,18 +11,29 @@ import { emitPageIndex } from "../lib/index-events";
 import type { LoadedDocument } from "../lib/types";
 
 const VISION_TIMEOUT_MS = 60_000;
-const MAX_INDEX_PAGES = 50;
+export const MAX_INDEX_PAGES = 50;
 const CONCURRENCY = 3;
 
 const VISION_PROMPT = `Extract all visible text from this document page. Preserve reading order. Use Markdown headings and lists where appropriate. Output only the extracted content — no commentary.`;
 
-type QueueEntry = { abort: AbortController };
+type QueueEntry = { abort: AbortController; generation: number };
 
 const queues = new Map<string, QueueEntry>();
-const pageInflight = new Map<string, Promise<void>>();
+const pathGenerations = new Map<string, number>();
+const pageInflight = new Map<string, { promise: Promise<void>; generation: number }>();
 
 function pageKey(path: string, page: number): string {
   return `${path}\0${page}`;
+}
+
+function nextGeneration(path: string): number {
+  const gen = (pathGenerations.get(path) ?? 0) + 1;
+  pathGenerations.set(path, gen);
+  return gen;
+}
+
+function isCurrentGeneration(path: string, generation: number): boolean {
+  return (pathGenerations.get(path) ?? 0) === generation;
 }
 
 function sparsePages(doc: LoadedDocument): number[] {
@@ -33,6 +44,13 @@ function sparsePages(doc: LoadedDocument): number[] {
     .slice(0, MAX_INDEX_PAGES);
 }
 
+function sweepPages(doc: LoadedDocument, allPages?: boolean): number[] {
+  if (allPages) {
+    return docCache.getPages(doc.path).map((p) => p.page).slice(0, MAX_INDEX_PAGES);
+  }
+  return sparsePages(doc);
+}
+
 function visionMediaType(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   if (ext === "png") return "image/png";
@@ -41,6 +59,14 @@ function visionMediaType(path: string): string {
   if (ext === "bmp") return "image/bmp";
   if (ext === "tif" || ext === "tiff") return "image/tiff";
   return "image/jpeg";
+}
+
+function visionFetchSignal(queueSignal: AbortSignal): AbortSignal {
+  return AbortSignal.any([queueSignal, AbortSignal.timeout(VISION_TIMEOUT_MS)]);
+}
+
+function emitIdle(path: string, page: number): void {
+  emitPageIndex({ path, page, status: "idle" });
 }
 
 async function visionImageBytes(
@@ -61,8 +87,13 @@ async function visionImageBytes(
   };
 }
 
-async function indexPage(path: string, page: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted || !docCache.has(path)) return;
+async function indexPage(
+  path: string,
+  page: number,
+  signal: AbortSignal,
+  generation: number,
+): Promise<void> {
+  if (signal.aborted || !docCache.has(path) || !isCurrentGeneration(path, generation)) return;
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
   if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
@@ -74,17 +105,27 @@ async function indexPage(path: string, page: number, signal: AbortSignal): Promi
 
   try {
     const settings = await loadVisionSettings();
+    if (signal.aborted || !isCurrentGeneration(path, generation)) {
+      emitIdle(path, page);
+      return;
+    }
+
     assertApiKeyForAgent(settings);
     const { bytes, mediaType } = await visionImageBytes(path, page, signal);
-    if (signal.aborted) {
-      emitPageIndex({ path, page, status: "idle" });
+    if (signal.aborted || !isCurrentGeneration(path, generation)) {
+      emitIdle(path, page);
       return;
     }
 
     const text = await generateVisionText(settings, VISION_PROMPT, bytes, {
-      signal: AbortSignal.timeout(VISION_TIMEOUT_MS),
+      signal: visionFetchSignal(signal),
       mediaType,
     });
+
+    if (signal.aborted || !isCurrentGeneration(path, generation)) {
+      emitIdle(path, page);
+      return;
+    }
 
     if (text.trim().length >= MIN_INDEX_CHARS) {
       docCache.upsertPageText(path, page, text.trim());
@@ -100,7 +141,11 @@ async function indexPage(path: string, page: number, signal: AbortSignal): Promi
     }
   } catch (err) {
     if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
-      emitPageIndex({ path, page, status: "idle" });
+      emitIdle(path, page);
+      return;
+    }
+    if (!isCurrentGeneration(path, generation)) {
+      emitIdle(path, page);
       return;
     }
     const detail = formatLlmError(err, undefined, "scan");
@@ -118,30 +163,41 @@ async function indexPage(path: string, page: number, signal: AbortSignal): Promi
   }
 }
 
-async function runIndexPage(path: string, page: number, signal: AbortSignal): Promise<void> {
+async function runIndexPage(
+  path: string,
+  page: number,
+  signal: AbortSignal,
+  generation: number,
+): Promise<void> {
   const key = pageKey(path, page);
   const existing = pageInflight.get(key);
-  if (existing) {
-    await existing;
+  if (existing?.generation === generation) {
+    await existing.promise;
     return;
   }
 
-  const promise = indexPage(path, page, signal).finally(() => {
-    if (pageInflight.get(key) === promise) {
+  const promise = indexPage(path, page, signal, generation).finally(() => {
+    const cur = pageInflight.get(key);
+    if (cur?.promise === promise) {
       pageInflight.delete(key);
     }
   });
-  pageInflight.set(key, promise);
+  pageInflight.set(key, { promise, generation });
   await promise;
 }
 
-async function runPool(path: string, pages: number[], signal: AbortSignal): Promise<void> {
+async function runPool(
+  path: string,
+  pages: number[],
+  signal: AbortSignal,
+  generation: number,
+): Promise<void> {
   let cursor = 0;
   const workers = Array.from({ length: CONCURRENCY }, async () => {
-    while (!signal.aborted) {
+    while (!signal.aborted && isCurrentGeneration(path, generation)) {
       const i = cursor++;
       if (i >= pages.length) break;
-      await runIndexPage(path, pages[i]!, signal);
+      await runIndexPage(path, pages[i]!, signal, generation);
     }
   });
   await Promise.all(workers);
@@ -152,14 +208,18 @@ export async function ensurePageIndexed(
   page: number,
   signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) return;
+
   const cached = docCache.getPages(path).find((p) => p.page === page);
   if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) return;
 
   const controller = new AbortController();
   if (signal) {
+    if (signal.aborted) return;
     signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
-  await runIndexPage(path, page, controller.signal);
+  const generation = pathGenerations.get(path) ?? 0;
+  await runIndexPage(path, page, controller.signal, generation);
 }
 
 /** Index one page in the background (preview on-demand). */
@@ -168,19 +228,21 @@ export function indexPageInBackground(path: string, page: number): void {
 }
 
 /** Cancel any in-flight queue for this path and start a new sweep. */
-export function scheduleIndex(doc: LoadedDocument, options?: { allPages?: boolean }): void {
+export function scheduleIndex(
+  doc: LoadedDocument,
+  options?: { allPages?: boolean; pages?: number[] },
+): void {
   queues.get(doc.path)?.abort.abort();
+  const generation = nextGeneration(doc.path);
   const controller = new AbortController();
-  queues.set(doc.path, { abort: controller });
+  queues.set(doc.path, { abort: controller, generation });
 
-  const pages = options?.allPages
-    ? docCache.getPages(doc.path).map((p) => p.page).slice(0, MAX_INDEX_PAGES)
-    : sparsePages(doc);
-
+  const pages = options?.pages ?? sweepPages(doc, options?.allPages);
   if (pages.length === 0) return;
 
-  void runPool(doc.path, pages, controller.signal).finally(() => {
-    if (queues.get(doc.path)?.abort === controller) {
+  void runPool(doc.path, pages, controller.signal, generation).finally(() => {
+    const entry = queues.get(doc.path);
+    if (entry?.abort === controller) {
       queues.delete(doc.path);
     }
   });
@@ -189,10 +251,14 @@ export function scheduleIndex(doc: LoadedDocument, options?: { allPages?: boolea
 export function cancelIndex(path: string): void {
   queues.get(path)?.abort.abort();
   queues.delete(path);
+  nextGeneration(path);
 }
 
 export function reindexDocument(path: string): void {
-  docCache.invalidateIndexedPageText(path);
   const fresh = docCache.get(path);
-  if (fresh) scheduleIndex(fresh, { allPages: true });
+  if (!fresh) return;
+  const pages = sweepPages(fresh, true);
+  if (pages.length === 0) return;
+  docCache.invalidateIndexedPageText(path, pages);
+  scheduleIndex(fresh, { pages });
 }

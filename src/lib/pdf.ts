@@ -889,7 +889,7 @@ export async function renderPageToJpegBytes(
   const page = await doc.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
   const edge = Math.max(base.width, base.height);
-  const scale = edge > maxEdge ? maxEdge / edge : OCR_RENDER_SCALE;
+  const scale = Math.min(OCR_RENDER_SCALE, maxEdge / edge);
 
   const offscreen = document.createElement("canvas");
   await paintPage(page, scale, "performance", offscreen, "print");
@@ -918,7 +918,7 @@ export async function renderPageToPngBytes(
   const page = await doc.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
   const edge = Math.max(base.width, base.height);
-  const scale = edge > maxEdge ? maxEdge / edge : OCR_RENDER_SCALE;
+  const scale = Math.min(OCR_RENDER_SCALE, maxEdge / edge);
 
   const offscreen = document.createElement("canvas");
   await paintPage(page, scale, "performance", offscreen, "print");
@@ -939,13 +939,38 @@ export async function getPageViewport(path: string, pageNumber: number, scale: n
 }
 
 /** Capture the current document page as a multimodal `FileUIPart` for AI SDK messages. */
+function imageMediaType(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "png") return "image/png";
+  if (ext === "gif") return "image/gif";
+  if (ext === "webp") return "image/webp";
+  if (ext === "bmp") return "image/bmp";
+  if (ext === "tif" || ext === "tiff") return "image/tiff";
+  return "image/jpeg";
+}
+
+function bytesToDataUrl(bytes: Uint8Array, mediaType: string): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return `data:${mediaType};base64,${btoa(binary)}`;
+}
+
 export async function capturePageFilePart(
   path: string,
   page: number,
   kind: "pdf" | "image",
 ): Promise<{ type: "file"; mediaType: string; url: string } | null> {
   if (kind === "image") {
-    return { type: "file", mediaType: "image/png", url: convertFileSrc(path) };
+    try {
+      const bytes = await readAuthorizedFileBytes(path);
+      const mediaType = imageMediaType(path);
+      return { type: "file", mediaType, url: bytesToDataUrl(bytes, mediaType) };
+    } catch {
+      return null;
+    }
   }
   const canvas = document.createElement("canvas");
   try {

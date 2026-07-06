@@ -4,6 +4,17 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-07-06
+
+### Fixed
+
+- Index queue: generation-aware cancel/restart; vision fetch aborts with queue signal; stale inflight no longer blocks reindex (H4/M4)
+- Reindex: only clears page text for pages about to be vision-rescanned (max 50), preserving native text on other pages (H3)
+- Images: multimodal chat sends `data:` URLs instead of local `asset://` paths (M2)
+- Vision render: cap page JPEG/PNG scale to `maxEdge` (1568px) (M6)
+- Session: read latest messages from ref on doc switch; flush chat on window close (M3)
+- Theme: shared `ThemeProvider` so command palette and settings stay in sync (M9)
+
 ## [3.1.1] - 2026-07-06
 
 ### Fixed
