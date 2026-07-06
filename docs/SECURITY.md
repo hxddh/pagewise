@@ -25,7 +25,7 @@ If the keychain is unavailable, the app may temporarily persist the key in the l
 ### What stays local
 
 - PDF/image files (read from paths you choose)
-- Chat sessions (`sessions.json`)
+- Chat threads (`pagewise-v3-chats.json`, one thread per document path)
 - Provider profiles without keys (`settings.json`)
 - Recent files list
 

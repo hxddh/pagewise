@@ -1,4 +1,5 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
+import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
 
 type TranslateFn = (key: string, vars?: Record<string, string | number>) => string;
 type MessagePart = UIMessage["parts"][number];
@@ -29,7 +30,7 @@ export function toolActivityLabel(toolName: string, t: TranslateFn): string {
     case "read_pdf_page":
     case "read_pdf_range":
       return t("agent.activityReadRange");
-    case "get_document_index":
+    case DOCUMENT_OUTLINE_TOOL:
       return t("agent.activityIndex");
     case "search_in_document":
       return t("agent.activitySearch");
@@ -47,7 +48,7 @@ function toolBucket(toolName: string): ToolStepBucket {
     case "read_pdf_page":
     case "read_pdf_range":
       return "read";
-    case "get_document_index":
+    case DOCUMENT_OUTLINE_TOOL:
       return "index";
     default:
       return "other";
@@ -85,7 +86,7 @@ export function toolStepLabel(
       const label = query ? t("agent.toolSearch", { query }) : t("agent.activitySearch");
       return { label, key: `search:${query}`, bucket };
     }
-    case "get_document_index":
+    case DOCUMENT_OUTLINE_TOOL:
       return { label: t("agent.toolIndex"), key: "index", bucket };
     default:
       return { label: t("agent.toolWorking"), key: `other:${toolName}`, bucket: "other" };

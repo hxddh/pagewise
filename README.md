@@ -1,6 +1,6 @@
 # PageWise
 
-Local desktop document agent for **PDF text extraction**, **OCR**, **vision indexing**, and **page-wise AI analysis**.
+Local desktop document agent for **PDF text extraction**, **vision indexing**, and **page-wise AI analysis**.
 
 Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev). Documents are processed on your machine; only extracted text (and optional vision payloads) are sent to the LLM you configure.
 
@@ -8,10 +8,10 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 
 - **Documents** — Open PDFs and images via file picker or drag & drop
 - **Preview** — Page navigation, thumbnails, zoom, in-document search (⌘F)
-- **Indexing** — PDF text layer, Tesseract OCR, optional vision model indexing for scans
-- **Agent** — Streaming chat with tool calls (`read_pdf_page`, `search_in_document`, …)
-- **Sessions** — Per-document chat threads persisted locally
-- **Library** — Recent files and saved sessions
+- **Indexing** — PDF text layer plus optional vision model indexing for scans and images
+- **Agent** — Streaming chat with tool calls (`document_outline`, `read_pdf_page`, `search_in_document`, …)
+- **Chat** — One thread per document, persisted locally
+- **Library** — Recent files
 - **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint
 - **Security** — API keys stored in the **OS keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service)
 - **i18n** — English and 简体中文
@@ -22,11 +22,6 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 |-------------|-------|
 | [Node.js](https://nodejs.org/) 22+ | For frontend build |
 | [Rust](https://www.rust-lang.org/tools/install) | Tauri backend |
-| **Tesseract** | OCR for images and scanned PDFs |
-
-```bash
-brew install tesseract tesseract-lang
-```
 
 ## Quick start
 
@@ -75,20 +70,14 @@ Release notes are recorded in [CHANGELOG.md](CHANGELOG.md).
 ## Architecture
 
 ```
-React UI  →  AI SDK (DirectChatTransport + ToolLoopAgent)
-          →  Tauri invoke  →  Rust (pdf-extract, Tesseract)
+React UI  →  PagewiseChatTransport + ToolLoopAgent (AI SDK)
+          →  Tauri invoke  →  Rust (pdf-extract, file I/O, keychain)
           →  OS Keychain   →  API keys (per provider)
 ```
 
 ## macOS install
 
 Download the latest **`.dmg`** from [GitHub Releases](https://github.com/hxddh/pagewise/releases), open it, and drag PageWise to Applications.
-
-**Install Tesseract** — OCR is a hard prerequisite even for the prebuilt app; without it, image and scanned-PDF indexing will not work:
-
-```bash
-brew install tesseract tesseract-lang
-```
 
 **Unsigned builds** — CI-built DMGs are **not code-signed or notarized**, so Gatekeeper will block the first launch. Either right-click the app and choose **Open** (then confirm), or clear the quarantine attribute:
 

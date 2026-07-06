@@ -8,7 +8,6 @@ Thanks for your interest in PageWise!
 git clone https://github.com/hxddh/pagewise.git
 cd pagewise
 npm install
-brew install tesseract tesseract-lang   # macOS OCR
 npm run tauri dev
 ```
 

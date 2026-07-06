@@ -1,11 +1,12 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
-
-const PRUNE_TOOLS = new Set([
-  "read_pdf_page",
-  "read_pdf_range",
-  "search_in_document",
-  "get_document_index",
-]);
+import {
+  DOCUMENT_OUTLINE_TOOL,
+  PRUNE_DOCUMENT_TOOLS,
+  READ_PDF_PAGE_TOOL,
+  READ_PDF_RANGE_TOOL,
+  SEARCH_IN_DOCUMENT_TOOL,
+  type DocumentToolName,
+} from "./document-tool-names";
 
 /** Synthesized output for a tool call that never produced a real result. */
 const CANCELLED_OUTPUT = "[cancelled]";
@@ -22,7 +23,7 @@ export function pruneToolOutputsForHistory(messages: UIMessage[]): UIMessage[] {
       if (!isToolUIPart(part) || part.state !== "output-available") return part;
 
       const name = getToolName(part);
-      if (!PRUNE_TOOLS.has(name)) return part;
+      if (!PRUNE_DOCUMENT_TOOLS.has(name as DocumentToolName)) return part;
 
       const compact = compactToolOutput(name, part.input, part.output);
       if (compact === part.output) return part;
@@ -88,12 +89,12 @@ function compactToolOutput(
   const inp =
     input && typeof input === "object" ? (input as Record<string, unknown>) : {};
 
-  if (name === "read_pdf_page" && typeof inp.page === "number") {
+  if (name === READ_PDF_PAGE_TOOL && typeof inp.page === "number") {
     const chars = textLength(output);
     return `[Read page ${inp.page}, ${chars} chars — omitted from chat history]`;
   }
 
-  if (name === "read_pdf_range") {
+  if (name === READ_PDF_RANGE_TOOL) {
     const start = inp.start;
     const end = inp.end;
     const range =
@@ -106,13 +107,13 @@ function compactToolOutput(
     return `[Read ${range}, ${chars} chars — omitted from chat history]`;
   }
 
-  if (name === "search_in_document") {
+  if (name === SEARCH_IN_DOCUMENT_TOOL) {
     const q = typeof inp.query === "string" ? inp.query : "query";
     const hits = Array.isArray(output) ? output.length : textLength(output);
     return `[Search "${q.slice(0, 40)}", ${hits} hits — omitted from chat history]`;
   }
 
-  if (name === "get_document_index") {
+  if (name === DOCUMENT_OUTLINE_TOOL) {
     const chars = textLength(output);
     return `[Document index, ${chars} chars — omitted from chat history]`;
   }

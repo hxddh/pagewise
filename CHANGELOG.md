@@ -4,6 +4,20 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-07-06
+
+### Fixed
+
+- Agent: align prompts, prune list, and UI labels with actual tool names (`document_outline`); whole-document flow no longer calls removed tools
+- Agent: `document_outline` outputs are compacted in chat history (token budget restored)
+- Settings: "Discard & close" no longer persists abandoned edits on drawer unmount
+- Index: cancelled vision scans emit `idle` instead of `failed`
+- Chat persist: retry `Store.load` after a failed open instead of caching a rejected promise
+
+### Changed
+
+- Docs: README/CONTRIBUTING/SECURITY updated for v3 architecture (no Tesseract; correct transport and chat filename)
+
 ## [3.1.0] - 2026-07-06
 
 ### Changed

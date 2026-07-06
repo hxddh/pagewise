@@ -41,6 +41,6 @@ export function resolveDocPath(
   if (trimmed) return trimmed;
   if (defaultPath) return defaultPath;
   throw new Error(
-    "document path is required — no active document in context; call list_documents first.",
+    "document path is required — no active document in context; ask the user to open a PDF first.",
   );
 }

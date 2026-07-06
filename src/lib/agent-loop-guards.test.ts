@@ -8,12 +8,13 @@ import {
   shouldForceReadTools,
   stripDsmlToolMarkup,
 } from "./agent-loop-guards";
+import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
 
 describe("agent-loop-guards", () => {
   it("detects meta-tool-only loops", () => {
     const steps = [
-      { toolCalls: [{ toolName: "get_document_index" }] },
-      { toolCalls: [{ toolName: "list_documents" }] },
+      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
+      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
       { toolCalls: [{ toolName: "search_in_document" }] },
     ];
     expect(isMetaToolOnlyLoop(steps)).toBe(true);
@@ -31,9 +32,9 @@ describe("agent-loop-guards", () => {
   });
 
   it("blocks one-time meta tools after first use", () => {
-    const steps = [{ toolCalls: [{ toolName: "get_document_index" }] }];
-    expect(getBlockedMetaTools(steps)).toEqual(["get_document_index"]);
-    expect(countToolCalls(steps, "get_document_index")).toBe(1);
+    const steps = [{ toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] }];
+    expect(getBlockedMetaTools(steps)).toEqual([DOCUMENT_OUTLINE_TOOL]);
+    expect(countToolCalls(steps, DOCUMENT_OUTLINE_TOOL)).toBe(1);
   });
 
   it("strips DSML tool markup from displayed text", () => {
