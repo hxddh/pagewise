@@ -12,7 +12,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { loadDocument } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
 import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
-import { addRecentFile, getRecentFiles, type RecentFile } from "../lib/recent-files";
+import { addRecentFile, getRecentFiles, removeRecentFile, type RecentFile } from "../lib/recent-files";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
 import { clearChat as clearChatFile, loadChat, saveChat } from "../chat/persist";
 import { useDocAgent } from "../hooks/useDocAgent";
@@ -44,6 +44,7 @@ interface SessionContextValue {
   recentFiles: RecentFile[];
   openFileDialog: () => void;
   openPath: (path: string) => void;
+  removeRecent: (path: string) => Promise<void>;
   reindexDoc: () => void;
   agentOpen: boolean;
   setAgentOpen: (open: boolean) => void;
@@ -215,6 +216,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const openPath = useCallback((path: string) => void switchDocument(path), [switchDocument]);
 
+  const removeRecent = useCallback(async (path: string) => {
+    const updated = await removeRecentFile(path);
+    setRecentFiles(updated);
+  }, []);
+
   const openFileDialog = useCallback(() => {
     void (async () => {
       const selected = await open({
@@ -275,6 +281,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       recentFiles,
       openFileDialog,
       openPath,
+      removeRecent,
       reindexDoc,
       agentOpen,
       setAgentOpen,
@@ -303,6 +310,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       recentFiles,
       openFileDialog,
       openPath,
+      removeRecent,
       reindexDoc,
       agentOpen,
       connection,

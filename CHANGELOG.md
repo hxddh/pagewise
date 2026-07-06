@@ -4,6 +4,12 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-07-06
+
+### Added
+
+- Recent files drawer: Rail library button opens full recent PDF list (open, remove, switch document)
+
 ## [3.0.1] - 2026-07-06
 
 ### Fixed
