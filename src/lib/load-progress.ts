@@ -1,4 +1,4 @@
-export type LoadStage = "opening" | "extracting" | "ocr" | "indexing" | "done";
+export type LoadStage = "opening" | "extracting" | "indexing" | "done";
 
 export interface LoadProgress {
   stage: LoadStage;

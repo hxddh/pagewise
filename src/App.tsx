@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
 import { SessionProvider, useSession } from "./session/SessionProvider";
 import { useI18n } from "./i18n";
@@ -11,12 +11,12 @@ import { AppRail } from "./components/AppRail";
 import { WelcomeView } from "./components/WelcomeView";
 import { AgentDock } from "./components/AgentDock";
 import { FileErrorBanner } from "./components/FileErrorBanner";
-import { ConfirmBar } from "./components/ConfirmBar";
 import { RecentFilesDrawer } from "./components/RecentFilesDrawer";
+import { ClearChatConfirm } from "./components/overlays/ClearChatConfirm";
 import { CommandPalette } from "./components/CommandPalette";
 import { useAppCommands } from "./hooks/useAppCommands";
 import { useFollowAgent } from "./hooks/useFollowAgent";
-import { useOverlayLock } from "./hooks/useOverlayLock";
+import { useWorkbenchOverlays } from "./hooks/useWorkbenchOverlays";
 import { useTheme } from "./hooks/useTheme";
 import { useWorkbenchPrefs } from "./hooks/useWorkbenchPrefs";
 import { openableRecentFiles } from "./lib/recent-files";
@@ -43,43 +43,14 @@ function PanelFallback() {
   );
 }
 
-function ClearChatConfirm({
-  open,
-  message,
-  confirmLabel,
-  onConfirm,
-  onCancel,
-}: {
-  open: boolean;
-  message: string;
-  confirmLabel: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  useOverlayLock(open);
-  if (!open) return null;
-  return (
-    <div className="global-confirm">
-      <ConfirmBar
-        message={message}
-        confirmLabel={confirmLabel}
-        danger
-        onConfirm={onConfirm}
-        onCancel={onCancel}
-      />
-    </div>
-  );
-}
-
 function AppContent() {
   const { t } = useI18n();
   const { showToast } = useToast();
   const s = useSession();
   const { cycleTheme } = useTheme();
   const prefs = useWorkbenchPrefs();
+  const overlays = useWorkbenchOverlays(s.setSettingsOpen);
 
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(false);
   const [composerDraft, setComposerDraft] = useState("");
 
   const doc = s.document;
@@ -91,19 +62,7 @@ function AppContent() {
     setComposerDraft("");
   }, [doc?.path]);
 
-  const requestClearChat = useCallback(() => setClearConfirmOpen(true), []);
-
   const openableRecents = openableRecentFiles(s.recentFiles);
-
-  const openSettings = useCallback(() => {
-    setLibraryOpen(false);
-    s.setSettingsOpen(true);
-  }, [s]);
-
-  const toggleLibrary = useCallback(() => {
-    s.setSettingsOpen(false);
-    setLibraryOpen((o) => !o);
-  }, [s]);
 
   const { commands, paletteOpen, setPaletteOpen, exportSummary } = useAppCommands({
     activeDocName: doc?.name ?? null,
@@ -114,10 +73,10 @@ function AppContent() {
     previewPage: s.previewPage,
     totalPages: doc?.totalPages ?? 1,
     onOpenDocument: s.openFileDialog,
-    onOpenSettings: openSettings,
+    onOpenSettings: overlays.openSettings,
     onToggleFollowAgent: () => void prefs.toggleFollowAgent(),
     onToggleAgent: () => s.setAgentOpen(!s.agentOpen),
-    onClearChat: requestClearChat,
+    onClearChat: overlays.openClearConfirm,
     onStop: agent.stop,
     onCycleTheme: () => void cycleTheme(),
     showToast,
@@ -143,24 +102,24 @@ function AppContent() {
       <ToastViewport />
 
       <ClearChatConfirm
-        open={clearConfirmOpen}
+        open={overlays.clearConfirmOpen}
         message={t("agent.clearConfirm")}
         confirmLabel={t("agent.clear")}
         onConfirm={() => {
           void s.clearChat();
-          setClearConfirmOpen(false);
+          overlays.closeClearConfirm();
         }}
-        onCancel={() => setClearConfirmOpen(false)}
+        onCancel={overlays.closeClearConfirm}
       />
 
       <RecentFilesDrawer
-        open={libraryOpen}
+        open={overlays.libraryOpen}
         recentFiles={openableRecents}
         activePath={doc?.path ?? null}
         opening={s.loading}
-        onClose={() => setLibraryOpen(false)}
+        onClose={overlays.closeLibrary}
         onOpenFile={() => {
-          setLibraryOpen(false);
+          overlays.closeLibrary();
           s.openFileDialog();
         }}
         onOpenRecent={(path) => void s.openPath(path)}
@@ -169,7 +128,7 @@ function AppContent() {
 
       <SettingsDrawer
         open={s.settingsOpen}
-        onClose={() => s.setSettingsOpen(false)}
+        onClose={overlays.closeSettings}
         onLlmSettingsSaved={() => conn.refresh()}
         onApiReady={() => conn.refresh()}
         onReindexDoc={s.reindexDoc}
@@ -186,10 +145,10 @@ function AppContent() {
 
       <AppRail
         showLibrary
-        libraryOpen={libraryOpen}
-        onLibrary={toggleLibrary}
+        libraryOpen={overlays.libraryOpen}
+        onLibrary={overlays.toggleLibrary}
         onOpenFile={s.openFileDialog}
-        onSettings={openSettings}
+        onSettings={overlays.openSettings}
         connected={conn.canUseAgent && conn.settingsReady}
         opening={s.loading}
       />
@@ -204,7 +163,7 @@ function AppContent() {
             opening={s.loading}
             onOpenFile={s.openFileDialog}
             onOpenRecent={s.openPath}
-            onConfigureApi={openSettings}
+            onConfigureApi={overlays.openSettings}
           />
         ) : (
           <div className={`v3-workspace ${s.agentOpen ? "" : "agent-hidden"}`}>
@@ -214,7 +173,7 @@ function AppContent() {
                 page={s.previewPage}
                 onPageChange={s.setPreviewPage}
                 prefsRevision={prefs.prefsRevision}
-                onOpenAiSettings={openSettings}
+                onOpenAiSettings={overlays.openSettings}
               />
             </Suspense>
 
@@ -254,9 +213,9 @@ function AppContent() {
                   historySettling={agent.historySettling}
                   composerDraft={composerDraft}
                   onComposerDraftChange={setComposerDraft}
-                  onConfigureApi={openSettings}
+                  onConfigureApi={overlays.openSettings}
                   onStop={agent.stop}
-                  onClearChat={requestClearChat}
+                  onClearChat={overlays.openClearConfirm}
                   onExportChat={() => void s.exportChat()}
                   onExportSummary={() => void exportSummary()}
                   onCollapse={() => s.setAgentOpen(false)}

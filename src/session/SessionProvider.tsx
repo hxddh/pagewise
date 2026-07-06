@@ -30,8 +30,9 @@ import { chatToMarkdown } from "../lib/export-markdown";
 import { saveMarkdownFile } from "../lib/save-markdown";
 import type { LoadedDocument } from "../lib/types";
 import type { LoadProgress } from "../lib/load-progress";
-import type { AppPhase } from "./types";
 import { clearAgentMessageContext } from "../lib/agent-view-context";
+
+export type AppPhase = "empty" | "switching" | "ready";
 
 interface SessionContextValue {
   phase: AppPhase;

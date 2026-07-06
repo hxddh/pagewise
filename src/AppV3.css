@@ -169,6 +169,105 @@
   padding: 0 10px 14px;
 }
 
+.document-library {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.library-section-label {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.library-list li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.library-list li.active .library-item {
+  background: var(--accent-muted);
+}
+
+.library-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.library-item:hover {
+  background: var(--bg-hover);
+}
+
+.library-item-history {
+  gap: 1px;
+}
+
+.library-name {
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.library-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.library-empty {
+  padding: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.library-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  min-width: 28px;
+  min-height: 28px;
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  padding: 4px 6px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.library-remove:hover {
+  background: var(--bg-hover);
+  color: var(--danger);
+}
+
 /* Main workspace */
 
 .v3-main {
