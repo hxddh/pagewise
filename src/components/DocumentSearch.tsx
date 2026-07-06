@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import { semanticSearchPages } from "../lib/semantic-index";
+import { searchDocumentPages, type SearchHit } from "../lib/document-search";
 import { docCache } from "../lib/doc-cache";
-import type { SearchHit } from "../lib/document-search";
 import { OPEN_DOC_SEARCH_EVENT } from "../lib/events";
 import type { LoadedDocument } from "../lib/types";
 import { useOverlayLock } from "../hooks/useOverlayLock";
@@ -48,18 +47,10 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
     setSearching(true);
     const id = window.setTimeout(() => {
       const pages = docCache.getPages(doc.path);
-      void semanticSearchPages(doc.path, pages, query, 30)
-        .then((results) => {
-          if (gen !== searchGenRef.current) return;
-          setHits(results);
-        })
-        .catch(() => {
-          if (gen !== searchGenRef.current) return;
-          setHits([]);
-        })
-        .finally(() => {
-          if (gen === searchGenRef.current) setSearching(false);
-        });
+      const results = searchDocumentPages(pages, query, 30);
+      if (gen !== searchGenRef.current) return;
+      setHits(results);
+      setSearching(false);
     }, 120);
     return () => {
       window.clearTimeout(id);

@@ -396,6 +396,7 @@
     "aiReady": "AI ready — open a document to begin",
     "collapseHint": "Assistant collapsed · ⌘\\ to expand",
     "opened": "Opened {{name}}",
+    "reindexStarted": "Reindexing document…",
     "pathRestoreFailed": "{{count}} saved path(s) could not be restored — reopen the file",
     "indexPageCap": "Indexing {{indexed}} of {{total}} sparse pages this pass — reopen or scroll to index more",
     "embedPageCap": "Semantic search embedded {{embedded}} of {{total}} pages — reopen to embed more",

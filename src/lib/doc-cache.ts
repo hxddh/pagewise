@@ -3,11 +3,10 @@ import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
 import { clearDocumentIndexState } from "./index-events";
 import { mergePageTextsOnReload, pagesTextChanged } from "./page-text-merge";
-import { clearSemanticIndex, markSemanticIndexDirty } from "./semantic-index";
 
 type DocCacheListener = (path: string) => void;
 
-const MAX_CACHED_DOCS = 12;
+const MAX_CACHED_DOCS = 1;
 
 class DocCache {
   private docs = new Map<string, LoadedDocument>();
@@ -19,7 +18,6 @@ class DocCache {
       if (oldest) {
         this.docs.delete(oldest);
         clearDocumentIndexState(oldest);
-        clearSemanticIndex(oldest);
       }
     }
     const existing = this.docs.get(doc.path);
@@ -28,7 +26,7 @@ class DocCache {
       const mergedPages = mergePageTextsOnReload(existing.pages, doc.pages);
       nextDoc = { ...doc, pages: mergedPages };
       if (pagesTextChanged(existing.pages, mergedPages)) {
-        markSemanticIndexDirty(doc.path);
+        /* page text updated on reload */
       }
     }
     this.docs.set(doc.path, nextDoc);
@@ -67,10 +65,6 @@ class DocCache {
 
     const nextDoc: LoadedDocument = { ...doc, pages: nextPages };
     this.docs.set(path, nextDoc);
-    // Background OCR/vision text just landed — mark the semantic index stale so the
-    // next search rebuilds it and embeds the newly-recognized page (lazy rebuild
-    // avoids thrashing during a burst of per-page upserts).
-    markSemanticIndexDirty(path);
     this.notify(path);
   }
 
@@ -92,7 +86,6 @@ class DocCache {
     });
     if (!changed) return;
     this.docs.set(path, { ...doc, pages: nextPages });
-    clearSemanticIndex(path);
     this.notify(path);
   }
 
@@ -100,7 +93,6 @@ class DocCache {
   remove(path: string): void {
     if (this.docs.delete(path)) {
       clearDocumentIndexState(path);
-      clearSemanticIndex(path);
       this.notify(path);
     }
   }
@@ -110,7 +102,6 @@ class DocCache {
     this.docs.clear();
     for (const path of paths) {
       clearDocumentIndexState(path);
-      clearSemanticIndex(path);
       this.notify(path);
     }
   }

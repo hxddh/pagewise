@@ -2580,7 +2580,7 @@ dependencies = [
 
 [[package]]
 name = "pagewise"
-version = "0.2.46"
+version = "3.0.0"
 dependencies = [
  "image",
  "keyring",

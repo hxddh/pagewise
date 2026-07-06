@@ -6,7 +6,7 @@ import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
 import { sanitizeIndexErrorDetail } from "../../lib/index-error-display";
 import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { isRasterHeavyPage } from "../../lib/pdf";
-import { indexPageInBackground } from "../../lib/vision-index";
+import { indexPageInBackground } from "../../document/index-queue";
 import { usePdfViewer } from "./usePdfViewer";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
@@ -45,7 +45,7 @@ function PreviewPaneInner({
     if (state?.status === "done" && pageHasIndexableText(doc.path, indexPage, doc.pages)) {
       return;
     }
-    indexPageInBackground(doc.path, indexPage, doc.kind);
+    indexPageInBackground(doc.path, indexPage);
   }, [doc.path, doc.kind, indexPage, pageTextLen]);
 
   const transientRetryRef = useRef(0);
@@ -67,7 +67,7 @@ function PreviewPaneInner({
       if (pageHasIndexableText(doc.path, indexPage, doc.pages)) return;
       transientRetryRef.current += 1;
       clearPageIndexState(doc.path, indexPage);
-      indexPageInBackground(doc.path, indexPage, doc.kind);
+      indexPageInBackground(doc.path, indexPage);
     }, delayMs);
 
     return () => window.clearTimeout(timer);
@@ -124,7 +124,7 @@ function PreviewPaneInner({
 
   const retryIndex = () => {
     clearPageIndexState(doc.path, indexPage);
-    indexPageInBackground(doc.path, indexPage, doc.kind);
+    indexPageInBackground(doc.path, indexPage);
   };
 
   const rasterHeavy =

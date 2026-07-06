@@ -19,20 +19,19 @@ import { docCache } from "./doc-cache";
 import { resolveModel, resolveReasoning } from "./llm";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
-import { semanticSearchPages } from "./semantic-index";
-import { buildPrepareStepOverrides } from "./agent-context-compaction";
-import { resolveMaxAgentSteps, MAX_AGENT_STEPS_FULL } from "./agent-run-plan";
+import { searchInDocument } from "../document/search";
+import { ensurePageIndexed } from "../document/index-queue";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
-import { pickBetterPageText } from "./page-text-merge";
-import { indexPageText, MIN_INDEX_CHARS, getAgentRunAbortSignal } from "./vision-index";
+import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
+import { getAgentRunAbortSignal } from "./agent-abort";
 import { yieldToUi } from "./yield-to-ui";
 
 /** Default cap per read_pdf_range call — keeps tool results out of context blowups. */
 export const DEFAULT_RANGE_MAX_CHARS = 6_000;
 /** Default cap per read_pdf_page call. */
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
-/** Default ceiling when user intent is unknown (overridden per run in prepareCall). */
-const DEFAULT_MAX_AGENT_STEPS = MAX_AGENT_STEPS_FULL;
+/** Default ceiling per agent run. */
+const DEFAULT_MAX_AGENT_STEPS = 12;
 /** Cumulative characters a single run may read before it must synthesize. */
 const RUN_CHAR_BUDGET = 120_000;
 
@@ -51,7 +50,7 @@ function requireLoadedDoc(path: string): LoadedDocument {
   const doc = docCache.get(path);
   if (!doc) {
     throw new Error(
-      `path not in loaded documents: "${path}". Call list_documents to get valid paths.`,
+      `path not in loaded documents: "${path}". Open the document first.`,
     );
   }
   return doc;
@@ -99,18 +98,11 @@ async function readPageText(path: string, page: number) {
     }
   }
 
-  const indexed = await indexPageText(path, page, kind, {
-    bindAgentAbort: true,
-    signal: getAgentRunAbortSignal(),
-  });
+  await ensurePageIndexed(path, page, signal);
   throwIfAborted(signal);
-  const source =
-    indexed.source === "vision"
-      ? ("vision" as const)
-      : indexed.source === "cache"
-        ? ("cache" as const)
-        : ("ocr" as const);
-  return { page, text: indexed.text, source };
+  const after = docCache.getPages(path).find((p) => p.page === page);
+  const text = after?.text ?? "";
+  return { page, text, source: "vision" as const };
 }
 
 const BUDGET_NOTE =
@@ -119,7 +111,7 @@ const BUDGET_NOTE =
 type ToolExecuteOptions = { context?: PageWiseDocToolContext };
 
 /** Wrap tool execution so WebKit can paint streaming UI between agent steps. */
-function bindToolExecute<T extends { path?: string }, R>(
+function bindToolExecute<T, R>(
   label: string,
   phase: "tool" | "index" | "search" | "read",
   fn: (input: T, options: ToolExecuteOptions) => Promise<R>,
@@ -144,29 +136,9 @@ function resolvePathInput(
 
 function createDocumentTools(budget: ReadBudget) {
   return {
-    list_documents: tool({
-      description: "List all documents currently loaded in the session",
-      inputSchema: z.object({}),
-      execute: async () => {
-        emitAgentProgress("Checking documents…", "tool");
-        await yieldToUi();
-        try {
-          return docCache.list().map((d) => ({
-            path: d.path,
-            name: d.name,
-            kind: d.kind,
-            totalPages: d.totalPages,
-            totalChars: d.pages.reduce((sum, p) => sum + p.text.length, 0),
-          }));
-        } finally {
-          await yieldToUi();
-        }
-      },
-    }),
-
-    get_document_index: tool({
+    document_outline: tool({
       description:
-        "Lightweight document overview: per-page character counts and short previews. " +
+        "Document overview: per-page character counts and short previews. " +
         "Use before reading large documents to plan chunked reads.",
       inputSchema: z.object({
         path: z
@@ -410,26 +382,19 @@ function createDocumentTools(budget: ReadBudget) {
     }),
 
     search_in_document: tool({
-      description:
-        "Search for a keyword or phrase in a loaded document (keyword + semantic)",
+      description: "Search for a keyword or phrase in the active document",
       inputSchema: z.object({
-        path: z
-          .string()
-          .optional()
-          .describe("Loaded document path; defaults to the active document"),
         query: z.string().min(1),
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
         "Searching document…",
         "search",
-        async ({ path: inputPath, query }, options) => {
-          const path = resolvePathInput(inputPath, options);
+        async ({ query }, options) => {
+          const path = resolvePathInput(undefined, options);
           requireLoadedDoc(path);
           const pages = docCache.getPages(path);
-          const hits = await semanticSearchPages(path, pages, query, 30, {
-            signal: getAgentRunAbortSignal(),
-          });
+          const hits = searchInDocument(pages, query, 30);
           const preview = formatSearchPreview(hits);
           if (preview) emitAgentProgress(preview, "search");
           return hits;
@@ -439,37 +404,21 @@ function createDocumentTools(budget: ReadBudget) {
   };
 }
 
-const SYSTEM_INSTRUCTIONS = `You are PageWise, a local desktop document assistant.
-You help users understand PDFs and images stored on their machine.
+const SYSTEM_INSTRUCTIONS = `You are PageWise, a local desktop PDF assistant.
 
 Rules:
-- Always use tools to read document content; never invent page text.
-- Only read documents returned by list_documents. When a single document is active, omit path to use the default.
-- Never invent file paths.
-- Document pages are pre-indexed from images and scans. Use read_pdf_page / read_pdf_range on indexed text.
-- If a page returns empty text, indexing may still be running, or the user may need a multimodal model in Settings → AI Provider (e.g. gpt-4o-mini, Qwen2.5-VL). Do not ask them to install Tesseract.
-- For targeted questions (dates, names, keywords, 日期, 有哪些): call search_in_document once,
-  then read_pdf_page on the top matching pages. Do NOT call list_documents or get_document_index repeatedly.
-- Call get_document_index at most once per user question. Call list_documents at most once when a document is already open.
-- Never output tool calls as XML, DSML, or markdown code — only use the native tool calling API.
-- For whole-document summary or analysis (全文, 总结, 分析整份文档): call get_document_index first.
-  If totalChars ≤ 6000, one read_pdf_range is enough. Otherwise read in chunks with maxChars=6000,
-  continuing from nextStart (and pass offset=nextOffset when it is non-null — the same page still has text)
-  until truncated=false, then synthesize.
-- If any tool result includes budgetExceeded=true, stop reading and answer from the pages already read.
-- Do NOT use search_in_document for whole-document summaries.
-- When the user refers to the current page (这一页, 当前页, this page), use read_pdf_page for that page.
-- For targeted questions, use search_in_document first, then read only the pages you need.
-- Cite page numbers when quoting document content.
-- If no document is loaded, ask the user to open a file first.
-- You may output one brief status sentence in the user's language before calling tools (e.g. 正在搜索文档中的日期…). Final answers should be concise and cite pages.
-- Stream the final answer as you write it; do not wait to dump the full reply at once.`;
+- Use tools to read document content; never invent page text.
+- The user has one active PDF; omit path on tools to use it.
+- Sparse or scan pages are indexed via vision — wait for read results.
+- For keyword questions: search_in_document first, then read_pdf_page on hits.
+- For whole-document tasks: document_outline first, then read_pdf_range in chunks.
+- Cite page numbers when quoting.
+- If no document is loaded, ask the user to open a PDF.`;
 
 function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
   const docCtx = buildDocToolContext(runtime);
   return {
-    list_documents: {},
-    get_document_index: docCtx,
+    document_outline: docCtx,
     read_pdf_page: docCtx,
     read_pdf_range: docCtx,
     search_in_document: docCtx,
@@ -479,7 +428,6 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
 export function createDocAgent() {
   const budget: ReadBudget = { used: 0, max: RUN_CHAR_BUDGET };
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
-  let runSettings: Awaited<ReturnType<typeof loadSettings>> | null = null;
   const tools = createDocumentTools(budget);
   const defaultRuntime = buildRuntimeContext(null);
 
@@ -493,9 +441,8 @@ export function createDocAgent() {
       budget.used = 0;
 
       const settings = await loadSettings();
-      runSettings = settings;
       const viewCtx = consumePendingAgentContext();
-      runMaxSteps = resolveMaxAgentSteps(viewCtx?.userText ?? "");
+      runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
       const runtimeContext = buildRuntimeContext(viewCtx);
       let viewHint = viewCtx ? buildViewContextInstructions(viewCtx) : "";
 
@@ -515,18 +462,6 @@ export function createDocAgent() {
           ...buildToolsContext(runtimeContext),
         },
       };
-    },
-    prepareStep: async ({ stepNumber, steps, messages }) => {
-      const settings = runSettings ?? (await loadSettings());
-      return buildPrepareStepOverrides({
-        settings,
-        stepNumber,
-        steps,
-        messages,
-        budgetUsed: budget.used,
-        budgetMax: budget.max,
-        maxSteps: runMaxSteps,
-      });
     },
   });
 }

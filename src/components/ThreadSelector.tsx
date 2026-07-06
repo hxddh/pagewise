@@ -1,5 +1,9 @@
 import { useI18n } from "../i18n";
-import type { ChatThread } from "../lib/chat-sessions";
+export interface ChatThread {
+  id: string;
+  title: string;
+  updatedAt: number;
+}
 
 interface ThreadSelectorProps {
   threads: ChatThread[];
@@ -30,7 +34,7 @@ export function ThreadSelector({
         >
           {threads.map((thread) => (
             <option key={thread.id} value={thread.id}>
-              {thread.name}
+              {thread.title}
             </option>
           ))}
         </select>

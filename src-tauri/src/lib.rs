@@ -1,4 +1,3 @@
-mod ocr;
 mod pdf;
 mod secrets;
 
@@ -10,7 +9,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pdf::{extract_pdf_text, pdf_page_count, PdfCache, PdfExtractCancel, PdfExtractResult};
-use serde::Serialize;
 use tauri::State;
 
 #[derive(Default)]
@@ -177,21 +175,6 @@ async fn read_file_bytes(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-#[tauri::command]
-async fn ocr_image(path: String, allowed: State<'_, AllowedPaths>) -> Result<String, String> {
-    let canon = ensure_allowed(&allowed, &path)?;
-    let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
-    tauri::async_runtime::spawn_blocking(move || ocr::ocr_image(&canon_str))
-        .await
-        .map_err(|e| format!("Task join failed: {e}"))?
-}
-
-#[tauri::command]
-async fn ocr_bytes(data: Vec<u8>) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || ocr::ocr_bytes(data))
-        .await
-        .map_err(|e| format!("Task join failed: {e}"))?
-}
 
 #[tauri::command]
 async fn write_text_file(
@@ -254,30 +237,6 @@ async fn write_text_file(
     .map_err(|e| format!("Task join failed: {e}"))?
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct TesseractStatus {
-    installed: bool,
-    chi_sim: bool,
-}
-
-#[tauri::command]
-async fn check_tesseract() -> TesseractStatus {
-    tauri::async_runtime::spawn_blocking(|| {
-        let installed = std::process::Command::new("tesseract")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        let chi_sim = installed && ocr::has_chi_sim();
-        TesseractStatus { installed, chi_sim }
-    })
-    .await
-    .unwrap_or(TesseractStatus {
-        installed: false,
-        chi_sim: false,
-    })
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -296,10 +255,7 @@ pub fn run() {
             pdf_page_count_cmd,
             extract_pdf_text_cmd,
             read_file_bytes,
-            ocr_image,
-            ocr_bytes,
             write_text_file,
-            check_tesseract,
             secrets::set_api_key,
             secrets::get_api_key,
             secrets::delete_api_key,

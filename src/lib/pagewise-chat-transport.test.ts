@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { simulateReadableStream, ToolLoopAgent, type UIMessageChunk } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { PagewiseChatTransport } from "./pagewise-chat-transport";
-import { clearAgentRunAbortSignal, getAgentRunAbortSignal } from "./vision-index";
+import { clearAgentRunAbortSignal, getAgentRunAbortSignal } from "./agent-abort";
 
 const finishUsage = {
   inputTokens: { total: 12, noCache: 12, cacheRead: undefined, cacheWrite: undefined },

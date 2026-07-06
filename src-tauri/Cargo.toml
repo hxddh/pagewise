@@ -1,7 +1,7 @@
 [package]
 name = "pagewise"
-version = "0.2.46"
-description = "Local desktop document agent — PDF, OCR, page-wise AI analysis"
+version = "3.0.0"
+description = "Local desktop PDF agent — page-wise AI analysis"
 authors = ["hxddh"]
 edition = "2021"
 license = "MIT"

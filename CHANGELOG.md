@@ -4,6 +4,29 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-06
+
+### Changed (breaking)
+
+- **Greenfield v3 architecture**: single `SessionProvider` replaces `useAppShell` / multi-hook orchestration
+- **One PDF at a time**: `MAX_CACHED_DOCS = 1`; transactional `switchDocument` with chat persist per file path
+- **Single chat thread** per document (`chat/persist.ts`); removed multi-thread UI, library drawer, command palette
+- **Vision-only indexing** via `document/index-queue.ts`; removed OCR/Tesseract (Rust + UI)
+- **Keyword search only**; removed semantic embeddings and `semantic-index`
+- **Agent tools simplified** to `document_outline`, `read_pdf_page` / `read_pdf_range`, `search_in_document`
+- **No structured citations** (second LLM pass removed); legacy citation metadata still displays from v2 chats
+- **PDF only** — image documents no longer supported in `load-document.ts`
+
+### Fixed
+
+- Chat: composer draft state wired in `App.tsx` (v3 regression blocked all input)
+
+### Removed
+
+- `vision-index`, `semantic-index`, `embeddings`, `structured-citations`, `chat-sessions`
+- `useAppShell`, `useDocumentWorkspace`, `useChatPersistence`, `useLibraryState`, `useAgentWorkspace`
+- `LibraryDrawer`, `DocumentLibrary`, Rust `ocr.rs` and Tesseract commands
+
 ## [0.2.46] - 2026-07-06
 
 ### Fixed

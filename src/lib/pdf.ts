@@ -931,15 +931,6 @@ export async function renderPageToPngBytes(
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-export async function ocrPdfPage(
-  path: string,
-  pageNumber: number,
-  signal?: AbortSignal,
-): Promise<string> {
-  const bytes = await renderPageToPngBytes(path, pageNumber, 1568, signal);
-  throwIfAborted(signal);
-  return invoke<string>("ocr_bytes", { data: bytes });
-}
 
 export async function getPageViewport(path: string, pageNumber: number, scale: number) {
   const doc = await getPdfDocument(path);
