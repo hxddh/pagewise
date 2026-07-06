@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { APP_VERSION_FALLBACK, resolveAppVersion } from "../../lib/app-version";
 import { LogoMark } from "../LogoMark";
@@ -9,23 +8,9 @@ const GITHUB_URL = "https://github.com/hxddh/pagewise";
 export function AboutSettings() {
   const { t } = useI18n();
   const [appVersion, setAppVersion] = useState(APP_VERSION_FALLBACK);
-  const [tesseractOk, setTesseractOk] = useState<boolean | null>(null);
-  const [chiSimOk, setChiSimOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     void resolveAppVersion().then(setAppVersion);
-  }, []);
-
-  useEffect(() => {
-    invoke<{ installed: boolean; chi_sim: boolean }>("check_tesseract")
-      .then((status) => {
-        setTesseractOk(status.installed);
-        setChiSimOk(status.chi_sim);
-      })
-      .catch(() => {
-        setTesseractOk(false);
-        setChiSimOk(false);
-      });
   }, []);
 
   return (
@@ -48,32 +33,6 @@ export function AboutSettings() {
 
       <section className="settings-card">
         <div className="settings-info-rows">
-          <div className="settings-info-row">
-            <span className="settings-info-label">{t("settings.tesseract")}</span>
-            <span
-              className={`settings-info-value ${tesseractOk ? "ok" : tesseractOk === false ? "warn" : ""}`}
-            >
-              {tesseractOk === null
-                ? "…"
-                : tesseractOk
-                  ? t("settings.tesseractOk")
-                  : t("settings.tesseractMissing")}
-            </span>
-          </div>
-          {tesseractOk && (
-            <div className="settings-info-row">
-              <span className="settings-info-label">{t("settings.tesseractChiSim")}</span>
-              <span
-                className={`settings-info-value ${chiSimOk ? "ok" : chiSimOk === false ? "warn" : ""}`}
-              >
-                {chiSimOk === null
-                  ? "…"
-                  : chiSimOk
-                    ? t("settings.tesseractChiSimOk")
-                    : t("settings.tesseractChiSimMissing")}
-              </span>
-            </div>
-          )}
           <div className="settings-info-row">
             <span className="settings-info-label">{t("settings.github")}</span>
             <a className="settings-info-link" href={GITHUB_URL} target="_blank" rel="noreferrer">

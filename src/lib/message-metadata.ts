@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import type { StructuredCitation } from "./structured-citations";
+import type { StructuredCitation } from "./citation-types";
 import { getIndexUsageSnapshot, resetIndexUsageTracker } from "./usage-tracker";
 
 /** Per agent-loop step usage (debug; persisted with chat sessions). */

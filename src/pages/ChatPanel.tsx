@@ -16,7 +16,7 @@ import { MessageContent } from "../components/MessageContent";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
 import { ThreadSelector } from "../components/ThreadSelector";
-import type { ChatThread } from "../lib/chat-sessions";
+import type { ChatThread } from "../components/ThreadSelector";
 import type { LoadedDocument } from "../lib/types";
 
 import type { SendDocumentMessageOptions, RegenerateDocumentMessageOptions } from "../hooks/useDocAgent";

@@ -1,5 +1,5 @@
 import { docCache } from "./doc-cache";
-import { MIN_INDEX_CHARS } from "./vision-index";
+import { MIN_INDEX_CHARS } from "./page-text-merge";
 
 /** Read page text length from docCache (authoritative) with optional React doc fallback. */
 export function getPageTextLen(

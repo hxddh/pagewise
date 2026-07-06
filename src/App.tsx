@@ -1,21 +1,17 @@
-import { lazy, Suspense } from "react";
-import { ToastProvider } from "./hooks/useToast";
-import { useAppShell } from "./hooks/useAppShell";
+import { lazy, Suspense, useState } from "react";
+import { ToastProvider, useToast } from "./hooks/useToast";
+import { SessionProvider, useSession } from "./session/SessionProvider";
 import { useI18n } from "./i18n";
-import { ShellProvider } from "./contexts/ShellContext";
 import { DropOverlay } from "./components/DropOverlay";
 import { SettingsDrawer } from "./components/SettingsDrawer";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { ToastViewport } from "./components/ToastViewport";
-import { CommandPalette } from "./components/CommandPalette";
 import { AppRail } from "./components/AppRail";
-import { LibraryDrawer } from "./components/LibraryDrawer";
 import { WelcomeView } from "./components/WelcomeView";
 import { AgentDock } from "./components/AgentDock";
 import { FileErrorBanner } from "./components/FileErrorBanner";
 import { ConfirmBar } from "./components/ConfirmBar";
-import { removeRecentFile } from "./lib/recent-files";
 import "./styles/tokens.css";
 import "./styles/preview.css";
 import "./styles/settings.css";
@@ -39,180 +35,153 @@ function PanelFallback() {
   );
 }
 
-function AppShell() {
-  const { document, library, agent, shell } = useAppShell();
+function AppContent() {
   const { t } = useI18n();
+  const { showToast } = useToast();
+  const s = useSession();
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+
+  const doc = s.document;
+  const agent = s.agent;
+  const conn = s.connection;
 
   return (
-    <ShellProvider value={shell}>
-      <div className="app v3">
-        <DropOverlay visible={document.isDragging} />
-        <LoadingOverlay
-          visible={document.loading}
-          progress={
-            document.progress ?? { stage: "opening" as const, message: "load.opening", percent: 0 }
-          }
-        />
-        {document.fileError && (
-          <FileErrorBanner message={document.fileError} onDismiss={document.clearFileError} />
-        )}
-        <ToastViewport />
+    <div className="app v3">
+      <DropOverlay visible={s.isDragging} />
+      <LoadingOverlay
+        visible={s.loading || s.phase === "switching"}
+        progress={s.progress ?? { stage: "opening", message: "load.opening", percent: 0 }}
+      />
+      {s.fileError && (
+        <FileErrorBanner message={s.fileError} onDismiss={s.clearFileError} />
+      )}
+      <ToastViewport />
 
-        {shell.clearConfirmOpen && (
-          <div className="global-confirm">
-            <ConfirmBar
-              message={t("agent.clearConfirm")}
-              confirmLabel={t("agent.clear")}
-              danger
-              onConfirm={shell.clearChat}
-              onCancel={() => shell.setClearConfirmOpen(false)}
-            />
-          </div>
-        )}
+      {clearConfirmOpen && (
+        <div className="global-confirm">
+          <ConfirmBar
+            message={t("agent.clearConfirm")}
+            confirmLabel={t("agent.clear")}
+            danger
+            onConfirm={() => {
+              void s.clearChat();
+              setClearConfirmOpen(false);
+            }}
+            onCancel={() => setClearConfirmOpen(false)}
+          />
+        </div>
+      )}
 
-        <CommandPalette
-          open={shell.paletteOpen}
-          commands={shell.commands}
-          onClose={() => shell.setPaletteOpen(false)}
-        />
+      <SettingsDrawer
+        open={s.settingsOpen}
+        onClose={() => s.setSettingsOpen(false)}
+        onLlmSettingsSaved={() => conn.refresh()}
+        onReindexDoc={s.reindexDoc}
+        onPreferencesSaved={async () => {}}
+        followAgentDefault={false}
+        onFollowAgentDefaultChange={() => {}}
+        includeViewingPageDefault={false}
+        onIncludeViewingPageDefaultChange={() => {}}
+        onTestResult={(message, ok) => showToast(message, ok ? "success" : "error")}
+        onSaveError={() => showToast(t("settings.saveFailed"), "error")}
+      />
 
-        <SettingsDrawer
-          open={shell.settingsOpen}
-          initialTab={shell.settingsTab}
-          onClose={() => {
-            shell.setSettingsOpen(false);
-            shell.setSettingsTab(undefined);
-          }}
-          onLlmSettingsSaved={shell.handleLlmSettingsSaved}
-          onReindexDoc={shell.handleReindexDoc}
-          onApiReady={shell.handleApiReady}
-          onPreferencesSaved={shell.onPreferencesSaved}
-          followAgentDefault={document.followAgent}
-          onFollowAgentDefaultChange={document.setFollowAgent}
-          includeViewingPageDefault={document.includeViewingPage}
-          onIncludeViewingPageDefaultChange={document.setIncludeViewingPage}
-          onTestResult={(message, ok) => shell.showToast(message, ok ? "success" : "error")}
-          onSaveError={() => shell.showToast(t("settings.saveFailed"), "error")}
-        />
+      <AppRail
+        libraryOpen={false}
+        onLibrary={() => {}}
+        onOpenFile={s.openFileDialog}
+        onSettings={() => s.setSettingsOpen(true)}
+        connected={conn.canUseAgent && conn.settingsReady}
+        opening={s.loading}
+      />
 
-        <AppRail
-          libraryOpen={library.libraryOpen}
-          onLibrary={() => library.setLibraryOpen((o) => !o)}
-          onOpenFile={document.openFileDialog}
-          onSettings={() => shell.openSettings()}
-          connected={agent.canUseAgent && agent.settingsReady}
-          opening={document.loading || document.pickerOpen}
-        />
+      <div className="v3-main">
+        {!doc ? (
+          <WelcomeView
+            recentFiles={s.recentFiles}
+            canUseAgent={conn.canUseAgent}
+            hasApiKey={conn.hasApiKey}
+            agentToolsSupported={conn.agentToolsSupported}
+            opening={s.loading}
+            onOpenFile={s.openFileDialog}
+            onOpenRecent={s.openPath}
+            onConfigureApi={() => s.setSettingsOpen(true)}
+          />
+        ) : (
+          <div className={`v3-workspace ${s.agentOpen ? "" : "agent-hidden"}`}>
+            <Suspense fallback={<PanelFallback />}>
+              <PreviewPane
+                doc={doc}
+                page={s.previewPage}
+                onPageChange={s.setPreviewPage}
+                onOpenAiSettings={() => s.setSettingsOpen(true)}
+              />
+            </Suspense>
 
-        <LibraryDrawer
-          open={library.libraryOpen}
-          onClose={() => library.setLibraryOpen(false)}
-          recentFiles={library.recentFiles}
-          sessions={library.sessions}
-          activePath={document.activeDoc?.path ?? null}
-          onOpenRecent={document.openPath}
-          onRemoveRecent={async (path) =>
-            library.setRecentFiles(await removeRecentFile(path))
-          }
-          onOpenSession={library.openSessionFromLibrary}
-          onClearSession={library.deleteSession}
-          onOpenFile={document.openFileDialog}
-        />
-
-        <div className="v3-main">
-          {!document.activeDoc ? (
-            <WelcomeView
-              recentFiles={library.recentFiles}
-              canUseAgent={agent.canUseAgent}
-              hasApiKey={agent.hasApiKey}
-              agentToolsSupported={agent.agentToolsSupported}
-              opening={document.loading || document.pickerOpen}
-              onOpenFile={document.openFileDialog}
-              onOpenRecent={document.openPath}
-              onConfigureApi={() => shell.openSettings("ai")}
-            />
-          ) : (
-            <div className={`v3-workspace ${agent.agentOpen ? "" : "agent-hidden"}`}>
+            {s.agentOpen && (
+              <ResizeHandle
+                onPointerDown={s.onPointerDown}
+                onNudge={s.nudgeWidth}
+                value={s.chatWidth}
+                min={s.minWidth}
+                max={s.maxWidth}
+              />
+            )}
+            <div
+              className={`chat-column ${s.agentOpen ? "" : "chat-column-hidden"}`}
+              style={s.agentOpen ? { width: s.chatWidth } : undefined}
+              aria-hidden={!s.agentOpen}
+            >
               <Suspense fallback={<PanelFallback />}>
-                <PreviewPane
-                  doc={document.activeDoc}
-                  page={document.previewPage}
-                  onPageChange={document.setPreviewPage}
-                  prefsRevision={shell.prefsRevision}
-                  onOpenAiSettings={() => shell.openSettings("ai")}
+                <ChatPanel
+                  activeDoc={doc}
+                  previewPage={s.previewPage}
+                  includeViewingPage={false}
+                  messages={agent.messages}
+                  sendDocumentMessage={agent.sendDocumentMessage}
+                  regenerateDocumentMessage={agent.regenerateDocumentMessage}
+                  status={agent.status}
+                  error={agent.error}
+                  errorMessage={agent.errorMessage}
+                  hasApiKey={conn.hasApiKey}
+                  agentToolsSupported={conn.agentToolsSupported}
+                  settingsReady={conn.settingsReady}
+                  loadingDoc={s.loading}
+                  agentBusy={agent.isAgentBusy()}
+                  activity={agent.isAgentBusy() ? agent.streamProgress : null}
+                  historySettling={agent.historySettling}
+                  composerDraft=""
+                  onComposerDraftChange={() => {}}
+                  onConfigureApi={() => s.setSettingsOpen(true)}
+                  onStop={agent.stop}
+                  onClearChat={() => setClearConfirmOpen(true)}
+                  onExportChat={() => void s.exportChat()}
+                  onExportSummary={() => {}}
+                  onCollapse={() => s.setAgentOpen(false)}
                 />
               </Suspense>
-
-              {agent.agentOpen && (
-                <ResizeHandle
-                  onPointerDown={agent.onPointerDown}
-                  onNudge={agent.nudgeWidth}
-                  value={agent.chatWidth}
-                  min={agent.minWidth}
-                  max={agent.maxWidth}
-                />
-              )}
-              <div
-                className={`chat-column ${agent.agentOpen ? "" : "chat-column-hidden"}`}
-                style={agent.agentOpen ? { width: agent.chatWidth } : undefined}
-                aria-hidden={!agent.agentOpen}
-              >
-                <Suspense fallback={<PanelFallback />}>
-                  <ChatPanel
-                    ref={agent.chatPanelRef}
-                    activeDoc={document.activeDoc}
-                    previewPage={document.previewPage}
-                    includeViewingPage={document.includeViewingPage}
-                    messages={agent.messages}
-                    sendDocumentMessage={agent.sendDocumentMessage}
-                    editUserMessage={agent.editUserMessage}
-                    regenerateDocumentMessage={agent.regenerateDocumentMessage}
-                    status={agent.status}
-                    error={agent.error}
-                    errorMessage={agent.errorMessage}
-                    hasApiKey={agent.hasApiKey}
-                    agentToolsSupported={agent.agentToolsSupported}
-                    settingsReady={agent.settingsReady}
-                    loadingDoc={document.loading}
-                    chatLoading={library.chatLoading}
-                    agentBusy={agent.busy}
-                    activity={agent.busy ? agent.activity : null}
-                    historySettling={agent.historySettling}
-                    composerDraft={agent.composerDraft}
-                    onComposerDraftChange={agent.setComposerDraft}
-                    onConfigureApi={() => shell.openSettings("ai")}
-                    onStop={agent.stop}
-                    onClearChat={shell.requestClearChat}
-                    onExportChat={shell.exportChat}
-                    onExportSummary={shell.exportSummary}
-                    onCollapse={() => shell.toggleAgent()}
-                    threads={library.threads}
-                    activeThreadId={library.activeSessionId}
-                    onSelectThread={library.selectThread}
-                    onNewThread={library.newThread}
-                  />
-                </Suspense>
-              </div>
-
-              {!agent.agentOpen && (
-                <AgentDock
-                  onExpand={shell.expandAgent}
-                  busy={agent.busy}
-                  messageCount={agent.messages.length}
-                />
-              )}
             </div>
-          )}
-        </div>
+
+            {!s.agentOpen && (
+              <AgentDock
+                onExpand={() => s.setAgentOpen(true)}
+                busy={agent.isAgentBusy()}
+                messageCount={agent.messages.length}
+              />
+            )}
+          </div>
+        )}
       </div>
-    </ShellProvider>
+    </div>
   );
 }
 
 function App() {
   return (
     <ToastProvider>
-      <AppShell />
+      <SessionProvider>
+        <AppContent />
+      </SessionProvider>
     </ToastProvider>
   );
 }

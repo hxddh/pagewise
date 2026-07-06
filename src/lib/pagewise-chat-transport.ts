@@ -12,7 +12,7 @@ import type { ProviderId } from "./types";
 import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
-import { setAgentRunAbortSignal, clearAgentRunAbortSignal } from "./vision-index";
+import { setAgentRunAbortSignal, clearAgentRunAbortSignal } from "./agent-abort";
 import {
   createUsageMetadataTracker,
   type PageWiseMessageMetadata,
