@@ -45,6 +45,7 @@ export interface AiSettingsFooterState {
   canSetActive: boolean;
   onTest: () => void;
   onSetActive: () => void;
+  onDiscard: () => Promise<void>;
 }
 
 const PRESET_IDS = Object.keys(PROVIDER_PRESETS) as (keyof typeof PROVIDER_PRESETS)[];
@@ -208,7 +209,7 @@ export function AiProviderSettings({
     [previewProvider, activeProvider, onLlmSettingsSaved, onReindexDoc, visionModel, onTestResult, t],
   );
 
-  const { persistNow, markSaved } = useDebouncedSave({
+  const { persistNow, markSaved, discardPending } = useDebouncedSave({
     settings,
     visionModel,
     apiKeyDraft,
@@ -218,6 +219,28 @@ export function AiProviderSettings({
     onPersisted: handlePersisted,
     onStatus: setSaveStatus,
   });
+
+  const handleDiscard = useCallback(async () => {
+    discardPending();
+    const persisted = await loadProviderSettings(previewProvider);
+    profileCacheRef.current.set(previewProvider, persisted);
+    const profile = providerProfiles[previewProvider];
+    const vm =
+      profile?.visionModel?.trim() ||
+      (previewProvider !== "custom"
+        ? defaultVisionModel(previewProvider as Exclude<ProviderId, "custom">)
+        : "");
+    applyLoadedSettings(persisted, vm);
+    markSaved(persisted);
+    setDirty(false);
+    setSaveStatus("idle");
+  }, [
+    applyLoadedSettings,
+    discardPending,
+    markSaved,
+    previewProvider,
+    providerProfiles,
+  ]);
 
   function markDirty() {
     setDirty(true);
@@ -488,6 +511,7 @@ export function AiProviderSettings({
       canSetActive,
       onTest: () => void handleTest(),
       onSetActive: () => void handleSetActive(),
+      onDiscard: handleDiscard,
     });
   }, [
     loaded,
@@ -500,6 +524,7 @@ export function AiProviderSettings({
     canSetActive,
     handleTest,
     handleSetActive,
+    handleDiscard,
     onFooterState,
   ]);
 

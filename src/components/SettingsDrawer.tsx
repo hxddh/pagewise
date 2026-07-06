@@ -313,7 +313,9 @@ function SettingsDrawerInner({
             <ConfirmBar
               message={t("settings.discardUnsaved")}
               confirmLabel={t("settings.discardAndClose")}
-              onConfirm={onClose}
+              onConfirm={() => {
+                void aiFooter?.onDiscard().then(() => onClose());
+              }}
               onCancel={() => setCloseConfirmOpen(false)}
             />
           </div>

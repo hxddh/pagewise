@@ -177,7 +177,7 @@ describe("segmentMessageParts", () => {
       },
       { type: "tool-list_documents", toolCallId: "3", state: "output-available" },
       {
-        type: "tool-get_document_index",
+        type: "tool-document_outline",
         toolCallId: "4",
         state: "output-available",
       },

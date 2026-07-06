@@ -1,18 +1,21 @@
+import {
+  DOCUMENT_OUTLINE_TOOL,
+  DOCUMENT_TOOL_NAMES,
+  READ_PDF_PAGE_TOOL,
+  READ_PDF_RANGE_TOOL,
+  SEARCH_IN_DOCUMENT_TOOL,
+  type DocumentToolName,
+} from "./document-tool-names";
+
 /** Lightweight tools that should not be repeated in a loop without reading. */
-export const META_TOOLS = new Set([
-  "list_documents",
-  "get_document_index",
-  "search_in_document",
+export const META_TOOLS = new Set<DocumentToolName>([
+  DOCUMENT_OUTLINE_TOOL,
+  SEARCH_IN_DOCUMENT_TOOL,
 ]);
 
-export const READ_TOOL_NAMES = ["read_pdf_page", "read_pdf_range"] as const;
+export const READ_TOOL_NAMES = [READ_PDF_PAGE_TOOL, READ_PDF_RANGE_TOOL] as const;
 
-export const AGENT_TOOL_NAMES = [
-  "list_documents",
-  "get_document_index",
-  "search_in_document",
-  ...READ_TOOL_NAMES,
-] as const;
+export const AGENT_TOOL_NAMES = [...DOCUMENT_TOOL_NAMES] as const;
 
 export type AgentToolName = (typeof AGENT_TOOL_NAMES)[number];
 
@@ -45,10 +48,10 @@ export function hasReadToolInSteps(steps: AgentStepSnapshot[]): boolean {
 function stepUsesOnlyMetaTools(step: AgentStepSnapshot): boolean {
   const calls = step.toolCalls ?? [];
   if (calls.length === 0) return false;
-  return calls.every((call) => call.toolName && META_TOOLS.has(call.toolName));
+  return calls.every((call) => call.toolName && META_TOOLS.has(call.toolName as DocumentToolName));
 }
 
-/** True when recent steps keep calling list/index/search without reading pages. */
+/** True when recent steps keep calling outline/search without reading pages. */
 export function isMetaToolOnlyLoop(steps: AgentStepSnapshot[], window = 3): boolean {
   if (steps.length < window) return false;
   const recent = steps.slice(-window);
@@ -58,13 +61,13 @@ export function isMetaToolOnlyLoop(steps: AgentStepSnapshot[], window = 3): bool
 
 /** After search, force the model to read pages instead of searching again. */
 export function shouldForceReadTools(steps: AgentStepSnapshot[]): boolean {
-  if (countToolCalls(steps, "search_in_document") < 1) return false;
+  if (countToolCalls(steps, SEARCH_IN_DOCUMENT_TOOL) < 1) return false;
   return !hasReadToolInSteps(steps);
 }
 
-const ONE_TIME_META_TOOLS = ["list_documents", "get_document_index"] as const;
+const ONE_TIME_META_TOOLS = [DOCUMENT_OUTLINE_TOOL] as const;
 
-/** Hide list/index once already called this turn. */
+/** Hide outline once already called this turn. */
 export function getBlockedMetaTools(steps: AgentStepSnapshot[]): AgentToolName[] {
   const blocked: AgentToolName[] = [];
   for (const name of ONE_TIME_META_TOOLS) {

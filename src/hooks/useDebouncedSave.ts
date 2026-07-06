@@ -34,6 +34,7 @@ export function useDebouncedSave({
   const loadedRef = useRef(loaded);
   const dirtyRef = useRef(dirty);
   const lastSavedRef = useRef<string>("");
+  const suppressUnmountPersistRef = useRef(false);
   const onPersistedRef = useRef(onPersisted);
   const onStatusRef = useRef(onStatus);
 
@@ -44,6 +45,11 @@ export function useDebouncedSave({
   dirtyRef.current = dirty;
   onPersistedRef.current = onPersisted;
   onStatusRef.current = onStatus;
+
+  const discardPending = useCallback(() => {
+    dirtyRef.current = false;
+    suppressUnmountPersistRef.current = true;
+  }, []);
 
   const buildToSave = useCallback((): LlmSettings => {
     const s = settingsRef.current;
@@ -88,13 +94,17 @@ export function useDebouncedSave({
 
   useEffect(() => {
     return () => {
-      if (loadedRef.current && dirtyRef.current) {
+      if (loadedRef.current && dirtyRef.current && !suppressUnmountPersistRef.current) {
         void persist();
       }
     };
   }, [persist]);
 
-  return { persistNow: persist, markSaved: (saved: LlmSettings) => {
-    lastSavedRef.current = settingsPersistSnapshot(saved, visionModelRef.current);
-  } };
+  return {
+    persistNow: persist,
+    markSaved: (saved: LlmSettings) => {
+      lastSavedRef.current = settingsPersistSnapshot(saved, visionModelRef.current);
+    },
+    discardPending,
+  };
 }

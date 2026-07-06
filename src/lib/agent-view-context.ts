@@ -1,3 +1,5 @@
+import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
+
 export interface AgentMessageContext {
   path: string;
   docName: string;
@@ -90,17 +92,17 @@ Page selection rules:
 - If the user means "this page", "current page", "这一页", "当前页", or similar, call read_pdf_page for page ${ctx.viewingPage}.
 - If they name a different page number, read that page instead.
 - For general questions without a page reference, use search_in_document first; only default to page ${ctx.viewingPage} when the question clearly concerns visible on-screen content.
-- If a path is rejected as "not in loaded documents", call list_documents to obtain the exact path.`;
+- If a path is rejected as "not in loaded documents", ask the user to open the document first — only one document is loaded at a time.`;
 }
 
 export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string {
   const name = sanitizeForPrompt(ctx.docName);
   const pages = ctx.totalPages > 0 ? ctx.totalPages : "unknown";
-  const rangeEnd = ctx.totalPages > 0 ? String(ctx.totalPages) : "totalPages from get_document_index";
+  const rangeEnd = ctx.totalPages > 0 ? String(ctx.totalPages) : `totalPages from ${DOCUMENT_OUTLINE_TOOL}`;
   return `
 
 Whole-document request (${pages} pages in "${name}"):
-1. Call get_document_index once — do not skip this for large documents or when page count is unknown.
+1. Call ${DOCUMENT_OUTLINE_TOOL} once — do not skip this for large documents or when page count is unknown.
 2. If totalChars ≤ 8000: read_pdf_range(path, 1, ${rangeEnd}) in one call.
 3. If totalChars > 8000: read_pdf_range with maxChars=8000; when truncated=true, call again with start=nextStart (and offset=nextOffset when it is non-null) until truncated=false.
 4. Do NOT use search_in_document. Do NOT answer from only page ${ctx.viewingPage}.

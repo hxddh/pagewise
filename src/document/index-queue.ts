@@ -76,7 +76,10 @@ async function indexPage(path: string, page: number, signal: AbortSignal): Promi
     const settings = await loadVisionSettings();
     assertApiKeyForAgent(settings);
     const { bytes, mediaType } = await visionImageBytes(path, page, signal);
-    if (signal.aborted) return;
+    if (signal.aborted) {
+      emitPageIndex({ path, page, status: "idle" });
+      return;
+    }
 
     const text = await generateVisionText(settings, VISION_PROMPT, bytes, {
       signal: AbortSignal.timeout(VISION_TIMEOUT_MS),
@@ -96,6 +99,10 @@ async function indexPage(path: string, page: number, signal: AbortSignal): Promi
       });
     }
   } catch (err) {
+    if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+      emitPageIndex({ path, page, status: "idle" });
+      return;
+    }
     const detail = formatLlmError(err, undefined, "scan");
     if (import.meta.env.DEV) {
       console.warn(`[index] page ${page}:`, detail);

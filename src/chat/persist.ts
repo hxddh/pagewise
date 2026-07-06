@@ -13,7 +13,10 @@ let storePromise: Promise<Store> | null = null;
 
 async function getStore(): Promise<Store> {
   if (!storePromise) {
-    storePromise = Store.load(STORE_PATH);
+    storePromise = Store.load(STORE_PATH).catch((err) => {
+      storePromise = null;
+      throw err;
+    });
   }
   return storePromise;
 }
