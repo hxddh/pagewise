@@ -45,7 +45,8 @@ export async function loadDocument(
   };
 
   docCache.set(doc);
-  scheduleIndex(doc);
+  throwIfAborted(signal);
+  scheduleIndex(docCache.get(path) ?? doc);
 
   report(onProgress, { stage: "done", message: "load.ready", percent: 100 });
   return docCache.get(path) ?? doc;

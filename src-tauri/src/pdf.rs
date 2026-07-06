@@ -64,7 +64,7 @@ impl PdfExtractCancel {
 
 /// Cap on cached documents, mirroring the frontend docCache bound so a long
 /// session cannot grow native memory without limit.
-const MAX_CACHED_DOCS: usize = 12;
+const MAX_CACHED_DOCS: usize = 1;
 
 #[derive(Default)]
 struct CacheInner {

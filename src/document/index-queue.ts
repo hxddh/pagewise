@@ -4,7 +4,7 @@
 import { docCache } from "../lib/doc-cache";
 import { renderPageToJpegBytes } from "../lib/pdf";
 import { generateVisionText } from "../lib/vision-api";
-import { loadSettings } from "../lib/settings";
+import { loadVisionSettings } from "../lib/settings";
 import { assertApiKeyForAgent, formatLlmError } from "../lib/llm";
 import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { emitPageIndex } from "../lib/index-events";
@@ -21,7 +21,8 @@ type QueueEntry = { abort: AbortController };
 const queues = new Map<string, QueueEntry>();
 
 function sparsePages(doc: LoadedDocument): number[] {
-  return doc.pages
+  const pages = docCache.getPages(doc.path);
+  return pages
     .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
     .map((p) => p.page)
     .slice(0, MAX_INDEX_PAGES);
@@ -39,14 +40,13 @@ async function indexPage(path: string, page: number, signal: AbortSignal): Promi
   emitPageIndex({ path, page, status: "indexing", source: "vision" });
 
   try {
-    const settings = await loadSettings();
+    const settings = await loadVisionSettings();
     assertApiKeyForAgent(settings);
-    const visionModel = settings.model;
     const jpeg = await renderPageToJpegBytes(path, page, 1568, 0.85, signal);
     if (signal.aborted) return;
 
     const text = await generateVisionText(
-      { ...settings, model: visionModel },
+      settings,
       VISION_PROMPT,
       jpeg,
       { signal: AbortSignal.timeout(VISION_TIMEOUT_MS) },
@@ -123,7 +123,7 @@ export function scheduleIndex(doc: LoadedDocument, options?: { allPages?: boolea
   queues.set(doc.path, { abort: controller });
 
   const pages = options?.allPages
-    ? doc.pages.map((p) => p.page).slice(0, MAX_INDEX_PAGES)
+    ? docCache.getPages(doc.path).map((p) => p.page).slice(0, MAX_INDEX_PAGES)
     : sparsePages(doc);
 
   if (pages.length === 0) return;
@@ -140,13 +140,8 @@ export function cancelIndex(path: string): void {
   queues.delete(path);
 }
 
-export function reindexDocument(doc: LoadedDocument): void {
-  const path = doc.path;
-  for (const p of doc.pages) {
-    if (p.text.trim().length >= MIN_INDEX_CHARS) {
-      docCache.upsertPageText(path, p.page, "");
-    }
-  }
+export function reindexDocument(path: string): void {
+  docCache.invalidateIndexedPageText(path);
   const fresh = docCache.get(path);
   if (fresh) scheduleIndex(fresh, { allPages: true });
 }

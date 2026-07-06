@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-07-06
+
+### Fixed
+
+- Session: chat hydrate after `chatId` aligns; abort in-flight loads on doc switch; isolate `saveChat` errors
+- Index: use `loadVisionSettings()` for scan pages; reindex via `docCache.invalidateIndexedPageText`
+- UI: wire composer prefs, `editUserMessage`, export summary, command palette, follow-agent
+- Preview/search: sync `document` from `docCache`; text layer + search update when index completes
+- Settings: `onApiReady`, preferences revision for preview quality
+
 ## [3.0.0] - 2026-07-06
 
 ### Changed (breaking)

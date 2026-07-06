@@ -37,6 +37,14 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
     };
   }, [open]);
 
+  const [cacheRevision, setCacheRevision] = useState(0);
+
+  useEffect(() => {
+    return docCache.subscribe((path) => {
+      if (path === doc.path) setCacheRevision((r) => r + 1);
+    });
+  }, [doc.path]);
+
   useEffect(() => {
     if (!query.trim()) {
       setHits([]);
@@ -55,7 +63,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
     return () => {
       window.clearTimeout(id);
     };
-  }, [query, doc.path]);
+  }, [query, doc.path, cacheRevision]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

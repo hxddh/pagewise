@@ -76,9 +76,8 @@ function PreviewPaneInner({
   const indexHint = useMemo(() => {
     const hasText = pageHasIndexableText(doc.path, indexPage, doc.pages);
     if (hasText) {
-      if (indexState?.status === "done") {
-        if (indexState.source === "vision") return t("preview.indexedVision");
-        if (indexState.source === "ocr") return t("preview.indexedOcr");
+      if (indexState?.status === "done" && indexState.source === "vision") {
+        return t("preview.indexedVision");
       }
       return null;
     }
@@ -87,13 +86,8 @@ function PreviewPaneInner({
       let hint: string;
       switch (indexState.failureReason) {
         case "need_vision":
-          hint = t("preview.indexFailedNeedVision");
-          break;
-        case "ocr_unavailable":
-          hint = t("preview.indexFailedOcrMissing");
-          break;
         case "vision_failed":
-          hint = t("preview.indexFailedVision");
+          hint = t("preview.indexFailedNeedVision");
           break;
         case "insufficient_text":
           hint = t("preview.indexFailedInsufficient");
@@ -147,18 +141,18 @@ function PreviewPaneInner({
         ) : indexFailed ? (
           <div className="preview-index-badge-row" aria-live="polite">
             <div className="preview-index-badge">{indexHint}</div>
-            {indexHintActionable && (
+            {(showRetryOnVisionFailed || indexHintActionable) && (
+              <button type="button" className="preview-index-retry-btn" onClick={retryIndex}>
+                {t("preview.retryIndex")}
+              </button>
+            )}
+            {indexHintActionable && onOpenAiSettings && (
               <button
                 type="button"
                 className="preview-index-retry-btn"
                 onClick={onOpenAiSettings}
               >
                 {t("settings.title")}
-              </button>
-            )}
-            {(showRetryOnVisionFailed || !indexHintActionable) && (
-              <button type="button" className="preview-index-retry-btn" onClick={retryIndex}>
-                {t("preview.retryIndex")}
               </button>
             )}
           </div>

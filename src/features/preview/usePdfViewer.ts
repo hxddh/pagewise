@@ -16,6 +16,7 @@ import { useI18n } from "../../i18n";
 import { registerPreviewActions } from "../../lib/preview-actions";
 import { isTauriRuntime } from "../../lib/runtime";
 import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
+import { getPageTextLen } from "../../lib/doc-text";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
 import { isSameZoom, stepZoom, type ZoomMode } from "../../lib/zoom";
 import {
@@ -90,7 +91,7 @@ export function usePdfViewer({
 
   const docPath = doc.path;
   const docTotalPages = doc.kind === "pdf" ? doc.totalPages : 1;
-  const currentPageTextLen = doc.pages[page - 1]?.text.trim().length ?? 0;
+  const currentPageTextLen = getPageTextLen(docPath, page, doc.pages);
 
   useEffect(() => {
     loadPreferences().then((p) => setUserQuality(p.previewQuality));
