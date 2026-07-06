@@ -33,11 +33,15 @@ const NAV_BURST_MS = 400;
 const NAV_IDLE_MS = 350;
 const LOADING_DELAY_MS = 80;
 
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 4;
+
 function loadZoom(): ZoomMode {
   const raw = localStorage.getItem(ZOOM_KEY);
   if (raw === "fit-width") return "fit-width";
   const n = raw ? parseFloat(raw) : NaN;
-  return Number.isFinite(n) ? n : "fit-width";
+  if (!Number.isFinite(n)) return "fit-width";
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, n));
 }
 
 interface UsePdfViewerOptions {

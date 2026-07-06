@@ -14,6 +14,7 @@ interface UseDebouncedSaveOptions {
   dirty: boolean;
   onPersisted?: (saved: LlmSettings) => void;
   onStatus?: (status: SaveStatus) => void;
+  onUnchanged?: () => void;
 }
 
 export function useDebouncedSave({
@@ -25,6 +26,7 @@ export function useDebouncedSave({
   dirty,
   onPersisted,
   onStatus,
+  onUnchanged,
 }: UseDebouncedSaveOptions) {
   const settingsRef = useRef(settings);
   const visionModelRef = useRef(visionModel);
@@ -37,6 +39,7 @@ export function useDebouncedSave({
   const suppressUnmountPersistRef = useRef(false);
   const onPersistedRef = useRef(onPersisted);
   const onStatusRef = useRef(onStatus);
+  const onUnchangedRef = useRef(onUnchanged);
 
   settingsRef.current = settings;
   draftRef.current = apiKeyDraft;
@@ -45,6 +48,7 @@ export function useDebouncedSave({
   dirtyRef.current = dirty;
   onPersistedRef.current = onPersisted;
   onStatusRef.current = onStatus;
+  onUnchangedRef.current = onUnchanged;
 
   const discardPending = useCallback(() => {
     dirtyRef.current = false;
@@ -64,7 +68,10 @@ export function useDebouncedSave({
 
     const toSave = buildToSave();
     const snap = settingsPersistSnapshot(toSave, visionModelRef.current);
-    if (snap === lastSavedRef.current) return toSave;
+    if (snap === lastSavedRef.current) {
+      onUnchangedRef.current?.();
+      return toSave;
+    }
 
     onStatusRef.current?.("saving");
     try {

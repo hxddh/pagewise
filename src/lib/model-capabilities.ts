@@ -93,6 +93,17 @@ function looksLikeVisionModel(model: string): boolean {
   return /(?:^|[-_/])(vl|vision|llava|bakllava|minicpm-v|pixtral|moondream|gemma)/.test(m);
 }
 
+/** Heuristic for unknown OpenRouter routes that likely support tool calling. */
+function looksLikeToolModel(model: string): boolean {
+  const m = normalizeModelId(model);
+  if (looksLikeVisionModel(model) && /(?:^|[-_/])(vl|vision|llava|bakllava|minicpm-v)/.test(m)) {
+    return false;
+  }
+  return /(?:gpt-4|gpt-5|gpt-3\.5|claude|gemini|deepseek|mistral|mixtral|llama-3|llama3|qwen2\.5(?!vl)|qwen3(?!-vl)|command-r)/.test(
+    m,
+  );
+}
+
 export function isVisionModel(provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.vision;
@@ -127,7 +138,7 @@ export function isAgentMultimodalModel(provider: ProviderId, model: string): boo
 export function isToolModel(provider: ProviderId, model: string): boolean {
   const known = lookupCapabilities(model);
   if (known) return known.tools;
-  if (provider === "openrouter") return false;
+  if (provider === "openrouter") return looksLikeToolModel(model);
   if (provider === "ollama") return true;
   // Custom base URL: user explicitly configured the endpoint.
   return true;

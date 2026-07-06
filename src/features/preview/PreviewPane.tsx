@@ -85,7 +85,6 @@ function PreviewPaneInner({
     if (indexState?.status === "failed") {
       let hint: string;
       switch (indexState.failureReason) {
-        case "need_vision":
         case "vision_failed":
           hint = t("preview.indexFailedNeedVision");
           break;
@@ -107,8 +106,7 @@ function PreviewPaneInner({
 
   const indexHintActionable =
     indexState?.status === "failed" &&
-    (indexState.failureReason === "need_vision" ||
-      indexState.failureReason === "vision_failed") &&
+    indexState.failureReason === "vision_failed" &&
     !!onOpenAiSettings;
 
   const showRetryOnVisionFailed =

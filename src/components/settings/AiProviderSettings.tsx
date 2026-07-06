@@ -218,6 +218,10 @@ export function AiProviderSettings({
     dirty,
     onPersisted: handlePersisted,
     onStatus: setSaveStatus,
+    onUnchanged: () => {
+      setDirty(false);
+      setSaveStatus("idle");
+    },
   });
 
   const handleDiscard = useCallback(async () => {

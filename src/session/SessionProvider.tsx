@@ -18,6 +18,7 @@ import {
 import { docCache } from "../lib/doc-cache";
 import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { addRecentFile, getRecentFiles, removeRecentFile, type RecentFile } from "../lib/recent-files";
+import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
 import { clearChat as clearChatFile, loadChat, saveChat } from "../chat/persist";
 import { useDocAgent } from "../hooks/useDocAgent";
@@ -122,7 +123,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [agentOpen]);
 
   useEffect(() => {
-    void getRecentFiles().then(setRecentFiles);
+    void getRecentFiles().then((files) => {
+      setRecentFiles(files);
+      void restoreAllowedPaths(files.map((f) => f.path));
+    });
   }, []);
 
   useEffect(() => {
@@ -144,6 +148,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const saveTimerRef = useRef<number | undefined>(undefined);
 
   const flushChatNow = useCallback(async () => {
+    await agent.waitForStreamIdle();
+    agent.stop();
     const path = documentRef.current?.path;
     const msgs = messagesRef.current;
     if (!path || msgs.length === 0) return;
@@ -152,7 +158,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       saveTimerRef.current = undefined;
     }
     await saveChat(path, msgs);
-  }, []);
+  }, [agent]);
 
   useEffect(() => {
     if (!document?.path || agent.messages.length === 0) return;
@@ -337,8 +343,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     const md = chatToMarkdown(agent.messages, doc.name);
+    const name = doc.name.replace(/\.[^.]+$/, "") + "-chat.md";
     try {
-      const ok = await saveMarkdownFile(md, `${doc.name}-chat.md`, t("dialog.markdownFilter"));
+      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
       if (ok) showToast(t("toast.chatExported"), "success");
     } catch {
       showToast(t("toast.exportFailed"), "error");
