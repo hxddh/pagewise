@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { UIMessage } from "ai";
 import { findLastMessage } from "../lib/messages-utils";
 import { useI18n } from "../i18n";
-import { chatToMarkdown } from "../lib/export-markdown";
 import { ExportSummaryError, streamExportSummary } from "../lib/export-summary";
 import { saveMarkdownFile } from "../lib/save-markdown";
 import type { CommandItem } from "../lib/commands";
@@ -28,6 +27,7 @@ interface UseAppCommandsOptions {
   onClearChat: () => void;
   onStop: () => void;
   onCycleTheme: () => void;
+  onExportChat: () => void | Promise<void>;
   showToast: (msg: string, tone?: "default" | "success" | "error") => void;
 }
 
@@ -55,6 +55,7 @@ export function useAppCommands({
   onClearChat,
   onStop,
   onCycleTheme,
+  onExportChat,
   showToast,
 }: UseAppCommandsOptions) {
   const { t, localeMode, setLocaleMode } = useI18n();
@@ -62,19 +63,8 @@ export function useAppCommands({
   const mod = modKey();
 
   const exportChat = useCallback(async () => {
-    if (messages.length === 0) {
-      showToast(t("toast.noMessages"), "error");
-      return;
-    }
-    const md = chatToMarkdown(messages, activeDocName ?? undefined);
-    const name = (activeDocName ?? "chat").replace(/\.[^.]+$/, "") + "-chat.md";
-    try {
-      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
-      if (ok) showToast(t("toast.chatExported"), "success");
-    } catch {
-      showToast(t("toast.exportFailed"), "error");
-    }
-  }, [messages, activeDocName, showToast, t]);
+    await onExportChat();
+  }, [onExportChat]);
 
   const exportSummary = useCallback(async () => {
     const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");

@@ -1,6 +1,6 @@
 import { throwIfAborted } from "./abort-utils";
 import { extractPageText } from "./pdf";
-import { ToolLoopAgent, stepCountIs, tool } from "ai";
+import { ToolLoopAgent, stepCountIs, tool, type StopCondition } from "ai";
 import { z } from "zod";
 import {
   buildDocToolContext,
@@ -23,6 +23,7 @@ import { searchInDocument } from "../document/search";
 import { ensurePageIndexed } from "../document/index-queue";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
+import { isMetaToolOnlyLoop } from "./agent-loop-guards";
 import { getAgentRunAbortSignal } from "./agent-abort";
 import { yieldToUi } from "./yield-to-ui";
 
@@ -32,6 +33,15 @@ export const DEFAULT_RANGE_MAX_CHARS = 6_000;
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
 /** Default ceiling per agent run. */
 const DEFAULT_MAX_AGENT_STEPS = 12;
+
+const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
+  isMetaToolOnlyLoop(
+    steps.map((step) => ({
+      toolCalls: step.toolCalls.map((call) => ({ toolName: call.toolName })),
+    })),
+  );
+
+const AGENT_STOP_WHEN = [stepCountIs(DEFAULT_MAX_AGENT_STEPS), stopMetaToolLoop];
 /** Cumulative characters a single run may read before it must synthesize. */
 const RUN_CHAR_BUDGET = 120_000;
 
@@ -436,7 +446,7 @@ export function createDocAgent() {
     instructions: SYSTEM_INSTRUCTIONS,
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
-    stopWhen: stepCountIs(DEFAULT_MAX_AGENT_STEPS),
+    stopWhen: AGENT_STOP_WHEN,
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
 
@@ -454,7 +464,7 @@ export function createDocAgent() {
 
       return {
         ...rest,
-        stopWhen: stepCountIs(runMaxSteps),
+        stopWhen: [stepCountIs(runMaxSteps), stopMetaToolLoop],
         model: resolveModel(settings),
         reasoning: resolveReasoning(settings),
         instructions: SYSTEM_INSTRUCTIONS + viewHint,

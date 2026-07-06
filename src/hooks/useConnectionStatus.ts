@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { loadSettingsMeta, type LlmSettingsMeta } from "../lib/settings";
 import { isToolModel } from "../lib/model-capabilities";
 import { useI18n } from "../i18n";
-import { PROVIDER_PRESETS, type LlmSettings } from "../lib/types";
+import { PROVIDER_PRESETS, DEFAULT_SETTINGS, type LlmSettings } from "../lib/types";
 
 export function isApiKeyConfigured(settings: LlmSettings | LlmSettingsMeta): boolean {
   if (settings.provider === "ollama") return true;
@@ -36,7 +36,7 @@ export function useConnectionStatus() {
         if (!mountedRef.current || seq !== refreshSeqRef.current) return;
         if (import.meta.env.DEV) console.warn("[connection-status] load failed:", err);
         setSettings({
-          provider: "openrouter",
+          provider: DEFAULT_SETTINGS.provider,
           model: "",
           visionModel: "",
           baseURL: "",

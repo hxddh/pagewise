@@ -28,7 +28,12 @@ function schemeOf(url: string): string | null {
   }
 }
 
-function SafeAnchor({ href, children, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+function SafeAnchor({
+  href,
+  children,
+  node: _node,
+  ...rest
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
   const target = typeof href === "string" ? href : "";
   const scheme = schemeOf(target);
   const allowed = !!scheme && SAFE_LINK_SCHEMES.includes(scheme);
@@ -51,7 +56,11 @@ function SafeAnchor({ href, children, ...rest }: AnchorHTMLAttributes<HTMLAnchor
   );
 }
 
-function SafeImg({ src, ...rest }: ImgHTMLAttributes<HTMLImageElement>) {
+function SafeImg({
+  src,
+  node: _node,
+  ...rest
+}: ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
   const target = typeof src === "string" ? src : "";
   const scheme = schemeOf(target);
   if (!scheme || !SAFE_IMG_SCHEMES.includes(scheme)) return null;

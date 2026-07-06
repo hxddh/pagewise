@@ -79,6 +79,7 @@ function AppContent() {
     onClearChat: overlays.openClearConfirm,
     onStop: agent.stop,
     onCycleTheme: () => void cycleTheme(),
+    onExportChat: () => void s.exportChat(),
     showToast,
   });
 

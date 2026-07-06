@@ -383,7 +383,7 @@
     "aiReady": "AI 已就绪 — 打开文档即可开始",
     "collapseHint": "助手已收起 · ⌘\\ 可展开",
     "opened": "已打开 {{name}}",
-    "reindexStarted": "正在重新索引文档…",
+    "reindexStarted": "正在重新索引（vision 最多重扫 50 页，其余页保留 PDF 文本）…",
     "chatSaveFailed": "切换文档前无法保存聊天记录",
     "pathRestoreFailed": "{{count}} 个已保存路径无法恢复访问，请重新打开文件",
     "indexPageCap": "本次索引 {{indexed}}/{{total}} 页稀疏内容 — 可重新打开或翻页继续索引",

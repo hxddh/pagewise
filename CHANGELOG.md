@@ -4,6 +4,24 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-07-06
+
+### Fixed
+
+- Agent: OpenRouter unknown models use tool-capability heuristics instead of hard reject (M8)
+- Agent: stop meta-tool-only loops (outline/search without reads) via existing loop guards (M7)
+- Settings: clear false "Unsaved" when edits match last saved snapshot (L1)
+- Session: wait for stream idle before flush on window close; restore allowed paths on startup
+- Markdown: strip react-markdown `node` prop from safe link/image renderers (L4)
+- Connection status: fall back to `DEFAULT_SETTINGS.provider` when settings load fails (L6)
+- Preview: clamp corrupted zoom values from localStorage (L13)
+- Preview: remove dead `need_vision` index failure branch
+
+### Changed
+
+- Export chat: command palette uses session export; unified `{basename}-chat.md` naming (L5)
+- Toast: reindex message explains 50-page vision limit
+
 ## [3.3.0] - 2026-07-06
 
 ### Security

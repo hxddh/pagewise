@@ -70,8 +70,17 @@ describe("isAgentMultimodalModel", () => {
 });
 
 describe("isToolModel", () => {
-  it("rejects unknown OpenRouter models", () => {
+  it("rejects unknown OpenRouter models without tool hints", () => {
     expect(isToolModel("openrouter", "vendor/unknown-v9")).toBe(false);
+  });
+
+  it("allows unknown OpenRouter models that look tool-capable", () => {
+    expect(isToolModel("openrouter", "openai/gpt-4.1")).toBe(true);
+    expect(isToolModel("openrouter", "anthropic/claude-sonnet-4")).toBe(true);
+  });
+
+  it("rejects unknown OpenRouter vision-only routes", () => {
+    expect(isToolModel("openrouter", "vendor/unknown-vl-9")).toBe(false);
   });
 
   it("allows unknown Ollama models", () => {
