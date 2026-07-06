@@ -7,13 +7,13 @@ import {
   buildRuntimeContext,
   resolveDocPath,
   type PageWiseDocToolContext,
+  type PageWiseRuntimeContext,
 } from "./agent-runtime-context";
 import { emitAgentProgress } from "./agent-progress";
 import { formatSearchPreview } from "./search-preview";
 import {
   buildViewContextInstructions,
   buildWholeDocumentInstructions,
-  consumePendingAgentContext,
 } from "./agent-view-context";
 import { docCache } from "./doc-cache";
 import { resolveModel, resolveReasoning } from "./llm";
@@ -437,13 +437,15 @@ export function createDocAgent() {
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
     stopWhen: stepCountIs(DEFAULT_MAX_AGENT_STEPS),
-    prepareCall: async ({ toolsContext, ...rest }) => {
+    prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
 
       const settings = await loadSettings();
-      const viewCtx = consumePendingAgentContext();
+      const runtime =
+        (incomingRuntime as PageWiseRuntimeContext | undefined) ??
+        buildRuntimeContext(null);
+      const viewCtx = runtime.messageContext;
       runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
-      const runtimeContext = buildRuntimeContext(viewCtx);
       let viewHint = viewCtx ? buildViewContextInstructions(viewCtx) : "";
 
       if (viewCtx && hasWholeDocumentIntent(viewCtx.userText)) {
@@ -456,10 +458,10 @@ export function createDocAgent() {
         model: resolveModel(settings),
         reasoning: resolveReasoning(settings),
         instructions: SYSTEM_INSTRUCTIONS + viewHint,
-        runtimeContext,
+        runtimeContext: runtime,
         toolsContext: {
           ...toolsContext,
-          ...buildToolsContext(runtimeContext),
+          ...buildToolsContext(runtime),
         },
       };
     },

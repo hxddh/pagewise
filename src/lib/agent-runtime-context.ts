@@ -7,6 +7,8 @@ export interface PageWiseRuntimeContext extends Context {
   activeDocPath: string | null;
   activeDocName: string | null;
   viewingPage: number | null;
+  /** Per-send view context consumed by PagewiseChatTransport and read in prepareCall. */
+  messageContext: AgentMessageContext | null;
 }
 
 /** Per-tool default path injected via toolsContext. */
@@ -23,6 +25,7 @@ export function buildRuntimeContext(
     activeDocPath: viewCtx?.path ?? soleDoc?.path ?? null,
     activeDocName: viewCtx?.docName ?? soleDoc?.name ?? null,
     viewingPage: viewCtx?.viewingPage ?? null,
+    messageContext: viewCtx,
   };
 }
 

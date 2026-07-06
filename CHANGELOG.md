@@ -4,6 +4,17 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-07-06
+
+### Security
+
+- Asset protocol: remove blanket `$HOME/**` scope; allow only files registered via `register_allowed_path` (runtime `asset_protocol_scope.allow_file`)
+- PDF: catch panics from `pdf_extract` in blocking workers; release profile uses `panic = "unwind"` so a malformed PDF no longer aborts the whole app (H6)
+
+### Changed
+
+- Agent: per-send view context flows through `runtimeContext` (transport consumes queue → `prepareCall` reads `messageContext`) instead of a second consume in `prepareCall`
+
 ## [3.2.0] - 2026-07-06
 
 ### Fixed

@@ -23,9 +23,7 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob: https:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; font-src 'self' data:",
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$HOME/**"
-        ]
+        "scope": []
       }
     }
   },
