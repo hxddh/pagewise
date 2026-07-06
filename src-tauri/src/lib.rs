@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pdf::{extract_pdf_text, pdf_page_count, PdfCache, PdfExtractCancel, PdfExtractResult};
-use tauri::State;
+use tauri::{Manager, State};
 
 #[derive(Default)]
 struct AllowedPaths(Mutex<HashSet<PathBuf>>);
@@ -36,14 +36,33 @@ fn ensure_allowed(allowed: &AllowedPaths, path: &str) -> Result<PathBuf, String>
     Ok(canon)
 }
 
+fn run_blocking_pdf<F, T>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + std::panic::UnwindSafe,
+{
+    match std::panic::catch_unwind(f) {
+        Ok(result) => result,
+        Err(_) => Err(
+            "PDF processing failed — the file may be malformed or unsupported".to_string(),
+        ),
+    }
+}
+
 #[tauri::command]
-async fn register_allowed_path(path: String, state: State<'_, AllowedPaths>) -> Result<(), String> {
+async fn register_allowed_path(
+    path: String,
+    state: State<'_, AllowedPaths>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     let canon = canonicalize(&path)?;
     let mut set = state
         .0
         .lock()
         .map_err(|_| "allowlist lock poisoned".to_string())?;
-    set.insert(canon);
+    set.insert(canon.clone());
+    app.asset_protocol_scope()
+        .allow_file(&canon)
+        .map_err(|e| format!("asset scope: {e}"))?;
     Ok(())
 }
 
@@ -65,7 +84,7 @@ async fn pdf_page_count_cmd(
     let pdf_scope = pdf::PdfExtractScope::parse(&scope);
     let gen = cancel.capture(pdf_scope);
     tauri::async_runtime::spawn_blocking(move || {
-        pdf_page_count(&canon_str, &cancel, pdf_scope, gen)
+        run_blocking_pdf(|| pdf_page_count(&canon_str, &cancel, pdf_scope, gen))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -87,7 +106,7 @@ async fn extract_pdf_text_cmd(
     let pdf_scope = pdf::PdfExtractScope::parse(&scope);
     let gen = cancel.capture(pdf_scope);
     tauri::async_runtime::spawn_blocking(move || {
-        extract_pdf_text(&canon_str, page, &cache, &cancel, pdf_scope, gen)
+        run_blocking_pdf(|| extract_pdf_text(&canon_str, page, &cache, &cancel, pdf_scope, gen))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?

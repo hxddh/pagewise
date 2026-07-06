@@ -1,6 +1,6 @@
 [package]
 name = "pagewise"
-version = "3.2.0"
+version = "3.3.0"
 description = "Local desktop PDF agent — page-wise AI analysis"
 authors = ["hxddh"]
 edition = "2021"
@@ -33,5 +33,5 @@ keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sy
 [profile.release]
 lto = true
 codegen-units = 1
-panic = "abort"
+panic = "unwind"
 strip = true

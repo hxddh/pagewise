@@ -29,6 +29,10 @@ If the keychain is unavailable, the app may temporarily persist the key in the l
 - Provider profiles without keys (`settings.json`)
 - Recent files list
 
+### Asset protocol
+
+Preview thumbnails use Tauri’s `asset://` protocol. The default scope is **empty**; each opened document path is registered at runtime via `register_allowed_path`, which also adds that file to the asset allowlist. Arbitrary `$HOME` reads are not permitted by default.
+
 ## Pre-release checks
 
 Before tagging a release, run:
