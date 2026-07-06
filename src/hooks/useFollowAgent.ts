@@ -1,26 +1,32 @@
 import { useEffect, useRef } from "react";
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 import { getLastAgentMessageContext } from "../lib/agent-view-context";
-import { getInFlightAssistantMessage } from "../lib/messages-utils";
+import { getLastMessage } from "../lib/messages-utils";
 import { shouldFollowAgentToPage } from "../lib/page-intent";
 
 /** Jump preview to pages the agent reads when follow-agent is enabled. */
 export function useFollowAgent(
   enabled: boolean,
   messages: UIMessage[],
-  busy: boolean,
   onPageChange: (page: number) => void,
 ): void {
   const lastKeyRef = useRef("");
+  const lastAssistantIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!enabled || !busy) {
+    if (!enabled) {
       lastKeyRef.current = "";
+      lastAssistantIdRef.current = null;
       return;
     }
 
-    const assistant = getInFlightAssistantMessage(messages, true);
-    if (!assistant) return;
+    const assistant = getLastMessage(messages);
+    if (!assistant || assistant.role !== "assistant") return;
+
+    if (lastAssistantIdRef.current !== assistant.id) {
+      lastAssistantIdRef.current = assistant.id;
+      lastKeyRef.current = "";
+    }
 
     const ctx = getLastAgentMessageContext();
     const followCtx = ctx
@@ -55,5 +61,5 @@ export function useFollowAgent(
       onPageChange(page);
       return;
     }
-  }, [enabled, messages, busy, onPageChange]);
+  }, [enabled, messages, onPageChange]);
 }

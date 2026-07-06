@@ -32,23 +32,38 @@ export function useWorkbenchPrefs() {
   }, []);
 
   const toggleFollowAgent = useCallback(async () => {
-    const next = !followAgent;
+    const prev = followAgent;
+    const next = !prev;
     setFollowAgent(next);
-    const p = await patchPreferences({ followAgentDefault: next });
-    setPrefs(p);
+    try {
+      const p = await patchPreferences({ followAgentDefault: next });
+      setPrefs(p);
+    } catch {
+      setFollowAgent(prev);
+    }
   }, [followAgent]);
 
   const setIncludeViewingPageDefault = useCallback(async (value: boolean) => {
+    const prev = includeViewingPage;
     setIncludeViewingPage(value);
-    const p = await patchPreferences({ includeViewingPageDefault: value });
-    setPrefs(p);
-  }, []);
+    try {
+      const p = await patchPreferences({ includeViewingPageDefault: value });
+      setPrefs(p);
+    } catch {
+      setIncludeViewingPage(prev);
+    }
+  }, [includeViewingPage]);
 
   const setFollowAgentDefault = useCallback(async (value: boolean) => {
+    const prev = followAgent;
     setFollowAgent(value);
-    const p = await patchPreferences({ followAgentDefault: value });
-    setPrefs(p);
-  }, []);
+    try {
+      const p = await patchPreferences({ followAgentDefault: value });
+      setPrefs(p);
+    } catch {
+      setFollowAgent(prev);
+    }
+  }, [followAgent]);
 
   return {
     prefs,

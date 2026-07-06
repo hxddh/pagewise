@@ -1,15 +1,12 @@
-import type { UIMessage } from "ai";
 import type { LoadProgress } from "../lib/load-progress";
 import type { LoadedDocument } from "../lib/types";
 
-export type AppPhase = "empty" | "loading" | "switching" | "ready";
+export type AppPhase = "empty" | "switching" | "ready";
 
-export interface SessionSnapshot {
-  epoch: number;
+export interface SessionState {
   phase: AppPhase;
   document: LoadedDocument | null;
   previewPage: number;
-  messages: UIMessage[];
   fileError: string | null;
   loading: boolean;
   progress: LoadProgress | null;

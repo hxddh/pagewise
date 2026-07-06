@@ -4,6 +4,26 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.0.3] - 2026-07-06
+
+### Added
+
+- Image documents restored: PNG, JPG, WebP, TIFF, BMP, GIF open with vision indexing and multimodal chat
+
+### Fixed
+
+- Session: transactional doc switch — defer cache commit until load + chat hydrate succeed; no eviction on failure
+- Session: `waitForStreamIdle` before saving chat on switch; same-path re-open is a no-op; block opens while loading
+- UI: clear-chat confirm uses overlay lock; settings and library drawer are mutually exclusive
+- Recent files: Welcome and drawer share `openableRecentFiles()` filter and opening disabled state
+- Index: dedupe per-page vision work; images use `readAuthorizedFileBytes` for scan
+- Prefs: rollback follow-agent toggle on persist failure
+- Follow-agent: tracks last assistant turn, not only while streaming
+
+### Removed
+
+- Dead v2 code: `ThreadSelector`, `chat-doc-snapshot`
+
 ## [3.0.2] - 2026-07-06
 
 ### Added
