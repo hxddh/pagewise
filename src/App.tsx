@@ -12,6 +12,7 @@ import { WelcomeView } from "./components/WelcomeView";
 import { AgentDock } from "./components/AgentDock";
 import { FileErrorBanner } from "./components/FileErrorBanner";
 import { ConfirmBar } from "./components/ConfirmBar";
+import { RecentFilesDrawer } from "./components/RecentFilesDrawer";
 import { CommandPalette } from "./components/CommandPalette";
 import { useAppCommands } from "./hooks/useAppCommands";
 import { useFollowAgent } from "./hooks/useFollowAgent";
@@ -48,6 +49,7 @@ function AppContent() {
   const prefs = useWorkbenchPrefs();
 
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [composerDraft, setComposerDraft] = useState("");
 
   const doc = s.document;
@@ -113,6 +115,20 @@ function AppContent() {
         </div>
       )}
 
+      <RecentFilesDrawer
+        open={libraryOpen}
+        recentFiles={s.recentFiles}
+        activePath={doc?.path ?? null}
+        opening={s.loading}
+        onClose={() => setLibraryOpen(false)}
+        onOpenFile={() => {
+          setLibraryOpen(false);
+          s.openFileDialog();
+        }}
+        onOpenRecent={(path) => void s.openPath(path)}
+        onRemoveRecent={(path) => void s.removeRecent(path)}
+      />
+
       <SettingsDrawer
         open={s.settingsOpen}
         onClose={() => s.setSettingsOpen(false)}
@@ -131,9 +147,9 @@ function AppContent() {
       />
 
       <AppRail
-        showLibrary={false}
-        libraryOpen={false}
-        onLibrary={() => {}}
+        showLibrary
+        libraryOpen={libraryOpen}
+        onLibrary={() => setLibraryOpen((o) => !o)}
         onOpenFile={s.openFileDialog}
         onSettings={() => s.setSettingsOpen(true)}
         connected={conn.canUseAgent && conn.settingsReady}
