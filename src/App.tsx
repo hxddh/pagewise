@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
 import { SessionProvider, useSession } from "./session/SessionProvider";
 import { useI18n } from "./i18n";
@@ -40,10 +40,15 @@ function AppContent() {
   const { showToast } = useToast();
   const s = useSession();
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [composerDraft, setComposerDraft] = useState("");
 
   const doc = s.document;
   const agent = s.agent;
   const conn = s.connection;
+
+  useEffect(() => {
+    setComposerDraft("");
+  }, [doc?.path]);
 
   return (
     <div className="app v3">
@@ -150,8 +155,8 @@ function AppContent() {
                   agentBusy={agent.isAgentBusy()}
                   activity={agent.isAgentBusy() ? agent.streamProgress : null}
                   historySettling={agent.historySettling}
-                  composerDraft=""
-                  onComposerDraftChange={() => {}}
+                  composerDraft={composerDraft}
+                  onComposerDraftChange={setComposerDraft}
                   onConfigureApi={() => s.setSettingsOpen(true)}
                   onStop={agent.stop}
                   onClearChat={() => setClearConfirmOpen(true)}

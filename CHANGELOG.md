@@ -17,6 +17,10 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 - **No structured citations** (second LLM pass removed); legacy citation metadata still displays from v2 chats
 - **PDF only** — image documents no longer supported in `load-document.ts`
 
+### Fixed
+
+- Chat: composer draft state wired in `App.tsx` (v3 regression blocked all input)
+
 ### Removed
 
 - `vision-index`, `semantic-index`, `embeddings`, `structured-citations`, `chat-sessions`
