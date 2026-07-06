@@ -4,6 +4,7 @@ import { IconDot } from "./Icon";
 import { LogoMark } from "./LogoMark";
 
 interface AppRailProps {
+  showLibrary?: boolean;
   libraryOpen: boolean;
   onLibrary: () => void;
   onOpenFile: () => void;
@@ -13,6 +14,7 @@ interface AppRailProps {
 }
 
 export function AppRail({
+  showLibrary = true,
   libraryOpen,
   onLibrary,
   onOpenFile,
@@ -29,6 +31,7 @@ export function AppRail({
       </div>
 
       <div className="app-rail-actions">
+        {showLibrary && (
         <button
           type="button"
           className={`rail-btn ${libraryOpen ? "active" : ""}`}
@@ -38,6 +41,7 @@ export function AppRail({
         >
           <FolderOpen size={18} strokeWidth={1.75} />
         </button>
+        )}
         <button
           type="button"
           className="rail-btn rail-btn-accent"

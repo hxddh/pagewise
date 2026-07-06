@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Local desktop PDF agent — page-wise AI analysis",
   "license": "MIT",
   "type": "module",

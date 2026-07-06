@@ -39,6 +39,7 @@ interface SessionContextValue {
   fileError: string | null;
   clearFileError: () => void;
   loading: boolean;
+  chatLoading: boolean;
   progress: LoadProgress | null;
   recentFiles: RecentFile[];
   openFileDialog: () => void;
@@ -77,6 +78,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [previewPage, setPreviewPage] = useState(1);
   const [fileError, setFileError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [agentOpen, setAgentOpen] = useState(
@@ -87,6 +89,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const epochRef = useRef(0);
   const documentRef = useRef<LoadedDocument | null>(null);
   documentRef.current = document;
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const chatHydrateRef = useRef<{ path: string; messages: PageWiseUIMessage[] } | null>(null);
 
   const chatId = document?.path ?? "pagewise-local";
   const agent = useDocAgent(chatId);
@@ -101,12 +105,30 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void getRecentFiles().then(setRecentFiles);
   }, []);
 
+  useEffect(() => {
+    return docCache.subscribe((path) => {
+      if (documentRef.current?.path !== path) return;
+      const fresh = docCache.get(path);
+      if (fresh) setDocument(fresh);
+    });
+  }, []);
+
+  useEffect(() => {
+    const pending = chatHydrateRef.current;
+    if (!pending || document?.path !== pending.path || chatId !== pending.path) return;
+    agent.setMessages(pending.messages);
+    chatHydrateRef.current = null;
+    setChatLoading(false);
+  }, [document?.path, chatId, agent]);
+
   const saveTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!document?.path || agent.messages.length === 0) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
-      void saveChat(document.path, agent.messages);
+      void saveChat(document.path, agent.messages).catch((e) => {
+        if (import.meta.env.DEV) console.warn("[session] autosave failed", e);
+      });
     }, 500);
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
@@ -120,21 +142,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       setPhase("switching");
       setLoading(true);
+      setChatLoading(true);
       setProgress({ stage: "opening", message: "load.opening", percent: 0 });
       setFileError(null);
 
+      const messagesToSave = [...agent.messages];
       agent.stop();
       agent.resetForDocumentSwitch();
       clearAgentMessageContext();
 
-      try {
-        if (prev) {
-          await saveChat(prev.path, agent.messages);
-          cancelIndex(prev.path);
-          docCache.remove(prev.path);
+      if (prev) {
+        try {
+          await saveChat(prev.path, messagesToSave);
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn("[session] save chat on switch failed", e);
+          showToast(t("toast.chatSaveFailed"), "error");
         }
+        cancelIndex(prev.path);
+        docCache.remove(prev.path);
+      }
 
-        const controller = new AbortController();
+      loadAbortRef.current?.abort();
+      const controller = new AbortController();
+      loadAbortRef.current = controller;
+
+      try {
         const doc = await loadDocument(path, (p) => {
           if (epochRef.current === myEpoch) setProgress(p);
         }, controller.signal);
@@ -144,9 +176,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const messages = (await loadChat(path)) as PageWiseUIMessage[];
         clearPdfCache();
         setActivePdfPath(doc.path);
-        setDocument(doc);
+        chatHydrateRef.current = { path: doc.path, messages };
+        setDocument(docCache.get(doc.path) ?? doc);
         setPreviewPage(1);
-        agent.setMessages(messages);
         setPhase("ready");
 
         const recent = await addRecentFile({ path: doc.path, name: doc.name, kind: doc.kind });
@@ -154,6 +186,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         showToast(t("toast.opened", { name: doc.name }), "success");
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
+        if (e instanceof Error && e.name === "AbortError") return;
         const raw = e instanceof Error ? e.message : "";
         const msg =
           raw === "errors.unsupportedFile" || raw.startsWith("errors.")
@@ -162,6 +195,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setFileError(msg);
         showToast(msg, "error");
         setPhase(prev ? "ready" : "empty");
+        setChatLoading(false);
+        chatHydrateRef.current = null;
         if (!prev) {
           setDocument(null);
         }
@@ -169,6 +204,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (epochRef.current === myEpoch) {
           setLoading(false);
           setProgress(null);
+          if (loadAbortRef.current === controller) {
+            loadAbortRef.current = null;
+          }
         }
       }
     },
@@ -193,9 +231,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   });
 
   const reindexDoc = useCallback(() => {
-    const doc = documentRef.current;
-    if (!doc) return;
-    reindexDocument(doc);
+    const path = documentRef.current?.path;
+    if (!path) return;
+    reindexDocument(path);
     showToast(t("toast.reindexStarted"), "default");
   }, [showToast, t]);
 
@@ -208,10 +246,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const exportChat = useCallback(async () => {
     const doc = documentRef.current;
-    if (!doc || agent.messages.length === 0) return;
+    if (!doc || agent.messages.length === 0) {
+      showToast(t("toast.noMessages"), "error");
+      return;
+    }
     const md = chatToMarkdown(agent.messages, doc.name);
-    await saveMarkdownFile(md, `${doc.name}-chat.md`);
-  }, [agent.messages]);
+    try {
+      const ok = await saveMarkdownFile(md, `${doc.name}-chat.md`, t("dialog.markdownFilter"));
+      if (ok) showToast(t("toast.chatExported"), "success");
+    } catch {
+      showToast(t("toast.exportFailed"), "error");
+    }
+  }, [agent.messages, showToast, t]);
 
   const value = useMemo<SessionContextValue>(
     () => ({
@@ -224,6 +270,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       fileError,
       clearFileError: () => setFileError(null),
       loading,
+      chatLoading,
       progress,
       recentFiles,
       openFileDialog,
@@ -251,6 +298,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       agent,
       fileError,
       loading,
+      chatLoading,
       progress,
       recentFiles,
       openFileDialog,
