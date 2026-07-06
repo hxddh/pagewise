@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   commitLoadedDocument,
   isSupportedDocument,
@@ -111,6 +112,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const agent = useDocAgent(chatId);
   const agentSetMessagesRef = useRef(agent.setMessages);
   agentSetMessagesRef.current = agent.setMessages;
+  const messagesRef = useRef(agent.messages);
+  messagesRef.current = agent.messages;
   const connection = useConnectionStatus();
   const resize = useResizeWidth();
 
@@ -139,18 +142,53 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [document?.path, chatId]);
 
   const saveTimerRef = useRef<number | undefined>(undefined);
+
+  const flushChatNow = useCallback(async () => {
+    const path = documentRef.current?.path;
+    const msgs = messagesRef.current;
+    if (!path || msgs.length === 0) return;
+    if (saveTimerRef.current !== undefined) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = undefined;
+    }
+    await saveChat(path, msgs);
+  }, []);
+
   useEffect(() => {
     if (!document?.path || agent.messages.length === 0) return;
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
-      void saveChat(document.path, agent.messages).catch((e) => {
+      const path = documentRef.current?.path;
+      const msgs = messagesRef.current;
+      if (!path || msgs.length === 0) return;
+      void saveChat(path, msgs).catch((e) => {
         if (import.meta.env.DEV) console.warn("[session] autosave failed", e);
       });
     }, 500);
     return () => {
-      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current);
     };
   }, [document?.path, agent.messages]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      const win = getCurrentWindow();
+      unlisten = await win.onCloseRequested(async (event) => {
+        event.preventDefault();
+        try {
+          await flushChatNow();
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn("[session] flush on close failed", e);
+        } finally {
+          await win.destroy();
+        }
+      });
+    })();
+    return () => {
+      unlisten?.();
+    };
+  }, [flushChatNow]);
 
   const switchDocument = useCallback(
     async (path: string) => {
@@ -169,7 +207,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setFileError(null);
 
       await agent.waitForStreamIdle();
-      const messagesToSave = [...agent.messages];
+      const messagesToSave = [...messagesRef.current];
       agent.stop();
       agent.resetForDocumentSwitch();
       clearAgentMessageContext();
