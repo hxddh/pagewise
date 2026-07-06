@@ -1,9 +1,8 @@
-export type IndexSource = "vision" | "ocr" | "extract" | "cache";
+export type IndexSource = "vision" | "extract" | "cache";
 export type IndexStatus = "indexing" | "done" | "failed" | "idle";
 
 export type IndexFailureReason =
   | "need_vision"
-  | "ocr_unavailable"
   | "vision_failed"
   | "insufficient_text"
   | "unknown";

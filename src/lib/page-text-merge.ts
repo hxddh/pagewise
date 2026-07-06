@@ -2,20 +2,20 @@ import type { PageText } from "./types";
 
 export const MIN_INDEX_CHARS = 20;
 
-/** Prefer indexed/OCR text over a sparse re-extract when reopening the same file. */
+/** Prefer indexed vision text over a sparse re-extract when reopening the same file. */
 export function pickBetterPageText(existing: string, incoming: string): string {
   const a = existing.trim();
   const b = incoming.trim();
   if (a.length >= MIN_INDEX_CHARS && b.length < MIN_INDEX_CHARS) return existing;
   if (b.length >= MIN_INDEX_CHARS && a.length < MIN_INDEX_CHARS) return incoming;
-  // Both sufficient: prefer longer text (native extract may beat stale OCR).
+  // Both sufficient: prefer longer text (native extract may beat stale vision text).
   if (a.length >= MIN_INDEX_CHARS && b.length >= MIN_INDEX_CHARS) {
     return b.length > a.length * 1.25 ? incoming : existing;
   }
   return b.length >= a.length ? incoming : existing;
 }
 
-/** Merge freshly extracted pages with any cached vision/OCR text for the same path. */
+/** Merge freshly extracted pages with any cached vision text for the same path. */
 export function mergePageTextsOnReload(existing: PageText[], incoming: PageText[]): PageText[] {
   const byPage = new Map(existing.map((p) => [p.page, p.text]));
   const incomingPages = new Set(incoming.map((p) => p.page));

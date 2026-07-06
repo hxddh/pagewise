@@ -49,7 +49,7 @@ class DocCache {
   /**
    * Update a page's text immutably: produces a new pages array and a new
    * document object so React state consumers re-render when background
-   * vision/OCR indexing lands.
+   * vision indexing lands.
    */
   upsertPageText(path: string, page: number, text: string): void {
     const doc = this.docs.get(path);
@@ -69,7 +69,7 @@ class DocCache {
   }
 
   /**
-   * Clear indexed page text so vision/OCR reindex can rerun.
+   * Clear indexed page text so vision reindex can rerun.
    * When `pages` is omitted, clears every page with ≥ MIN_INDEX_CHARS.
    */
   invalidateIndexedPageText(path: string, pages?: number[]): void {

@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-07-06
+
+### Changed
+
+- Architecture slim (S1–S5): delete unused agent compaction/rerank/citations modules; clean OCR strings and dead CSS; `useWorkbenchOverlays` + `RecentFilesList`; extract `agent-stream-idle`
+
+### Removed
+
+- Dead v2 agent code: `agent-context-compaction`, `search-rerank`, `citations` parser, `model-routing`, `agent-run-plan`, `agent-activity-line`, `messages-signature`
+
 ## [3.0.3] - 2026-07-06
 
 ### Added

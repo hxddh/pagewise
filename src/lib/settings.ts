@@ -53,7 +53,7 @@ function withSettingsStoreLock<T>(fn: () => Promise<T>): Promise<T> {
   return result;
 }
 
-/** In-memory store + injectable keychain for unit tests (mirrors chat-sessions.ts). */
+/** In-memory store + injectable keychain for unit tests. */
 let memoryStore: { value: StoredPayload | null } | null = null;
 let keychainGet: KeychainGet = getApiKey;
 let keychainSet: KeychainSet = setApiKey;

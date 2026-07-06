@@ -1,7 +1,7 @@
 import { memo } from "react";
-import { FileImage, FileText } from "lucide-react";
 import { useI18n } from "../i18n";
 import { LogoMark } from "./LogoMark";
+import { RecentFilesList } from "./RecentFilesList";
 import type { RecentFile } from "../lib/recent-files";
 
 interface WelcomeViewProps {
@@ -26,7 +26,6 @@ function WelcomeViewInner({
   onConfigureApi,
 }: WelcomeViewProps) {
   const { t } = useI18n();
-  const recents = recentFiles.slice(0, 3);
 
   return (
     <div className="welcome-view">
@@ -59,28 +58,13 @@ function WelcomeViewInner({
           </p>
         )}
 
-        {recents.length > 0 && (
-          <div className="welcome-recents">
-            <h3 className="welcome-recents-label">{t("sidebar.recent")}</h3>
-            <div className="welcome-recent-grid">
-              {recents.map((file) => {
-                const Icon = file.kind === "image" ? FileImage : FileText;
-                return (
-                  <button
-                    key={file.path}
-                    type="button"
-                    className="welcome-recent-card"
-                    disabled={opening}
-                    onClick={() => onOpenRecent(file.path)}
-                  >
-                    <Icon size={20} strokeWidth={1.5} className="welcome-recent-icon" />
-                    <span className="welcome-recent-name">{file.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <RecentFilesList
+          files={recentFiles}
+          layout="welcome"
+          limit={3}
+          opening={opening}
+          onOpen={onOpenRecent}
+        />
       </div>
     </div>
   );
