@@ -1,4 +1,5 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { isSupportedDocument } from "./load-document";
 
 const STORE_PATH = "recent.json";
 const KEY = "files";
@@ -59,6 +60,15 @@ function sanitizeRecentFiles(raw: unknown): RecentFile[] {
 
 export async function getRecentFiles(): Promise<RecentFile[]> {
   return withStoreLock(readRecentFiles);
+}
+
+/** Recent entries the app can still open (PDF or supported image). */
+export function isOpenableRecent(file: RecentFile): boolean {
+  return isSupportedDocument(file.path);
+}
+
+export function openableRecentFiles(files: RecentFile[]): RecentFile[] {
+  return files.filter(isOpenableRecent);
 }
 
 export async function addRecentFile(entry: Omit<RecentFile, "openedAt">): Promise<RecentFile[]> {

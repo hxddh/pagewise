@@ -16,8 +16,10 @@ import { RecentFilesDrawer } from "./components/RecentFilesDrawer";
 import { CommandPalette } from "./components/CommandPalette";
 import { useAppCommands } from "./hooks/useAppCommands";
 import { useFollowAgent } from "./hooks/useFollowAgent";
+import { useOverlayLock } from "./hooks/useOverlayLock";
 import { useTheme } from "./hooks/useTheme";
 import { useWorkbenchPrefs } from "./hooks/useWorkbenchPrefs";
+import { openableRecentFiles } from "./lib/recent-files";
 import "./styles/tokens.css";
 import "./styles/preview.css";
 import "./styles/settings.css";
@@ -37,6 +39,34 @@ function PanelFallback() {
     <div className="panel-loading" aria-live="polite">
       <span className="preview-loading-spinner" aria-hidden />
       <span className="sr-only">{t("app.panelLoading")}</span>
+    </div>
+  );
+}
+
+function ClearChatConfirm({
+  open,
+  message,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useOverlayLock(open);
+  if (!open) return null;
+  return (
+    <div className="global-confirm">
+      <ConfirmBar
+        message={message}
+        confirmLabel={confirmLabel}
+        danger
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />
     </div>
   );
 }
@@ -63,6 +93,18 @@ function AppContent() {
 
   const requestClearChat = useCallback(() => setClearConfirmOpen(true), []);
 
+  const openableRecents = openableRecentFiles(s.recentFiles);
+
+  const openSettings = useCallback(() => {
+    setLibraryOpen(false);
+    s.setSettingsOpen(true);
+  }, [s]);
+
+  const toggleLibrary = useCallback(() => {
+    s.setSettingsOpen(false);
+    setLibraryOpen((o) => !o);
+  }, [s]);
+
   const { commands, paletteOpen, setPaletteOpen, exportSummary } = useAppCommands({
     activeDocName: doc?.name ?? null,
     messages: agent.messages,
@@ -72,7 +114,7 @@ function AppContent() {
     previewPage: s.previewPage,
     totalPages: doc?.totalPages ?? 1,
     onOpenDocument: s.openFileDialog,
-    onOpenSettings: () => s.setSettingsOpen(true),
+    onOpenSettings: openSettings,
     onToggleFollowAgent: () => void prefs.toggleFollowAgent(),
     onToggleAgent: () => s.setAgentOpen(!s.agentOpen),
     onClearChat: requestClearChat,
@@ -81,7 +123,7 @@ function AppContent() {
     showToast,
   });
 
-  useFollowAgent(prefs.followAgent, agent.messages, agentBusy, s.setPreviewPage);
+  useFollowAgent(prefs.followAgent, agent.messages, s.setPreviewPage);
 
   return (
     <div className="app v3">
@@ -100,24 +142,20 @@ function AppContent() {
       )}
       <ToastViewport />
 
-      {clearConfirmOpen && (
-        <div className="global-confirm">
-          <ConfirmBar
-            message={t("agent.clearConfirm")}
-            confirmLabel={t("agent.clear")}
-            danger
-            onConfirm={() => {
-              void s.clearChat();
-              setClearConfirmOpen(false);
-            }}
-            onCancel={() => setClearConfirmOpen(false)}
-          />
-        </div>
-      )}
+      <ClearChatConfirm
+        open={clearConfirmOpen}
+        message={t("agent.clearConfirm")}
+        confirmLabel={t("agent.clear")}
+        onConfirm={() => {
+          void s.clearChat();
+          setClearConfirmOpen(false);
+        }}
+        onCancel={() => setClearConfirmOpen(false)}
+      />
 
       <RecentFilesDrawer
         open={libraryOpen}
-        recentFiles={s.recentFiles}
+        recentFiles={openableRecents}
         activePath={doc?.path ?? null}
         opening={s.loading}
         onClose={() => setLibraryOpen(false)}
@@ -149,9 +187,9 @@ function AppContent() {
       <AppRail
         showLibrary
         libraryOpen={libraryOpen}
-        onLibrary={() => setLibraryOpen((o) => !o)}
+        onLibrary={toggleLibrary}
         onOpenFile={s.openFileDialog}
-        onSettings={() => s.setSettingsOpen(true)}
+        onSettings={openSettings}
         connected={conn.canUseAgent && conn.settingsReady}
         opening={s.loading}
       />
@@ -159,14 +197,14 @@ function AppContent() {
       <div className="v3-main">
         {!doc ? (
           <WelcomeView
-            recentFiles={s.recentFiles}
+            recentFiles={openableRecents}
             canUseAgent={conn.canUseAgent}
             hasApiKey={conn.hasApiKey}
             agentToolsSupported={conn.agentToolsSupported}
             opening={s.loading}
             onOpenFile={s.openFileDialog}
             onOpenRecent={s.openPath}
-            onConfigureApi={() => s.setSettingsOpen(true)}
+            onConfigureApi={openSettings}
           />
         ) : (
           <div className={`v3-workspace ${s.agentOpen ? "" : "agent-hidden"}`}>
@@ -176,7 +214,7 @@ function AppContent() {
                 page={s.previewPage}
                 onPageChange={s.setPreviewPage}
                 prefsRevision={prefs.prefsRevision}
-                onOpenAiSettings={() => s.setSettingsOpen(true)}
+                onOpenAiSettings={openSettings}
               />
             </Suspense>
 
@@ -216,7 +254,7 @@ function AppContent() {
                   historySettling={agent.historySettling}
                   composerDraft={composerDraft}
                   onComposerDraftChange={setComposerDraft}
-                  onConfigureApi={() => s.setSettingsOpen(true)}
+                  onConfigureApi={openSettings}
                   onStop={agent.stop}
                   onClearChat={requestClearChat}
                   onExportChat={() => void s.exportChat()}

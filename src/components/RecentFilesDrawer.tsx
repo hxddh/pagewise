@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef } from "react";
-import { FileText, X } from "lucide-react";
+import { FileImage, FileText, X } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { RecentFile } from "../lib/recent-files";
 import { useOverlayLock } from "../hooks/useOverlayLock";
@@ -76,10 +76,6 @@ function RecentFilesDrawerInner({
 
   if (!open) return null;
 
-  const pdfRecents = recentFiles.filter(
-    (f) => f.kind === "pdf" || f.path.toLowerCase().endsWith(".pdf"),
-  );
-
   const handleOpenRecent = (path: string) => {
     onClose();
     onOpenRecent(path);
@@ -126,15 +122,16 @@ function RecentFilesDrawerInner({
 
         <div className="library-drawer-body document-library">
           <p className="library-section-label">{t("sidebar.recent")}</p>
-          {pdfRecents.length === 0 ? (
+          {recentFiles.length === 0 ? (
             <div className="library-empty">
               <p>{t("library.emptyRecent")}</p>
               <p>{t("library.emptyRecentHint")}</p>
             </div>
           ) : (
             <ul className="library-list">
-              {pdfRecents.map((file) => {
+              {recentFiles.map((file) => {
                 const active = file.path === activePath;
+                const Icon = file.kind === "image" ? FileImage : FileText;
                 return (
                   <li key={file.path} className={active ? "active" : undefined}>
                     <button
@@ -145,7 +142,7 @@ function RecentFilesDrawerInner({
                       title={file.path}
                     >
                       <span className="library-name">
-                        <FileText
+                        <Icon
                           size={14}
                           strokeWidth={1.75}
                           aria-hidden

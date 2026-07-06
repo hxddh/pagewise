@@ -68,7 +68,7 @@ export async function generateVisionText(
   settings: LlmSettings,
   prompt: string,
   imageJpeg: Uint8Array,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; mediaType?: string } = {},
 ): Promise<string> {
   const modelError = validateModel(settings);
   if (modelError) {
@@ -77,7 +77,7 @@ export async function generateVisionText(
 
   const baseURL = resolveBaseURL(settings);
   const url = `${baseURL}/chat/completions`;
-  const dataUrl = imageBytesToDataUrl(imageJpeg);
+  const dataUrl = imageBytesToDataUrl(imageJpeg, options.mediaType ?? "image/jpeg");
 
   const response = await fetch(url, {
     method: "POST",

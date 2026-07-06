@@ -23,6 +23,9 @@ import {
 import { loadSettings } from "../lib/settings";
 import { useI18n } from "../i18n";
 
+const STREAM_SETTLE_MS = 10_000;
+const STREAM_POLL_MS = 50;
+
 export interface SendDocumentMessageOptions {
   text: string;
   path: string;
@@ -485,6 +488,27 @@ export function useDocAgent(chatId: string | null = null) {
     [activeError, t],
   );
 
+  const waitForStreamIdle = useCallback(async (): Promise<boolean> => {
+    const busy = () => isAgentBusyRef.current();
+    if (!busy()) return true;
+    chat.stop();
+    abortPendingSend();
+    const deadline = Date.now() + STREAM_SETTLE_MS;
+    while (busy() && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, STREAM_POLL_MS));
+    }
+    if (busy()) {
+      agentGenRef.current += 1;
+      chat.stop();
+      clearAgentRunAbortSignal();
+      sendingRef.current = false;
+      setSendPhase(false);
+      setStreamProgress(null);
+      await new Promise((resolve) => window.setTimeout(resolve, STREAM_POLL_MS));
+    }
+    return !busy();
+  }, [chat.stop, abortPendingSend]);
+
   return useMemo(
     () => ({
       messages: chat.messages,
@@ -517,6 +541,7 @@ export function useDocAgent(chatId: string | null = null) {
       },
       isAgentBusy: () => isAgentBusyRef.current(),
       abortPendingSend,
+      waitForStreamIdle,
     }),
     [
       chat.messages,
@@ -534,6 +559,7 @@ export function useDocAgent(chatId: string | null = null) {
       historySettling,
       resolvedChatId,
       abortPendingSend,
+      waitForStreamIdle,
       sendPhase,
     ],
   );

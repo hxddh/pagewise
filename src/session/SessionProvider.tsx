@@ -9,7 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { loadDocument } from "../lib/load-document";
+import {
+  commitLoadedDocument,
+  isSupportedDocument,
+  loadDocument,
+} from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
 import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { addRecentFile, getRecentFiles, removeRecentFile, type RecentFile } from "../lib/recent-files";
@@ -34,8 +38,6 @@ interface SessionContextValue {
   document: LoadedDocument | null;
   previewPage: number;
   setPreviewPage: (page: number) => void;
-  messages: PageWiseUIMessage[];
-  setMessages: (messages: PageWiseUIMessage[]) => void;
   fileError: string | null;
   clearFileError: () => void;
   loading: boolean;
@@ -70,6 +72,15 @@ export function useSession(): SessionContextValue {
   return ctx;
 }
 
+const DOCUMENT_FILTERS = [
+  {
+    name: "Documents",
+    extensions: ["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"],
+  },
+  { name: "PDF", extensions: ["pdf"] },
+  { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"] },
+];
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -90,11 +101,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const epochRef = useRef(0);
   const documentRef = useRef<LoadedDocument | null>(null);
   documentRef.current = document;
+  const loadingRef = useRef(false);
+  loadingRef.current = loading;
   const loadAbortRef = useRef<AbortController | null>(null);
   const chatHydrateRef = useRef<{ path: string; messages: PageWiseUIMessage[] } | null>(null);
 
   const chatId = document?.path ?? "pagewise-local";
   const agent = useDocAgent(chatId);
+  const agentSetMessagesRef = useRef(agent.setMessages);
+  agentSetMessagesRef.current = agent.setMessages;
   const connection = useConnectionStatus();
   const resize = useResizeWidth();
 
@@ -117,10 +132,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const pending = chatHydrateRef.current;
     if (!pending || document?.path !== pending.path || chatId !== pending.path) return;
-    agent.setMessages(pending.messages);
+    agentSetMessagesRef.current(pending.messages);
     chatHydrateRef.current = null;
     setChatLoading(false);
-  }, [document?.path, chatId, agent]);
+  }, [document?.path, chatId]);
 
   const saveTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -138,8 +153,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const switchDocument = useCallback(
     async (path: string) => {
-      const myEpoch = ++epochRef.current;
+      if (loadingRef.current) return;
+
       const prev = documentRef.current;
+      if (prev?.path === path) return;
+
+      const myEpoch = ++epochRef.current;
+      const prevPath = prev?.path ?? null;
 
       setPhase("switching");
       setLoading(true);
@@ -147,20 +167,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setProgress({ stage: "opening", message: "load.opening", percent: 0 });
       setFileError(null);
 
+      await agent.waitForStreamIdle();
       const messagesToSave = [...agent.messages];
       agent.stop();
       agent.resetForDocumentSwitch();
       clearAgentMessageContext();
 
-      if (prev) {
+      if (prevPath) {
         try {
-          await saveChat(prev.path, messagesToSave);
+          await saveChat(prevPath, messagesToSave);
         } catch (e) {
           if (import.meta.env.DEV) console.warn("[session] save chat on switch failed", e);
           showToast(t("toast.chatSaveFailed"), "error");
         }
-        cancelIndex(prev.path);
-        docCache.remove(prev.path);
       }
 
       loadAbortRef.current?.abort();
@@ -168,13 +187,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadAbortRef.current = controller;
 
       try {
-        const doc = await loadDocument(path, (p) => {
-          if (epochRef.current === myEpoch) setProgress(p);
-        }, controller.signal);
+        const staged = await loadDocument(
+          path,
+          (p) => {
+            if (epochRef.current === myEpoch) setProgress(p);
+          },
+          controller.signal,
+          { deferCache: true },
+        );
 
         if (epochRef.current !== myEpoch) return;
 
         const messages = (await loadChat(path)) as PageWiseUIMessage[];
+
+        if (epochRef.current !== myEpoch) return;
+
+        if (prevPath) {
+          cancelIndex(prevPath);
+          docCache.remove(prevPath);
+        }
+
+        const doc = commitLoadedDocument(staged);
         clearPdfCache();
         setActivePdfPath(doc.path);
         chatHydrateRef.current = { path: doc.path, messages };
@@ -214,7 +247,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [agent, showToast, t],
   );
 
-  const openPath = useCallback((path: string) => void switchDocument(path), [switchDocument]);
+  const openPath = useCallback(
+    (path: string) => {
+      if (loadingRef.current) return;
+      void switchDocument(path);
+    },
+    [switchDocument],
+  );
 
   const removeRecent = useCallback(async (path: string) => {
     const updated = await removeRecentFile(path);
@@ -222,18 +261,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openFileDialog = useCallback(() => {
+    if (loadingRef.current) return;
     void (async () => {
       const selected = await open({
         multiple: false,
-        filters: [{ name: "PDF", extensions: ["pdf"] }],
+        filters: DOCUMENT_FILTERS,
       });
       if (typeof selected === "string") void switchDocument(selected);
     })();
   }, [switchDocument]);
 
   const { isDragging } = useTauriFileDrop((paths) => {
-    const pdf = paths.find((p) => p.toLowerCase().endsWith(".pdf"));
-    if (pdf) void switchDocument(pdf);
+    if (loadingRef.current) return;
+    const docPath = paths.find((p) => isSupportedDocument(p));
+    if (docPath) void switchDocument(docPath);
   });
 
   const reindexDoc = useCallback(() => {
@@ -271,8 +312,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       document,
       previewPage,
       setPreviewPage,
-      messages: agent.messages,
-      setMessages: agent.setMessages,
       fileError,
       clearFileError: () => setFileError(null),
       loading,
