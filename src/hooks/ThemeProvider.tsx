@@ -28,7 +28,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<AppPreferences | null>(null);
-  const resolved = preferences ? resolveTheme(preferences.theme) : "dark";
+  const [resolved, setResolved] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
     loadPreferences().then(setPreferences);
@@ -36,15 +36,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!preferences) return;
-    applyTheme(resolved);
+    // Keep `resolved` in React state (not just the DOM) so an OS theme change in
+    // "system" mode re-renders consumers of useTheme().resolved, not only the
+    // <html> attribute.
+    const apply = () => {
+      const next = resolveTheme(preferences.theme);
+      setResolved(next);
+      applyTheme(next);
+    };
+    apply();
 
     if (preferences.theme !== "system") return;
 
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => applyTheme(resolveTheme("system"));
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, [preferences, resolved]);
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [preferences]);
 
   const setTheme = useCallback(async (theme: ThemeMode) => {
     const next = await patchPreferences({ theme });

@@ -55,8 +55,12 @@ function stepUsesOnlyMetaTools(step: AgentStepSnapshot): boolean {
 export function isMetaToolOnlyLoop(steps: AgentStepSnapshot[], window = 3): boolean {
   if (steps.length < window) return false;
   const recent = steps.slice(-window);
-  if (!recent.every(stepUsesOnlyMetaTools)) return false;
-  return !hasReadToolInSteps(steps);
+  // A step containing a read is not "meta-only", so an all-meta recent window
+  // already means the model is looping on outline/search without reading. Do NOT
+  // additionally require no reads across the *whole* run: that let a single early
+  // read disable the guard for the rest of the turn, leaving a later
+  // read-then-spam loop bounded only by the step cap (N4).
+  return recent.every(stepUsesOnlyMetaTools);
 }
 
 /** After search, force the model to read pages instead of searching again. */

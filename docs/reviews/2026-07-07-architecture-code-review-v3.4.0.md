@@ -6,6 +6,31 @@
 
 ---
 
+## 〇、本分支处置状态（2026-07-07 更新）
+
+本轮发现随后即在本分支 `claude/architecture-code-review-3jivju` 上修复，逐项状态如下（全套现 188 测试通过、tsc 零错误）：
+
+| 项 | 状态 | 处置 |
+|----|------|------|
+| **N1** vision 渲染被 DPR 抵消 | ✅ 已修 | 抽出纯函数 `visionRenderScale` 除掉 DPR 乘子；含单测（DPR 独立性/封顶/小页面） |
+| **N2** 工具输出压缩不幂等 | ✅ 已修 | 哨兵串检测已压缩输出，跳过重算；含幂等单测 |
+| **N3** 关窗监听器泄漏 | ✅ 已修 | 异步注册加 `cancelled` 守卫 |
+| **N4** 读取后 meta 循环只由步数兜底 | ✅ 已修 | 移除有害的全历史检查（窗口检查已足够）；含 N4 回归单测 |
+| **N5** 单一来源半成品 / 死代码 | ✅ 已修 | 删 `documentTools`、`renderPageToPngBytes`、幽灵 `list_documents` 标签及孤儿 i18n 键；`tool-steps-summary` 全对齐常量 |
+| **N6** ThemeProvider `resolved` 滞后 | ✅ 已修 | `resolved` 改为随 matchMedia 更新的状态 |
+| **N6** useDebouncedSave provider 切换重基线 | ⏸️ 保留 | 仅一次多余等价保存，dirty 仍清，纯 cosmetic |
+| **N6** asset scope 软链接图片边角 | ⏸️ 存疑 | 未确认 Tauri 内部是否 canonicalize；PDF 因 IPC 回退免疫 |
+| **L3** index-events map 泄漏 | ✅ 已修 | notify 不再持久化 idle；含 map 收缩单测 |
+| **L7** 同步钥匙串阻塞主线程 | ✅ 已修 | 三个命令改 `spawn_blocking`（Rust 未本地编译，复用 lib.rs 既有模式） |
+| **L10** pdfBytesCache LRU 退化 | ✅ 已修 | 命中时 touch |
+| **L12** 搜索框无焦点陷阱 | ✅ 已修 | 加 `useFocusTrap` |
+| guard helpers（`getBlockedMetaTools`/`shouldForceReadTools`） | ⏸️ 待决策 | 有测试的意图代码；删除会抹意图，接入 `activeTools` 是有风险的行为改动，留待产品决策 |
+| **M1 残留**（白名单自注册 / `connect-src https:`） | ⏸️ 固有取舍 | 自带端点设计所需；仅 asset scope 已收窄 |
+
+此外为改动最大、原零覆盖的 **index-queue 代数取消/重建** 和 **关窗 flush** 补了回归测试（`index-queue.test.ts` 覆盖 H3/H4/M4/M5 + 陈旧代际写入守卫；`flush-chat.test.ts` 锁定 M3 顺序不变量），关窗 flush 逻辑抽成纯函数 `session/flush-chat.ts` 以便测试。
+
+---
+
 ## 一、结论速览
 
 **上一轮的 6 个高危 + 9 个中危问题全部已正确修复,无高危回归。** 文档漂移已修正,安全侧两个核心修复（asset scope 收窄、PDF panic 隔离）扎实且未弄坏预览。团队还落地了原报告的根因建议：新增 `document-tool-names.ts` 作为工具身份单一来源、view context 改走 `runtimeContext`、共享 `ThemeProvider`。
