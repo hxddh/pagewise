@@ -21,14 +21,35 @@ describe("agent-loop-guards", () => {
     expect(shouldForceReadTools(steps)).toBe(true);
   });
 
-  it("does not flag loops after a read tool ran", () => {
+  it("does not flag when a recent read interrupts the meta calls", () => {
     const steps = [
       { toolCalls: [{ toolName: "search_in_document" }] },
       { toolCalls: [{ toolName: "read_pdf_page" }] },
       { toolCalls: [{ toolName: "search_in_document" }] },
     ];
+    // The read is within the last `window` steps, so the window is not meta-only.
     expect(isMetaToolOnlyLoop(steps)).toBe(false);
     expect(shouldForceReadTools(steps)).toBe(false);
+  });
+
+  it("flags a meta-tool loop even when a read happened earlier in the run (N4)", () => {
+    const steps = [
+      { toolCalls: [{ toolName: "read_pdf_page" }] }, // early read, then spam
+      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
+      { toolCalls: [{ toolName: "search_in_document" }] },
+      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
+    ];
+    // Last 3 steps are outline/search with no reads → stop the loop.
+    expect(isMetaToolOnlyLoop(steps)).toBe(true);
+  });
+
+  it("does not flag when the latest step produced text instead of a tool call", () => {
+    const steps = [
+      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
+      { toolCalls: [{ toolName: "search_in_document" }] },
+      { text: "Here is the answer." },
+    ];
+    expect(isMetaToolOnlyLoop(steps)).toBe(false);
   });
 
   it("blocks one-time meta tools after first use", () => {

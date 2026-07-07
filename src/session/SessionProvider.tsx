@@ -21,6 +21,7 @@ import { addRecentFile, getRecentFiles, removeRecentFile, type RecentFile } from
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
 import { clearChat as clearChatFile, loadChat, saveChat } from "../chat/persist";
+import { flushChat } from "./flush-chat";
 import { useDocAgent } from "../hooks/useDocAgent";
 import { useConnectionStatus } from "../hooks/useConnectionStatus";
 import { useResizeWidth } from "../hooks/useResizeWidth";
@@ -147,18 +148,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const saveTimerRef = useRef<number | undefined>(undefined);
 
-  const flushChatNow = useCallback(async () => {
-    await agent.waitForStreamIdle();
-    agent.stop();
-    const path = documentRef.current?.path;
-    const msgs = messagesRef.current;
-    if (!path || msgs.length === 0) return;
-    if (saveTimerRef.current !== undefined) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = undefined;
-    }
-    await saveChat(path, msgs);
-  }, [agent]);
+  const flushChatNow = useCallback(
+    () =>
+      flushChat({
+        waitForStreamIdle: () => agent.waitForStreamIdle(),
+        stop: () => agent.stop(),
+        getPath: () => documentRef.current?.path,
+        getMessages: () => messagesRef.current,
+        clearAutosave: () => {
+          if (saveTimerRef.current !== undefined) {
+            window.clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = undefined;
+          }
+        },
+        saveChat,
+      }),
+    [agent],
+  );
 
   useEffect(() => {
     if (!document?.path || agent.messages.length === 0) return;
@@ -178,9 +184,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    // Registration is async; if the effect is torn down (e.g. a rapid document
+    // switch recreates flushChatNow) before it resolves, `unlisten` is still
+    // undefined and the cleanup can't remove the handler. Track cancellation so
+    // the resolved listener is removed immediately instead of leaking.
+    let cancelled = false;
     void (async () => {
       const win = getCurrentWindow();
-      unlisten = await win.onCloseRequested(async (event) => {
+      const fn = await win.onCloseRequested(async (event) => {
         event.preventDefault();
         try {
           await flushChatNow();
@@ -190,8 +201,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           await win.destroy();
         }
       });
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unlisten = fn;
     })();
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, [flushChatNow]);

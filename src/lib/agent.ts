@@ -477,5 +477,3 @@ export function createDocAgent() {
     },
   });
 }
-
-export const documentTools = createDocumentTools({ used: 0, max: RUN_CHAR_BUDGET });

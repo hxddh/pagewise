@@ -4,6 +4,24 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.4.1] - 2026-07-07
+
+### Fixed
+
+- Vision index: cap encoded page long-edge at `maxEdge` independent of display DPR — retina renders no longer upload ~2x the intended pixels/tokens (`visionRenderScale`)
+- Chat history: tool-output compaction is now idempotent — re-pruning an already-compacted output no longer overwrites the original char/hit count with the summary's own length
+- Secrets: keychain get/set/delete run off the main thread (`spawn_blocking`) so an OS prompt or Secret Service round-trip can't freeze the window
+- Index events: `clearPageIndexState`/`clearDocumentIndexState` no longer re-insert an `idle` entry, so the per-page state map actually shrinks instead of growing across the session
+- Session: guard the window-close listener registration against a rapid document switch tearing the effect down before it resolves (no orphaned close handlers)
+- PDF bytes cache: refresh recency on cache hit so the LRU evicts least-recently-used, not least-recently-inserted
+- Document search: trap focus within the search dialog like the other overlays
+- Agent: meta-tool-only loop guard now fires on a recent all-outline/search window even if a read happened earlier in the run, instead of being disabled for the rest of the turn by a single early read
+- Theme: OS light/dark changes in "system" mode now re-render `useTheme().resolved`, not only the `<html>` attribute
+
+### Removed
+
+- Dead code: unused `documentTools` export, unused `renderPageToPngBytes`, and the phantom `list_documents` activity label (+ its orphaned i18n key)
+
 ## [3.4.0] - 2026-07-06
 
 ### Fixed

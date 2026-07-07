@@ -1,5 +1,10 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
-import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
+import {
+  DOCUMENT_OUTLINE_TOOL,
+  READ_PDF_PAGE_TOOL,
+  READ_PDF_RANGE_TOOL,
+  SEARCH_IN_DOCUMENT_TOOL,
+} from "./document-tool-names";
 
 type TranslateFn = (key: string, vars?: Record<string, string | number>) => string;
 type MessagePart = UIMessage["parts"][number];
@@ -27,15 +32,13 @@ function numArg(value: unknown): number | undefined {
 
 export function toolActivityLabel(toolName: string, t: TranslateFn): string {
   switch (toolName) {
-    case "read_pdf_page":
-    case "read_pdf_range":
+    case READ_PDF_PAGE_TOOL:
+    case READ_PDF_RANGE_TOOL:
       return t("agent.activityReadRange");
     case DOCUMENT_OUTLINE_TOOL:
       return t("agent.activityIndex");
-    case "search_in_document":
+    case SEARCH_IN_DOCUMENT_TOOL:
       return t("agent.activitySearch");
-    case "list_documents":
-      return t("agent.activityList");
     default:
       return t("agent.activityWorking");
   }
@@ -43,10 +46,10 @@ export function toolActivityLabel(toolName: string, t: TranslateFn): string {
 
 function toolBucket(toolName: string): ToolStepBucket {
   switch (toolName) {
-    case "search_in_document":
+    case SEARCH_IN_DOCUMENT_TOOL:
       return "search";
-    case "read_pdf_page":
-    case "read_pdf_range":
+    case READ_PDF_PAGE_TOOL:
+    case READ_PDF_RANGE_TOOL:
       return "read";
     case DOCUMENT_OUTLINE_TOOL:
       return "index";
@@ -64,7 +67,7 @@ export function toolStepLabel(
   const bucket = toolBucket(toolName);
 
   switch (toolName) {
-    case "read_pdf_page": {
+    case READ_PDF_PAGE_TOOL: {
       const page = numArg(args.page);
       const label =
         page !== undefined
@@ -72,7 +75,7 @@ export function toolStepLabel(
           : t("agent.activityReadRange");
       return { label, key: `read:${page ?? "?"}`, bucket };
     }
-    case "read_pdf_range": {
+    case READ_PDF_RANGE_TOOL: {
       const start = numArg(args.start);
       const end = numArg(args.end);
       const label =
@@ -81,7 +84,7 @@ export function toolStepLabel(
           : t("agent.activityReadRange");
       return { label, key: `range:${start ?? "?"}-${end ?? "?"}`, bucket };
     }
-    case "search_in_document": {
+    case SEARCH_IN_DOCUMENT_TOOL: {
       const query = typeof args.query === "string" ? args.query : "";
       const label = query ? t("agent.toolSearch", { query }) : t("agent.activitySearch");
       return { label, key: `search:${query}`, bucket };
