@@ -4,6 +4,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.4.2] - 2026-07-07
+
 ### Fixed
 
 - Chat: reasoning-only assistant messages (e.g. a stream stopped before the answer) now promote their reasoning as the visible answer instead of rendering an empty collapsed block (`hasAnswerText` no longer counts reasoning parts)
