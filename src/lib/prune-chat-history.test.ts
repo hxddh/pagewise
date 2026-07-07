@@ -1,6 +1,52 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
-import { sanitizeDanglingToolParts } from "./prune-chat-history";
+import {
+  pruneToolOutputsForHistory,
+  sanitizeDanglingToolParts,
+} from "./prune-chat-history";
+
+function readPageMessage(page: number, text: string): UIMessage {
+  return {
+    id: `m-${page}`,
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-read_pdf_page",
+        toolCallId: `t-${page}`,
+        state: "output-available",
+        input: { page },
+        output: text,
+      },
+    ],
+  } as UIMessage;
+}
+
+function firstOutput(messages: UIMessage[]): unknown {
+  const part = messages[0]?.parts[0];
+  return part && "output" in part ? part.output : undefined;
+}
+
+describe("pruneToolOutputsForHistory", () => {
+  it("compacts a bulky read output and records the original char count", () => {
+    const text = "x".repeat(5234);
+    const out = pruneToolOutputsForHistory([readPageMessage(3, text)]);
+    expect(firstOutput(out)).toBe(
+      "[Read page 3, 5234 chars — omitted from chat history]",
+    );
+  });
+
+  it("is idempotent: re-pruning does not overwrite the char count (N2 regression)", () => {
+    const text = "x".repeat(5234);
+    const once = pruneToolOutputsForHistory([readPageMessage(3, text)]);
+    const twice = pruneToolOutputsForHistory(once);
+    // The summary's own length (~53) must not replace the original 5234.
+    expect(firstOutput(twice)).toBe(
+      "[Read page 3, 5234 chars — omitted from chat history]",
+    );
+    // No change on the second pass → the array identity is preserved.
+    expect(twice).toBe(once);
+  });
+});
 
 describe("sanitizeDanglingToolParts", () => {
   it("synthesizes cancelled output for dangling tool parts", () => {

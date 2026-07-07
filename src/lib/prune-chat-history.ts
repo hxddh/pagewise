@@ -11,6 +11,14 @@ import {
 /** Synthesized output for a tool call that never produced a real result. */
 const CANCELLED_OUTPUT = "[cancelled]";
 
+/**
+ * Suffix shared by every compacted tool-output summary. Used to make
+ * {@link pruneToolOutputsForHistory} idempotent: a summary that is pruned again
+ * on a later turn must not be re-measured (its own length would replace the
+ * original char count) — re-pruning an already-compacted output is a no-op.
+ */
+const COMPACTED_SUFFIX = "— omitted from chat history]";
+
 /** Replace bulky tool outputs in prior turns so follow-ups don't re-send full document text. */
 export function pruneToolOutputsForHistory(messages: UIMessage[]): UIMessage[] {
   let changed = false;
@@ -86,6 +94,13 @@ function compactToolOutput(
   input: unknown,
   output: unknown,
 ): string | Record<string, unknown> {
+  // Idempotency guard: if this output was already compacted on a prior turn,
+  // leave it untouched so its char/hit count isn't overwritten by the summary's
+  // own length (see COMPACTED_SUFFIX).
+  if (typeof output === "string" && output.endsWith(COMPACTED_SUFFIX)) {
+    return output;
+  }
+
   const inp =
     input && typeof input === "object" ? (input as Record<string, unknown>) : {};
 

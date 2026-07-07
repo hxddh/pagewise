@@ -4,6 +4,11 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+### Fixed
+
+- Vision index: cap encoded page long-edge at `maxEdge` independent of display DPR — retina renders no longer upload ~2x the intended pixels/tokens (`visionRenderScale`)
+- Chat history: tool-output compaction is now idempotent — re-pruning an already-compacted output no longer overwrites the original char/hit count with the summary's own length
+
 ## [3.4.0] - 2026-07-06
 
 ### Fixed

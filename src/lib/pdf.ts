@@ -855,6 +855,23 @@ export async function computeFitWidthScale(
 /** OCR target ~300 DPI (72 PDF points × ~4.17). */
 const OCR_RENDER_SCALE = 300 / 72;
 
+/**
+ * Scale to hand to {@link paintPage} for an off-screen byte render (vision index)
+ * so the encoded long edge lands at `min(edge * OCR_RENDER_SCALE, maxEdge)` pixels
+ * regardless of display DPR. paintPage multiplies the scale by `getOutputScale`,
+ * so we divide that back out here; otherwise a retina display (outputScale 2)
+ * would encode ~2x the pixels for no quality gain — the vision provider downscales
+ * to maxEdge server-side anyway.
+ */
+export function visionRenderScale(
+  edge: number,
+  maxEdge: number,
+  outputScale: number,
+): number {
+  const targetScale = Math.min(OCR_RENDER_SCALE, maxEdge / edge);
+  return outputScale > 0 ? targetScale / outputScale : targetScale;
+}
+
 export async function renderThumbnail(
   path: string,
   pageNumber: number,
@@ -889,7 +906,7 @@ export async function renderPageToJpegBytes(
   const page = await doc.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
   const edge = Math.max(base.width, base.height);
-  const scale = Math.min(OCR_RENDER_SCALE, maxEdge / edge);
+  const scale = visionRenderScale(edge, maxEdge, getOutputScale("performance"));
 
   const offscreen = document.createElement("canvas");
   await paintPage(page, scale, "performance", offscreen, "print");
@@ -918,7 +935,7 @@ export async function renderPageToPngBytes(
   const page = await doc.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
   const edge = Math.max(base.width, base.height);
-  const scale = Math.min(OCR_RENDER_SCALE, maxEdge / edge);
+  const scale = visionRenderScale(edge, maxEdge, getOutputScale("performance"));
 
   const offscreen = document.createElement("canvas");
   await paintPage(page, scale, "performance", offscreen, "print");
