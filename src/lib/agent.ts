@@ -37,7 +37,10 @@ const DEFAULT_MAX_AGENT_STEPS = 12;
 const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
   isMetaToolOnlyLoop(
     steps.map((step) => ({
-      toolCalls: step.toolCalls.map((call) => ({ toolName: call.toolName })),
+      toolCalls: step.toolCalls.map((call) => ({
+        toolName: call.toolName,
+        input: (call as { input?: unknown }).input,
+      })),
     })),
   );
 

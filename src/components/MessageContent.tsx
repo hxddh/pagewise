@@ -50,7 +50,11 @@ function messageParts(message: UIMessage): UIMessage["parts"] {
 
 function hasAnswerText(parts: UIMessage["parts"]): boolean {
   return parts.some((p) => {
-    if (p.type !== "text" && p.type !== "reasoning") return false;
+    // Only real answer text counts. Counting `reasoning` here made
+    // `showReasoningAsAnswer` unreachable, so a reasoning-only message (e.g. a
+    // stream stopped before the answer) rendered as an empty collapsed block
+    // instead of promoting its reasoning as the visible answer.
+    if (p.type !== "text") return false;
     return !!stripDsmlToolMarkup(p.text ?? "").trim();
   });
 }

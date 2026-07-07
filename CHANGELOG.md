@@ -4,6 +4,13 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+### Fixed
+
+- Chat: reasoning-only assistant messages (e.g. a stream stopped before the answer) now promote their reasoning as the visible answer instead of rendering an empty collapsed block (`hasAnswerText` no longer counts reasoning parts)
+- Settings: a transient store I/O failure during startup key migration no longer poisons the memoized promise for the whole session (reset-on-reject so reads retry) — previously it could wedge the settings UI on the loading skeleton
+- Agent: the meta-tool loop guard now stops only on a genuine spin (the same outline/search call repeated), so distinct refined searches after a read are no longer truncated as a "loop"
+- Streaming: a user abort mid-stream can no longer surface as an unhandled rejection when closing the progress-injection stream
+
 ## [3.4.1] - 2026-07-07
 
 ### Fixed

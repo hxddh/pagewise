@@ -77,10 +77,20 @@ export function wrapStreamWithAgentProgress(
         controller.enqueue(value);
       }
       finish();
-      controller.close();
+      // close()/error() throw if the consumer already cancelled the stream;
+      // swallow that so a user abort can't surface as an unhandled rejection.
+      try {
+        controller.close();
+      } catch {
+        /* stream already terminated */
+      }
     } catch (error) {
       finish();
-      controller.error(error);
+      try {
+        controller.error(error);
+      } catch {
+        /* stream already terminated */
+      }
     }
   }
 }

@@ -32,15 +32,35 @@ describe("agent-loop-guards", () => {
     expect(shouldForceReadTools(steps)).toBe(false);
   });
 
-  it("flags a meta-tool loop even when a read happened earlier in the run (N4)", () => {
+  it("flags a repeated meta call even when a read happened earlier in the run (N4)", () => {
     const steps = [
-      { toolCalls: [{ toolName: "read_pdf_page" }] }, // early read, then spam
+      { toolCalls: [{ toolName: "read_pdf_page" }] }, // early read, then spin
       { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
-      { toolCalls: [{ toolName: "search_in_document" }] },
-      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "x" } }] },
+      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] }, // outline repeats → spin
     ];
-    // Last 3 steps are outline/search with no reads → stop the loop.
     expect(isMetaToolOnlyLoop(steps)).toBe(true);
+  });
+
+  it("flags the same search issued repeatedly", () => {
+    const steps = [
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "a" } }] },
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "a" } }] },
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "a" } }] },
+    ];
+    expect(isMetaToolOnlyLoop(steps)).toBe(true);
+  });
+
+  it("does NOT flag distinct refined searches (progress, not a loop)", () => {
+    const steps = [
+      { toolCalls: [{ toolName: "read_pdf_page" }] },
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "a" } }] },
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "b" } }] },
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "c" } }] },
+    ];
+    // Last 3 are all searches but with distinct queries → the model is making
+    // progress locating passages, not spinning. Must not be stopped.
+    expect(isMetaToolOnlyLoop(steps)).toBe(false);
   });
 
   it("does not flag when the latest step produced text instead of a tool call", () => {

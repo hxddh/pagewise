@@ -449,9 +449,14 @@ async function reconcilePlaintextKeyMirrors(): Promise<void> {
 
 function ensureApiKeysMigrated(): Promise<void> {
   if (!migrationPromise) {
-    migrationPromise = migrateKeychainApiKeysIfNeeded().then(() =>
-      reconcilePlaintextKeyMirrors(),
-    );
+    migrationPromise = migrateKeychainApiKeysIfNeeded()
+      .then(() => reconcilePlaintextKeyMirrors())
+      .catch((e) => {
+        // A transient store I/O failure must not poison the memoized promise for
+        // the rest of the session — reset so the next read retries migration.
+        migrationPromise = null;
+        throw e;
+      });
   }
   return migrationPromise;
 }
