@@ -429,7 +429,10 @@ export async function readAuthorizedFileBytes(
 
 async function loadPdfBytes(path: string, readGen: number): Promise<Uint8Array> {
   const cached = pdfBytesCache.get(path);
-  if (cached) return cached;
+  if (cached) {
+    touchPdfBytesCache(path); // mark as most-recently-used so the LRU is a real LRU
+    return cached;
+  }
 
   let data: Uint8Array;
   try {
@@ -918,31 +921,6 @@ export async function renderPageToJpegBytes(
       "image/jpeg",
       quality,
     );
-  });
-
-  return new Uint8Array(await blob.arrayBuffer());
-}
-
-export async function renderPageToPngBytes(
-  path: string,
-  pageNumber: number,
-  maxEdge = 1568,
-  signal?: AbortSignal,
-): Promise<Uint8Array> {
-  throwIfAborted(signal);
-  const doc = await getPdfDocument(path);
-  throwIfAborted(signal);
-  const page = await doc.getPage(pageNumber);
-  const base = page.getViewport({ scale: 1 });
-  const edge = Math.max(base.width, base.height);
-  const scale = visionRenderScale(edge, maxEdge, getOutputScale("performance"));
-
-  const offscreen = document.createElement("canvas");
-  await paintPage(page, scale, "performance", offscreen, "print");
-  throwIfAborted(signal);
-
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    offscreen.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
   });
 
   return new Uint8Array(await blob.arrayBuffer());

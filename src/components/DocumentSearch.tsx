@@ -5,6 +5,7 @@ import { docCache } from "../lib/doc-cache";
 import { OPEN_DOC_SEARCH_EVENT } from "../lib/events";
 import type { LoadedDocument } from "../lib/types";
 import { useOverlayLock } from "../hooks/useOverlayLock";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import {
   isOverlayOpen,
   isTopOverlayLayer,
@@ -24,6 +25,8 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   useOverlayLock(open);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(open, panelRef);
   const layerRef = useRef<number | null>(null);
   const searchGenRef = useRef(0);
 
@@ -100,7 +103,13 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
           setQuery("");
         }}
       />
-      <div className="doc-search-panel" role="dialog" aria-modal="true" aria-label={t("preview.search")}>
+      <div
+        ref={panelRef}
+        className="doc-search-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("preview.search")}
+      >
         <input
           className="doc-search-input"
           type="search"

@@ -184,9 +184,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    // Registration is async; if the effect is torn down (e.g. a rapid document
+    // switch recreates flushChatNow) before it resolves, `unlisten` is still
+    // undefined and the cleanup can't remove the handler. Track cancellation so
+    // the resolved listener is removed immediately instead of leaking.
+    let cancelled = false;
     void (async () => {
       const win = getCurrentWindow();
-      unlisten = await win.onCloseRequested(async (event) => {
+      const fn = await win.onCloseRequested(async (event) => {
         event.preventDefault();
         try {
           await flushChatNow();
@@ -196,8 +201,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           await win.destroy();
         }
       });
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unlisten = fn;
     })();
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, [flushChatNow]);

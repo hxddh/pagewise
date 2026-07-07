@@ -31,7 +31,9 @@ export function getPageIndexState(path: string, page: number): PageIndexState | 
 
 export function clearPageIndexState(path: string, page: number): void {
   states.delete(key(path, page));
-  emitPageIndex({ path, page, status: "idle" });
+  // Notify without persisting: an idle page has no stored state, so re-inserting
+  // it here would defeat the purpose of clearing (the map would never shrink).
+  notify({ path, page, status: "idle" });
 }
 
 /**
@@ -44,7 +46,7 @@ export function clearDocumentIndexState(path: string): void {
     if (!stateKey.startsWith(prefix)) continue;
     const page = Number(stateKey.slice(prefix.length));
     states.delete(stateKey);
-    emitPageIndex({ path, page, status: "idle" });
+    notify({ path, page, status: "idle" });
   }
 }
 
@@ -53,8 +55,8 @@ export function subscribePageIndex(listener: IndexListener): () => void {
   return () => listeners.delete(listener);
 }
 
-export function emitPageIndex(state: PageIndexState): void {
-  states.set(key(state.path, state.page), state);
+/** Deliver a state to every listener without mutating the `states` map. */
+function notify(state: PageIndexState): void {
   for (const listener of listeners) {
     try {
       listener(state);
@@ -62,4 +64,9 @@ export function emitPageIndex(state: PageIndexState): void {
       // A throwing listener must not abort delivery to the remaining listeners.
     }
   }
+}
+
+export function emitPageIndex(state: PageIndexState): void {
+  states.set(key(state.path, state.page), state);
+  notify(state);
 }

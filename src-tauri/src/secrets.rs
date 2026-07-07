@@ -21,29 +21,47 @@ fn entry(provider: &str) -> Result<Entry, String> {
     Entry::new(SERVICE, &format!("api-key/{provider}")).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
-    entry(&provider)?
-        .set_password(&key)
-        .map_err(|e| e.to_string())
+fn set_api_key_impl(provider: &str, key: &str) -> Result<(), String> {
+    entry(provider)?.set_password(key).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn get_api_key(provider: String) -> Result<String, String> {
-    match entry(&provider)?.get_password() {
+fn get_api_key_impl(provider: &str) -> Result<String, String> {
+    match entry(provider)?.get_password() {
         Ok(key) => Ok(key),
         Err(keyring::Error::NoEntry) => Ok(String::new()),
         Err(e) => Err(e.to_string()),
     }
 }
 
-#[tauri::command]
-pub fn delete_api_key(provider: String) -> Result<(), String> {
-    match entry(&provider)?.delete_credential() {
+fn delete_api_key_impl(provider: &str) -> Result<(), String> {
+    match entry(provider)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+// Keychain access can block on an OS prompt (macOS) or a Secret Service DBus
+// round-trip (Linux); run it off the main thread so the window never freezes.
+#[tauri::command]
+pub async fn set_api_key(provider: String, key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || set_api_key_impl(&provider, &key))
+        .await
+        .map_err(|e| format!("keychain task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn get_api_key(provider: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || get_api_key_impl(&provider))
+        .await
+        .map_err(|e| format!("keychain task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn delete_api_key(provider: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || delete_api_key_impl(&provider))
+        .await
+        .map_err(|e| format!("keychain task failed: {e}"))?
 }
 
 #[cfg(test)]
@@ -53,17 +71,17 @@ mod tests {
     #[test]
     fn keyring_roundtrip() {
         // Must be a known provider now that entry() validates the name.
-        let provider = "custom".to_string();
+        let provider = "custom";
         let key = format!("test-key-{}", std::process::id());
-        set_api_key(provider.clone(), key.clone()).expect("set");
-        let got = get_api_key(provider.clone()).expect("get");
+        set_api_key_impl(provider, &key).expect("set");
+        let got = get_api_key_impl(provider).expect("get");
         assert_eq!(got, key, "keychain roundtrip failed");
-        delete_api_key(provider).expect("delete");
+        delete_api_key_impl(provider).expect("delete");
     }
 
     #[test]
     fn rejects_unknown_provider() {
-        assert!(set_api_key("bogus".to_string(), "k".to_string()).is_err());
-        assert!(set_api_key(String::new(), "k".to_string()).is_err());
+        assert!(set_api_key_impl("bogus", "k").is_err());
+        assert!(set_api_key_impl("", "k").is_err());
     }
 }
