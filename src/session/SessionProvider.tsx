@@ -21,6 +21,7 @@ import { addRecentFile, getRecentFiles, removeRecentFile, type RecentFile } from
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
 import { clearChat as clearChatFile, loadChat, saveChat } from "../chat/persist";
+import { flushChat } from "./flush-chat";
 import { useDocAgent } from "../hooks/useDocAgent";
 import { useConnectionStatus } from "../hooks/useConnectionStatus";
 import { useResizeWidth } from "../hooks/useResizeWidth";
@@ -147,18 +148,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const saveTimerRef = useRef<number | undefined>(undefined);
 
-  const flushChatNow = useCallback(async () => {
-    await agent.waitForStreamIdle();
-    agent.stop();
-    const path = documentRef.current?.path;
-    const msgs = messagesRef.current;
-    if (!path || msgs.length === 0) return;
-    if (saveTimerRef.current !== undefined) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = undefined;
-    }
-    await saveChat(path, msgs);
-  }, [agent]);
+  const flushChatNow = useCallback(
+    () =>
+      flushChat({
+        waitForStreamIdle: () => agent.waitForStreamIdle(),
+        stop: () => agent.stop(),
+        getPath: () => documentRef.current?.path,
+        getMessages: () => messagesRef.current,
+        clearAutosave: () => {
+          if (saveTimerRef.current !== undefined) {
+            window.clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = undefined;
+          }
+        },
+        saveChat,
+      }),
+    [agent],
+  );
 
   useEffect(() => {
     if (!document?.path || agent.messages.length === 0) return;
