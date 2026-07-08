@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 export interface Toast {
   id: string;
@@ -16,8 +24,14 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timers = useRef<Map<string, number>>(new Map());
 
   const dismissToast = useCallback((id: string) => {
+    const timer = timers.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timers.current.delete(id);
+    }
     setToasts((t) => t.filter((x) => x.id !== id));
   }, []);
 
@@ -25,7 +39,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message: string, tone: Toast["tone"] = "default") => {
       const id = crypto.randomUUID();
       setToasts((t) => [...t, { id, message, tone }]);
-      window.setTimeout(() => dismissToast(id), 3200);
+      // Track the timer so a manual dismiss can cancel it — otherwise the late
+      // timeout fires a no-op setToasts render on an already-removed toast.
+      const timer = window.setTimeout(() => dismissToast(id), 3200);
+      timers.current.set(id, timer);
     },
     [dismissToast],
   );

@@ -92,6 +92,7 @@ async function indexPage(
   page: number,
   signal: AbortSignal,
   generation: number,
+  attributeUsage = false,
 ): Promise<void> {
   if (signal.aborted || !docCache.has(path) || !isCurrentGeneration(path, generation)) return;
 
@@ -120,6 +121,7 @@ async function indexPage(
     const text = await generateVisionText(settings, VISION_PROMPT, bytes, {
       signal: visionFetchSignal(signal),
       mediaType,
+      attributeUsage,
     });
 
     if (signal.aborted || !isCurrentGeneration(path, generation)) {
@@ -168,6 +170,7 @@ async function runIndexPage(
   page: number,
   signal: AbortSignal,
   generation: number,
+  attributeUsage = false,
 ): Promise<void> {
   const key = pageKey(path, page);
   const existing = pageInflight.get(key);
@@ -176,7 +179,7 @@ async function runIndexPage(
     return;
   }
 
-  const promise = indexPage(path, page, signal, generation).finally(() => {
+  const promise = indexPage(path, page, signal, generation, attributeUsage).finally(() => {
     const cur = pageInflight.get(key);
     if (cur?.promise === promise) {
       pageInflight.delete(key);
@@ -207,6 +210,7 @@ export async function ensurePageIndexed(
   path: string,
   page: number,
   signal?: AbortSignal,
+  attributeUsage = false,
 ): Promise<void> {
   if (signal?.aborted) return;
 
@@ -219,7 +223,7 @@ export async function ensurePageIndexed(
     signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
   const generation = pathGenerations.get(path) ?? 0;
-  await runIndexPage(path, page, controller.signal, generation);
+  await runIndexPage(path, page, controller.signal, generation, attributeUsage);
 }
 
 /** Index one page in the background (preview on-demand). */

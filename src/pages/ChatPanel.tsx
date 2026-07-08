@@ -194,6 +194,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     sendDocumentMessage,
   ]);
 
+  // Read the viewing page / include-flag through refs: MessageAssistantFooter's
+  // memo comparator intentionally ignores onRegenerate, so a footer already
+  // rendered can hold an older handleRegenerate closure. Reading current values
+  // from refs makes Regenerate use the page the user is actually on.
+  const previewPageRef = useRef(previewPage);
+  previewPageRef.current = previewPage;
+  const includeViewingPageRef = useRef(includeViewingPage);
+  includeViewingPageRef.current = includeViewingPage;
+
   const handleRegenerate = useCallback(async () => {
     if (!activeDoc || !regenerateDocumentMessage || interactionBusy) return;
     if (!hasApiKey || !agentToolsSupported) {
@@ -205,9 +214,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       path: activeDoc.path,
       docName: activeDoc.name,
       docKind: activeDoc.kind,
-      viewingPage: previewPage,
+      viewingPage: previewPageRef.current,
       totalPages: activeDoc.totalPages,
-      includeViewingPage,
+      includeViewingPage: includeViewingPageRef.current,
     });
   }, [
     activeDoc,
@@ -216,8 +225,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     hasApiKey,
     agentToolsSupported,
     onConfigureApi,
-    previewPage,
-    includeViewingPage,
   ]);
 
   async function handleSubmit(e: React.FormEvent) {

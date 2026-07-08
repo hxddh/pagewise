@@ -30,9 +30,36 @@ describe("generateVisionText usage", () => {
         { provider: "openrouter", apiKey: "sk-test", model: "google/gemini-2.5-flash-lite" },
         "test",
         new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+        { attributeUsage: true },
       );
       expect(text).toBe("OK");
       expect(getIndexUsageSnapshot()).toEqual({ inputTokens: 42, outputTokens: 7 });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does NOT record usage when attributeUsage is not set (background/prefetch)", async () => {
+    resetIndexUsageTracker();
+    const { generateVisionText } = await import("./vision-api");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "OK" } }],
+          usage: { prompt_tokens: 42, completion_tokens: 7 },
+        }),
+        { status: 200 },
+      )) as typeof fetch;
+    try {
+      await generateVisionText(
+        { provider: "openrouter", apiKey: "sk-test", model: "google/gemini-2.5-flash-lite" },
+        "test",
+        new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+      );
+      // Default (no attribution): a background sweep / probe must not pollute the
+      // per-send index-usage total.
+      expect(getIndexUsageSnapshot()).toEqual({ inputTokens: 0, outputTokens: 0 });
     } finally {
       globalThis.fetch = originalFetch;
     }

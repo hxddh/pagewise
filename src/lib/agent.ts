@@ -111,7 +111,8 @@ async function readPageText(path: string, page: number) {
     }
   }
 
-  await ensurePageIndexed(path, page, signal);
+  // Agent tool read: attribute this vision indexing to the current run's usage.
+  await ensurePageIndexed(path, page, signal, true);
   throwIfAborted(signal);
   const after = docCache.getPages(path).find((p) => p.page === page);
   const text = after?.text ?? "";

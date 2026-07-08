@@ -28,18 +28,27 @@ export function ConfirmBar({
   const confirmRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
+  // Read through refs so the mount effect can run exactly once. Callers pass an
+  // inline onCancel whose identity changes every parent render; depending on it
+  // would re-run the effect and yank focus back to the initial button (and churn
+  // the escape layer) on every unrelated re-render.
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+  const dangerRef = useRef(danger);
+  dangerRef.current = danger;
+
   // Register as the topmost escape layer while mounted, and give it initial
   // focus so the alertdialog is keyboard-operable. For destructive prompts the
   // safe (cancel) action receives focus.
   useEffect(() => {
     const layerId = pushOverlayLayer();
-    (danger ? cancelRef.current : confirmRef.current)?.focus();
+    (dangerRef.current ? cancelRef.current : confirmRef.current)?.focus();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
         e.preventDefault();
         e.stopPropagation();
-        onCancel();
+        onCancelRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -47,7 +56,7 @@ export function ConfirmBar({
       window.removeEventListener("keydown", onKey);
       popOverlayLayer(layerId);
     };
-  }, [danger, onCancel]);
+  }, []);
 
   return (
     <div className="confirm-bar" role="alertdialog" aria-live="assertive">

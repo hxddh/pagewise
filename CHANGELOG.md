@@ -4,6 +4,20 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.4.3] - 2026-07-07
+
+### Fixed
+
+- PDF cache: capture the freshness stamp before parsing and key it on `(mtime, size)`, so a file rewritten during a slow parse (or within the same mtime tick) is re-parsed instead of served stale content forever
+- Security: `write_text_file` rejects a symlink leaf outright and re-validates immediately before writing — closes a dangling-symlink escape (`Path::exists()` follows symlinks and misses dangling ones) and shrinks the check→write TOCTOU window
+- Settings: language changes go through the locked `patchPreferences`, so a concurrent preference toggle can no longer be reverted by a stale read snapshot
+- Settings drawer: the Escape-layer registration depends only on `open`, so an unrelated autosave tick can't shove the drawer above a higher overlay and mis-route Escape
+- Confirm dialog: the mount effect runs once, so a parent re-render no longer steals focus back to the initial button
+- Chat: Regenerate reads the current viewing page from a ref, so navigating the preview before regenerating uses the page you're actually on
+- Usage: index-token accounting is attributed only to agent tool page-reads; background sweeps, on-view prefetch, and the connection probe no longer land on an unrelated chat message
+- Toast: auto-dismiss timers are tracked and cancelled on manual dismiss
+- Resize: an in-progress width drag is persisted if the handle unmounts mid-drag
+
 ## [3.4.2] - 2026-07-07
 
 ### Fixed
