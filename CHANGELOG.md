@@ -4,6 +4,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.4.3] - 2026-07-07
+
 ### Fixed
 
 - PDF cache: capture the freshness stamp before parsing and key it on `(mtime, size)`, so a file rewritten during a slow parse (or within the same mtime tick) is re-parsed instead of served stale content forever
