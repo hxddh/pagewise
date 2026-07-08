@@ -66,9 +66,14 @@ impl PdfExtractCancel {
 /// session cannot grow native memory without limit.
 const MAX_CACHED_DOCS: usize = 1;
 
+/// Freshness stamp for a cached document: modification time plus file size.
+/// Mixing in the size catches a same-mtime-tick rewrite that changes length,
+/// which a coarse-resolution `SystemTime` alone would miss.
+type FileStamp = (SystemTime, u64);
+
 #[derive(Default)]
 struct CacheInner {
-    map: HashMap<PathBuf, (SystemTime, Arc<Vec<String>>)>,
+    map: HashMap<PathBuf, (FileStamp, Arc<Vec<String>>)>,
     /// LRU order (oldest first) used for eviction.
     order: Vec<PathBuf>,
 }
@@ -82,15 +87,15 @@ impl CacheInner {
         self.order.push(key.clone());
     }
 
-    fn get(&mut self, key: &PathBuf) -> Option<(SystemTime, Arc<Vec<String>>)> {
+    fn get(&mut self, key: &PathBuf) -> Option<(FileStamp, Arc<Vec<String>>)> {
         if self.map.contains_key(key) {
             self.touch(key);
         }
         self.map.get(key).cloned()
     }
 
-    fn insert(&mut self, key: PathBuf, mtime: SystemTime, pages: Arc<Vec<String>>) {
-        if self.map.insert(key.clone(), (mtime, pages)).is_none() {
+    fn insert(&mut self, key: PathBuf, stamp: FileStamp, pages: Arc<Vec<String>>) {
+        if self.map.insert(key.clone(), (stamp, pages)).is_none() {
             self.order.push(key.clone());
         } else {
             self.touch(&key);
@@ -157,18 +162,21 @@ fn extract_page_text(doc: &Document, page: u32) -> Result<String, String> {
     Ok(s)
 }
 
-fn file_mtime(path: &str) -> Result<SystemTime, String> {
-    std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .map_err(|e| format!("Failed to read PDF metadata: {e}"))
+fn file_stamp(path: &str) -> Result<FileStamp, String> {
+    let meta = std::fs::metadata(path)
+        .map_err(|e| format!("Failed to read PDF metadata: {e}"))?;
+    let mtime = meta
+        .modified()
+        .map_err(|e| format!("Failed to read PDF metadata: {e}"))?;
+    Ok((mtime, meta.len()))
 }
 
 fn cached_pages(path: &str, cache: &PdfCache) -> Result<Option<Arc<Vec<String>>>, String> {
     let key = PathBuf::from(path);
-    let mtime = file_mtime(path)?;
+    let stamp = file_stamp(path)?;
     let mut guard = cache.lock_map()?;
-    if let Some((cached_mtime, cached_pages)) = guard.get(&key) {
-        if cached_mtime == mtime {
+    if let Some((cached_stamp, cached_pages)) = guard.get(&key) {
+        if cached_stamp == stamp {
             return Ok(Some(cached_pages));
         }
     }
@@ -190,6 +198,11 @@ fn parse_all_pages(
         return Ok(cached);
     }
 
+    // Capture the freshness stamp BEFORE loading/parsing. Binding the content to
+    // the stamp it was read at means any rewrite during the (possibly slow) parse
+    // advances the real stamp, so a later read misses the cache and re-parses
+    // instead of being served stale content forever.
+    let stamp = file_stamp(path)?;
     let doc = load_document(path)?;
     if cancel.is_stale(scope, gen) {
         return Err(cancelled());
@@ -205,16 +218,15 @@ fn parse_all_pages(
     }
 
     let key = PathBuf::from(path);
-    let mtime = file_mtime(path)?;
     let arc = Arc::new(pages_raw);
 
     let mut guard = cache.lock_map()?;
-    if let Some((cached_mtime, cached_pages)) = guard.get(&key) {
-        if cached_mtime == mtime {
+    if let Some((cached_stamp, cached_pages)) = guard.get(&key) {
+        if cached_stamp == stamp {
             return Ok(cached_pages);
         }
     }
-    guard.insert(key, mtime, Arc::clone(&arc));
+    guard.insert(key, stamp, Arc::clone(&arc));
     Ok(arc)
 }
 

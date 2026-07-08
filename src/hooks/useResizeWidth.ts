@@ -54,6 +54,12 @@ export function useResizeWidth(min = MIN, max = MAX) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", endDrag);
       window.removeEventListener("pointercancel", endDrag);
+      // If we unmount mid-drag, persist the in-progress width and clear the flag
+      // (pointer capture is released implicitly when the handle element unmounts).
+      if (dragging.current) {
+        dragging.current = false;
+        persistWidth(widthRef.current);
+      }
     };
   }, [min, max, persistWidth]);
 

@@ -9,7 +9,7 @@ import {
 } from "react";
 import {
   loadPreferences,
-  savePreferences,
+  patchPreferences,
   type AppPreferences,
   type LocaleMode,
 } from "../lib/preferences";
@@ -77,9 +77,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocaleMode = useCallback(
     async (mode: LocaleMode) => {
-      const current = await loadPreferences();
-      const next = { ...current, locale: mode };
-      await savePreferences(next);
+      // Patch inside the prefs lock (read-modify-write) so a concurrent locked
+      // writer's field can't be reverted by a stale snapshot.
+      const next = await patchPreferences({ locale: mode });
       setPrefs(next);
     },
     [],

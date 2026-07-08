@@ -95,6 +95,13 @@ function SettingsDrawerInner({
     onClose();
   }, [aiFooter?.dirty, onClose]);
 
+  // Read the latest requestClose from a ref so the escape-layer effect below can
+  // depend only on `open`. Otherwise requestClose's identity (which changes with
+  // aiFooter.dirty) would pop+re-push the layer on an unrelated autosave tick,
+  // shoving this drawer above a higher overlay and mis-routing Escape.
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+
   useEffect(() => {
     if (!open) return;
     const layerId = pushOverlayLayer();
@@ -102,7 +109,7 @@ function SettingsDrawerInner({
       // Only the topmost overlay layer reacts to Escape. When the close-confirm
       // ConfirmBar is open it owns a higher layer and handles Escape itself.
       if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
-        requestClose();
+        requestCloseRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -110,7 +117,7 @@ function SettingsDrawerInner({
       window.removeEventListener("keydown", onKey);
       popOverlayLayer(layerId);
     };
-  }, [open, requestClose]);
+  }, [open]);
 
   async function selectTab(next: DrawerTab) {
     setTab(next);

@@ -48,6 +48,12 @@ where
     }
 }
 
+// Authorizations are intentionally session-scoped: they accumulate for the life
+// of the process and are never revoked, so an already-open document or in-flight
+// asset load can't lose access mid-session. Growth is bounded in practice by the
+// number of distinct files touched this session and fully resets on restart (the
+// frontend re-registers only its capped recent-files list at startup), so no
+// eviction policy is needed here.
 #[tauri::command]
 async fn register_allowed_path(
     path: String,
@@ -239,17 +245,27 @@ async fn write_text_file(
     // component to already exist, which would break saving to a NEW file name.
     let resolved = canon_parent.join(file_name);
 
-    // Symlink-escape protection only applies when overwriting an existing file:
-    // resolve the real target and confirm it is still inside the parent dir.
-    if resolved.exists() {
-        let canon_resolved =
-            std::fs::canonicalize(&resolved).map_err(|e| format!("Invalid path: {e}"))?;
-        if !canon_resolved.starts_with(&canon_parent) {
-            return Err("path not authorized".to_string());
-        }
-    }
-
     tauri::async_runtime::spawn_blocking(move || {
+        // Validate immediately before writing (minimizes the check→write TOCTOU
+        // window) and reject a symlink leaf outright: Path::exists() follows
+        // symlinks and returns false for a DANGLING one, which would otherwise let
+        // fs::write follow it and create a file outside the authorized directory.
+        match std::fs::symlink_metadata(&resolved) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    return Err("path not authorized".to_string());
+                }
+                let canon_resolved = std::fs::canonicalize(&resolved)
+                    .map_err(|e| format!("Invalid path: {e}"))?;
+                if !canon_resolved.starts_with(&canon_parent) {
+                    return Err("path not authorized".to_string());
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // New file — no existing target to resolve; the parent is authorized.
+            }
+            Err(e) => return Err(format!("Invalid path: {e}")),
+        }
         std::fs::write(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
     })
     .await

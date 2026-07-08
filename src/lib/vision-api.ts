@@ -68,7 +68,7 @@ export async function generateVisionText(
   settings: LlmSettings,
   prompt: string,
   imageJpeg: Uint8Array,
-  options: { signal?: AbortSignal; mediaType?: string } = {},
+  options: { signal?: AbortSignal; mediaType?: string; attributeUsage?: boolean } = {},
 ): Promise<string> {
   const modelError = validateModel(settings);
   if (modelError) {
@@ -112,7 +112,10 @@ export async function generateVisionText(
   try {
     const parsed = JSON.parse(raw);
     const usage = parseChatCompletionUsage(parsed);
-    if (usage) {
+    // Only count usage the caller attributes to the current agent run (a tool
+    // page-read). Background sweeps, on-view prefetch, and the connection probe
+    // pass false so their tokens don't land on an unrelated chat message.
+    if (usage && options.attributeUsage) {
       addIndexUsage({
         inputTokens: usage.inputTokens ?? 0,
         outputTokens: usage.outputTokens ?? 0,
