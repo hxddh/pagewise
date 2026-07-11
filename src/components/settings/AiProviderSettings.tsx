@@ -148,6 +148,7 @@ export function AiProviderSettings({
         visionModel,
         baseURL: draft.baseURL,
         thinkingEnabled: draft.thinkingEnabled,
+        webSearch: draft.webSearch,
         connectionVerified: draft.connectionVerified,
       },
     }));
@@ -184,6 +185,7 @@ export function AiProviderSettings({
           visionModel,
           baseURL: saved.baseURL,
           thinkingEnabled: saved.thinkingEnabled,
+          webSearch: saved.webSearch,
           connectionVerified: saved.connectionVerified,
         },
       }));
@@ -430,6 +432,7 @@ export function AiProviderSettings({
           visionModel,
           baseURL: saved.baseURL,
           thinkingEnabled: saved.thinkingEnabled,
+          webSearch: saved.webSearch,
           connectionVerified: true,
         },
       }));
@@ -767,6 +770,23 @@ export function AiProviderSettings({
               type="checkbox"
               checked={!!settings.thinkingEnabled}
               onChange={(e) => patchSettings({ thinkingEnabled: e.target.checked })}
+            />
+          </label>
+        </section>
+      )}
+
+      {settings.provider === "openrouter" && (
+        <section className="settings-card">
+          <h4 className="settings-card-title">{t("settings.webSearchSection")}</h4>
+          <label className="settings-row-toggle">
+            <div>
+              <span className="settings-row-title">{t("settings.webSearch")}</span>
+              <span className="settings-row-hint">{t("settings.webSearchHint")}</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={!!settings.webSearch}
+              onChange={(e) => patchSettings({ webSearch: e.target.checked })}
             />
           </label>
         </section>

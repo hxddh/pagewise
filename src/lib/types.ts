@@ -16,6 +16,8 @@ export interface ProviderProfile {
   visionModel?: string;
   baseURL?: string;
   thinkingEnabled?: boolean;
+  /** OpenRouter server-side web search (the `web` plugin). Inert for other providers. */
+  webSearch?: boolean;
   connectionVerified?: boolean;
 }
 
@@ -33,6 +35,8 @@ export interface LlmSettings {
   model: string;
   baseURL?: string;
   thinkingEnabled?: boolean;
+  /** OpenRouter server-side web search (the `web` plugin). Inert for other providers. */
+  webSearch?: boolean;
   /** Set true only after a successful test connection. */
   connectionVerified?: boolean;
 }

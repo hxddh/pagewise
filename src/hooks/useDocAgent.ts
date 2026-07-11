@@ -4,7 +4,7 @@ import { beginAgentMessage, rollbackLastAgentMessage, type AgentMessageContext }
 import { sendWithImageFallback } from "../lib/agent-send";
 import { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
-import { formatAgentError, validateAgentModel, assertApiKeyForAgent } from "../lib/llm";
+import { formatAgentError, validateModel, assertApiKeyForAgent } from "../lib/llm";
 import { isAgentMultimodalModel } from "../lib/model-capabilities";
 import {
   extractUserText,
@@ -251,7 +251,11 @@ export function useDocAgent(chatId: string | null = null) {
     ) {
       return false;
     }
-    const modelError = validateAgentModel(settings, t);
+    // Only block a send on hard errors (missing model id / base URL). The
+    // tool-capability check is a heuristic guess — don't pre-block the agent on
+    // it; let the model try and surface the real provider error. Settings still
+    // shows the capability warning via validateAgentModel.
+    const modelError = validateModel(settings, t);
     if (modelError) {
       setSendError(new Error(modelError));
       return false;

@@ -189,6 +189,7 @@ function migrateProviderProfile(
     visionModel: visionModel || undefined,
     baseURL: asSettings.baseURL,
     thinkingEnabled,
+    webSearch: asSettings.webSearch,
     connectionVerified,
   };
 }
@@ -203,6 +204,7 @@ function profileToSettings(
     model: profile.model,
     baseURL: profile.baseURL,
     thinkingEnabled: profile.thinkingEnabled,
+    webSearch: profile.webSearch,
     connectionVerified: profile.connectionVerified,
     apiKey,
   };
@@ -222,6 +224,7 @@ function settingsToProfile(settings: LlmSettings, visionModel?: string): Provide
     visionModel,
     baseURL: settings.baseURL,
     thinkingEnabled: settings.thinkingEnabled,
+    webSearch: settings.webSearch,
     connectionVerified: settings.connectionVerified,
   };
 }
