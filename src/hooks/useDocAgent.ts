@@ -32,6 +32,8 @@ export interface SendDocumentMessageOptions {
   viewingPage: number;
   totalPages: number;
   includeViewingPage: boolean;
+  /** User opted this message into web search (OpenRouter native). */
+  webSearch?: boolean;
 }
 
 export type RegenerateDocumentMessageOptions = Omit<SendDocumentMessageOptions, "text">;
@@ -335,6 +337,7 @@ export function useDocAgent(chatId: string | null = null) {
         totalPages: opts.totalPages,
         userText: text,
         includeViewingPage: opts.includeViewingPage,
+        webSearch: opts.webSearch === true,
       };
       pendingSendContextRef.current = ctx;
       beginAgentMessage(ctx);

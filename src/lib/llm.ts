@@ -52,6 +52,17 @@ export function injectWebSearchPlugin(body: string, maxResults = 3): string {
   }
 }
 
+/**
+ * Per-run opt-in web search. Set true just for the runs where the user turned on
+ * "search the web" for that message (OpenRouter only); cleared after. This
+ * replaces the always-on plugin removed in 3.5.1 — the model only searches when
+ * the user asks it to, not on every message.
+ */
+let webSearchForRun = false;
+export function setWebSearchForRun(on: boolean): void {
+  webSearchForRun = on;
+}
+
 function providerFetch(settings: LlmSettings): typeof fetch | undefined {
   if (settings.provider !== "openrouter") return undefined;
 
@@ -59,11 +70,12 @@ function providerFetch(settings: LlmSettings): typeof fetch | undefined {
     const headers = new Headers(init?.headers);
     headers.set("HTTP-Referer", "https://pagewise.app");
     headers.set("X-Title", "PageWise");
-    // NOTE: the always-on OpenRouter `web` plugin was removed — it searched on
-    // every message (deriving its own query) and polluted document answers with
-    // irrelevant sources. `injectWebSearchPlugin` is retained for a future
-    // per-message opt-in design. See CHANGELOG 3.5.1.
-    return fetch(input, { ...init, headers });
+    // Inject OpenRouter's `web` plugin only when the user opted in for this run.
+    const body =
+      webSearchForRun && typeof init?.body === "string"
+        ? injectWebSearchPlugin(init.body)
+        : init?.body;
+    return fetch(input, { ...init, headers, body });
   };
 }
 

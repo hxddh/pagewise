@@ -213,7 +213,9 @@
     "dismissError": "Dismiss",
     "moreDisabledHint": "Available once the conversation has messages",
     "pagesRead": "Pages read",
-    "pagesReadMore": "+{{count}} more"
+    "pagesReadMore": "+{{count}} more",
+    "webSearchOn": "Web search on for next message",
+    "webSearchOff": "Search the web for the next message"
   },
   "empty": {
     "lead": "Ask questions about your document",

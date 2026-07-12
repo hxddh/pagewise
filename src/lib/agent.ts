@@ -1,5 +1,5 @@
 import { throwIfAborted } from "./abort-utils";
-import { extractPageText } from "./pdf";
+import { extractPageText, getPdfOutline } from "./pdf";
 import {
   ToolLoopAgent,
   stepCountIs,
@@ -215,8 +215,9 @@ function createDocumentTools(budget: ReadBudget) {
   return {
     document_outline: tool({
       description:
-        "Document overview: per-page character counts and short previews. " +
-        "Use before reading large documents to plan chunked reads.",
+        "Document overview: the native section/bookmark tree (title → page) when " +
+        "the PDF has one, plus per-page character counts and short previews. Use " +
+        "it to jump to a section or to plan chunked reads of a large document.",
       inputSchema: z.object({
         path: z
           .string()
@@ -240,12 +241,16 @@ function createDocumentTools(budget: ReadBudget) {
           const unindexedPages = pages
             .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
             .map((p) => p.page);
+          // Native bookmark/section tree, so the agent can jump by section
+          // ("summarize chapter 3") instead of scanning per-page previews.
+          const bookmarks = await getPdfOutline(path);
           return {
             totalPages: doc.totalPages || pages.length,
             totalChars,
             suggestedChunkSize: DEFAULT_RANGE_MAX_CHARS,
             needsChunking: totalChars > DEFAULT_RANGE_MAX_CHARS,
             pages: pageStats,
+            ...(bookmarks.length > 0 ? { bookmarks } : {}),
             ...(unindexedPages.length > 0
               ? {
                   unindexedPageCount: unindexedPages.length,
@@ -562,6 +567,12 @@ export function createDocAgent() {
     experimental_refineToolInput: {
       [READ_PDF_RANGE_TOOL]: (input) => normalizeRangeInput(input),
     },
+    // Final-step nudge: on the last allowed step, force a text answer instead of
+    // another tool call — otherwise a run that reaches the step ceiling mid-read
+    // ends without ever synthesizing. Only sets toolChoice; it never mutates the
+    // messages, so it can't break tool-call/result pairing.
+    prepareStep: ({ stepNumber }) =>
+      stepNumber >= runMaxSteps - 1 ? { toolChoice: "none" } : undefined,
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
 

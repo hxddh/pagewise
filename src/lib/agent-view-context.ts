@@ -7,6 +7,8 @@ export interface AgentMessageContext {
   totalPages: number;
   userText: string;
   includeViewingPage: boolean;
+  /** User opted this message into web search (OpenRouter native). */
+  webSearch?: boolean;
 }
 
 /**

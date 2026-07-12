@@ -15,6 +15,7 @@ import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
 import { setAgentRunAbortSignal, clearAgentRunAbortSignal } from "./agent-abort";
+import { setWebSearchForRun } from "./llm";
 import { consumePendingAgentContext } from "./agent-view-context";
 import { buildRuntimeContext } from "./agent-runtime-context";
 import {
@@ -98,6 +99,7 @@ export class PagewiseChatTransport<
     try {
       setAgentRunAbortSignal(abortSignal);
       const viewCtx = consumePendingAgentContext();
+      setWebSearchForRun(viewCtx?.webSearch === true);
       const runtimeContext = buildRuntimeContext(viewCtx);
       result = await this.agent.stream({
         prompt: modelMessages,
@@ -122,11 +124,13 @@ export class PagewiseChatTransport<
         onStreamEnd: () => {
           unsubEarly();
           clearAgentRunAbortSignal();
+          setWebSearchForRun(false);
         },
       });
     } catch (error) {
       unsubEarly();
       clearAgentRunAbortSignal();
+      setWebSearchForRun(false);
       throw error;
     }
   }

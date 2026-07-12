@@ -747,6 +747,62 @@ export function prefetchPage(
   });
 }
 
+export interface PdfBookmark {
+  title: string;
+  /** 1-based page the bookmark points to, or null if it couldn't be resolved. */
+  page: number | null;
+  /** Nesting depth (0 = top level). */
+  level: number;
+}
+
+async function outlineDestToPage(doc: PDFDocumentProxy, dest: unknown): Promise<number | null> {
+  try {
+    let explicit: unknown = dest;
+    if (typeof dest === "string") explicit = await doc.getDestination(dest);
+    if (!Array.isArray(explicit) || explicit.length === 0) return null;
+    const ref = explicit[0];
+    if (!ref || typeof ref !== "object") return null;
+    const index = await doc.getPageIndex(ref as Parameters<PDFDocumentProxy["getPageIndex"]>[0]);
+    return index + 1;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Flatten a PDF's native bookmark/outline tree (pdf.js getOutline) into a
+ * bounded list of { title, page, level }, so the agent can navigate by section
+ * instead of scanning per-page previews. Returns [] when the PDF has no outline
+ * or on any failure (e.g. an image document).
+ */
+export async function getPdfOutline(path: string, maxEntries = 100): Promise<PdfBookmark[]> {
+  try {
+    const doc = await getPdfDocument(path);
+    const tree = await doc.getOutline();
+    if (!tree || tree.length === 0) return [];
+    const out: PdfBookmark[] = [];
+    const walk = async (
+      nodes: Awaited<ReturnType<PDFDocumentProxy["getOutline"]>>,
+      level: number,
+    ): Promise<void> => {
+      if (!nodes) return;
+      for (const node of nodes) {
+        if (out.length >= maxEntries) return;
+        const title = (node.title ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+        if (title) {
+          const page = node.dest != null ? await outlineDestToPage(doc, node.dest) : null;
+          out.push({ title, page, level });
+        }
+        if (node.items?.length) await walk(node.items, level + 1);
+      }
+    };
+    await walk(tree, 0);
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export async function renderTextLayer(
   path: string,
   pageNumber: number,

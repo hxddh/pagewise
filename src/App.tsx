@@ -216,6 +216,7 @@ function AppContent() {
                   errorMessage={agent.errorMessage}
                   hasApiKey={conn.hasApiKey}
                   agentToolsSupported={conn.agentToolsSupported}
+                  webSearchAvailable={conn.webSearchAvailable}
                   settingsReady={conn.settingsReady}
                   loadingDoc={s.loading}
                   chatLoading={s.chatLoading}

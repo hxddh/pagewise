@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { ChatStatus, UIMessage } from "ai";
-import { MoreHorizontal, PanelRightClose, X } from "lucide-react";
+import { Globe, MoreHorizontal, PanelRightClose, X } from "lucide-react";
 import { useI18n } from "../i18n";
 import { AnchoredMenu } from "../components/AnchoredMenu";
 import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
@@ -43,6 +43,7 @@ interface ChatPanelProps {
   errorMessage?: string;
   hasApiKey: boolean;
   agentToolsSupported?: boolean;
+  webSearchAvailable?: boolean;
   settingsReady: boolean;
   loadingDoc: boolean;
   chatLoading?: boolean;
@@ -77,6 +78,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     errorMessage,
     hasApiKey,
     agentToolsSupported = true,
+    webSearchAvailable = false,
     settingsReady,
     loadingDoc,
     chatLoading = false,
@@ -98,6 +100,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 ) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [webForNext, setWebForNext] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -174,7 +177,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         viewingPage: previewPage,
         totalPages: activeDoc.totalPages,
         includeViewingPage,
+        webSearch: webSearchAvailable && webForNext,
       };
+      if (webForNext) setWebForNext(false);
       const sent = await sendDocumentMessage(payload);
       // Only restore the failed send's text if the user hasn't started a new
       // draft in the meantime — otherwise we'd clobber what they just typed.
@@ -194,6 +199,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     activeDoc,
     previewPage,
     includeViewingPage,
+    webSearchAvailable,
+    webForNext,
     onConfigureApi,
     onComposerDraftChange,
     sendDocumentMessage,
@@ -512,6 +519,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         />
         <div className="composer-footer">
           <span className="composer-hint">{t("agent.hint")}</span>
+          {webSearchAvailable && !!activeDoc && (
+            <button
+              type="button"
+              className={`btn icon-btn web-toggle ${webForNext ? "active" : ""}`}
+              onClick={() => setWebForNext((v) => !v)}
+              aria-pressed={webForNext}
+              title={webForNext ? t("agent.webSearchOn") : t("agent.webSearchOff")}
+              aria-label={webForNext ? t("agent.webSearchOn") : t("agent.webSearchOff")}
+            >
+              <Globe size={15} />
+            </button>
+          )}
           {busy || agentBusy ? (
             <button type="button" className="btn stop-btn" onClick={onStop}>
               {t("agent.stop")}

@@ -75,6 +75,8 @@ export function useConnectionStatus() {
     plaintextKeysOnDisk: settings?.plaintextKeysOnDisk ?? false,
     providerLabel,
     model: settings?.model ?? null,
+    // OpenRouter is the only provider whose model can search the web natively.
+    webSearchAvailable: settings?.provider === "openrouter",
     refresh,
   };
 }

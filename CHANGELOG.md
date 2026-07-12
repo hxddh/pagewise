@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.10] - 2026-07-12
+
+### Added
+
+- Agent: `document_outline` now includes the PDF's native **section/bookmark tree** (title → page) when present, so the assistant can jump to a section ("summarize chapter 3") instead of scanning per-page previews.
+- Chat: **opt-in web search** — on OpenRouter, a 🌐 toggle in the composer lets the model search the web for the next message (using OpenRouter's native search, citations shown as Sources). Off by default and per-message, not always-on — this is the correct-shaped return of the feature pulled in 3.5.1.
+
+### Changed
+
+- Agent: on the last allowed step of a run, the model is now nudged to answer instead of making another tool call, so a long investigation that reaches the step ceiling still produces a synthesis instead of ending empty.
+- Search: `search_in_document` accepts an optional `maxResults` (default 50, up to 200) and reports truncation (carried over from 3.5.9).
+
 ## [3.5.9] - 2026-07-12
 
 ### Changed
