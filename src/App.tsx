@@ -216,6 +216,7 @@ function AppContent() {
                   onComposerDraftChange={setComposerDraft}
                   onConfigureApi={overlays.openSettings}
                   onStop={agent.stop}
+                  onDismissError={agent.clearError}
                   onClearChat={overlays.openClearConfirm}
                   onExportChat={() => void s.exportChat()}
                   onExportSummary={() => void exportSummary()}

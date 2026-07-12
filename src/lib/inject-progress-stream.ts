@@ -36,7 +36,13 @@ export function wrapStreamWithAgentProgress(
   const enqueueProgress = (payload: AgentProgressPayload) => {
     if (closed) return;
     if (!streamController) {
-      pendingProgress.push(payload);
+      // subscribeAgentProgress replays `latest` on subscribe, which is the same
+      // payload object already seeded as the tail of pendingProgress (via
+      // initialProgress). Skip that exact-reference duplicate so the first
+      // progress line isn't enqueued twice.
+      if (pendingProgress[pendingProgress.length - 1] !== payload) {
+        pendingProgress.push(payload);
+      }
       return;
     }
     try {

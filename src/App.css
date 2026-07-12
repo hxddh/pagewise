@@ -1692,6 +1692,24 @@ body {
   margin: 8px 12px 0;
 }
 
+.chat-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.chat-error-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .workspace-error {
   padding: 0 12px;
 }

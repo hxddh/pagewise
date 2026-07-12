@@ -4,6 +4,27 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.5] - 2026-07-12
+
+### Fixed
+
+- Chat: after pressing Send there's now immediate feedback — the thinking indicator and a working **Stop** button appear during the send/capture phase, instead of the panel looking frozen until streaming begins. Stop now also aborts a send that hasn't started streaming yet.
+- Chat: the assistant streaming tail renders inline markdown (bold, italic, code, links) live instead of briefly showing raw `**` / `` ` `` characters until the paragraph closes.
+- Chat: copy failures (clipboard unavailable) now show a toast instead of silently doing nothing.
+- Thumbnails: the sidebar scrolls to and reveals the current page when the page changes (navigation, search jump, follow-agent) or when the sidebar is opened on a far page, instead of staying parked at the top.
+- Search: an empty result on a document that is still being indexed now says so ("still being indexed, results may be incomplete") instead of a bare "No matches".
+- Progress: fixed a duplicated first progress line at the very start of a response.
+- Agent: an explicit page read (agent tool / preview) now completes and caches its text even if a background reindex bumps the document generation mid-read, instead of returning empty and reading as "this page has no content".
+
+### Changed
+
+- Chat: when a document is open but AI isn't configured, the composer shows a "Configure AI" button (which opens Settings) instead of a Send button that silently reroutes; the ⋯ menu shows a tooltip explaining it's available once there are messages; and the error line gains Retry and Dismiss actions.
+- Security (hardening): opening a document now authorizes only that file for the backend, never its whole parent directory. "Save as" flows still authorize the specific folder the user picks, so writes stay scoped to a just-chosen directory rather than every folder a document was ever opened from.
+
+### Performance
+
+- PDF: single-page extraction now populates the page cache, so reading pages one-by-one no longer reloads and re-parses the whole document each time.
+
 ## [3.5.4] - 2026-07-12
 
 ### Fixed

@@ -233,6 +233,7 @@ fn parse_all_pages(
 fn extract_single_page(
     path: &str,
     page: u32,
+    cache: &PdfCache,
     cancel: &PdfExtractCancel,
     scope: PdfExtractScope,
     gen: u64,
@@ -241,6 +242,10 @@ fn extract_single_page(
         return Err(cancelled());
     }
 
+    // Capture the freshness stamp BEFORE loading (same rationale as
+    // parse_all_pages: a rewrite during a slow parse advances the real stamp so
+    // the entry we cache is correctly bound to the bytes we read).
+    let stamp = file_stamp(path)?;
     let doc = load_document(path)?;
     if cancel.is_stale(scope, gen) {
         return Err(cancelled());
@@ -251,10 +256,28 @@ fn extract_single_page(
         return Err(format!("Page {page} out of range (1-{total_pages})"));
     }
 
-    let text = extract_page_text(&doc, page)?;
-    if cancel.is_stale(scope, gen) {
-        return Err(cancelled());
+    // load_document already parsed the whole file, so extract every page's text
+    // (cheap next to the load) and cache it — otherwise each single-page read
+    // reloads and re-parses the entire document from scratch.
+    let mut pages_raw = Vec::with_capacity(total_pages as usize);
+    for p in 1..=total_pages {
+        if cancel.is_stale(scope, gen) {
+            return Err(cancelled());
+        }
+        pages_raw.push(extract_page_text(&doc, p)?);
     }
+
+    let text = pages_raw[(page - 1) as usize].clone();
+    let key = PathBuf::from(path);
+    let arc = Arc::new(pages_raw);
+
+    let mut guard = cache.lock_map()?;
+    // Don't clobber a concurrently-inserted fresher entry for the same file.
+    let already_fresh = matches!(guard.get(&key), Some((cached_stamp, _)) if cached_stamp == stamp);
+    if !already_fresh {
+        guard.insert(key, stamp, Arc::clone(&arc));
+    }
+    drop(guard);
 
     Ok(PdfExtractResult {
         pages: vec![PageText { page, text }],
@@ -303,7 +326,7 @@ pub fn extract_pdf_text(
                     });
                 }
             }
-            extract_single_page(path, p, cancel, scope, gen)
+            extract_single_page(path, p, cache, cancel, scope, gen)
         }
         None => {
             let pages_raw = parse_all_pages(path, cache, cancel, scope, gen)?;

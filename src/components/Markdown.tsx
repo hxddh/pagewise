@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -109,6 +109,24 @@ const ParsedMarkdown = memo(function ParsedMarkdown({ text }: { text: string }) 
   );
 });
 
+// The streaming tail re-parses on every chunk. Unwrap the paragraph wrapper so
+// inline markup (bold, italic, code, links) renders live and stays inline next
+// to the blinking caret — otherwise raw `**`/`_`/`` ` `` characters flicker in
+// the tail until the paragraph closes and moves into the stable block above.
+const tailComponents = {
+  ...markdownComponents,
+  p: ({ children }: { children?: ReactNode }) => <>{children}</>,
+};
+
+const ParsedTail = memo(function ParsedTail({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <ReactMarkdown remarkPlugins={remarkPlugins} components={tailComponents}>
+      {text}
+    </ReactMarkdown>
+  );
+});
+
 function MarkdownInner({ children, live = false }: MarkdownProps) {
   const revealed = useStreamingReveal(children, live);
   const { stable, tail } = useMemo(
@@ -129,7 +147,7 @@ function MarkdownInner({ children, live = false }: MarkdownProps) {
       {stable ? <ParsedMarkdown text={stable} /> : null}
       {tail ? (
         <span className="markdown-stream-tail">
-          <span className="message-body-plain">{tail}</span>
+          <ParsedTail text={tail} />
           <span className="markdown-stream-caret" aria-hidden />
         </span>
       ) : null}
