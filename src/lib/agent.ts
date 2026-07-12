@@ -33,6 +33,14 @@ export const DEFAULT_RANGE_MAX_CHARS = 6_000;
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
 /** Default ceiling per agent run. */
 const DEFAULT_MAX_AGENT_STEPS = 12;
+/** Hard ceiling for whole-document runs, which legitimately chain many range reads. */
+const MAX_WHOLEDOC_STEPS = 30;
+
+/** Step budget for a run: whole-document requests scale with page count (bounded). */
+export function resolveRunMaxSteps(isWholeDoc: boolean, totalPages: number): number {
+  if (!isWholeDoc) return DEFAULT_MAX_AGENT_STEPS;
+  return Math.min(MAX_WHOLEDOC_STEPS, Math.max(DEFAULT_MAX_AGENT_STEPS, totalPages || 0));
+}
 
 const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
   isMetaToolOnlyLoop(
@@ -462,9 +470,11 @@ export function createDocAgent() {
       runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
       let viewHint = viewCtx ? buildViewContextInstructions(viewCtx) : "";
 
-      if (viewCtx && hasWholeDocumentIntent(viewCtx.userText)) {
+      const isWholeDoc = !!viewCtx && hasWholeDocumentIntent(viewCtx.userText);
+      if (viewCtx && isWholeDoc) {
         viewHint += buildWholeDocumentInstructions(viewCtx);
       }
+      runMaxSteps = resolveRunMaxSteps(isWholeDoc, viewCtx?.totalPages ?? 0);
 
       return {
         ...rest,

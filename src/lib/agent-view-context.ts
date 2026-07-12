@@ -76,35 +76,13 @@ export function buildViewContextInstructions(ctx: AgentMessageContext): string {
   const name = sanitizeForPrompt(ctx.docName);
   const path = sanitizeForPrompt(ctx.path, 400);
   if (!ctx.includeViewingPage) {
-    return `
-
-Document context (this message only):
-- Document: "${name}" (${ctx.totalPages} pages, file: "${path}")`;
+    return `\n\nActive document: "${name}" (${ctx.totalPages} pages, file: "${path}").`;
   }
-
-  return `
-
-View context (this message only):
-- Document: "${name}"
-- User is viewing page ${ctx.viewingPage} of ${ctx.totalPages} (file: "${path}")
-
-Page selection rules:
-- If the user means "this page", "current page", "这一页", "当前页", or similar, call read_pdf_page for page ${ctx.viewingPage}.
-- If they name a different page number, read that page instead.
-- For general questions without a page reference, use search_in_document first; only default to page ${ctx.viewingPage} when the question clearly concerns visible on-screen content.
-- If a path is rejected as "not in loaded documents", ask the user to open the document first — only one document is loaded at a time.`;
+  return `\n\nActive document: "${name}" (${ctx.totalPages} pages, file: "${path}"). The user is viewing page ${ctx.viewingPage}; read that page for "this page"/"当前页", otherwise search or read whichever pages answer the question.`;
 }
 
 export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string {
   const name = sanitizeForPrompt(ctx.docName);
-  const pages = ctx.totalPages > 0 ? ctx.totalPages : "unknown";
-  const rangeEnd = ctx.totalPages > 0 ? String(ctx.totalPages) : `totalPages from ${DOCUMENT_OUTLINE_TOOL}`;
-  return `
-
-Whole-document request (${pages} pages in "${name}"):
-1. Call ${DOCUMENT_OUTLINE_TOOL} once — do not skip this for large documents or when page count is unknown.
-2. If totalChars ≤ 8000: read_pdf_range(path, 1, ${rangeEnd}) in one call.
-3. If totalChars > 8000: read_pdf_range with maxChars=8000; when truncated=true, call again with start=nextStart (and offset=nextOffset when it is non-null) until truncated=false.
-4. Do NOT use search_in_document. Do NOT answer from only page ${ctx.viewingPage}.
-5. After all chunks are read, write one synthesized answer.`;
+  const pages = ctx.totalPages > 0 ? `${ctx.totalPages} pages` : "unknown length";
+  return `\n\nThis is a whole-document request ("${name}", ${pages}): use ${DOCUMENT_OUTLINE_TOOL} to plan, read the full document with read_pdf_range in chunks (continue while truncated=true) until every page is covered, then answer from all of it — not a single page.`;
 }

@@ -11,6 +11,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 ### Changed
 
 - Agent: sending no longer pre-blocks on the tool-capability heuristic — an unknown model is allowed to try and surface the real provider error instead of being rejected up front; the capability warning still shows in settings.
+- Agent: whole-document runs scale their step budget with page count (bounded at 30) instead of a flat 12, so a large document isn't cut off mid-read.
+- Agent: trimmed the per-message view/whole-document instruction blocks to lean hints — less context bloat and less rigid scripting of the model, keeping only the essential directives.
 
 ## [3.4.3] - 2026-07-07
 
