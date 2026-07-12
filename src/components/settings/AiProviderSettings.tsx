@@ -775,22 +775,6 @@ export function AiProviderSettings({
         </section>
       )}
 
-      {settings.provider === "openrouter" && (
-        <section className="settings-card">
-          <h4 className="settings-card-title">{t("settings.webSearchSection")}</h4>
-          <label className="settings-row-toggle">
-            <div>
-              <span className="settings-row-title">{t("settings.webSearch")}</span>
-              <span className="settings-row-hint">{t("settings.webSearchHint")}</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={!!settings.webSearch}
-              onChange={(e) => patchSettings({ webSearch: e.target.checked })}
-            />
-          </label>
-        </section>
-      )}
     </div>
   );
 }

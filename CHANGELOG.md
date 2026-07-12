@@ -4,6 +4,12 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-07-08
+
+### Removed
+
+- OpenRouter web search (the always-on `web` plugin from 3.5.0) — it searched on **every** message with its own auto-derived query, so document questions were answered with irrelevant web sources. Pulled the always-on trigger and the settings toggle; citation rendering is retained (dormant) for a future per-message opt-in design.
+
 ## [3.5.0] - 2026-07-08
 
 ### Added
