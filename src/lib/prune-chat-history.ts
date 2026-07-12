@@ -124,7 +124,12 @@ function compactToolOutput(
 
   if (name === SEARCH_IN_DOCUMENT_TOOL) {
     const q = typeof inp.query === "string" ? inp.query : "query";
-    const hits = Array.isArray(output) ? output.length : textLength(output);
+    const hitList = Array.isArray(output)
+      ? output
+      : output && typeof output === "object" && Array.isArray((output as { hits?: unknown }).hits)
+        ? (output as { hits: unknown[] }).hits
+        : null;
+    const hits = hitList ? hitList.length : textLength(output);
     return `[Search "${q.slice(0, 40)}", ${hits} hits — omitted from chat history]`;
   }
 

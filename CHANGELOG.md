@@ -4,12 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
-## [3.5.8] - 2026-07-12
+## [3.5.9] - 2026-07-12
 
 ### Changed
 
-- Agent: stronger grounding so the assistant stops answering document questions from general knowledge. It now (a) answers only from the open document and won't refer you to outside sources, (b) reads the relevant page(s) before concluding something isn't in the document — "search found nothing" no longer means absent (a figure/scanned page can defeat search), and (c) reads the page you're viewing first when a question likely refers to what's on screen, reading where an ambiguous term appears instead of guessing its meaning. Fixes cases like asking about an acronym on the current page and getting a "not in the document" denial based on the wrong meaning.
-- Search: widened the match snippet (48 → 120 chars) so a single hit is often enough to answer a lookup, and a table/figure cell reads as a real match.
+- Agent: removed anti-agent-native limits so the model, not a heuristic, decides how to work. The whole-document intent keyword regex no longer gates how much of the document the agent may read — step and cumulative-read budgets are now uniform and generous for every run (20–30 steps, 200k characters), with the read budget as the sole cost rail, so a broad question phrased outside the keyword set ("review every section", "what recurs across the paper") is no longer silently capped mid-document.
+- Agent: softened the system prompt from a fixed "search first, then read" / "outline first, then read in chunks" script into goal-oriented guidance — the model picks tools freely.
+- Agent: grounding is read-first, not knowledge-limited. The assistant reads before answering and cites pages for document facts, reads the relevant page(s) before concluding something isn't in the document ("search found nothing" ≠ absent), and reads the page you're viewing when a question likely refers to it — then explains, reasons, and synthesizes freely, adding background knowledge when it helps. (Corrects a v3.5.8-in-progress over-restriction that would have limited answers to the document's literal text.)
+- Search: `search_in_document` now accepts an optional `maxResults` (default 50, up to 200) and reports truncation, so the model can pull more than a fixed 30 hits; the match snippet is wider (48 → 120 chars) so a single hit is often enough to answer a lookup and a table/figure cell reads as a real match.
+
+## [3.5.7] - 2026-07-12
 
 ### Added
 
