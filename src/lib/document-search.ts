@@ -7,7 +7,9 @@ export interface SearchHit {
   match: string;
 }
 
-function snippetAround(text: string, index: number, matchLen: number, radius = 48): string {
+// Wider context so a single search hit is often enough to answer a lookup
+// without a follow-up read, and so a table/figure cell reads as a real match.
+function snippetAround(text: string, index: number, matchLen: number, radius = 120): string {
   const start = Math.max(0, index - radius);
   const end = Math.min(text.length, index + matchLen + radius);
   const chunk = text.slice(start, end).replace(/\s+/g, " ").trim();

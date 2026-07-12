@@ -81,7 +81,7 @@ export function buildViewContextInstructions(ctx: AgentMessageContext): string {
   // The optional page *screenshot* is a separate, opt-in concern handled in the
   // send path (`includeViewingPage`), not here.
   if (ctx.viewingPage <= 0) return base;
-  return `${base} The user is viewing page ${ctx.viewingPage}; read that page for "this page"/"本页"/"当前页" requests, otherwise search or read whichever pages answer the question.`;
+  return `${base} The user is viewing page ${ctx.viewingPage}; read that page first for "this page"/"本页"/"当前页" requests or when the question likely refers to what they are looking at — otherwise search or read whichever pages answer the question.`;
 }
 
 export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string {

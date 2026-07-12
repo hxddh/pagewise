@@ -4,7 +4,12 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
-## [3.5.7] - 2026-07-12
+## [3.5.8] - 2026-07-12
+
+### Changed
+
+- Agent: stronger grounding so the assistant stops answering document questions from general knowledge. It now (a) answers only from the open document and won't refer you to outside sources, (b) reads the relevant page(s) before concluding something isn't in the document — "search found nothing" no longer means absent (a figure/scanned page can defeat search), and (c) reads the page you're viewing first when a question likely refers to what's on screen, reading where an ambiguous term appears instead of guessing its meaning. Fixes cases like asking about an acronym on the current page and getting a "not in the document" denial based on the wrong meaning.
+- Search: widened the match snippet (48 → 120 chars) so a single hit is often enough to answer a lookup, and a table/figure cell reads as a real match.
 
 ### Added
 
