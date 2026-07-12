@@ -43,8 +43,14 @@ import { yieldToUi } from "./yield-to-ui";
 export const DEFAULT_RANGE_MAX_CHARS = 6_000;
 /** Default cap per read_pdf_page call. */
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
-/** Default ceiling per agent run. */
-const DEFAULT_MAX_AGENT_STEPS = 12;
+/**
+ * Default ceiling per agent run. Set above a bare minimum so broad questions
+ * that don't match the whole-document intent regex (e.g. "what are the main
+ * themes?") still have room to traverse several pages before answering. The
+ * cumulative read budget remains the real cost rail; the model self-terminates
+ * well under this when the question is targeted.
+ */
+const DEFAULT_MAX_AGENT_STEPS = 15;
 /** Hard ceiling for whole-document runs, which legitimately chain many range reads. */
 const MAX_WHOLEDOC_STEPS = 30;
 
@@ -182,6 +188,35 @@ function resolvePathInput(
   return resolveDocPath(inputPath, options.context?.defaultDocPath ?? null);
 }
 
+/**
+ * Compress a list of page numbers into compact ranges for a terse tool result,
+ * e.g. [51,52,53,80] -> "51-53, 80". Returns "" for an empty list.
+ */
+export function compressPageRanges(pages: number[]): string {
+  const sorted = [...new Set(pages)].sort((a, b) => a - b);
+  if (sorted.length === 0) return "";
+  const parts: string[] = [];
+  let start = sorted[0]!;
+  let prev = sorted[0]!;
+  for (let i = 1; i <= sorted.length; i++) {
+    const n = sorted[i];
+    if (n !== undefined && n === prev + 1) {
+      prev = n;
+      continue;
+    }
+    parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+    if (n !== undefined) {
+      start = n;
+      prev = n;
+    }
+  }
+  return parts.join(", ");
+}
+
+const UNINDEXED_NOTE =
+  "These pages have little or no extracted text, so search_in_document cannot match them. " +
+  "Read them directly with read_pdf_page to access their content (this triggers on-demand indexing).";
+
 function createDocumentTools(budget: ReadBudget) {
   return {
     document_outline: tool({
@@ -208,12 +243,22 @@ function createDocumentTools(budget: ReadBudget) {
             preview: p.text.trim().slice(0, 160),
           }));
           const totalChars = pageStats.reduce((sum, p) => sum + p.chars, 0);
+          const unindexedPages = pages
+            .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
+            .map((p) => p.page);
           return {
             totalPages: doc.totalPages || pages.length,
             totalChars,
             suggestedChunkSize: DEFAULT_RANGE_MAX_CHARS,
             needsChunking: totalChars > DEFAULT_RANGE_MAX_CHARS,
             pages: pageStats,
+            ...(unindexedPages.length > 0
+              ? {
+                  unindexedPageCount: unindexedPages.length,
+                  unindexedPages: compressPageRanges(unindexedPages),
+                  unindexedNote: UNINDEXED_NOTE,
+                }
+              : {}),
           };
         },
       ),
