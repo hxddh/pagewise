@@ -75,10 +75,13 @@ function sanitizeForPrompt(value: string, max = 200): string {
 export function buildViewContextInstructions(ctx: AgentMessageContext): string {
   const name = sanitizeForPrompt(ctx.docName);
   const path = sanitizeForPrompt(ctx.path, 400);
-  if (!ctx.includeViewingPage) {
-    return `\n\nActive document: "${name}" (${ctx.totalPages} pages, file: "${path}").`;
-  }
-  return `\n\nActive document: "${name}" (${ctx.totalPages} pages, file: "${path}"). The user is viewing page ${ctx.viewingPage}; read that page for "this page"/"当前页", otherwise search or read whichever pages answer the question.`;
+  const base = `\n\nActive document: "${name}" (${ctx.totalPages} pages, file: "${path}").`;
+  // The page NUMBER is always shared — it is cheap text and is what makes
+  // "this page" / "本页" requests resolve to the page the user is actually on.
+  // The optional page *screenshot* is a separate, opt-in concern handled in the
+  // send path (`includeViewingPage`), not here.
+  if (ctx.viewingPage <= 0) return base;
+  return `${base} The user is viewing page ${ctx.viewingPage}; read that page for "this page"/"本页"/"当前页" requests, otherwise search or read whichever pages answer the question.`;
 }
 
 export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string {
