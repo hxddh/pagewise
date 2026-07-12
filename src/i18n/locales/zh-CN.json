@@ -211,7 +211,9 @@
     "configureApiCta": "配置 AI",
     "retry": "重试",
     "dismissError": "关闭",
-    "moreDisabledHint": "有对话记录后可用"
+    "moreDisabledHint": "有对话记录后可用",
+    "pagesRead": "读过",
+    "pagesReadMore": "+{{count}} 页"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

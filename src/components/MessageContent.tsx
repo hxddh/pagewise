@@ -1,8 +1,10 @@
-import { memo } from "react";
+import { memo, useContext } from "react";
 import type { UIMessage } from "ai";
 import { isToolUIPart } from "ai";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useI18n } from "../i18n";
+import { collectReadPages } from "../lib/read-pages";
+import { PageRefContext } from "./Markdown";
 import {
   segmentMessageParts,
   summarizeToolSteps,
@@ -133,6 +135,41 @@ function collectSources(
   return out;
 }
 
+/** Clickable "pages read" trail: the pages the agent actually read this turn. */
+function PagesReadTrail({ pages }: { pages: number[] }) {
+  const { t } = useI18n();
+  const onJump = useContext(PageRefContext);
+  if (pages.length === 0) return null;
+  const MAX = 12;
+  const shown = pages.slice(0, MAX);
+  const extra = pages.length - shown.length;
+  return (
+    <div className="pages-read-trail">
+      <span className="pages-read-label">{t("agent.pagesRead")}</span>
+      {shown.map((p) =>
+        onJump ? (
+          <button
+            key={p}
+            type="button"
+            className="pages-read-chip"
+            onClick={() => onJump(p)}
+            title={t("preview.pageTitle", { page: p })}
+          >
+            {p}
+          </button>
+        ) : (
+          <span key={p} className="pages-read-chip">
+            {p}
+          </span>
+        ),
+      )}
+      {extra > 0 && (
+        <span className="pages-read-more">{t("agent.pagesReadMore", { count: extra })}</span>
+      )}
+    </div>
+  );
+}
+
 function MessageContentInner({
   message,
   markdown = false,
@@ -143,6 +180,7 @@ function MessageContentInner({
   const { t } = useI18n();
   const parts = messageParts(message);
   const sources = collectSources(parts);
+  const readPages = message.role === "assistant" && !live ? collectReadPages(parts) : [];
   const showReasoningAsAnswer = message.role === "assistant" && !hasAnswerText(parts);
   const segments = segmentMessageParts(parts);
 
@@ -230,6 +268,7 @@ function MessageContentInner({
       {showEmptyReply && (
         <p className="message-empty-reply">{t("agent.noReply")}</p>
       )}
+      <PagesReadTrail pages={readPages} />
       {sources.length > 0 && (
         <div className="message-sources">
           <span className="message-sources-label">{t("agent.sources")}</span>

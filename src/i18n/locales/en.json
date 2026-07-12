@@ -211,7 +211,9 @@
     "configureApiCta": "Configure AI",
     "retry": "Retry",
     "dismissError": "Dismiss",
-    "moreDisabledHint": "Available once the conversation has messages"
+    "moreDisabledHint": "Available once the conversation has messages",
+    "pagesRead": "Pages read",
+    "pagesReadMore": "+{{count}} more"
   },
   "empty": {
     "lead": "Ask questions about your document",

@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.7] - 2026-07-12
+
+### Added
+
+- Chat: assistant answers now show a **"Pages read"** trail — the pages the agent actually read this turn, as clickable chips that jump the preview. Makes the agent's grounding visible and navigable.
+
+### Changed
+
+- Agent: the system prompt now asks the model to cite a page whenever it states a document fact and to quote key passages verbatim rather than paraphrasing — improving citation coverage (and making more of them clickable).
+
 ## [3.5.6] - 2026-07-12
 
 ### Added
