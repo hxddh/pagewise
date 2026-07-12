@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.4] - 2026-07-12
+
+### Fixed
+
+- Agent: "this page" / "本页" / "当前页" questions now reliably resolve to the page you're actually viewing. The current page **number** is always shared with the agent as cheap text context, decoupled from the "include current page" preference — previously that preference (off by default) gated the page number too, so by default the agent had no idea which page was on screen and would answer about an arbitrary page.
+
+### Changed
+
+- Settings: the "include current page" preference now governs only the optional page **screenshot** sent to multimodal models (relabeled accordingly). The page number is shared regardless, so page-reference questions work without enabling it.
+
 ## [3.5.3] - 2026-07-12
 
 ### Fixed

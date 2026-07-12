@@ -54,8 +54,14 @@ describe("agent-view-context", () => {
     expect(out.length).toBeLessThan(320); // trimmed from the old prescriptive block
   });
 
-  it("view instructions without include-page omit the viewing-page hint", () => {
+  it("always shares the page number, even when the screenshot preference is off", () => {
     const out = buildViewContextInstructions(ctx({ includeViewingPage: false }));
+    expect(out).toContain("report");
+    expect(out).toContain("page 3"); // page number is decoupled from the screenshot toggle
+  });
+
+  it("omits the viewing-page hint when there is no valid viewing page", () => {
+    const out = buildViewContextInstructions(ctx({ viewingPage: 0 }));
     expect(out).toContain("report");
     expect(out).not.toContain("viewing");
   });
