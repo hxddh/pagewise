@@ -36,14 +36,35 @@ export function resolveReasoning(
   return "medium";
 }
 
+/**
+ * Add OpenRouter's server-side web-search plugin to a chat request body. Uses the
+ * model's own native search instead of a hand-rolled tool. Non-JSON bodies (e.g. a
+ * streamed body) are returned untouched.
+ */
+export function injectWebSearchPlugin(body: string, maxResults = 3): string {
+  try {
+    const parsed = JSON.parse(body) as { plugins?: unknown[] };
+    const plugins = Array.isArray(parsed.plugins) ? parsed.plugins : [];
+    parsed.plugins = [...plugins, { id: "web", max_results: maxResults }];
+    return JSON.stringify(parsed);
+  } catch {
+    return body;
+  }
+}
+
 function providerFetch(settings: LlmSettings): typeof fetch | undefined {
   if (settings.provider !== "openrouter") return undefined;
+  const webSearch = settings.webSearch === true;
 
   return async (input, init) => {
     const headers = new Headers(init?.headers);
     headers.set("HTTP-Referer", "https://pagewise.app");
     headers.set("X-Title", "PageWise");
-    return fetch(input, { ...init, headers });
+    let body = init?.body;
+    if (webSearch && typeof body === "string") {
+      body = injectWebSearchPlugin(body);
+    }
+    return fetch(input, { ...init, headers, body });
   };
 }
 

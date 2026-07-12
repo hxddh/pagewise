@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-07-08
+
+### Added
+
+- Agent: optional web search on OpenRouter — enables OpenRouter's built-in `web` plugin (the model's own server-side search) via a per-provider toggle in AI Provider settings, off by default. Uses the model's native search rather than a bespoke tool, so it costs no tool-loop tokens.
+- Chat: web-search citations render as a "Sources" list under the answer (the model's `url_citation` annotations, forwarded as source parts). Shows nothing when there are no citations.
+
+### Changed
+
+- Agent: sending no longer pre-blocks on the tool-capability heuristic — an unknown model is allowed to try and surface the real provider error instead of being rejected up front; the capability warning still shows in settings.
+- Agent: whole-document runs scale their step budget with page count (bounded at 30) instead of a flat 12, so a large document isn't cut off mid-read.
+- Agent: trimmed the per-message view/whole-document instruction blocks to lean hints — less context bloat and less rigid scripting of the model, keeping only the essential directives.
+
 ## [3.4.3] - 2026-07-07
 
 ### Fixed

@@ -4,7 +4,20 @@ import {
   beginAgentMessage,
   consumePendingAgentContext,
   clearAgentMessageContext,
+  buildViewContextInstructions,
+  buildWholeDocumentInstructions,
+  type AgentMessageContext,
 } from "./agent-view-context";
+
+const ctx = (over: Partial<AgentMessageContext> = {}): AgentMessageContext => ({
+  path: "/a.pdf",
+  docName: "report",
+  viewingPage: 3,
+  totalPages: 10,
+  userText: "summarize the whole document",
+  includeViewingPage: true,
+  ...over,
+});
 
 describe("agent-view-context", () => {
   beforeEach(() => {
@@ -31,5 +44,28 @@ describe("agent-view-context", () => {
     expect(consumePendingAgentContext()?.path).toBe("/a.pdf");
     consumePendingAgentContext();
     expect(consumePendingAgentContext()).toBeNull();
+  });
+
+  it("view instructions keep the page facts and stay lean", () => {
+    const out = buildViewContextInstructions(ctx());
+    expect(out).toContain("report");
+    expect(out).toContain("10 pages");
+    expect(out).toContain("page 3"); // viewing page preserved
+    expect(out.length).toBeLessThan(320); // trimmed from the old prescriptive block
+  });
+
+  it("view instructions without include-page omit the viewing-page hint", () => {
+    const out = buildViewContextInstructions(ctx({ includeViewingPage: false }));
+    expect(out).toContain("report");
+    expect(out).not.toContain("viewing");
+  });
+
+  it("whole-document instructions keep the essential directives, drop the numbered script", () => {
+    const out = buildWholeDocumentInstructions(ctx());
+    expect(out).toContain("document_outline");
+    expect(out).toContain("read_pdf_range");
+    expect(out).toContain("truncated"); // continue-until-done hint kept
+    expect(out).not.toMatch(/^\s*1\./m); // no rigid numbered steps
+    expect(out.length).toBeLessThan(360);
   });
 });

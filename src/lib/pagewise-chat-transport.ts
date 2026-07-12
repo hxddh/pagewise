@@ -113,6 +113,9 @@ export class PagewiseChatTransport<
         originalMessages: validatedMessages,
         onError: this.onError,
         messageMetadata: tracker.messageMetadata,
+        // Forward provider-native web-search citations (url_citation annotations)
+        // as source-url parts so they can be rendered; defaults to off.
+        sendSources: true,
       });
 
       return wrapStreamWithAgentProgress(uiStream, earlyProgress, {

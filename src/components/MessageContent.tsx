@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { UIMessage } from "ai";
 import { isToolUIPart } from "ai";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useI18n } from "../i18n";
 import {
   segmentMessageParts,
@@ -115,6 +116,23 @@ function ToolStepsBlock({
   );
 }
 
+/** Collect web-search citations (source-url parts) as http(s) links, deduped by URL. */
+function collectSources(
+  parts: UIMessage["parts"],
+): { url: string; title?: string }[] {
+  const seen = new Set<string>();
+  const out: { url: string; title?: string }[] = [];
+  for (const p of parts) {
+    if ((p as { type?: string }).type !== "source-url") continue;
+    const url = (p as { url?: unknown }).url;
+    if (typeof url !== "string" || !/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    const title = (p as { title?: unknown }).title;
+    out.push({ url, title: typeof title === "string" ? title : undefined });
+  }
+  return out;
+}
+
 function MessageContentInner({
   message,
   markdown = false,
@@ -124,6 +142,7 @@ function MessageContentInner({
 }: MessageContentProps) {
   const { t } = useI18n();
   const parts = messageParts(message);
+  const sources = collectSources(parts);
   const showReasoningAsAnswer = message.role === "assistant" && !hasAnswerText(parts);
   const segments = segmentMessageParts(parts);
 
@@ -210,6 +229,26 @@ function MessageContentInner({
       )}
       {showEmptyReply && (
         <p className="message-empty-reply">{t("agent.noReply")}</p>
+      )}
+      {sources.length > 0 && (
+        <div className="message-sources">
+          <span className="message-sources-label">{t("agent.sources")}</span>
+          <ol>
+            {sources.map((s) => (
+              <li key={s.url}>
+                <a
+                  href={s.url}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void openUrl(s.url);
+                  }}
+                >
+                  {s.title || s.url}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </div>
       )}
     </div>
   );

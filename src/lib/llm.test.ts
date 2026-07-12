@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { APICallError } from "ai";
-import { formatLlmError, isImageInputError, validateModel } from "./llm";
+import {
+  formatLlmError,
+  injectWebSearchPlugin,
+  isImageInputError,
+  validateModel,
+} from "./llm";
 
 describe("formatLlmError", () => {
   it("maps OpenRouter tool-use 404 before generic notFound", () => {
@@ -62,5 +67,24 @@ describe("validateModel", () => {
         model: "anthropic/claude-3.5-sonnet",
       }),
     ).toBeNull();
+  });
+});
+
+describe("injectWebSearchPlugin", () => {
+  it("adds the OpenRouter web plugin to a chat body", () => {
+    const out = JSON.parse(injectWebSearchPlugin(JSON.stringify({ model: "x", messages: [] })));
+    expect(out.plugins).toEqual([{ id: "web", max_results: 3 }]);
+    expect(out.model).toBe("x"); // existing fields preserved
+  });
+
+  it("appends to an existing plugins array and honors maxResults", () => {
+    const out = JSON.parse(
+      injectWebSearchPlugin(JSON.stringify({ plugins: [{ id: "other" }] }), 5),
+    );
+    expect(out.plugins).toEqual([{ id: "other" }, { id: "web", max_results: 5 }]);
+  });
+
+  it("returns a non-JSON body untouched", () => {
+    expect(injectWebSearchPlugin("not json")).toBe("not json");
   });
 });
