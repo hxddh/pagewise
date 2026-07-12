@@ -1100,6 +1100,43 @@ body {
   filter: brightness(1.08);
 }
 
+.pages-read-trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.pages-read-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.75;
+}
+
+.pages-read-chip {
+  min-width: 20px;
+  padding: 1px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+button.pages-read-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pages-read-more {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
 .page-ref-link {
   display: inline;
   padding: 0 2px;

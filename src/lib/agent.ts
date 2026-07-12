@@ -506,7 +506,7 @@ Rules:
 - For keyword questions: search_in_document first, then read_pdf_page on hits.
 - For whole-document tasks: document_outline first, then read_pdf_range in chunks.
 - If a page doesn't fully answer, read adjacent pages or search again before replying; don't answer a document-spanning question from a single page.
-- Cite page numbers when quoting.
+- When you state a fact from the document, cite its page (e.g. "page 5"); quote short key passages verbatim rather than paraphrasing.
 - If no document is loaded, ask the user to open a PDF.`;
 
 /**
