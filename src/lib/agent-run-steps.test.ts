@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveRunMaxSteps } from "./agent";
+import { resolveRunMaxSteps, resolveRunCharBudget } from "./agent";
 
 describe("resolveRunMaxSteps", () => {
   it("uses the default cap for non-whole-document runs", () => {
@@ -17,5 +17,19 @@ describe("resolveRunMaxSteps", () => {
 
   it("is bounded by the whole-document ceiling", () => {
     expect(resolveRunMaxSteps(true, 500)).toBe(30);
+  });
+});
+
+describe("resolveRunCharBudget", () => {
+  it("uses the standard budget for targeted runs", () => {
+    expect(resolveRunCharBudget(false)).toBe(120_000);
+  });
+
+  it("uses a larger budget for whole-document runs", () => {
+    expect(resolveRunCharBudget(true)).toBe(200_000);
+  });
+
+  it("always grants whole-document runs at least the standard budget", () => {
+    expect(resolveRunCharBudget(true)).toBeGreaterThanOrEqual(resolveRunCharBudget(false));
   });
 });

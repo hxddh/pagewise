@@ -1,6 +1,13 @@
 import { throwIfAborted } from "./abort-utils";
 import { extractPageText } from "./pdf";
-import { ToolLoopAgent, stepCountIs, tool, type StopCondition } from "ai";
+import {
+  ToolLoopAgent,
+  stepCountIs,
+  tool,
+  InvalidToolInputError,
+  type StopCondition,
+  type ToolCallRepairFunction,
+} from "ai";
 import { z } from "zod";
 import {
   buildDocToolContext,
@@ -24,6 +31,11 @@ import { ensurePageIndexed } from "../document/index-queue";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
+import { coerceNumericToolInput, normalizeRangeInput } from "./agent-tool-repair";
+import {
+  READ_PDF_RANGE_TOOL,
+  type DocumentToolName,
+} from "./document-tool-names";
 import { getAgentRunAbortSignal } from "./agent-abort";
 import { yieldToUi } from "./yield-to-ui";
 
@@ -55,6 +67,18 @@ const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
 const AGENT_STOP_WHEN = [stepCountIs(DEFAULT_MAX_AGENT_STEPS), stopMetaToolLoop];
 /** Cumulative characters a single run may read before it must synthesize. */
 const RUN_CHAR_BUDGET = 120_000;
+/**
+ * Whole-document runs legitimately read far more text, so they get a higher
+ * (but still hard-capped) budget. The cap keeps accumulated tool output from
+ * overflowing a provider's context window; past it the model must synthesize
+ * and disclose partial coverage rather than read on.
+ */
+const WHOLEDOC_CHAR_BUDGET = 200_000;
+
+/** Cumulative read budget for a run: whole-document requests get a larger cap. */
+export function resolveRunCharBudget(isWholeDoc: boolean): number {
+  return isWholeDoc ? WHOLEDOC_CHAR_BUDGET : RUN_CHAR_BUDGET;
+}
 
 const docToolContextSchema = z.object({
   defaultDocPath: z.string().nullable(),
@@ -63,7 +87,7 @@ const docToolContextSchema = z.object({
 /** Mutable per-run read budget shared between a run's tools and prepareCall. */
 interface ReadBudget {
   used: number;
-  readonly max: number;
+  max: number;
 }
 
 /** Reject any model-supplied path that is not a currently-loaded document. */
@@ -128,7 +152,9 @@ async function readPageText(path: string, page: number) {
 }
 
 const BUDGET_NOTE =
-  "Cumulative read budget for this turn reached; synthesize your answer from the pages already read instead of reading more.";
+  "Read budget for this turn is reached; do not read more pages. Synthesize your answer " +
+  "from the pages already read, and tell the user clearly that your answer covers only " +
+  "those pages — not the entire document.";
 
 type ToolExecuteOptions = { context?: PageWiseDocToolContext };
 
@@ -434,8 +460,31 @@ Rules:
 - Sparse or scan pages are indexed via vision — wait for read results.
 - For keyword questions: search_in_document first, then read_pdf_page on hits.
 - For whole-document tasks: document_outline first, then read_pdf_range in chunks.
+- If a page doesn't fully answer, read adjacent pages or search again before replying; don't answer a document-spanning question from a single page.
 - Cite page numbers when quoting.
 - If no document is loaded, ask the user to open a PDF.`;
+
+/**
+ * Repair a tool call whose arguments failed schema validation. Handles the most
+ * common weak-model mistake — numeric fields sent as strings (e.g. {"page":"5"})
+ * — deterministically, without a second model round-trip. Returns null to fall
+ * through (no repair) for anything else, including unknown-tool errors.
+ */
+const repairDocumentToolCall: ToolCallRepairFunction<any> = async ({ toolCall, error }) => {
+  if (!InvalidToolInputError.isInstance(error)) return null;
+  const repaired = coerceNumericToolInput(toolCall.input);
+  if (repaired === null) return null;
+  return { ...toolCall, input: repaired };
+};
+
+/**
+ * Progressive tool disclosure: with no document loaded, expose no tools so the
+ * model asks the user to open a PDF instead of calling tools that would throw.
+ * Returns undefined (all tools active) once a document is present.
+ */
+function resolveActiveTools(hasActiveDoc: boolean): DocumentToolName[] | undefined {
+  return hasActiveDoc ? undefined : [];
+}
 
 function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
   const docCtx = buildDocToolContext(runtime);
@@ -459,6 +508,10 @@ export function createDocAgent() {
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
     stopWhen: AGENT_STOP_WHEN,
+    experimental_repairToolCall: repairDocumentToolCall,
+    experimental_refineToolInput: {
+      [READ_PDF_RANGE_TOOL]: (input) => normalizeRangeInput(input),
+    },
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
 
@@ -475,6 +528,7 @@ export function createDocAgent() {
         viewHint += buildWholeDocumentInstructions(viewCtx);
       }
       runMaxSteps = resolveRunMaxSteps(isWholeDoc, viewCtx?.totalPages ?? 0);
+      budget.max = resolveRunCharBudget(isWholeDoc);
 
       return {
         ...rest,
@@ -483,6 +537,7 @@ export function createDocAgent() {
         reasoning: resolveReasoning(settings),
         instructions: SYSTEM_INSTRUCTIONS + viewHint,
         runtimeContext: runtime,
+        activeTools: resolveActiveTools(!!runtime.activeDocPath),
         toolsContext: {
           ...toolsContext,
           ...buildToolsContext(runtime),
