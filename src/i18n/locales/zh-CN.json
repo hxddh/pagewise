@@ -213,7 +213,9 @@
     "dismissError": "关闭",
     "moreDisabledHint": "有对话记录后可用",
     "pagesRead": "读过",
-    "pagesReadMore": "+{{count}} 页"
+    "pagesReadMore": "+{{count}} 页",
+    "webSearchOn": "下一条将联网搜索",
+    "webSearchOff": "让下一条联网搜索"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

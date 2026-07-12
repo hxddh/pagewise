@@ -1100,6 +1100,16 @@ body {
   filter: brightness(1.08);
 }
 
+.web-toggle {
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+.web-toggle.active {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
 .pages-read-trail {
   display: flex;
   flex-wrap: wrap;
