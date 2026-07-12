@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.3] - 2026-07-12
+
+### Fixed
+
+- Agent: search no longer silently misses un-indexed pages. `document_outline` now reports pages that have little or no extracted text (e.g. scanned pages beyond the vision-index cap) as a compact range, with a note that `search_in_document` can't match them and they should be read directly — so the agent stops concluding "not in the document" for content it simply hasn't indexed.
+
+### Changed
+
+- Agent: raised the default per-run step ceiling from 12 to 15 so broad questions that don't match the whole-document intent keywords (e.g. "what are the main themes?") have room to traverse several pages before answering. Whole-document runs still scale up to 30, and the cumulative read budget remains the real cost rail.
+
 ## [3.5.2] - 2026-07-12
 
 ### Fixed
