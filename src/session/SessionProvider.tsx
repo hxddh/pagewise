@@ -165,6 +165,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }),
     [agent],
   );
+  // `flushChatNow` changes identity on every streamed chunk (its dep `agent` is
+  // re-memoized per chunk). Route the close handler through a ref so its effect
+  // registers ONCE instead of tearing down / re-registering the Tauri
+  // onCloseRequested listener hundreds of times during a reply (and briefly
+  // leaving no handler installed between unlisten and re-register).
+  const flushChatNowRef = useRef(flushChatNow);
+  flushChatNowRef.current = flushChatNow;
 
   useEffect(() => {
     if (!document?.path || agent.messages.length === 0) return;
@@ -194,7 +201,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const fn = await win.onCloseRequested(async (event) => {
         event.preventDefault();
         try {
-          await flushChatNow();
+          await flushChatNowRef.current();
         } catch (e) {
           if (import.meta.env.DEV) console.warn("[session] flush on close failed", e);
         } finally {
@@ -211,7 +218,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       unlisten?.();
     };
-  }, [flushChatNow]);
+    // Registered once; the handler reads the latest flush via ref.
+  }, []);
 
   const switchDocument = useCallback(
     async (path: string) => {
@@ -349,6 +357,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const clearChat = useCallback(async () => {
     const doc = documentRef.current;
     if (!doc) return;
+    // Cancel any pending autosave so a queued write can't re-persist the old
+    // messages after we delete them (the store lock serializes the two calls,
+    // but cancelling the timer avoids the race entirely).
+    if (saveTimerRef.current !== undefined) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = undefined;
+    }
     agent.clearChat();
     await clearChatFile(doc.path);
   }, [agent]);

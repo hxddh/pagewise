@@ -13,6 +13,7 @@ import { useI18n } from "../i18n";
 import { AnchoredMenu } from "../components/AnchoredMenu";
 import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
 import { MessageContent } from "../components/MessageContent";
+import { PageRefContext } from "../components/Markdown";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
@@ -53,6 +54,7 @@ interface ChatPanelProps {
   onConfigureApi: () => void;
   onStop: () => void;
   onDismissError?: () => void;
+  onJumpToPage?: (page: number) => void;
   onClearChat: () => void;
   onExportChat: () => void;
   onExportSummary: () => void;
@@ -86,6 +88,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onConfigureApi,
     onStop,
     onDismissError,
+    onJumpToPage,
     onClearChat,
     onExportChat,
     onExportSummary,
@@ -204,6 +207,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   previewPageRef.current = previewPage;
   const includeViewingPageRef = useRef(includeViewingPage);
   includeViewingPageRef.current = includeViewingPage;
+  // The error prop updates a render after the send rejects, so a failure handler
+  // that reads `errorMessage` directly captures the pre-failure value. Read the
+  // latest through a ref instead.
+  const errorMessageRef = useRef(errorMessage);
+  errorMessageRef.current = errorMessage;
 
   const handleRegenerate = useCallback(async () => {
     if (!activeDoc || !regenerateDocumentMessage || interactionBusy) return;
@@ -244,6 +252,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }
 
   return (
+    <PageRefContext.Provider value={onJumpToPage ?? null}>
     <div className="chat-panel">
       <header className="panel-header">
         <div className="panel-header-main">
@@ -330,6 +339,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             agentToolsSupported={agentToolsSupported}
             settingsReady={settingsReady}
             hasDocument={!!activeDoc}
+            totalPages={activeDoc?.totalPages}
             onConfigureApi={onConfigureApi}
             onExamplePrompt={(text) => {
               onComposerDraftChange(text);
@@ -387,7 +397,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                           setEditingUserId(null);
                           setEditError(null);
                         } else {
-                          setEditError(errorMessage ?? t("agent.editFailed"));
+                          // The agent error state settles a render after the
+                          // reject; read it next frame so we show the real
+                          // provider message, not the generic fallback.
+                          requestAnimationFrame(() =>
+                            setEditError(errorMessageRef.current ?? t("agent.editFailed")),
+                          );
                         }
                       });
                     }}
@@ -522,5 +537,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
       </form>
     </div>
+    </PageRefContext.Provider>
   );
 });

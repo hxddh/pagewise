@@ -65,6 +65,10 @@ impl PdfExtractCancel {
 /// Cap on cached documents, mirroring the frontend docCache bound so a long
 /// session cannot grow native memory without limit.
 const MAX_CACHED_DOCS: usize = 1;
+/// Above this page count a single-page cache miss extracts only the requested
+/// page instead of the whole document, bounding worst-case read latency on very
+/// large PDFs (the whole-document load path still caches all pages normally).
+const SINGLE_PAGE_FULL_EXTRACT_MAX: u32 = 200;
 
 /// Freshness stamp for a cached document: modification time plus file size.
 /// Mixing in the size catches a same-mtime-tick rewrite that changes length,
@@ -254,6 +258,17 @@ fn extract_single_page(
     let total_pages = page_count(&doc);
     if page < 1 || page > total_pages {
         return Err(format!("Page {page} out of range (1-{total_pages})"));
+    }
+
+    // On a very large document, extracting every page to populate the cache
+    // would turn one read into an O(all-pages) blocking extraction. Extract only
+    // the requested page and skip full-cache population to keep latency bounded.
+    if total_pages > SINGLE_PAGE_FULL_EXTRACT_MAX {
+        let text = extract_page_text(&doc, page)?;
+        return Ok(PdfExtractResult {
+            pages: vec![PageText { page, text }],
+            total_pages,
+        });
     }
 
     // load_document already parsed the whole file, so extract every page's text

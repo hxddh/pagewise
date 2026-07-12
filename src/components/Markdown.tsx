@@ -1,9 +1,23 @@
-import { memo, useMemo, type ReactNode } from "react";
+import { createContext, memo, useContext, useMemo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AnchorHTMLAttributes, ImgHTMLAttributes } from "react";
 import { useStreamingReveal } from "../hooks/useStreamingReveal";
+import { remarkPageRefs, PAGE_REF_SCHEME } from "../lib/remark-page-refs";
+
+/** Handler that jumps the preview to a page when a page citation is clicked. */
+export const PageRefContext = createContext<((page: number) => void) | null>(null);
+
+function PageRefLink({ page, children }: { page: number; children: ReactNode }) {
+  const onJump = useContext(PageRefContext);
+  if (!onJump || !Number.isFinite(page)) return <>{children}</>;
+  return (
+    <button type="button" className="page-ref-link" onClick={() => onJump(page)}>
+      {children}
+    </button>
+  );
+}
 
 interface MarkdownProps {
   children: string;
@@ -14,7 +28,7 @@ interface MarkdownProps {
 const SAFE_LINK_SCHEMES = ["http:", "https:", "mailto:"];
 const SAFE_IMG_SCHEMES = ["https:", "http:", "asset:", "data:"];
 
-const remarkPlugins = [remarkGfm];
+const remarkPlugins = [remarkGfm, remarkPageRefs];
 const markdownComponents = {
   a: SafeAnchor,
   img: SafeImg,
@@ -35,6 +49,10 @@ function SafeAnchor({
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
   const target = typeof href === "string" ? href : "";
+  if (target.startsWith(PAGE_REF_SCHEME)) {
+    const page = parseInt(target.slice(PAGE_REF_SCHEME.length), 10);
+    return <PageRefLink page={page}>{children}</PageRefLink>;
+  }
   const scheme = schemeOf(target);
   const allowed = !!scheme && SAFE_LINK_SCHEMES.includes(scheme);
 

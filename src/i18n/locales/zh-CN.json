@@ -112,7 +112,8 @@
     "renderFailed": "页面渲染失败",
     "closeSearch": "关闭搜索",
     "more": "更多",
-    "searchIndexing": "暂无匹配 — 部分页面仍在索引中，结果可能不完整。"
+    "searchIndexing": "暂无匹配 — 部分页面仍在索引中，结果可能不完整。",
+    "askAboutSelection": "就这段提问"
   },
   "drop": {
     "title": "拖放以打开",
@@ -207,8 +208,6 @@
     "toolFailed": "失败",
     "usageFinalTools": "最后一步工具",
     "usageProviderMeta": "提供商元数据",
-    "structuredCitations": "结构化引用",
-    "citationsError": "未能为此回复生成结构化引用。",
     "configureApiCta": "配置 AI",
     "retry": "重试",
     "dismissError": "关闭",
@@ -231,7 +230,10 @@
     "openSettings": "打开设置",
     "chooseFile": "选择文件",
     "example1": "总结第一页",
-    "example2": "文中有哪些日期？"
+    "example2": "文中有哪些日期？",
+    "example3": "关键术语有哪些？",
+    "example4": "列出要点",
+    "exampleWholeDoc": "总结全部 {{count}} 页"
   },
   "session": {
     "label": "对话会话",
@@ -343,7 +345,8 @@
     "discardUnsaved": "有未保存的更改，确定关闭吗？",
     "discardAndClose": "放弃并关闭",
     "version": "版本",
-    "github": "GitHub 仓库"
+    "github": "GitHub 仓库",
+    "getApiKey": "获取 API 密钥 ↗"
   },
   "commands": {
     "title": "命令面板",

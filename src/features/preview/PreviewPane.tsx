@@ -8,6 +8,7 @@ import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { isRasterHeavyPage } from "../../lib/pdf";
 import { indexPageInBackground } from "../../document/index-queue";
 import { usePdfViewer } from "./usePdfViewer";
+import { useAskSelection } from "./useAskSelection";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
@@ -19,6 +20,7 @@ interface PreviewPaneProps {
   onPageChange: (page: number) => void;
   prefsRevision?: number;
   onOpenAiSettings?: () => void;
+  onAskAboutSelection?: (text: string) => void;
 }
 
 function PreviewPaneInner({
@@ -27,11 +29,34 @@ function PreviewPaneInner({
   onPageChange,
   prefsRevision = 0,
   onOpenAiSettings,
+  onAskAboutSelection,
 }: PreviewPaneProps) {
   const { t } = useI18n();
   const [thumbsVisible, setThumbsVisible] = useState(false);
 
   const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision });
+  const [askSel, clearAskSel] = useAskSelection(
+    viewer.textLayerRef,
+    !!onAskAboutSelection && doc.kind === "pdf",
+  );
+
+  const askButton =
+    askSel && onAskAboutSelection ? (
+      <button
+        type="button"
+        className="ask-selection-btn"
+        style={{ left: askSel.x, top: askSel.y }}
+        // Keep the selection alive through the click.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          onAskAboutSelection(askSel.text);
+          clearAskSel();
+          window.getSelection()?.removeAllRanges();
+        }}
+      >
+        {t("preview.askAboutSelection")}
+      </button>
+    ) : null;
 
   const indexPage = doc.kind === "pdf" ? page : 1;
   const indexState = usePageIndexStatus(doc.path, indexPage);
@@ -269,6 +294,7 @@ function PreviewPaneInner({
           {canvasBody}
         </div>
       </div>
+      {askButton}
     </div>
   );
 }

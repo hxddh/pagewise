@@ -4,7 +4,26 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
-## [3.5.5] - 2026-07-12
+## [3.5.6] - 2026-07-12
+
+### Added
+
+- Chat: **page citations in answers are now clickable** — "page 5", "pp. 12–14", "第 8 页" etc. jump the preview to that page, connecting the answer to the document.
+- Preview: selecting text in a PDF shows an **"Ask about this"** button that drops the quote into the composer and opens the assistant.
+- Chat: richer, document-aware starter prompts on the empty state (including "Summarize all N pages").
+- Settings: a **"Get an API key ↗"** link next to the API-key field for OpenAI / DeepSeek / OpenRouter.
+
+### Fixed
+
+- Chat: the window-close chat flush handler no longer re-registers on every streamed chunk (removes IPC churn during replies and a brief window where a close could skip the flush).
+- Chat: chat persistence is now write-serialized, so a rapid autosave + clear can't resurrect a just-cleared conversation.
+- Thumbnails: switching from a long document to a much shorter one no longer briefly renders a blank/flickering thumbnail list.
+- Chat: an edit-and-resend failure now shows the real provider error instead of the generic fallback.
+- PDF: a single-page read on a very large (200+ page) document no longer extracts the whole document up front, bounding worst-case latency.
+
+### Removed
+
+- Chat: deleted the never-populated structured-citations footer component (dead since v3.0.0); inline clickable citations replace it.
 
 ### Fixed
 

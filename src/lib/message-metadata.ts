@@ -1,5 +1,4 @@
 import type { UIMessage } from "ai";
-import type { StructuredCitation } from "./citation-types";
 import { getIndexUsageSnapshot, resetIndexUsageTracker } from "./usage-tracker";
 
 /** Per agent-loop step usage (debug; persisted with chat sessions). */
@@ -29,10 +28,6 @@ export interface PageWiseMessageMetadata {
   model?: string;
   /** True when input includes tool-loop context, not just the user turn. */
   includesToolContext?: boolean;
-  /** Structured citations extracted post-reply via streamObject. */
-  structuredCitations?: StructuredCitation[];
-  /** Set when structured citation extraction failed (provider/schema error). */
-  citationsError?: string;
   /** Provider-specific metadata from the final model response (AI SDK). */
   providerMetadata?: Record<string, unknown>;
   /** Tool names invoked on the agent loop's final step. */
