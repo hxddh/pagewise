@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { searchDocumentPages, type SearchHit } from "../lib/document-search";
 import { docCache } from "../lib/doc-cache";
+import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { OPEN_DOC_SEARCH_EVENT } from "../lib/events";
 import type { LoadedDocument } from "../lib/types";
 import { useOverlayLock } from "../hooks/useOverlayLock";
@@ -136,7 +137,13 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
                 {t("preview.searching")}
               </p>
             ) : hits.length === 0 ? (
-              <p className="doc-search-empty">{t("preview.noMatches")}</p>
+              <p className="doc-search-empty" aria-live="polite">
+                {docCache
+                  .getPages(doc.path)
+                  .some((p) => p.text.trim().length < MIN_INDEX_CHARS)
+                  ? t("preview.searchIndexing")
+                  : t("preview.noMatches")}
+              </p>
             ) : (
               <>
                 <p className="doc-search-count">

@@ -111,7 +111,8 @@
     "thumbnailsHide": "Hide thumbnails",
     "renderFailed": "Failed to render page",
     "closeSearch": "Close search",
-    "more": "More"
+    "more": "More",
+    "searchIndexing": "No matches yet — some pages are still being indexed. Results may be incomplete."
   },
   "drop": {
     "title": "Drop to open",
@@ -207,7 +208,11 @@
     "usageFinalTools": "Final step tools",
     "usageProviderMeta": "Provider metadata",
     "structuredCitations": "Structured citations",
-    "citationsError": "Could not generate structured citations for this reply."
+    "citationsError": "Could not generate structured citations for this reply.",
+    "configureApiCta": "Configure AI",
+    "retry": "Retry",
+    "dismissError": "Dismiss",
+    "moreDisabledHint": "Available once the conversation has messages"
   },
   "empty": {
     "lead": "Ask questions about your document",
@@ -389,7 +394,8 @@
     "indexPageCap": "Indexing {{indexed}} of {{total}} sparse pages this pass — reopen or scroll to index more",
     "embedPageCap": "Semantic search embedded {{embedded}} of {{total}} pages — reopen to embed more",
     "indexPartial": "Indexed {{indexed}} of {{scheduled}} pages this pass — some pages failed",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "copyFailed": "Copy failed — clipboard unavailable"
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",

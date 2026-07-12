@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import { Copy, Gauge, RotateCcw } from "lucide-react";
 import { AnchoredMenu } from "./AnchoredMenu";
 import { useI18n } from "../i18n";
+import { useToast } from "../hooks/useToast";
 import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
 import {
   computeGenerationSpeed,
@@ -64,6 +65,7 @@ function MessageAssistantFooterInner({
   onCopy,
 }: MessageAssistantFooterProps) {
   const { t } = useI18n();
+  const { showToast } = useToast();
   const [statsOpen, setStatsOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
@@ -100,9 +102,11 @@ function MessageAssistantFooterInner({
       }
       copyTimerRef.current = window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      /* clipboard unavailable */
+      // Clipboard can be unavailable (permissions, insecure context). Surface it
+      // instead of leaving the button looking like a silent no-op.
+      showToast(t("toast.copyFailed"), "error");
     }
-  }, [message, onCopy]);
+  }, [message, onCopy, showToast, t]);
 
   // Hooks must run unconditionally — keep this above the early return below.
   const hasCopyable = useMemo(() => extractCopyableText(message).length > 0, [message]);

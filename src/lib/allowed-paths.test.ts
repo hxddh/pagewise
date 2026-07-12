@@ -28,16 +28,18 @@ describe("allowed-paths", () => {
     vi.resetModules();
   });
 
-  it("registers file and parent directory", async () => {
+  it("registers only the given file, never its parent directory", async () => {
     const { allowPathPersisted } = await import("./allowed-paths");
     await allowPathPersisted("/Users/me/docs/report.pdf");
 
     expect(invokeMock).toHaveBeenCalledWith("register_allowed_path", {
       path: "/Users/me/docs/report.pdf",
     });
-    expect(invokeMock).toHaveBeenCalledWith("register_allowed_path", {
+    // The parent directory must NOT be authorized on open.
+    expect(invokeMock).not.toHaveBeenCalledWith("register_allowed_path", {
       path: "/Users/me/docs",
     });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 
   it("throws when the file path cannot be registered", async () => {
@@ -65,8 +67,9 @@ describe("allowed-paths", () => {
 
     expect(persisted).toContain("/Users/me/a/one.pdf");
     expect(persisted).toContain("/Users/me/b/two.pdf");
-    expect(persisted).toContain("/Users/me/a");
-    expect(persisted).toContain("/Users/me/b");
+    // Parent directories are no longer auto-registered on open.
+    expect(persisted).not.toContain("/Users/me/a");
+    expect(persisted).not.toContain("/Users/me/b");
   });
 
   it("reports failed paths on restore and prunes them from storage", async () => {

@@ -218,26 +218,27 @@ describe("cancelIndex (M5 — abort is idle, not failure)", () => {
   });
 });
 
-describe("stale-generation write guard", () => {
-  it("does not persist a scan result whose generation was superseded mid-flight", async () => {
+describe("explicit read vs. background generation", () => {
+  it("persists an explicit on-demand read even if a reindex bumps the generation mid-flight", async () => {
     const path = uniquePath();
     seed(path, 5);
     h.visionMode.current = "manual";
 
-    // On-view index of page 5 at generation 0 (its own controller, not the queue's).
+    // On-view/agent index of page 5 at generation 0 (its own controller, not the queue's).
     const p = ensurePageIndexed(path, 5);
     await vi.waitFor(() => expect(h.pending.length).toBe(1));
 
-    // Bump the generation without aborting page 5's controller.
+    // Bump the generation without aborting page 5's controller (e.g. a background reindex).
     cancelIndex(path);
 
-    // The scan completes with good text, but its generation is now stale.
+    // The explicit read completes with good text. It must NOT be discarded just
+    // because a background sweep superseded the generation — the caller (agent
+    // tool / preview) asked for this specific page and needs its content, not an
+    // empty result that reads as "this page has no content".
     h.pending[0]!.resolve("z".repeat(50));
     await p;
 
-    // Post-await generation check must discard the stale write.
-    expect(h.store.get(path)?.pages.find((pg) => pg.page === 5)?.text).toBe("");
-    expect(statusesFor(path, 5)).toContain("idle");
-    expect(statusesFor(path, 5)).not.toContain("done");
+    expect(h.store.get(path)?.pages.find((pg) => pg.page === 5)?.text).toBe("z".repeat(50));
+    expect(statusesFor(path, 5)).toContain("done");
   });
 });

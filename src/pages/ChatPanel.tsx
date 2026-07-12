@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { ChatStatus, UIMessage } from "ai";
-import { MoreHorizontal, PanelRightClose } from "lucide-react";
+import { MoreHorizontal, PanelRightClose, X } from "lucide-react";
 import { useI18n } from "../i18n";
 import { AnchoredMenu } from "../components/AnchoredMenu";
 import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
@@ -52,6 +52,7 @@ interface ChatPanelProps {
   onComposerDraftChange: (value: string) => void;
   onConfigureApi: () => void;
   onStop: () => void;
+  onDismissError?: () => void;
   onClearChat: () => void;
   onExportChat: () => void;
   onExportSummary: () => void;
@@ -84,6 +85,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onComposerDraftChange,
     onConfigureApi,
     onStop,
+    onDismissError,
     onClearChat,
     onExportChat,
     onExportSummary,
@@ -265,6 +267,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             className={`btn icon-btn ${menuOpen ? "active" : ""}`}
             onClick={() => setMenuOpen((o) => !o)}
             aria-label={t("agent.more")}
+            title={messages.length === 0 ? t("agent.moreDisabledHint") : t("agent.more")}
             aria-expanded={menuOpen}
             disabled={messages.length === 0}
           >
@@ -437,7 +440,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 )}
               </div>
             ))}
-            {busy && showProgress && !inFlightAssistant && (
+            {agentBusy && !inFlightAssistant && (
               <div className="message assistant message-in-progress" aria-live="polite">
                 <p className="agent-generating-line message-inline-progress">
                   <span className="typing-dots" aria-hidden>
@@ -454,9 +457,32 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       </div>
 
       {error && (
-        <p className="error-line chat-error" role="alert">
-          {errorMessage ?? error.message}
-        </p>
+        <div className="error-line chat-error" role="alert">
+          <span className="chat-error-text">{errorMessage ?? error.message}</span>
+          <span className="chat-error-actions">
+            {regenerateDocumentMessage && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => void handleRegenerate()}
+                disabled={interactionBusy || !activeDoc}
+              >
+                {t("agent.retry")}
+              </button>
+            )}
+            {onDismissError && (
+              <button
+                type="button"
+                className="btn icon-btn btn-sm"
+                onClick={onDismissError}
+                aria-label={t("agent.dismissError")}
+                title={t("agent.dismissError")}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </span>
+        </div>
       )}
 
       <form className="composer" onSubmit={handleSubmit}>
@@ -471,9 +497,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         />
         <div className="composer-footer">
           <span className="composer-hint">{t("agent.hint")}</span>
-          {busy ? (
+          {busy || agentBusy ? (
             <button type="button" className="btn stop-btn" onClick={onStop}>
               {t("agent.stop")}
+            </button>
+          ) : !!activeDoc && (!hasApiKey || !agentToolsSupported) ? (
+            <button
+              type="button"
+              className="btn primary"
+              onClick={onConfigureApi}
+              disabled={loadingDoc}
+            >
+              {t("agent.configureApiCta")}
             </button>
           ) : (
             <button

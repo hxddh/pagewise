@@ -107,6 +107,22 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
     updateRange();
   }, [totalPages, updateRange]);
 
+  // The virtualized range is scroll-driven, so when the page changes externally
+  // (nav, search jump, follow-agent) or the sidebar opens on a far page, the
+  // active thumbnail can be outside the rendered window and never gets revealed.
+  // Scroll it into view and recompute the range so it renders.
+  useEffect(() => {
+    if (collapsed) return;
+    const el = listRef.current;
+    if (!el) return;
+    const rowTop = (currentPage - 1) * THUMB_ROW_HEIGHT;
+    const rowBottom = rowTop + THUMB_ROW_HEIGHT;
+    if (rowTop < el.scrollTop || rowBottom > el.scrollTop + el.clientHeight) {
+      el.scrollTop = Math.max(0, rowTop - el.clientHeight / 2 + THUMB_ROW_HEIGHT / 2);
+      updateRange();
+    }
+  }, [currentPage, collapsed, updateRange]);
+
   if (collapsed) {
     return (
       <button

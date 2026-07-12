@@ -93,8 +93,14 @@ async function indexPage(
   signal: AbortSignal,
   generation: number,
   attributeUsage = false,
+  enforceGeneration = true,
 ): Promise<void> {
-  if (signal.aborted || !docCache.has(path) || !isCurrentGeneration(path, generation)) return;
+  // Background sweeps are cancelled when a newer generation supersedes them.
+  // An explicit read (agent tool / preview on-demand) must NOT be gated on the
+  // sweep generation, or a reindex firing mid-read would return empty text and
+  // the caller would wrongly see a blank page.
+  const current = () => !enforceGeneration || isCurrentGeneration(path, generation);
+  if (signal.aborted || !docCache.has(path) || !current()) return;
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
   if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
@@ -106,14 +112,14 @@ async function indexPage(
 
   try {
     const settings = await loadVisionSettings();
-    if (signal.aborted || !isCurrentGeneration(path, generation)) {
+    if (signal.aborted || !current()) {
       emitIdle(path, page);
       return;
     }
 
     assertApiKeyForAgent(settings);
     const { bytes, mediaType } = await visionImageBytes(path, page, signal);
-    if (signal.aborted || !isCurrentGeneration(path, generation)) {
+    if (signal.aborted || !current()) {
       emitIdle(path, page);
       return;
     }
@@ -124,7 +130,7 @@ async function indexPage(
       attributeUsage,
     });
 
-    if (signal.aborted || !isCurrentGeneration(path, generation)) {
+    if (signal.aborted || !current()) {
       emitIdle(path, page);
       return;
     }
@@ -146,7 +152,7 @@ async function indexPage(
       emitIdle(path, page);
       return;
     }
-    if (!isCurrentGeneration(path, generation)) {
+    if (!current()) {
       emitIdle(path, page);
       return;
     }
@@ -171,6 +177,7 @@ async function runIndexPage(
   signal: AbortSignal,
   generation: number,
   attributeUsage = false,
+  enforceGeneration = true,
 ): Promise<void> {
   const key = pageKey(path, page);
   const existing = pageInflight.get(key);
@@ -179,7 +186,14 @@ async function runIndexPage(
     return;
   }
 
-  const promise = indexPage(path, page, signal, generation, attributeUsage).finally(() => {
+  const promise = indexPage(
+    path,
+    page,
+    signal,
+    generation,
+    attributeUsage,
+    enforceGeneration,
+  ).finally(() => {
     const cur = pageInflight.get(key);
     if (cur?.promise === promise) {
       pageInflight.delete(key);
@@ -223,7 +237,9 @@ export async function ensurePageIndexed(
     signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
   const generation = pathGenerations.get(path) ?? 0;
-  await runIndexPage(path, page, controller.signal, generation, attributeUsage);
+  // Explicit reads must complete even if a background reindex bumps the
+  // generation mid-flight — pass enforceGeneration=false.
+  await runIndexPage(path, page, controller.signal, generation, attributeUsage, false);
 }
 
 /** Index one page in the background (preview on-demand). */

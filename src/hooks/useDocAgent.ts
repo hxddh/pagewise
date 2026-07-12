@@ -490,6 +490,19 @@ export function useDocAgent(chatId: string | null = null) {
     [activeError, t],
   );
 
+  // User-facing Stop: aborts whichever phase is active. During an active stream,
+  // chat.stop() ends it (its finally resets send state). Before the stream starts
+  // — the send/capture phase — abort the pending send instead; calling
+  // abortPendingSend mid-stream would bump the send generation and leave
+  // sendingRef/sendPhase stuck, so gate on chat status.
+  const stopAll = useCallback(() => {
+    if (chat.status === "streaming" || chat.status === "submitted") {
+      chat.stop();
+    } else {
+      abortPendingSend();
+    }
+  }, [chat.status, chat.stop, abortPendingSend]);
+
   const waitForStreamIdleFn = useCallback(async (): Promise<boolean> => {
     return waitForStreamIdle({
       isBusy: () => isAgentBusyRef.current(),
@@ -516,7 +529,7 @@ export function useDocAgent(chatId: string | null = null) {
       status: chat.status,
       error: activeError,
       errorMessage,
-      stop: chat.stop,
+      stop: stopAll,
       setMessages: chat.setMessages,
       clearError: chat.clearError,
       clearChat,
@@ -545,7 +558,7 @@ export function useDocAgent(chatId: string | null = null) {
       chat.status,
       activeError,
       errorMessage,
-      chat.stop,
+      stopAll,
       chat.setMessages,
       chat.clearError,
       clearChat,
