@@ -112,7 +112,8 @@
     "renderFailed": "Failed to render page",
     "closeSearch": "Close search",
     "more": "More",
-    "searchIndexing": "No matches yet — some pages are still being indexed. Results may be incomplete."
+    "searchIndexing": "No matches yet — some pages are still being indexed. Results may be incomplete.",
+    "askAboutSelection": "Ask about this"
   },
   "drop": {
     "title": "Drop to open",
@@ -207,8 +208,6 @@
     "toolFailed": "failed",
     "usageFinalTools": "Final step tools",
     "usageProviderMeta": "Provider metadata",
-    "structuredCitations": "Structured citations",
-    "citationsError": "Could not generate structured citations for this reply.",
     "configureApiCta": "Configure AI",
     "retry": "Retry",
     "dismissError": "Dismiss",
@@ -231,7 +230,10 @@
     "openSettings": "Open settings",
     "chooseFile": "Choose file",
     "example1": "Summarize the first page",
-    "example2": "What dates are mentioned?"
+    "example2": "What dates are mentioned?",
+    "example3": "What are the key terms?",
+    "example4": "List the main points",
+    "exampleWholeDoc": "Summarize all {{count}} pages"
   },
   "session": {
     "label": "Chat session",
@@ -343,7 +345,8 @@
     "discardUnsaved": "You have unsaved changes. Close anyway?",
     "discardAndClose": "Discard & close",
     "version": "Version",
-    "github": "GitHub repository"
+    "github": "GitHub repository",
+    "getApiKey": "Get an API key ↗"
   },
   "commands": {
     "title": "Command palette",

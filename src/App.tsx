@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
 import { SessionProvider, useSession } from "./session/SessionProvider";
 import { useI18n } from "./i18n";
@@ -61,6 +61,15 @@ function AppContent() {
   useEffect(() => {
     setComposerDraft("");
   }, [doc?.path]);
+
+  const askAboutSelection = useCallback(
+    (text: string) => {
+      const quote = `"${text}"`;
+      setComposerDraft((prev) => (prev.trim() ? `${prev.trim()} ${quote} ` : `${quote} `));
+      s.setAgentOpen(true);
+    },
+    [s],
+  );
 
   const openableRecents = openableRecentFiles(s.recentFiles);
 
@@ -175,6 +184,7 @@ function AppContent() {
                 onPageChange={s.setPreviewPage}
                 prefsRevision={prefs.prefsRevision}
                 onOpenAiSettings={overlays.openSettings}
+                onAskAboutSelection={askAboutSelection}
               />
             </Suspense>
 
@@ -217,6 +227,7 @@ function AppContent() {
                   onConfigureApi={overlays.openSettings}
                   onStop={agent.stop}
                   onDismissError={agent.clearError}
+                  onJumpToPage={s.setPreviewPage}
                   onClearChat={overlays.openClearConfirm}
                   onExportChat={() => void s.exportChat()}
                   onExportSummary={() => void exportSummary()}

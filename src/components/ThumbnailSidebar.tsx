@@ -97,8 +97,14 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   const updateRange = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
-    const start = Math.max(1, Math.floor(el.scrollTop / THUMB_ROW_HEIGHT) + 1 - OVERSCAN);
     const visibleCount = Math.ceil(el.clientHeight / THUMB_ROW_HEIGHT) + OVERSCAN * 2;
+    // Clamp start to totalPages too — a stale (large) scrollTop carried over from
+    // a longer document would otherwise yield start > end and render no rows.
+    const rawStart = Math.floor(el.scrollTop / THUMB_ROW_HEIGHT) + 1 - OVERSCAN;
+    const start = Math.min(
+      Math.max(1, rawStart),
+      Math.max(1, totalPages - visibleCount + 1),
+    );
     const end = Math.min(totalPages, start + visibleCount);
     setRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
   }, [totalPages]);
@@ -106,6 +112,14 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   useEffect(() => {
     updateRange();
   }, [totalPages, updateRange]);
+
+  // On document switch the list's scrollTop and range survive (this is a single
+  // persistent instance), so reset to the top and recompute for the new length.
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = 0;
+    setRange({ start: 1, end: Math.min(totalPages, 12) });
+  }, [path, totalPages]);
 
   // The virtualized range is scroll-driven, so when the page changes externally
   // (nav, search jump, follow-agent) or the sidebar opens on a far page, the

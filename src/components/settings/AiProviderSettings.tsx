@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+
+/** Where a user gets an API key for each provider (absent = no key page). */
+const API_KEY_HELP_URL: Partial<Record<ProviderId, string>> = {
+  openai: "https://platform.openai.com/api-keys",
+  deepseek: "https://platform.deepseek.com/api_keys",
+  openrouter: "https://openrouter.ai/keys",
+};
 import { useI18n } from "../../i18n";
 import { useDebouncedSave, type SaveStatus } from "../../hooks/useDebouncedSave";
 import { useConnectionStatus } from "../../hooks/useConnectionStatus";
@@ -626,6 +634,15 @@ export function AiProviderSettings({
             <span className="settings-field-label">{t("settings.apiKey")}</span>
             {hasStoredKey && !apiKeyTouched && (
               <span className="settings-field-badge">{t("settings.apiKeySaved")}</span>
+            )}
+            {API_KEY_HELP_URL[settings.provider] && (
+              <button
+                type="button"
+                className="settings-field-help-link"
+                onClick={() => void openUrl(API_KEY_HELP_URL[settings.provider]!)}
+              >
+                {t("settings.getApiKey")}
+              </button>
             )}
           </div>
           <div className="settings-input-row">

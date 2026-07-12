@@ -21,6 +21,19 @@ async function getStore(): Promise<Store> {
   return storePromise;
 }
 
+// Serialize every mutation so a 500ms autosave, a document-switch save, a
+// close-flush, and a clear can't interleave their set/delete + save cycles and
+// resurrect a just-cleared chat via last-write-wins (mirrors allowed-paths.ts).
+let storeLock: Promise<unknown> = Promise.resolve();
+function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = storeLock.then(fn, fn);
+  storeLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 export async function loadChat(path: string): Promise<UIMessage[]> {
   const store = await getStore();
   const raw = await store.get<UIMessage[]>(chatKey(path));
@@ -29,13 +42,17 @@ export async function loadChat(path: string): Promise<UIMessage[]> {
 }
 
 export async function saveChat(path: string, messages: UIMessage[]): Promise<void> {
-  const store = await getStore();
-  await store.set(chatKey(path), prepareMessagesForPersist(messages));
-  await store.save();
+  return withStoreLock(async () => {
+    const store = await getStore();
+    await store.set(chatKey(path), prepareMessagesForPersist(messages));
+    await store.save();
+  });
 }
 
 export async function clearChat(path: string): Promise<void> {
-  const store = await getStore();
-  await store.delete(chatKey(path));
-  await store.save();
+  return withStoreLock(async () => {
+    const store = await getStore();
+    await store.delete(chatKey(path));
+    await store.save();
+  });
 }

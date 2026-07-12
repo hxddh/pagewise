@@ -118,30 +118,9 @@ function MessageAssistantFooterInner({
   const speed = metadata ? computeGenerationSpeed(metadata, nowMs) : undefined;
   const agentIn = resolveAgentTokenTotals(metadata).input;
   const agentOut = resolveAgentTokenTotals(metadata).output;
-  const citations = metadata?.structuredCitations ?? [];
-  const citationsError = metadata?.citationsError;
 
   return (
     <div className="message-assistant-footer">
-      {citations.length > 0 && (
-        <ul className="structured-citations" aria-label={t("agent.structuredCitations")}>
-          {citations.map((c, i) => (
-            <li key={`${c.page}-${i}`}>
-              <span className="structured-citation-page">
-                p.
-                {c.pageEnd && c.pageEnd !== c.page ? `${c.page}–${c.pageEnd}` : c.page}
-              </span>
-              <span className="structured-citation-quote">{c.quote}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {citations.length === 0 && citationsError && (
-        <p className="structured-citations-error" role="note">
-          {t("agent.citationsError")}
-        </p>
-      )}
-
       <div className="message-assistant-toolbar">
         <div className="message-assistant-actions" role="toolbar" aria-label={t("agent.messageActions")}>
         <button
