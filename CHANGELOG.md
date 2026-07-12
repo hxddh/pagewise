@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.2] - 2026-07-12
+
+### Fixed
+
+- Agent: whole-document summaries no longer silently claim full coverage on large documents. The per-run read budget now scales for whole-document runs (120k → 200k characters), and when the budget is reached the model is told to state that its answer covers only the pages actually read — instead of implying it summarized the whole document.
+
+### Changed
+
+- Agent: tool calls from weaker OpenAI-compatible models are repaired in code instead of burning a step on a schema error — numeric arguments sent as strings (e.g. `{"page":"5"}`) are coerced, and an inverted `read_pdf_range` (start > end) is swapped rather than rejected.
+- Agent: with no document loaded, no tools are exposed, so the model asks the user to open a PDF instead of attempting tool calls that would fail (progressive tool disclosure).
+- Agent: added one autonomy hint to the system prompt — read adjacent pages or search again when a single page doesn't fully answer, rather than answering a document-spanning question from one page.
+
 ## [3.5.1] - 2026-07-08
 
 ### Removed
