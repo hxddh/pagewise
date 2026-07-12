@@ -177,6 +177,7 @@
     "toolStepRepeat": "{{label}} (×{{count}})",
     "reasoningSummary": "Reasoning",
     "noReply": "The assistant did not return a text reply. Try again or check the model in AI settings.",
+    "sources": "Sources",
     "messageActions": "Message actions",
     "copy": "Copy",
     "copied": "Copied",

@@ -7,6 +7,7 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 ### Added
 
 - Agent: optional web search on OpenRouter — enables OpenRouter's built-in `web` plugin (the model's own server-side search) via a per-provider toggle in AI Provider settings, off by default. Uses the model's native search rather than a bespoke tool, so it costs no tool-loop tokens.
+- Chat: web-search citations render as a "Sources" list under the answer (the model's `url_citation` annotations, forwarded as source parts). Shows nothing when there are no citations.
 
 ### Changed
 

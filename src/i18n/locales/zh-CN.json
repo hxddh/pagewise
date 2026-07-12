@@ -177,6 +177,7 @@
     "toolStepRepeat": "{{label}}（×{{count}}）",
     "reasoningSummary": "思考过程",
     "noReply": "助手未返回文字回答，请重试或检查 AI 设置中的模型。",
+    "sources": "来源",
     "messageActions": "消息操作",
     "copy": "复制",
     "copied": "已复制",
