@@ -44,19 +44,18 @@ export const DEFAULT_RANGE_MAX_CHARS = 6_000;
 /** Default cap per read_pdf_page call. */
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
 /**
- * Default ceiling per agent run. Set above a bare minimum so broad questions
- * that don't match the whole-document intent regex (e.g. "what are the main
- * themes?") still have room to traverse several pages before answering. The
- * cumulative read budget remains the real cost rail; the model self-terminates
- * well under this when the question is targeted.
+ * Step budget floor for every run. NOT gated on any intent heuristic — a broad
+ * question phrased outside the whole-document keyword set ("review every
+ * section", "what recurs across the paper") gets the same room as one that
+ * matches. The cumulative read budget is the real cost rail; a targeted
+ * question self-terminates well under this.
  */
-const DEFAULT_MAX_AGENT_STEPS = 15;
-/** Hard ceiling for whole-document runs, which legitimately chain many range reads. */
+const DEFAULT_MAX_AGENT_STEPS = 20;
+/** Hard ceiling, so a runaway can't chain unbounded tool calls. */
 const MAX_WHOLEDOC_STEPS = 30;
 
-/** Step budget for a run: whole-document requests scale with page count (bounded). */
-export function resolveRunMaxSteps(isWholeDoc: boolean, totalPages: number): number {
-  if (!isWholeDoc) return DEFAULT_MAX_AGENT_STEPS;
+/** Step budget for a run: scales with page count (bounded), regardless of intent. */
+export function resolveRunMaxSteps(totalPages: number): number {
   return Math.min(MAX_WHOLEDOC_STEPS, Math.max(DEFAULT_MAX_AGENT_STEPS, totalPages || 0));
 }
 
@@ -71,20 +70,15 @@ const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
   );
 
 const AGENT_STOP_WHEN = [stepCountIs(DEFAULT_MAX_AGENT_STEPS), stopMetaToolLoop];
-/** Cumulative characters a single run may read before it must synthesize. */
-const RUN_CHAR_BUDGET = 120_000;
 /**
- * Whole-document runs legitimately read far more text, so they get a higher
- * (but still hard-capped) budget. The cap keeps accumulated tool output from
- * overflowing a provider's context window; past it the model must synthesize
- * and disclose partial coverage rather than read on.
+ * Cumulative characters a single run may read before it must synthesize. This
+ * is the real cost/context rail (it caps accumulated tool output so it can't
+ * overflow the provider window), applied uniformly to every run rather than
+ * gated on an intent heuristic — a targeted question reads a fraction of it and
+ * self-terminates, while a genuinely broad one gets the full budget whether or
+ * not it matched a keyword.
  */
-const WHOLEDOC_CHAR_BUDGET = 200_000;
-
-/** Cumulative read budget for a run: whole-document requests get a larger cap. */
-export function resolveRunCharBudget(isWholeDoc: boolean): number {
-  return isWholeDoc ? WHOLEDOC_CHAR_BUDGET : RUN_CHAR_BUDGET;
-}
+const RUN_CHAR_BUDGET = 200_000;
 
 const docToolContextSchema = z.object({
   defaultDocPath: z.string().nullable(),
@@ -475,22 +469,32 @@ function createDocumentTools(budget: ReadBudget) {
     }),
 
     search_in_document: tool({
-      description: "Search for a keyword or phrase in the active document",
+      description:
+        "Search for a keyword or phrase in the active document. Returns up to " +
+        "maxResults hits (page + snippet); raise maxResults if you need more than the default.",
       inputSchema: z.object({
         query: z.string().min(1),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Max hits to return (default 50)"),
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
         "Searching document…",
         "search",
-        async ({ query }, options) => {
+        async ({ query, maxResults = 50 }, options) => {
           const path = resolvePathInput(undefined, options);
           requireLoadedDoc(path);
           const pages = docCache.getPages(path);
-          const hits = searchInDocument(pages, query, 30);
+          const hits = searchInDocument(pages, query, maxResults);
           const preview = formatSearchPreview(hits);
           if (preview) emitAgentProgress(preview, "search");
-          return hits;
+          // Signal possible truncation so the model can tell "exactly N" from "more".
+          return { hits, truncated: hits.length >= maxResults };
         },
       ),
     }),
@@ -500,11 +504,12 @@ function createDocumentTools(budget: ReadBudget) {
 const SYSTEM_INSTRUCTIONS = `You are PageWise, a local desktop PDF assistant.
 
 Rules:
-- Use tools to read document content; never invent page text.
+- Use tools to read document content; never invent page text. Ground your answers in what you read and cite pages for document facts — then explain, interpret, reason, and synthesize freely, adding background knowledge when it helps, while keeping clear what comes from the document vs. your own knowledge.
 - The user has one active PDF; omit path on tools to use it.
 - Sparse or scan pages are indexed via vision — wait for read results.
-- For keyword questions: search_in_document first, then read_pdf_page on hits.
-- For whole-document tasks: document_outline first, then read_pdf_range in chunks.
+- Pick tools freely to answer: search_in_document locates where a term appears, read_pdf_page / read_pdf_range read specific pages, document_outline surveys structure. Search is often the fastest start for a keyword and an outline for a broad task, but read directly when that's more direct.
+- If search returns nothing useful, read the relevant page(s) anyway — a figure or scanned page defeats search, so "no hits" does not mean the content is absent; read the page(s) before concluding something isn't in the document.
+- When the user asks about a term or topic while viewing a page, read that page first — it is usually what they mean; read where an ambiguous term (e.g. an acronym) appears rather than guessing its meaning.
 - If a page doesn't fully answer, read adjacent pages or search again before replying; don't answer a document-spanning question from a single page.
 - When you state a fact from the document, cite its page (e.g. "page 5"); quote short key passages verbatim rather than paraphrasing.
 - If no document is loaded, ask the user to open a PDF.`;
@@ -565,15 +570,17 @@ export function createDocAgent() {
         (incomingRuntime as PageWiseRuntimeContext | undefined) ??
         buildRuntimeContext(null);
       const viewCtx = runtime.messageContext;
-      runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
       let viewHint = viewCtx ? buildViewContextInstructions(viewCtx) : "";
 
-      const isWholeDoc = !!viewCtx && hasWholeDocumentIntent(viewCtx.userText);
-      if (viewCtx && isWholeDoc) {
+      // The whole-document intent regex now ONLY adds an optional survey hint —
+      // it no longer gates how much of the document the agent is allowed to read.
+      // Budget and step room are uniform, so a broad question phrased outside the
+      // keyword set is never silently capped.
+      if (viewCtx && hasWholeDocumentIntent(viewCtx.userText)) {
         viewHint += buildWholeDocumentInstructions(viewCtx);
       }
-      runMaxSteps = resolveRunMaxSteps(isWholeDoc, viewCtx?.totalPages ?? 0);
-      budget.max = resolveRunCharBudget(isWholeDoc);
+      runMaxSteps = resolveRunMaxSteps(viewCtx?.totalPages ?? 0);
+      budget.max = RUN_CHAR_BUDGET;
 
       return {
         ...rest,

@@ -48,7 +48,7 @@ describe("searchDocumentPages", () => {
   });
 
   it("produces an ellipsis prefix when the snippet does not start at 0", () => {
-    const text = "0123456789".repeat(10) + "needle tail";
+    const text = "0123456789".repeat(20) + "needle tail";
     const hits = searchDocumentPages(pages(text), "needle");
     expect(hits).toHaveLength(1);
     expect(hits[0]!.snippet.startsWith("…")).toBe(true);
