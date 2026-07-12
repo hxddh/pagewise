@@ -54,17 +54,16 @@ export function injectWebSearchPlugin(body: string, maxResults = 3): string {
 
 function providerFetch(settings: LlmSettings): typeof fetch | undefined {
   if (settings.provider !== "openrouter") return undefined;
-  const webSearch = settings.webSearch === true;
 
   return async (input, init) => {
     const headers = new Headers(init?.headers);
     headers.set("HTTP-Referer", "https://pagewise.app");
     headers.set("X-Title", "PageWise");
-    let body = init?.body;
-    if (webSearch && typeof body === "string") {
-      body = injectWebSearchPlugin(body);
-    }
-    return fetch(input, { ...init, headers, body });
+    // NOTE: the always-on OpenRouter `web` plugin was removed — it searched on
+    // every message (deriving its own query) and polluted document answers with
+    // irrelevant sources. `injectWebSearchPlugin` is retained for a future
+    // per-message opt-in design. See CHANGELOG 3.5.1.
+    return fetch(input, { ...init, headers });
   };
 }
 
