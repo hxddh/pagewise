@@ -4,6 +4,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-07-08
+
 ### Added
 
 - Agent: optional web search on OpenRouter — enables OpenRouter's built-in `web` plugin (the model's own server-side search) via a per-provider toggle in AI Provider settings, off by default. Uses the model's native search rather than a bespoke tool, so it costs no tool-loop tokens.
