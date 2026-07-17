@@ -401,6 +401,11 @@ export function AiProviderSettings({
   ]);
 
   const handleTest = useCallback(async () => {
+    // Panel-state writes below must not land if the user switched the panel to
+    // another provider while a slow test was in flight — that would snap the
+    // panel back to the tested provider and discard the new provider's draft.
+    const seqAtStart = loadSeqRef.current;
+    const panelIsCurrent = () => loadSeqRef.current === seqAtStart;
     setTesting(true);
     setTestError(null);
     try {
@@ -414,6 +419,8 @@ export function AiProviderSettings({
         await testVisionConnection({ ...toTest, model: scanModel }, t);
       }
 
+      // Profile persistence targets toTest.provider explicitly and stays valid
+      // regardless of what the panel shows now.
       const saved = await saveProviderProfile(
         toTest.provider,
         {
@@ -425,12 +432,14 @@ export function AiProviderSettings({
         },
         apiKeyTouched ? toTest.apiKey : undefined,
       );
-      setSettings(saved);
       profileCacheRef.current.set(saved.provider, saved);
-      markSaved(saved);
-      if (apiKeyTouched) {
-        setApiKeyTouched(false);
-        setApiKeyDraft("");
+      if (panelIsCurrent()) {
+        setSettings(saved);
+        markSaved(saved);
+        if (apiKeyTouched) {
+          setApiKeyTouched(false);
+          setApiKeyDraft("");
+        }
       }
 
       setProviderProfiles((prev) => ({
@@ -444,8 +453,10 @@ export function AiProviderSettings({
           connectionVerified: true,
         },
       }));
-      setDirty(false);
-      setSaveStatus("saved");
+      if (panelIsCurrent()) {
+        setDirty(false);
+        setSaveStatus("saved");
+      }
       localStorage.setItem("pagewise.modelMigrated", "1");
       setMigratedNotice(false);
       if (saved.provider === activeProvider) {
@@ -466,7 +477,7 @@ export function AiProviderSettings({
       );
     } catch (e) {
       const display = e instanceof Error ? e.message : formatLlmError(e, t);
-      setTestError(display);
+      if (panelIsCurrent()) setTestError(display);
       onTestResult?.(display, false);
     } finally {
       setTesting(false);

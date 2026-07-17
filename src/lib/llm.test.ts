@@ -100,7 +100,7 @@ describe("takeWebSearchInjection", () => {
 
   const streamedBody = JSON.stringify({ model: "x", stream: true, messages: [] });
 
-  it("injects once for a streamed agent request, then disarms", () => {
+  it("injects once for a streamed agent request, then disarms for later steps", () => {
     setWebSearchForRun(true);
     setAgentRunAbortSignal(new AbortController().signal);
 
@@ -108,8 +108,26 @@ describe("takeWebSearchInjection", () => {
     expect(first).not.toBeNull();
     expect(JSON.parse(first!).plugins).toEqual([{ id: "web", max_results: 3 }]);
 
-    // Steps 2..N of the same run must not each trigger another billed search.
-    expect(takeWebSearchInjection(streamedBody)).toBeNull();
+    // Steps 2..N carry a different body (more messages) and must not each
+    // trigger another billed search.
+    const step2Body = JSON.stringify({
+      model: "x",
+      stream: true,
+      messages: [{ role: "tool", content: "…" }],
+    });
+    expect(takeWebSearchInjection(step2Body)).toBeNull();
+  });
+
+  it("re-injects when the SDK retries the exact same first request", () => {
+    setWebSearchForRun(true);
+    setAgentRunAbortSignal(new AbortController().signal);
+
+    expect(takeWebSearchInjection(streamedBody)).not.toBeNull();
+    // A transient 429/5xx makes the SDK resend an identical body — the retry
+    // (the request that actually succeeds) must keep the plugin.
+    const retried = takeWebSearchInjection(streamedBody);
+    expect(retried).not.toBeNull();
+    expect(JSON.parse(retried!).plugins).toEqual([{ id: "web", max_results: 3 }]);
   });
 
   it("ignores non-streamed requests (connection tests) during a web run", () => {

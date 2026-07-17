@@ -60,21 +60,33 @@ export function injectWebSearchPlugin(body: string, maxResults = 3): string {
  * the user asks it to, not on every message.
  */
 let webSearchForRun = false;
+/** Body that received the run's injection, so SDK retries of that same request keep it. */
+let webSearchInjectedBody: string | null = null;
 export function setWebSearchForRun(on: boolean): void {
   webSearchForRun = on;
+  webSearchInjectedBody = null;
 }
 
 /**
  * Consume the run's web-search opt-in for one request body, or return null to
  * leave the request untouched. One user message = one web search: the flag is
  * disarmed on the first injection, so the later tool-loop steps of the same run
- * (up to ~30 chat requests) don't each trigger another billed search. Injection
- * is also scoped to streamed agent-run requests — a connection test or other
- * plain request issued while a web-enabled run streams (agent runs stream;
- * probes don't) never picks up the plugin.
+ * (up to ~30 chat requests) don't each trigger another billed search. The SDK
+ * retries a failed request with an identical body (default maxRetries=2) — that
+ * exact body is remembered and re-injected so a transient 429/5xx on the first
+ * step doesn't silently drop the user's opt-in. Injection is also scoped to
+ * streamed agent-run requests — a connection test or other plain request issued
+ * while a web-enabled run streams (agent runs stream; probes don't) never picks
+ * up the plugin.
  */
 export function takeWebSearchInjection(body: string): string | null {
-  if (!webSearchForRun || getAgentRunAbortSignal() == null) return null;
+  if (getAgentRunAbortSignal() == null) return null;
+  // SDK retry of the request we already injected: keep the plugin without
+  // consuming anything.
+  if (webSearchInjectedBody !== null && body === webSearchInjectedBody) {
+    return injectWebSearchPlugin(body);
+  }
+  if (!webSearchForRun) return null;
   let streamed = false;
   try {
     streamed = (JSON.parse(body) as { stream?: unknown }).stream === true;
@@ -83,6 +95,7 @@ export function takeWebSearchInjection(body: string): string | null {
   }
   if (!streamed) return null;
   webSearchForRun = false;
+  webSearchInjectedBody = body;
   return injectWebSearchPlugin(body);
 }
 

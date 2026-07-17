@@ -4,6 +4,32 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.12] - 2026-07-17
+
+27-finding hardening pass from three deep-dive reviews (the v3.5.11 diff itself, the document pipeline, and chat-stream/UI internals). Two user-data-loss bugs and a broken selection-geometry contract lead the list.
+
+### Fixed
+
+- **Chat: send-time history repair can no longer delete the message the user just typed.** Stopping mid-stream could leave a corrupt tool call in history; the repair loop's fallback dropped the *last* row — the fresh user turn — making the question vanish and the model re-answer the previous one. Repair now removes never-completed tool parts at the root (instead of synthesizing schema-invalid calls) and, as a last resort, drops the newest non-user row, failing loudly rather than losing user input.
+- **Chat: editing/regenerating a message no longer destroys it when the provider rejects the page screenshot.** The image fallback removed the row and then resent by its id — the resend threw "message not found" and the message was gone. Id-based resends now skip the rollback (the resend itself replaces the row).
+- **Preview: text selection geometry now actually matches the rendered page.** pdf.js v6 positions text spans via CSS custom properties that need matching stylesheet rules; none were defined, so spans rendered at the app font size with no scaling/rotation. The viewer CSS contract is now ported (`--total-scale-factor` + span font-size/transform rules) — selection highlights align at every zoom.
+- **Preview: retries after a failed PDF load/parse work again.** pdf.js *transfers* the byte buffer to its worker, detaching the cached copy — every second `getDocument` for the same file threw `DataCloneError`, defeating the stale-load retry loop. pdf.js now gets a copy, and a detached cache entry counts as a miss.
+- **Chat: page-citation links no longer trigger on ordinary prose.** "step 5", "top 10", "MVP 2024", "webpage 5" all became bogus clickable page links; the pattern now requires a word boundary and a dot on p./pp. abbreviations.
+- Chat: a transient 429/5xx on a web-search message no longer silently drops the search — the SDK's retry of that exact request keeps the injected plugin.
+- Preview: the text-layer render path (newly reachable in production) guards its fit-width scale resolution and neighbor-page prefetch, surfacing/degrading instead of unhandled rejections; rapid page flips can no longer let a stale text-layer render wipe or interleave with the fresh page's spans (off-DOM staging + ownership token), and a teardown mid-render no longer leaks an uncancelled TextLayer.
+- Documents: one malformed page no longer makes the whole PDF un-openable — Rust text extraction degrades that page to empty (vision indexing covers it) instead of failing the load.
+- Agent: a page read that piggybacked on a background index task cancelled mid-flight (reindex/doc switch) no longer reports the page as blank — the read re-runs with its own signal.
+- Chat: a stale send's late cleanup can no longer pop the *next* message's context (which hid all tools and answered "please open a PDF"); context rollback is now identity-based.
+- Chat: the typewriter reveal no longer starves on fast streams — the pacing timer survives text growth instead of resetting on every delta (the live bubble used to render empty exactly when text arrived fastest).
+- Chat: the "pages read" trail no longer overstates coverage — truncated range reads count only the pages the tool reported, cancelled/budget-refused reads don't count at all, and a malformed fractional range can't freeze rendering.
+- Settings: a slow "Test connection" no longer snaps the panel back to the tested provider and discards the draft when you've switched providers mid-test.
+- Chat: budget-refused tool outputs are kept verbatim in compacted history instead of becoming fabricated "0 hits"/"0 chars"; export-summary no longer feeds compaction placeholders to the model.
+- Chat: exports strip leaked tool markup, include web-search sources, and represent image-only user turns instead of dropping them; a click on a linked image opens one URL, not two.
+- Agent: a tool dispatched at the tail of an aborted run can no longer charge the next run's read budget (generation captured at dispatch); vision usage from indexing no longer inflates the footer's tokens-per-second.
+- Documents: TIFF/BMP images are transcoded to PNG before vision/chat calls (providers reject those media types — indexing always failed); a cancelled page render is no longer JPEG-encoded and OCR'd; the 256 MiB read cap can no longer be bypassed via the asset-protocol fallback.
+- Preview: per-page text content is cached once per page (not per zoom level) with an LRU bound; long agent runs no longer leak an abort listener per page read.
+- Chat: the ⌘K palette's export commands are disabled mid-stream (matching the chat menu); re-arming the web toggle after a failed send respects a newer manual toggle.
+
 ## [3.5.11] - 2026-07-17
 
 19-finding hardening pass from a full-repo review: agent cost rails, desktop text selection, chat-history resilience, and a prompt-injection exfiltration fix.

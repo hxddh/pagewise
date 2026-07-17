@@ -133,14 +133,16 @@ export function useAppCommands({
         id: "export-chat",
         label: t("commands.exportChat"),
         section: "export",
-        disabled: messages.length === 0,
+        // Busy-gated like the chat-panel menu: exporting mid-stream would
+        // capture a half-streamed answer.
+        disabled: messages.length === 0 || busy,
         run: wrapRun("export-chat", exportChat),
       },
       {
         id: "export-summary",
         label: t("commands.exportSummary"),
         section: "export",
-        disabled: messages.length === 0,
+        disabled: messages.length === 0 || busy,
         run: wrapRun("export-summary", exportSummary),
       },
       {

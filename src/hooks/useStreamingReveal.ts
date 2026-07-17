@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type WordSegmenter = { segment(input: string): Iterable<{ segment: string }> };
 
@@ -35,21 +35,30 @@ export function useStreamingReveal(text: string, live: boolean): string {
     live ? 0 : segments.length,
   );
 
+  // Read segments through a ref inside the ticker: making the timer depend on
+  // the text would reset it on every delta, so a fast stream (chunks < 12 ms
+  // apart) would starve the reveal and the live bubble would render empty
+  // exactly when text is arriving fastest.
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+
   useEffect(() => {
     if (!live) {
-      setVisibleCount(segments.length);
+      setVisibleCount(segmentsRef.current.length);
       return;
     }
-    if (visibleCount >= segments.length) return;
-
-    const backlog = segments.length - visibleCount;
-    const step = backlog > 48 ? 6 : backlog > 16 ? 3 : 1;
-    const id = window.setTimeout(() => {
-      setVisibleCount((current) => Math.min(segments.length, current + step));
+    const id = window.setInterval(() => {
+      setVisibleCount((current) => {
+        const total = segmentsRef.current.length;
+        if (current >= total) return current;
+        const backlog = total - current;
+        const step = backlog > 48 ? 6 : backlog > 16 ? 3 : 1;
+        return Math.min(total, current + step);
+      });
     }, 12);
 
-    return () => window.clearTimeout(id);
-  }, [live, segments.length, visibleCount, segments]);
+    return () => window.clearInterval(id);
+  }, [live]);
 
   useEffect(() => {
     if (!live) return;

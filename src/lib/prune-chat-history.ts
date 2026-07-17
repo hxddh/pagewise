@@ -9,7 +9,7 @@ import {
 } from "./document-tool-names";
 
 /** Synthesized output for a tool call that never produced a real result. */
-const CANCELLED_OUTPUT = "[cancelled]";
+export const CANCELLED_OUTPUT = "[cancelled]";
 
 /**
  * Suffix shared by every compacted tool-output summary. Used to make
@@ -17,7 +17,7 @@ const CANCELLED_OUTPUT = "[cancelled]";
  * on a later turn must not be re-measured (its own length would replace the
  * original char count) — re-pruning an already-compacted output is a no-op.
  */
-const COMPACTED_SUFFIX = "— omitted from chat history]";
+export const COMPACTED_SUFFIX = "— omitted from chat history]";
 
 /** Replace bulky tool outputs in prior turns so follow-ups don't re-send full document text. */
 export function pruneToolOutputsForHistory(messages: UIMessage[]): UIMessage[] {
@@ -51,10 +51,13 @@ export function pruneToolOutputsForHistory(messages: UIMessage[]): UIMessage[] {
 }
 
 /**
- * Strip or repair non-terminal tool parts (state `input-streaming` /
- * `input-available` with no matching output) by synthesizing a `[cancelled]`
- * output, so a Stop-mid-stream or a reload can't leave dangling tool_use parts
- * that break tool_use/tool_result pairing on the next request.
+ * Strip or repair non-terminal tool parts so a Stop-mid-stream or a reload
+ * can't leave dangling tool_use parts that break tool_use/tool_result pairing
+ * on the next request. A part whose input finished streaming
+ * (`input-available`) gets a synthesized `[cancelled]` output; a part whose
+ * input never finished (`input-streaming`) is REMOVED — its input is partial
+ * and would fail the tool's schema validation, which the send-time repair loop
+ * could only "fix" by dropping whole rows.
  */
 export function sanitizeDanglingToolParts(messages: UIMessage[]): UIMessage[] {
   let changed = false;
@@ -63,24 +66,31 @@ export function sanitizeDanglingToolParts(messages: UIMessage[]): UIMessage[] {
     if (msg.role !== "assistant") return msg;
 
     let msgChanged = false;
-    const parts = msg.parts.map((part) => {
-      if (!isToolUIPart(part)) return part;
-      if (
-        part.state !== "input-streaming" &&
-        part.state !== "input-available"
-      ) {
-        return part;
+    const parts: typeof msg.parts = [];
+    for (const part of msg.parts) {
+      if (!isToolUIPart(part)) {
+        parts.push(part);
+        continue;
+      }
+      if (part.state === "input-streaming") {
+        msgChanged = true;
+        changed = true;
+        continue;
+      }
+      if (part.state !== "input-available") {
+        parts.push(part);
+        continue;
       }
 
       msgChanged = true;
       changed = true;
-      return {
+      parts.push({
         ...part,
         state: "output-available",
         input: part.input ?? {},
         output: CANCELLED_OUTPUT,
-      } as (typeof msg.parts)[number];
-    });
+      } as (typeof msg.parts)[number]);
+    }
 
     if (!msgChanged) return msg;
     return { ...msg, parts };
@@ -106,6 +116,17 @@ function compactToolOutput(
   // happened would mislead the model on the next turn).
   if (output === CANCELLED_OUTPUT) {
     return output;
+  }
+
+  // A budget-refused call is already tiny AND carries meaning: summarizing
+  // `{hits: [], budgetExceeded: true}` as "0 hits" would tell the model the
+  // term isn't in the document when the search never ran.
+  if (
+    output &&
+    typeof output === "object" &&
+    (output as { budgetExceeded?: unknown }).budgetExceeded === true
+  ) {
+    return output as Record<string, unknown>;
   }
 
   const inp =

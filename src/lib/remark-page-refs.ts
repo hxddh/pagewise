@@ -9,8 +9,11 @@
 export const PAGE_REF_SCHEME = "pagewise-page:";
 
 // Group 1 = English page number; group 2 = Chinese page number.
+// "page"/"pages" need a word boundary (else "webpage 5"/"step 5" match), and the
+// p./pp. abbreviations require the dot (else any word ending in p before a
+// number — "MVP 2024", "top 10" — becomes a bogus page link).
 const PAGE_REF_RE =
-  /(?:pages?|pp?\.?)\s*(\d{1,5})(?:\s*[-–—~]\s*\d{1,5})?|第\s*(\d{1,5})\s*(?:[-–—~至到]\s*\d{1,5}\s*)?页/gi;
+  /\b(?:pages?|pp?\.)\s*(\d{1,5})(?:\s*[-–—~]\s*\d{1,5})?|第\s*(\d{1,5})\s*(?:[-–—~至到]\s*\d{1,5}\s*)?页/gi;
 
 interface MdNode {
   type: string;

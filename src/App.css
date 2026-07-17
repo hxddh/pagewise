@@ -497,9 +497,24 @@ body {
   /* Allow text selection over the rendered page */
   pointer-events: auto;
   user-select: text;
+  /* pdf.js v6 TextLayer CSS contract (ported from web/pdf_viewer.css):
+     the layer positions spans via custom properties — --total-scale-factor is
+     set on the container by renderTextLayer, --min-font-size inline by pdf.js,
+     and the rules below turn --font-height/--scale-x/--rotate into geometry. */
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
 }
 
-.pdf-text-layer span {
+.pdf-text-layer :is(span, br) {
   color: transparent;
   position: absolute;
   white-space: pre;
@@ -507,6 +522,20 @@ body {
   pointer-events: auto;
   cursor: text;
   user-select: text;
+}
+
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-text-layer .markedContent {
+  display: contents;
 }
 
 .pdf-text-layer ::selection {

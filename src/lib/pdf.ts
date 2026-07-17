@@ -9,6 +9,7 @@ import {
 import type { PreviewQuality } from "./types";
 import type { PdfExtractResult } from "./types";
 import { raceWithAbort, throwIfAborted } from "./abort-utils";
+import { ensureProviderCompatibleImage } from "./image-transcode";
 import { isTauriRuntime } from "./runtime";
 
 const MAX_CACHE_BYTES = 128 * 1024 * 1024;
@@ -101,7 +102,33 @@ interface PaintResult {
 
 const pageCache = new Map<string, PageRenderSnapshot>();
 const fitScaleCache = new Map<string, number>();
+/**
+ * TextContent per page (scale-independent), LRU-bounded: dense pages run
+ * 100KB+ each, so an unbounded cache browsing a large document accumulates
+ * tens of MB for pages long scrolled past.
+ */
 const textLayerCache = new Map<string, unknown>();
+const MAX_TEXT_LAYER_CACHE = 40;
+
+function setTextLayerCache(key: string, value: unknown): void {
+  textLayerCache.delete(key);
+  textLayerCache.set(key, value);
+  while (textLayerCache.size > MAX_TEXT_LAYER_CACHE) {
+    const oldest = textLayerCache.keys().next().value;
+    if (oldest === undefined) break;
+    textLayerCache.delete(oldest);
+  }
+}
+
+function getTextLayerCache(key: string): unknown {
+  const value = textLayerCache.get(key);
+  if (value !== undefined) {
+    // Refresh insertion order so the Map doubles as a real LRU.
+    textLayerCache.delete(key);
+    textLayerCache.set(key, value);
+  }
+  return value;
+}
 
 const renderQueue: QueueItem[] = [];
 let queueRunning = false;
@@ -429,7 +456,9 @@ export async function readAuthorizedFileBytes(
 
 async function loadPdfBytes(path: string, readGen: number): Promise<Uint8Array> {
   const cached = pdfBytesCache.get(path);
-  if (cached) {
+  // A detached buffer (byteLength 0 after transfer to the pdf.js worker) is a
+  // cache miss, not a hit — returning it would fail every retry for this path.
+  if (cached && cached.buffer.byteLength > 0) {
     touchPdfBytesCache(path); // mark as most-recently-used so the LRU is a real LRU
     return cached;
   }
@@ -439,6 +468,13 @@ async function loadPdfBytes(path: string, readGen: number): Promise<Uint8Array> 
     data = await loadPdfBytesViaIpc(path, readGen);
   } catch (e) {
     if (e instanceof StalePdfLoadError) throw e;
+    // The 256 MiB cap is a deliberate guard — falling back to the asset
+    // protocol here would fetch the whole oversized file into webview memory
+    // anyway, bypassing the cap.
+    if (e instanceof Error || typeof e === "string") {
+      const msg = e instanceof Error ? e.message : e;
+      if (msg.includes("File too large")) throw e;
+    }
     data = await loadPdfBytesViaAsset(path);
     if (readGen !== fileReadGen) throw new StalePdfLoadError(path);
   }
@@ -453,7 +489,11 @@ async function loadPdfDocumentOnce(path: string, epochAtStart: number): Promise<
   const readGen = fileReadGen;
   const pdfjs = await getPdfJs();
   const data = await loadPdfBytes(path, readGen);
-  const doc = await pdfjs.getDocument(pdfDocumentInit(data)).promise;
+  // getDocument TRANSFERS the buffer to the pdf.js worker, detaching it. Hand
+  // pdf.js a copy so the pdfBytesCache entry stays usable for retries
+  // (stale-load loop, parse-failure re-renders) instead of throwing
+  // DataCloneError on every subsequent attempt.
+  const doc = await pdfjs.getDocument(pdfDocumentInit(data.slice())).promise;
 
   if (!shouldCommitPdfLoad(path, epochAtStart)) {
     void doc.loadingTask.destroy();
@@ -803,6 +843,13 @@ export async function getPdfOutline(path: string, maxEntries = 100): Promise<Pdf
   }
 }
 
+/**
+ * Monotonic token stamped on the shared text-layer container so an older
+ * in-flight render (rapid page flips) can never clear or overwrite the DOM
+ * that a newer render has populated.
+ */
+let textLayerRunSeq = 0;
+
 export async function renderTextLayer(
   path: string,
   pageNumber: number,
@@ -810,42 +857,66 @@ export async function renderTextLayer(
   container: HTMLElement,
   isStale?: () => boolean,
 ): Promise<() => void> {
-  const layerKey = `${path}|${pageNumber}|${scale.toFixed(4)}`;
+  const runId = String(++textLayerRunSeq);
+  container.dataset.pwTextLayerRun = runId;
+  const ownsContainer = () => container.dataset.pwTextLayerRun === runId;
+
+  // TextContent is scale-independent — keying by scale would re-fetch the
+  // same page's text at every zoom level.
+  const layerKey = `${path}|${pageNumber}`;
   const doc = await getPdfDocument(path);
-  if (isStale?.()) return () => {};
+  if (isStale?.() || !ownsContainer()) return () => {};
   const page = await doc.getPage(pageNumber);
-  if (isStale?.()) return () => {};
+  if (isStale?.() || !ownsContainer()) return () => {};
   const viewport = page.getViewport({ scale });
 
-  let textContent = textLayerCache.get(layerKey);
+  let textContent = getTextLayerCache(layerKey);
   if (!textContent) {
     textContent = await page.getTextContent();
-    if (isStale?.()) return () => {};
-    textLayerCache.set(layerKey, textContent);
+    if (isStale?.() || !ownsContainer()) return () => {};
+    setTextLayerCache(layerKey, textContent);
   }
 
-  container.innerHTML = "";
-  container.style.width = `${Math.round(viewport.width)}px`;
-  container.style.height = `${Math.round(viewport.height)}px`;
-
   const { TextLayer } = await getPdfJs();
-  if (isStale?.()) return () => {};
+  if (isStale?.() || !ownsContainer()) return () => {};
+
+  // Render into an off-DOM staging element and commit atomically: two
+  // overlapping runs (rapid page flips) must never interleave appends into the
+  // shared container, and a stale run must never wipe a newer run's output.
+  const staging = document.createElement("div");
   const layer = new TextLayer({
     textContentSource: textContent as Awaited<ReturnType<PDFPageProxy["getTextContent"]>>,
-    container,
+    container: staging,
     viewport,
   });
 
   await layer.render();
-  if (isStale?.()) {
+  if (isStale?.() || !ownsContainer()) {
     layer.cancel();
-    container.innerHTML = "";
     return () => {};
   }
 
+  // Commit: adopt the spans plus the inline sizing/vars pdf.js set on staging.
+  // Explicit px size is the fallback for engines without CSS round() —
+  // setLayerDimensions' round()-based values are used where supported (an
+  // invalid assignment is simply ignored by CSSOM).
+  container.style.width = `${Math.round(viewport.width)}px`;
+  container.style.height = `${Math.round(viewport.height)}px`;
+  if (staging.style.width) container.style.width = staging.style.width;
+  if (staging.style.height) container.style.height = staging.style.height;
+  // pdf.js v6 positions text spans through CSS custom properties; the layer
+  // contract requires --total-scale-factor (CSS px per PDF unit) plus the
+  // span rules in App.css (.pdf-text-layer) consuming --font-height /
+  // --scale-x / --rotate. Without this, spans render at the inherited font
+  // size and selection geometry is wrong at every zoom.
+  container.style.setProperty("--total-scale-factor", String(viewport.scale));
+  const minFontSize = staging.style.getPropertyValue("--min-font-size");
+  if (minFontSize) container.style.setProperty("--min-font-size", minFontSize);
+  container.replaceChildren(...staging.childNodes);
+
   return () => {
     layer.cancel();
-    container.innerHTML = "";
+    if (ownsContainer()) container.innerHTML = "";
   };
 }
 
@@ -968,8 +1039,14 @@ export async function renderPageToJpegBytes(
   const scale = visionRenderScale(edge, maxEdge, getOutputScale("performance"));
 
   const offscreen = document.createElement("canvas");
-  await paintPage(page, scale, "performance", offscreen, "print");
+  const paint = await paintPage(page, scale, "performance", offscreen, "print");
   throwIfAborted(signal);
+  if (paint.cancelled) {
+    // A cancelled paint leaves the canvas partially painted — encoding it
+    // would feed a half-rendered page to the vision model and persist its OCR
+    // as the page's text.
+    throw new DOMException("Page render cancelled", "AbortError");
+  }
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     offscreen.toBlob(
@@ -1016,8 +1093,12 @@ export async function capturePageFilePart(
 ): Promise<{ type: "file"; mediaType: string; url: string } | null> {
   if (kind === "image") {
     try {
-      const bytes = await readAuthorizedFileBytes(path);
-      const mediaType = imageMediaType(path);
+      // TIFF/BMP must be transcoded — chat providers reject those media types
+      // in image parts.
+      const { bytes, mediaType } = await ensureProviderCompatibleImage(
+        await readAuthorizedFileBytes(path),
+        imageMediaType(path),
+      );
       return { type: "file", mediaType, url: bytesToDataUrl(bytes, mediaType) };
     } catch {
       return null;

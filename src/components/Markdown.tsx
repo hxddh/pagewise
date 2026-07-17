@@ -93,6 +93,9 @@ function SafeImg({
         href={target}
         onClick={(e) => {
           e.preventDefault();
+          // Linked images ([![alt](img)](url)) nest inside SafeAnchor — without
+          // this, one click would bubble up and open BOTH URLs.
+          e.stopPropagation();
           void openUrl(target);
         }}
       >

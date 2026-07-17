@@ -61,6 +61,28 @@ describe("remarkPageRefs", () => {
     expect(links(linkTree)).toEqual([{ url: "https://x", text: "page 9" }]);
   });
 
+  it("does not linkify words that merely end in p/page before a number", () => {
+    for (const text of [
+      "step 5 of the process",
+      "the top 10 results",
+      "MVP 2024 roadmap",
+      "increased GDP. 2020 was different",
+      "webpage 5 loads slowly",
+      "keep 2 copies",
+    ]) {
+      const tree = run(para({ type: "text", value: text }));
+      expect(links(tree)).toEqual([]);
+    }
+  });
+
+  it("still linkifies dotted abbreviations", () => {
+    const tree = run(para({ type: "text", value: "see p. 12 and pp. 14-16" }));
+    expect(links(tree).map((l) => l.url)).toEqual([
+      `${PAGE_REF_SCHEME}12`,
+      `${PAGE_REF_SCHEME}14`,
+    ]);
+  });
+
   it("ignores text with no page reference", () => {
     const tree = run(para({ type: "text", value: "just some prose" }));
     expect(links(tree)).toEqual([]);
