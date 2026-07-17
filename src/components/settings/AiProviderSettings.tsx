@@ -469,16 +469,21 @@ export function AiProviderSettings({
         }
         lastPersistedVisionRef.current = visionModel;
       }
-      onTestResult?.(
-        scanModel && saved.provider !== "custom" && visionPresetModels(saved.provider).length > 0
-          ? t("settings.testSuccessWithScan", { reply })
-          : t("settings.testSuccess", { reply }),
-        true,
-      );
+      // Don't surface a toast for a provider the user already switched away from.
+      if (panelIsCurrent()) {
+        onTestResult?.(
+          scanModel && saved.provider !== "custom" && visionPresetModels(saved.provider).length > 0
+            ? t("settings.testSuccessWithScan", { reply })
+            : t("settings.testSuccess", { reply }),
+          true,
+        );
+      }
     } catch (e) {
       const display = e instanceof Error ? e.message : formatLlmError(e, t);
-      if (panelIsCurrent()) setTestError(display);
-      onTestResult?.(display, false);
+      if (panelIsCurrent()) {
+        setTestError(display);
+        onTestResult?.(display, false);
+      }
     } finally {
       setTesting(false);
     }

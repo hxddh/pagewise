@@ -42,14 +42,24 @@ describe("allowed-paths", () => {
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("throws when the file path cannot be registered", async () => {
-    invokeMock.mockRejectedValueOnce(new Error("Invalid path"));
+  it("throws, surfacing the real backend cause, when the path can't be registered", async () => {
+    invokeMock.mockRejectedValueOnce(new Error("Invalid path: No such file"));
     const { allowPathPersisted } = await import("./allowed-paths");
 
+    // The real Rust cause is surfaced (a moved/deleted file → "No such file")
+    // instead of the misleading generic "path not authorized".
     await expect(allowPathPersisted("/missing/report.pdf")).rejects.toThrow(
-      "path not authorized",
+      "No such file",
     );
     expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a generic message when the backend gives no cause", async () => {
+    invokeMock.mockRejectedValueOnce(new Error(""));
+    const { allowPathPersisted } = await import("./allowed-paths");
+    await expect(allowPathPersisted("/x/report.pdf")).rejects.toThrow(
+      "path not authorized",
+    );
   });
 
   it("does not drop entries when two allow actions run concurrently", async () => {

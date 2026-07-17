@@ -1,5 +1,6 @@
 import type { PDFPageProxy, RenderTask } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invokeCmd } from "./invoke-cmd";
 import {
   getPdfJs,
   pdfCMapUrl,
@@ -325,7 +326,11 @@ async function drainQueue(): Promise<void> {
 }
 
 export function isPdfExtractCancelledError(err: unknown): boolean {
-  return err instanceof Error && /cancelled/i.test(err.message);
+  // Accept both Error and raw string rejections: Tauri rejects invoke() with a
+  // plain string, and not every path is guaranteed to have gone through the
+  // Error-normalizing invokeCmd wrapper.
+  const msg = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  return /cancelled/i.test(msg);
 }
 
 export type PdfExtractScope = "load" | "agent";
@@ -348,7 +353,19 @@ async function invokePdfExtract<T>(
   };
   signal.addEventListener("abort", onAbort, { once: true });
   try {
-    return await raceWithAbort(run(), signal);
+    try {
+      return await raceWithAbort(run(), signal);
+    } catch (err) {
+      // A prior run's fire-and-forget scope-cancel bump can land AFTER this
+      // fresh request captured its generation (Tauri gives no cross-command
+      // ordering), so a brand-new extract can spuriously return "cancelled"
+      // even though WE never aborted. Retry once — the generation has settled.
+      if (!signal.aborted && isPdfExtractCancelledError(err)) {
+        throwIfAborted(signal);
+        return await raceWithAbort(run(), signal);
+      }
+      throw err;
+    }
   } catch (err) {
     if (signal.aborted || isPdfExtractCancelledError(err)) {
       throw new DOMException("Operation aborted", "AbortError");
@@ -365,7 +382,7 @@ export async function extractPdfFromRust(
 ): Promise<PdfExtractResult> {
   return invokePdfExtract(
     () =>
-      invoke<PdfExtractResult>("extract_pdf_text_cmd", {
+      invokeCmd<PdfExtractResult>("extract_pdf_text_cmd", {
         path,
         page: null,
         scope: "load",
@@ -382,7 +399,7 @@ export async function extractPageTextFromRust(
 ): Promise<string> {
   const result = await invokePdfExtract(
     () =>
-      invoke<PdfExtractResult>("extract_pdf_text_cmd", {
+      invokeCmd<PdfExtractResult>("extract_pdf_text_cmd", {
         path,
         page: pageNumber,
         scope: "agent",
@@ -432,7 +449,7 @@ async function loadPdfBytesViaAsset(path: string): Promise<Uint8Array> {
 }
 
 async function loadPdfBytesViaIpc(path: string, readGen: number): Promise<Uint8Array> {
-  const raw = await invoke<unknown>("read_file_bytes", { path });
+  const raw = await invokeCmd<unknown>("read_file_bytes", { path });
   if (readGen !== fileReadGen) throw new StalePdfLoadError(path);
   return coerceInvokeBytes(raw);
 }
@@ -912,6 +929,14 @@ export async function renderTextLayer(
   container.style.setProperty("--total-scale-factor", String(viewport.scale));
   const minFontSize = staging.style.getPropertyValue("--min-font-size");
   if (minFontSize) container.style.setProperty("--min-font-size", minFontSize);
+  // Carry the page's intrinsic rotation (pdf.js sets data-main-rotation from
+  // viewport.rotation): the canvas is painted rotated, and the .pdf-text-layer
+  // CSS rotates the span layer to match. Without this a /Rotate 90/180/270
+  // page's selection highlights land in the wrong place.
+  container.setAttribute(
+    "data-main-rotation",
+    staging.getAttribute("data-main-rotation") ?? "0",
+  );
   container.replaceChildren(...staging.childNodes);
 
   return () => {
