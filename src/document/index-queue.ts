@@ -2,6 +2,7 @@
  * v3 indexing: vision-only, single queue per document. No OCR.
  */
 import { docCache } from "../lib/doc-cache";
+import { ensureProviderCompatibleImage } from "../lib/image-transcode";
 import { readAuthorizedFileBytes, renderPageToJpegBytes } from "../lib/pdf";
 import { generateVisionText } from "../lib/vision-api";
 import { loadVisionSettings } from "../lib/settings";
@@ -20,7 +21,10 @@ type QueueEntry = { abort: AbortController; generation: number };
 
 const queues = new Map<string, QueueEntry>();
 const pathGenerations = new Map<string, number>();
-const pageInflight = new Map<string, { promise: Promise<void>; generation: number }>();
+const pageInflight = new Map<
+  string,
+  { promise: Promise<void>; generation: number; signal: AbortSignal }
+>();
 
 function pageKey(path: string, page: number): string {
   return `${path}\0${page}`;
@@ -76,10 +80,11 @@ async function visionImageBytes(
 ): Promise<{ bytes: Uint8Array; mediaType: string }> {
   const doc = docCache.get(path);
   if (doc?.kind === "image") {
-    return {
-      bytes: await readAuthorizedFileBytes(path, signal),
-      mediaType: visionMediaType(path),
-    };
+    // TIFF/BMP must be transcoded — vision endpoints reject those media types.
+    return ensureProviderCompatibleImage(
+      await readAuthorizedFileBytes(path, signal),
+      visionMediaType(path),
+    );
   }
   return {
     bytes: await renderPageToJpegBytes(path, page, 1568, 0.85, signal),
@@ -181,9 +186,18 @@ async function runIndexPage(
 ): Promise<void> {
   const key = pageKey(path, page);
   const existing = pageInflight.get(key);
-  if (existing?.generation === generation) {
+  // Only piggyback on an in-flight task that hasn't been aborted — a task
+  // started by a background sweep dies silently when reindex/cancel fires.
+  if (existing?.generation === generation && !existing.signal.aborted) {
     await existing.promise;
-    return;
+    const cached = docCache.getPages(path).find((p) => p.page === page);
+    const indexed = !!cached && cached.text.trim().length >= MIN_INDEX_CHARS;
+    // If the piggybacked task was aborted mid-flight and we're still live,
+    // fall through to run our own pass — otherwise an explicit read
+    // (agent tool) would report the page as blank when it was never indexed.
+    if (!existing.signal.aborted || signal.aborted || indexed || !docCache.has(path)) {
+      return;
+    }
   }
 
   const promise = indexPage(
@@ -199,7 +213,7 @@ async function runIndexPage(
       pageInflight.delete(key);
     }
   });
-  pageInflight.set(key, { promise, generation });
+  pageInflight.set(key, { promise, generation, signal });
   await promise;
 }
 
@@ -232,14 +246,21 @@ export async function ensurePageIndexed(
   if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) return;
 
   const controller = new AbortController();
+  const onAbort = () => controller.abort();
   if (signal) {
     if (signal.aborted) return;
-    signal.addEventListener("abort", () => controller.abort(), { once: true });
+    signal.addEventListener("abort", onAbort, { once: true });
   }
-  const generation = pathGenerations.get(path) ?? 0;
-  // Explicit reads must complete even if a background reindex bumps the
-  // generation mid-flight — pass enforceGeneration=false.
-  await runIndexPage(path, page, controller.signal, generation, attributeUsage, false);
+  try {
+    const generation = pathGenerations.get(path) ?? 0;
+    // Explicit reads must complete even if a background reindex bumps the
+    // generation mid-flight — pass enforceGeneration=false.
+    await runIndexPage(path, page, controller.signal, generation, attributeUsage, false);
+  } finally {
+    // A long-lived agent-run signal accumulates one listener per page read
+    // without this.
+    signal?.removeEventListener("abort", onAbort);
+  }
 }
 
 /** Index one page in the background (preview on-demand). */

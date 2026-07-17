@@ -78,7 +78,11 @@ export function computeGenerationSpeed(
   metadata: PageWiseMessageMetadata,
   nowMs = Date.now(),
 ): number | undefined {
-  const { outputTokens, startedAt, firstTokenAt, finishedAt } = metadata;
+  const { startedAt, firstTokenAt, finishedAt } = metadata;
+  // Use agent-only output tokens: vision-index tokens are billed to the turn
+  // but produced by separate requests, so counting them would inflate the
+  // chat stream's T/s.
+  const outputTokens = resolveAgentTokenTotals(metadata).output;
   if (outputTokens == null || outputTokens <= 0 || startedAt == null) return undefined;
   const end = finishedAt ?? nowMs;
   const genStart = firstTokenAt ?? startedAt;

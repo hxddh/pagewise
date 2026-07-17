@@ -33,6 +33,20 @@ export function rollbackLastAgentMessage(): void {
   lastMessageContext = pendingQueue[pendingQueue.length - 1] ?? null;
 }
 
+/**
+ * Remove a SPECIFIC pending context. Prefer this over
+ * {@link rollbackLastAgentMessage} in async cleanup paths: a stale send's
+ * late-resolving continuation must only remove its own context — popping
+ * blindly could eat the context a newer send just queued, leaving that run
+ * with no active document (all tools hidden) and no per-message options.
+ */
+export function rollbackAgentMessage(ctx: AgentMessageContext): void {
+  const idx = pendingQueue.lastIndexOf(ctx);
+  if (idx < 0) return;
+  pendingQueue.splice(idx, 1);
+  lastMessageContext = pendingQueue[pendingQueue.length - 1] ?? null;
+}
+
 export function consumePendingAgentContext(): AgentMessageContext | null {
   return pendingQueue.shift() ?? null;
 }

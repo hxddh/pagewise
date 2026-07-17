@@ -46,4 +46,40 @@ describe("collectReadPages", () => {
     expect(collectReadPages(undefined)).toEqual([]);
     expect(collectReadPages([])).toEqual([]);
   });
+
+  it("prefers the pages the range tool actually reported reading", () => {
+    const part = {
+      type: "tool-read_pdf_range",
+      toolCallId: "r1",
+      state: "output-available",
+      input: { start: 1, end: 100 },
+      // Budget/maxChars stopped the read at page 3.
+      output: { startPage: 1, endPage: 3, truncated: true },
+    } as never;
+    expect(collectReadPages([part])).toEqual([1, 2, 3]);
+  });
+
+  it("skips cancelled and budget-refused reads", () => {
+    const cancelled = {
+      type: "tool-read_pdf_page",
+      toolCallId: "c1",
+      state: "output-available",
+      input: { page: 5 },
+      output: "[cancelled]",
+    } as never;
+    const refused = {
+      type: "tool-read_pdf_page",
+      toolCallId: "b1",
+      state: "output-available",
+      input: { page: 6 },
+      output: { text: "", charCount: 0, budgetExceeded: true },
+    } as never;
+    expect(collectReadPages([cancelled, refused])).toEqual([]);
+  });
+
+  it("does not loop unbounded on a malformed fractional range", () => {
+    expect(
+      collectReadPages([toolPart("read_pdf_range", { start: 2.5, end: 10_000_000 })]),
+    ).toEqual([]);
+  });
 });

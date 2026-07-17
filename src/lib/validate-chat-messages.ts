@@ -10,8 +10,12 @@ function prepareForValidation(
   messages: UIMessage[],
   provider: ProviderId,
 ): UIMessage[] {
-  return sanitizeDanglingToolParts(
-    stripUserFileParts(dropEmptyPartMessages(messages), provider),
+  // sanitizeDanglingToolParts may remove never-completed tool parts, so drop
+  // any message it leaves empty (validateUIMessages rejects `parts: []`).
+  return dropEmptyPartMessages(
+    sanitizeDanglingToolParts(
+      stripUserFileParts(dropEmptyPartMessages(messages), provider),
+    ),
   );
 }
 
@@ -55,10 +59,21 @@ export async function validateChatMessagesForSend<UI_MESSAGE extends UIMessage>(
     if (result.success) return result.data;
 
     const next = dropTrailingEmptyAssistant(
-      sanitizeDanglingToolParts(prepared),
+      dropEmptyPartMessages(sanitizeDanglingToolParts(prepared)),
     ) as UI_MESSAGE[];
     if (next.length === prepared.length) {
-      prepared = prepared.slice(0, -1) as UI_MESSAGE[];
+      // Last-resort repair: drop the newest row that ISN'T a user turn. The
+      // trailing row at send time is the message the user just typed — slicing
+      // it off would silently swallow their question and re-answer the previous
+      // one. If only user rows remain and they still don't validate, fail loudly
+      // instead of losing data.
+      let dropIdx = prepared.length - 1;
+      while (dropIdx >= 0 && prepared[dropIdx]?.role === "user") dropIdx -= 1;
+      if (dropIdx < 0) break;
+      prepared = [
+        ...prepared.slice(0, dropIdx),
+        ...prepared.slice(dropIdx + 1),
+      ] as UI_MESSAGE[];
     } else {
       prepared = next;
     }

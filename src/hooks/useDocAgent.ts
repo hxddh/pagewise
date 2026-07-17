@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { beginAgentMessage, rollbackLastAgentMessage, type AgentMessageContext } from "../lib/agent-view-context";
+import { beginAgentMessage, rollbackAgentMessage, type AgentMessageContext } from "../lib/agent-view-context";
 import { sendWithImageFallback } from "../lib/agent-send";
 import { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
@@ -173,8 +173,9 @@ export function useDocAgent(chatId: string | null = null) {
     sendGenRef.current += 1;
     sendingRef.current = false;
     setSendPhase(false);
+    const ctx = pendingSendContextRef.current;
     pendingSendContextRef.current = null;
-    rollbackLastAgentMessage();
+    if (ctx) rollbackAgentMessage(ctx);
   }, []);
 
   isAgentBusyRef.current = () =>
@@ -358,7 +359,7 @@ export function useDocAgent(chatId: string | null = null) {
 
       try {
         if (sendGen !== sendGenRef.current || streamAgentGenRef.current !== agentGenRef.current) {
-          rollbackLastAgentMessage();
+          rollbackAgentMessage(ctx);
           return false;
         }
         const payload = await buildSendPayload({ ...opts, text }, text);
@@ -366,7 +367,9 @@ export function useDocAgent(chatId: string | null = null) {
           sendGen !== sendGenRef.current ||
           streamAgentGenRef.current !== agentGenRef.current
         ) {
-          rollbackLastAgentMessage();
+          // Identity-based: this stale continuation must only remove ITS ctx —
+          // a newer send may have queued its own by now.
+          rollbackAgentMessage(ctx);
           return false;
         }
         await sendWithImageFallback(
@@ -376,7 +379,7 @@ export function useDocAgent(chatId: string | null = null) {
           clearSendError,
           () => rollbackOptimisticUser(messageId, text),
           () => {
-            rollbackLastAgentMessage();
+            rollbackAgentMessage(ctx);
             if (pendingSendContextRef.current) {
               beginAgentMessage(pendingSendContextRef.current);
             }
@@ -384,7 +387,7 @@ export function useDocAgent(chatId: string | null = null) {
         );
         return sendGen === sendGenRef.current;
       } catch (e) {
-        rollbackLastAgentMessage();
+        rollbackAgentMessage(ctx);
         const err = e instanceof Error ? e : new Error(String(e));
         setSendError(err);
         return false;

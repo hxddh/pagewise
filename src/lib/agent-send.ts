@@ -30,7 +30,13 @@ export async function sendWithImageFallback(
 
   let err = await attempt(payload);
   if (err && payloadHasFiles(payload) && isImageInputError(err)) {
-    onRetryWithoutImage();
+    // Only roll back the optimistic user row for a NEW send. For an id-based
+    // resend (edit/regenerate), sendMessage({messageId}) itself replaces the
+    // row — removing it first would make the retry throw "message not found"
+    // and permanently delete the user's message.
+    if (payload.messageId == null) {
+      onRetryWithoutImage();
+    }
     onAfterRetryWithoutImage?.();
     err = await attempt({ text: payload.text, messageId: payload.messageId });
   }

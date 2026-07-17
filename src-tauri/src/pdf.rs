@@ -166,6 +166,16 @@ fn extract_page_text(doc: &Document, page: u32) -> Result<String, String> {
     Ok(s)
 }
 
+/// Extract one page's text, degrading any error or pdf-extract panic to an
+/// empty string. One malformed page must not make the whole document
+/// un-openable — pdf.js still renders it, and an empty page falls back to
+/// vision indexing on demand.
+fn extract_page_text_lossy(doc: &Document, page: u32) -> String {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| extract_page_text(doc, page)))
+        .unwrap_or_else(|_| Err("pdf-extract panicked".to_string()))
+        .unwrap_or_default()
+}
+
 fn file_stamp(path: &str) -> Result<FileStamp, String> {
     let meta = std::fs::metadata(path)
         .map_err(|e| format!("Failed to read PDF metadata: {e}"))?;
@@ -218,7 +228,7 @@ fn parse_all_pages(
         if cancel.is_stale(scope, gen) {
             return Err(cancelled());
         }
-        pages_raw.push(extract_page_text(&doc, page)?);
+        pages_raw.push(extract_page_text_lossy(&doc, page));
     }
 
     let key = PathBuf::from(path);
@@ -264,7 +274,7 @@ fn extract_single_page(
     // would turn one read into an O(all-pages) blocking extraction. Extract only
     // the requested page and skip full-cache population to keep latency bounded.
     if total_pages > SINGLE_PAGE_FULL_EXTRACT_MAX {
-        let text = extract_page_text(&doc, page)?;
+        let text = extract_page_text_lossy(&doc, page);
         return Ok(PdfExtractResult {
             pages: vec![PageText { page, text }],
             total_pages,
@@ -279,7 +289,7 @@ fn extract_single_page(
         if cancel.is_stale(scope, gen) {
             return Err(cancelled());
         }
-        pages_raw.push(extract_page_text(&doc, p)?);
+        pages_raw.push(extract_page_text_lossy(&doc, p));
     }
 
     let text = pages_raw[(page - 1) as usize].clone();

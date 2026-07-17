@@ -31,6 +31,34 @@ describe("sendWithImageFallback", () => {
     expect(clearError).toHaveBeenCalledTimes(2);
   });
 
+  it("does not roll back the row on an id-based resend (edit/regenerate)", async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const readError = vi
+      .fn()
+      .mockReturnValueOnce(new Error("image input is not supported"))
+      .mockReturnValueOnce(undefined);
+    const clearError = vi.fn();
+    const onRetry = vi.fn();
+
+    await sendWithImageFallback(
+      {
+        text: "hello",
+        messageId: "u-42",
+        files: [{ type: "file", mediaType: "image/png", url: "data:..." }],
+      },
+      send,
+      readError,
+      clearError,
+      onRetry,
+    );
+
+    // Removing the row would make sendMessage({messageId}) throw "not found"
+    // and permanently delete the user's message.
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1]?.[0]).toEqual({ text: "hello", messageId: "u-42" });
+  });
+
   it("throws when retry still fails", async () => {
     const err = new Error("image input is not supported");
     const send = vi.fn().mockResolvedValue(undefined);

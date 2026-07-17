@@ -101,6 +101,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [webForNext, setWebForNext] = useState(false);
+  // Bumped on every manual toggle click, so a failed send only re-arms the
+  // web toggle if the user hasn't made a newer explicit choice mid-flight.
+  const webToggleSeqRef = useRef(0);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -169,6 +172,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     stickToBottomRef.current = true;
     onComposerDraftChange("");
     const useWebSearch = webSearchAvailable && webForNext;
+    const webToggleSeqAtSend = webToggleSeqRef.current;
+    // Re-arm the failed send's web opt-in only if the user hasn't clicked the
+    // toggle since — their newer explicit choice wins.
+    const rearmWebToggle = () => {
+      if (useWebSearch && webToggleSeqRef.current === webToggleSeqAtSend) {
+        setWebForNext(true);
+      }
+    };
     try {
       const payload = {
         text,
@@ -185,13 +196,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       // Only restore the failed send's text if the user hasn't started a new
       // draft in the meantime — otherwise we'd clobber what they just typed.
       if (!sent) {
-        // Re-arm the web toggle too, so retrying the failed send keeps the
-        // user's opt-in instead of silently dropping it.
-        if (useWebSearch) setWebForNext(true);
+        rearmWebToggle();
         if (!composerDraftRef.current) onComposerDraftChange(text);
       }
     } catch {
-      if (useWebSearch) setWebForNext(true);
+      rearmWebToggle();
       if (!composerDraftRef.current) {
         onComposerDraftChange(text);
       }
@@ -528,7 +537,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             <button
               type="button"
               className={`btn icon-btn web-toggle ${webForNext ? "active" : ""}`}
-              onClick={() => setWebForNext((v) => !v)}
+              onClick={() => {
+                webToggleSeqRef.current += 1;
+                setWebForNext((v) => !v);
+              }}
               aria-pressed={webForNext}
               title={webForNext ? t("agent.webSearchOn") : t("agent.webSearchOff")}
               aria-label={webForNext ? t("agent.webSearchOn") : t("agent.webSearchOff")}

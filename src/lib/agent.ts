@@ -178,14 +178,20 @@ interface ToolProgressSpec {
 function bindToolExecute<T, R>(
   progress: (input: T) => ToolProgressSpec,
   phase: "tool" | "index" | "search" | "read",
-  fn: (input: T, options: ToolExecuteOptions) => Promise<R>,
+  getRunGen: () => number,
+  fn: (input: T, options: ToolExecuteOptions, runGen: number) => Promise<R>,
 ): (input: T, options?: ToolExecuteOptions) => Promise<R> {
   return async (input, options) => {
     const spec = progress(input);
+    // Capture the run generation SYNCHRONOUSLY at dispatch: a tool parked on
+    // the yieldToUi macrotask below while the next run's prepareCall bumps the
+    // generation would otherwise capture the new one and charge the wrong
+    // run's budget.
+    const runGen = getRunGen();
     emitAgentProgress(spec.message, phase, { key: spec.key, params: spec.params });
     await yieldToUi();
     try {
-      return await fn(input, options ?? {});
+      return await fn(input, options ?? {}, runGen);
     } finally {
       await yieldToUi();
     }
@@ -259,13 +265,13 @@ function createDocumentTools(budget: ReadBudget) {
       execute: bindToolExecute(
         () => ({ message: "Scanning document…", key: "agent.activityIndex" }),
         "tool",
-        async ({ path: inputPath }, options) => {
+        () => budget.gen,
+        async ({ path: inputPath }, options, runGen) => {
           const path = resolvePathInput(inputPath, options);
           const doc = requireLoadedDoc(path);
           if (budget.used >= budget.max) {
             return { budgetExceeded: true, note: BUDGET_NOTE };
           }
-          const runGen = budget.gen;
           const pages = docCache.getPages(path);
           const allStats = pages.map((p) => ({
             page: p.page,
@@ -350,11 +356,15 @@ function createDocumentTools(budget: ReadBudget) {
             : { message: "Reading page…", key: "agent.activityReadRange" };
         },
         "read",
-        async ({ path: inputPath, page, offset = 0, maxChars = DEFAULT_PAGE_MAX_CHARS }, options) => {
+        () => budget.gen,
+        async (
+          { path: inputPath, page, offset = 0, maxChars = DEFAULT_PAGE_MAX_CHARS },
+          options,
+          runGen,
+        ) => {
           const path = resolvePathInput(inputPath, options);
           const doc = requireLoadedDoc(path);
           assertPageInBounds(doc, page);
-          const runGen = budget.gen;
 
           if (budget.used >= budget.max) {
             return {
@@ -433,16 +443,16 @@ function createDocumentTools(budget: ReadBudget) {
       execute: bindToolExecute(
         () => ({ message: "Reading pages…", key: "agent.activityReadRange" }),
         "read",
+        () => budget.gen,
         async ({
           path: inputPath,
           start,
           end,
           offset = 0,
           maxChars = DEFAULT_RANGE_MAX_CHARS,
-        }, options) => {
+        }, options, runGen) => {
           const path = resolvePathInput(inputPath, options);
           const doc = requireLoadedDoc(path);
-          const runGen = budget.gen;
           if (start > end) {
             throw new Error(
               `invalid page range: start (${start}) cannot be greater than end (${end}).`,
@@ -551,13 +561,13 @@ function createDocumentTools(budget: ReadBudget) {
       execute: bindToolExecute(
         () => ({ message: "Searching document…", key: "agent.activitySearch" }),
         "search",
-        async ({ query, maxResults = 50 }, options) => {
+        () => budget.gen,
+        async ({ query, maxResults = 50 }, options, runGen) => {
           const path = resolvePathInput(undefined, options);
           requireLoadedDoc(path);
           if (budget.used >= budget.max) {
             return { hits: [], truncated: false, budgetExceeded: true, note: BUDGET_NOTE };
           }
-          const runGen = budget.gen;
           const pages = docCache.getPages(path);
           // Silently bound a degenerate query instead of failing the call —
           // snippets embed the match, so a huge query inflates every hit.

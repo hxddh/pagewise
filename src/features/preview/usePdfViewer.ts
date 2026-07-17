@@ -537,8 +537,10 @@ export function usePdfViewer({
             prefetchPage(docPath, targetPage, s, prefetchQuality, sk);
           }
         };
-        if (page > 1) void prefetch(page - 1);
-        if (page < docTotalPages) void prefetch(page + 1);
+        // Prefetch is best-effort; a bad neighbor page must not surface as an
+        // unhandled rejection.
+        if (page > 1) prefetch(page - 1).catch(() => {});
+        if (page < docTotalPages) prefetch(page + 1).catch(() => {});
       }
     })();
 
@@ -572,15 +574,32 @@ export function usePdfViewer({
 
     const run = () => {
       void (async () => {
-        const scale =
-          zoom === "fit-width"
-            ? await resolveFitWidthScale(docPath, page, viewportWidth)
-            : zoom;
-
-        if (isStale() || !textLayerRef.current) return;
-
+        // The whole body is guarded: the text layer is optional, and a scale
+        // or render failure here must degrade silently, never surface as an
+        // unhandled rejection (reachable in production since the Tauri
+        // text-layer gate was removed).
         try {
-          cleanup = await renderTextLayer(docPath, page, scale, textLayerRef.current, isStale);
+          const scale =
+            zoom === "fit-width"
+              ? await resolveFitWidthScale(docPath, page, viewportWidth)
+              : zoom;
+
+          if (isStale() || !textLayerRef.current) return;
+
+          const done = await renderTextLayer(
+            docPath,
+            page,
+            scale,
+            textLayerRef.current,
+            isStale,
+          );
+          // Teardown may have run while we awaited — dispose immediately
+          // instead of leaking an uncancelled TextLayer.
+          if (cancelled) {
+            done();
+          } else {
+            cleanup = done;
+          }
         } catch {
           /* text layer optional */
         }
