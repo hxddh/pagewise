@@ -46,6 +46,26 @@ describe("pruneToolOutputsForHistory", () => {
     // No change on the second pass → the array identity is preserved.
     expect(twice).toBe(once);
   });
+
+  it("leaves a synthesized [cancelled] output as-is instead of fabricating counts", () => {
+    const cancelled = sanitizeDanglingToolParts([
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-search_in_document",
+            toolCallId: "t1",
+            state: "input-available",
+            input: { query: "term" },
+          },
+        ],
+      } as UIMessage,
+    ]);
+    const pruned = pruneToolOutputsForHistory(cancelled);
+    // Must stay "[cancelled]", not become `[Search "term", 11 hits — omitted…]`.
+    expect(firstOutput(pruned)).toBe("[cancelled]");
+  });
 });
 
 describe("sanitizeDanglingToolParts", () => {

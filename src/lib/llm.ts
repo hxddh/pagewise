@@ -2,6 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { APICallError, generateText, tool, type LanguageModel } from "ai";
 import { z } from "zod";
+import { getAgentRunAbortSignal } from "./agent-abort";
 import { isToolModel, isVisionModel } from "./model-capabilities";
 import { generateVisionText } from "./vision-api";
 import {
@@ -63,6 +64,28 @@ export function setWebSearchForRun(on: boolean): void {
   webSearchForRun = on;
 }
 
+/**
+ * Consume the run's web-search opt-in for one request body, or return null to
+ * leave the request untouched. One user message = one web search: the flag is
+ * disarmed on the first injection, so the later tool-loop steps of the same run
+ * (up to ~30 chat requests) don't each trigger another billed search. Injection
+ * is also scoped to streamed agent-run requests — a connection test or other
+ * plain request issued while a web-enabled run streams (agent runs stream;
+ * probes don't) never picks up the plugin.
+ */
+export function takeWebSearchInjection(body: string): string | null {
+  if (!webSearchForRun || getAgentRunAbortSignal() == null) return null;
+  let streamed = false;
+  try {
+    streamed = (JSON.parse(body) as { stream?: unknown }).stream === true;
+  } catch {
+    return null;
+  }
+  if (!streamed) return null;
+  webSearchForRun = false;
+  return injectWebSearchPlugin(body);
+}
+
 function providerFetch(settings: LlmSettings): typeof fetch | undefined {
   if (settings.provider !== "openrouter") return undefined;
 
@@ -71,10 +94,9 @@ function providerFetch(settings: LlmSettings): typeof fetch | undefined {
     headers.set("HTTP-Referer", "https://pagewise.app");
     headers.set("X-Title", "PageWise");
     // Inject OpenRouter's `web` plugin only when the user opted in for this run.
-    const body =
-      webSearchForRun && typeof init?.body === "string"
-        ? injectWebSearchPlugin(init.body)
-        : init?.body;
+    const injected =
+      typeof init?.body === "string" ? takeWebSearchInjection(init.body) : null;
+    const body = injected ?? init?.body;
     return fetch(input, { ...init, headers, body });
   };
 }

@@ -14,7 +14,6 @@ import {
 import { loadPreferences } from "../../lib/preferences";
 import { useI18n } from "../../i18n";
 import { registerPreviewActions } from "../../lib/preview-actions";
-import { isTauriRuntime } from "../../lib/runtime";
 import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
 import { getPageTextLen } from "../../lib/doc-text";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
@@ -429,8 +428,10 @@ export function usePdfViewer({
       const raster = isRasterHeavyPage(currentPageTextLen);
       const baseQuality = effectiveRenderQuality(userQuality, raster);
       const quality = navBurst ? "performance" : baseQuality;
-      const wantTextLayer =
-        !isTauriRuntime() && !navBurst && !raster && currentPageTextLen > 0;
+      // NOTE: this must not be gated on the runtime — the desktop (Tauri) build
+      // is the production app, and disabling the text layer there kills PDF text
+      // selection and the selection→ask affordance entirely.
+      const wantTextLayer = !navBurst && !raster && currentPageTextLen > 0;
 
       const scaleKey = buildScaleKey(
         zoom,
@@ -459,10 +460,24 @@ export function usePdfViewer({
         }
       }
 
-      const scale =
-        zoom === "fit-width"
-          ? await resolveFitWidthScale(docPath, page, viewportWidth)
-          : zoom;
+      // Resolve the scale inside its own error boundary: a rejection here (bad
+      // page, torn document) must surface as a render error, not an unhandled
+      // rejection that leaves the canvas silently stuck on the previous page.
+      let scale: number;
+      if (zoom === "fit-width") {
+        try {
+          scale = await resolveFitWidthScale(docPath, page, viewportWidth);
+        } catch (e) {
+          if (!isStale()) {
+            clearLoadingTimer();
+            setShowLoading(false);
+            setRenderError(e instanceof Error ? e.message : t("preview.renderFailed"));
+          }
+          return;
+        }
+      } else {
+        scale = zoom;
+      }
 
       if (isStale() || !canvasRef.current) return;
 

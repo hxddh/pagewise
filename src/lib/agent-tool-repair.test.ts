@@ -16,6 +16,11 @@ describe("coerceNumericToolInput", () => {
     expect(JSON.parse(out!)).toEqual({ page: 3, offset: 120, maxChars: 6000 });
   });
 
+  it("coerces maxResults (search_in_document)", () => {
+    const out = coerceNumericToolInput('{"query":"term","maxResults":"100"}');
+    expect(JSON.parse(out!)).toEqual({ query: "term", maxResults: 100 });
+  });
+
   it("returns null when all numeric fields are already numbers", () => {
     expect(coerceNumericToolInput('{"page":5,"maxChars":6000}')).toBeNull();
   });

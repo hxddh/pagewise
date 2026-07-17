@@ -88,6 +88,12 @@ const docToolContextSchema = z.object({
 interface ReadBudget {
   used: number;
   max: number;
+  /**
+   * Run generation, bumped by prepareCall. A tool promise still in flight from
+   * an aborted run charges against a stale generation, so it can't eat into the
+   * next run's budget after the reset.
+   */
+  gen: number;
 }
 
 /** Reject any model-supplied path that is not a currently-loaded document. */
@@ -130,7 +136,10 @@ async function readPageText(path: string, page: number) {
     return { page, text: cached.text, source: "cache" as const };
   }
 
-  emitAgentProgress(`Indexing page ${page}…`, "index");
+  emitAgentProgress(`Indexing page ${page}…`, "index", {
+    key: "agent.activityIndexPage",
+    params: { page },
+  });
 
   if (kind === "pdf") {
     throwIfAborted(signal);
@@ -158,14 +167,22 @@ const BUDGET_NOTE =
 
 type ToolExecuteOptions = { context?: PageWiseDocToolContext };
 
+/** Progress line for a tool call: English fallback plus an i18n key for the UI. */
+interface ToolProgressSpec {
+  message: string;
+  key: string;
+  params?: Record<string, string | number>;
+}
+
 /** Wrap tool execution so WebKit can paint streaming UI between agent steps. */
 function bindToolExecute<T, R>(
-  label: string,
+  progress: (input: T) => ToolProgressSpec,
   phase: "tool" | "index" | "search" | "read",
   fn: (input: T, options: ToolExecuteOptions) => Promise<R>,
 ): (input: T, options?: ToolExecuteOptions) => Promise<R> {
   return async (input, options) => {
-    emitAgentProgress(label, phase);
+    const spec = progress(input);
+    emitAgentProgress(spec.message, phase, { key: spec.key, params: spec.params });
     await yieldToUi();
     try {
       return await fn(input, options ?? {});
@@ -211,13 +228,27 @@ const UNINDEXED_NOTE =
   "These pages have little or no extracted text, so search_in_document cannot match them. " +
   "Read them directly with read_pdf_page to access their content (this triggers on-demand indexing).";
 
+/**
+ * Cap on per-page stat entries in a document_outline result. Each entry is
+ * ~200 chars of JSON, so an uncapped 1,000-page document would emit a single
+ * tool result larger than the whole run budget.
+ */
+const MAX_OUTLINE_PAGE_STATS = 200;
+
 function createDocumentTools(budget: ReadBudget) {
+  // Charge chars to the run's budget — unless the charging tool belongs to an
+  // earlier aborted run (stale generation), so it can't drain the new run.
+  const chargeBudget = (runGen: number, chars: number): void => {
+    if (budget.gen === runGen) budget.used += chars;
+  };
+
   return {
     document_outline: tool({
       description:
         "Document overview: the native section/bookmark tree (title → page) when " +
-        "the PDF has one, plus per-page character counts and short previews. Use " +
-        "it to jump to a section or to plan chunked reads of a large document.",
+        "the PDF has one, plus per-page character counts and short previews " +
+        `(first ${MAX_OUTLINE_PAGE_STATS} pages). Use it to jump to a section or ` +
+        "to plan chunked reads of a large document.",
       inputSchema: z.object({
         path: z
           .string()
@@ -226,30 +257,45 @@ function createDocumentTools(budget: ReadBudget) {
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
-        "Scanning document…",
+        () => ({ message: "Scanning document…", key: "agent.activityIndex" }),
         "tool",
         async ({ path: inputPath }, options) => {
           const path = resolvePathInput(inputPath, options);
           const doc = requireLoadedDoc(path);
+          if (budget.used >= budget.max) {
+            return { budgetExceeded: true, note: BUDGET_NOTE };
+          }
+          const runGen = budget.gen;
           const pages = docCache.getPages(path);
-          const pageStats = pages.map((p) => ({
+          const allStats = pages.map((p) => ({
             page: p.page,
             chars: p.text.length,
             preview: p.text.trim().slice(0, 160),
           }));
-          const totalChars = pageStats.reduce((sum, p) => sum + p.chars, 0);
+          const totalChars = allStats.reduce((sum, p) => sum + p.chars, 0);
           const unindexedPages = pages
             .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
             .map((p) => p.page);
           // Native bookmark/section tree, so the agent can jump by section
           // ("summarize chapter 3") instead of scanning per-page previews.
-          const bookmarks = await getPdfOutline(path);
-          return {
+          // Image documents have no pdf.js outline — don't parse them as PDFs.
+          const bookmarks = doc.kind === "pdf" ? await getPdfOutline(path) : [];
+          const statsOmitted = Math.max(0, allStats.length - MAX_OUTLINE_PAGE_STATS);
+          const result = {
             totalPages: doc.totalPages || pages.length,
             totalChars,
             suggestedChunkSize: DEFAULT_RANGE_MAX_CHARS,
             needsChunking: totalChars > DEFAULT_RANGE_MAX_CHARS,
-            pages: pageStats,
+            pages: statsOmitted > 0 ? allStats.slice(0, MAX_OUTLINE_PAGE_STATS) : allStats,
+            ...(statsOmitted > 0
+              ? {
+                  pageStatsOmitted: statsOmitted,
+                  pageStatsNote:
+                    `Per-page stats cover the first ${MAX_OUTLINE_PAGE_STATS} of ` +
+                    `${allStats.length} pages; use search_in_document or read_pdf_range ` +
+                    "to work with later pages.",
+                }
+              : {}),
             ...(bookmarks.length > 0 ? { bookmarks } : {}),
             ...(unindexedPages.length > 0
               ? {
@@ -259,6 +305,9 @@ function createDocumentTools(budget: ReadBudget) {
                 }
               : {}),
           };
+          // Outline output lands in context like any read — count it.
+          chargeBudget(runGen, JSON.stringify(result).length);
+          return result;
         },
       ),
     }),
@@ -290,12 +339,22 @@ function createDocumentTools(budget: ReadBudget) {
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
-        "Reading page…",
+        (input) => {
+          const page = (input as { page?: unknown } | undefined)?.page;
+          return typeof page === "number"
+            ? {
+                message: `Reading page ${page}…`,
+                key: "agent.activityReadPage",
+                params: { page },
+              }
+            : { message: "Reading page…", key: "agent.activityReadRange" };
+        },
         "read",
         async ({ path: inputPath, page, offset = 0, maxChars = DEFAULT_PAGE_MAX_CHARS }, options) => {
           const path = resolvePathInput(inputPath, options);
           const doc = requireLoadedDoc(path);
           assertPageInBounds(doc, page);
+          const runGen = budget.gen;
 
           if (budget.used >= budget.max) {
             return {
@@ -324,7 +383,7 @@ function createDocumentTools(budget: ReadBudget) {
           const from = Math.min(offset, text.length);
           const room = Math.min(maxChars, budget.max - budget.used);
           const slice = text.slice(from, from + room);
-          budget.used += slice.length;
+          chargeBudget(runGen, slice.length);
 
           const consumedEnd = from + slice.length;
           const truncated = consumedEnd < text.length;
@@ -372,7 +431,7 @@ function createDocumentTools(budget: ReadBudget) {
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
-        "Reading pages…",
+        () => ({ message: "Reading pages…", key: "agent.activityReadRange" }),
         "read",
         async ({
           path: inputPath,
@@ -383,6 +442,7 @@ function createDocumentTools(budget: ReadBudget) {
         }, options) => {
           const path = resolvePathInput(inputPath, options);
           const doc = requireLoadedDoc(path);
+          const runGen = budget.gen;
           if (start > end) {
             throw new Error(
               `invalid page range: start (${start}) cannot be greater than end (${end}).`,
@@ -441,7 +501,7 @@ function createDocumentTools(budget: ReadBudget) {
               const slice = remainingText.slice(0, room);
               parts.push(header + slice);
               charCount += separator + header.length + slice.length;
-              budget.used += slice.length;
+              chargeBudget(runGen, slice.length);
               lastPage = page;
               truncated = true;
               nextStart = page;
@@ -452,7 +512,7 @@ function createDocumentTools(budget: ReadBudget) {
 
             parts.push(header + remainingText);
             charCount += separator + header.length + remainingText.length;
-            budget.used += remainingText.length;
+            chargeBudget(runGen, remainingText.length);
             lastPage = page;
           }
 
@@ -489,17 +549,34 @@ function createDocumentTools(budget: ReadBudget) {
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
-        "Searching document…",
+        () => ({ message: "Searching document…", key: "agent.activitySearch" }),
         "search",
         async ({ query, maxResults = 50 }, options) => {
           const path = resolvePathInput(undefined, options);
           requireLoadedDoc(path);
+          if (budget.used >= budget.max) {
+            return { hits: [], truncated: false, budgetExceeded: true, note: BUDGET_NOTE };
+          }
+          const runGen = budget.gen;
           const pages = docCache.getPages(path);
-          const hits = searchInDocument(pages, query, maxResults);
+          // Silently bound a degenerate query instead of failing the call —
+          // snippets embed the match, so a huge query inflates every hit.
+          const boundedQuery = query.length > 400 ? query.slice(0, 400) : query;
+          // Probe one hit past the cap so truncated distinguishes "exactly
+          // maxResults matches" from "more matches exist".
+          const raw = searchInDocument(pages, boundedQuery, maxResults + 1);
+          const truncated = raw.length > maxResults;
+          const hits = truncated ? raw.slice(0, maxResults) : raw;
           const preview = formatSearchPreview(hits);
-          if (preview) emitAgentProgress(preview, "search");
-          // Signal possible truncation so the model can tell "exactly N" from "more".
-          return { hits, truncated: hits.length >= maxResults };
+          if (preview) {
+            emitAgentProgress(preview.message, "search", {
+              key: "agent.activitySearchMatches",
+              params: { count: preview.pages, preview: preview.snippets },
+            });
+          }
+          // Search output lands in context like any read — count it.
+          chargeBudget(runGen, JSON.stringify(hits).length);
+          return { hits, truncated };
         },
       ),
     }),
@@ -552,7 +629,7 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
 }
 
 export function createDocAgent() {
-  const budget: ReadBudget = { used: 0, max: RUN_CHAR_BUDGET };
+  const budget: ReadBudget = { used: 0, max: RUN_CHAR_BUDGET, gen: 0 };
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
   const tools = createDocumentTools(budget);
   const defaultRuntime = buildRuntimeContext(null);
@@ -575,6 +652,7 @@ export function createDocAgent() {
       stepNumber >= runMaxSteps - 1 ? { toolChoice: "none" } : undefined,
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
+      budget.gen += 1;
 
       const settings = await loadSettings();
       const runtime =

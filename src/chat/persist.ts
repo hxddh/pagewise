@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 import { Store } from "@tauri-apps/plugin-store";
 import { prepareMessagesForPersist } from "../lib/persist-messages";
-import { hydrateChatMessages } from "../lib/messages-utils";
+import { hydrateChatMessages, normalizeUIMessages } from "../lib/messages-utils";
 
 const STORE_PATH = "pagewise-v3-chats.json";
 
@@ -36,9 +36,13 @@ function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
 
 export async function loadChat(path: string): Promise<UIMessage[]> {
   const store = await getStore();
-  const raw = await store.get<UIMessage[]>(chatKey(path));
-  if (!raw?.length) return [];
-  return hydrateChatMessages(raw);
+  const raw = await store.get<unknown>(chatKey(path));
+  // Normalize before hydrating: a malformed persisted row (torn write, legacy
+  // shape) must degrade to "skip that row", never throw — a throw here would
+  // surface as a document-open failure.
+  const messages = normalizeUIMessages(raw);
+  if (messages.length === 0) return [];
+  return hydrateChatMessages(messages);
 }
 
 export async function saveChat(path: string, messages: UIMessage[]): Promise<void> {

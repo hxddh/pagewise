@@ -168,6 +168,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     if (!activeDoc) return;
     stickToBottomRef.current = true;
     onComposerDraftChange("");
+    const useWebSearch = webSearchAvailable && webForNext;
     try {
       const payload = {
         text,
@@ -177,16 +178,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         viewingPage: previewPage,
         totalPages: activeDoc.totalPages,
         includeViewingPage,
-        webSearch: webSearchAvailable && webForNext,
+        webSearch: useWebSearch,
       };
       if (webForNext) setWebForNext(false);
       const sent = await sendDocumentMessage(payload);
       // Only restore the failed send's text if the user hasn't started a new
       // draft in the meantime — otherwise we'd clobber what they just typed.
-      if (!sent && !composerDraftRef.current) {
-        onComposerDraftChange(text);
+      if (!sent) {
+        // Re-arm the web toggle too, so retrying the failed send keeps the
+        // user's opt-in instead of silently dropping it.
+        if (useWebSearch) setWebForNext(true);
+        if (!composerDraftRef.current) onComposerDraftChange(text);
       }
     } catch {
+      if (useWebSearch) setWebForNext(true);
       if (!composerDraftRef.current) {
         onComposerDraftChange(text);
       }

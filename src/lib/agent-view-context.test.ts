@@ -71,7 +71,8 @@ describe("agent-view-context", () => {
     expect(out).toContain("document_outline");
     expect(out).toContain("read_pdf_range");
     expect(out).toContain("truncated"); // continue-until-done hint kept
+    expect(out).toContain("budgetExceeded"); // budget-stop hint kept
     expect(out).not.toMatch(/^\s*1\./m); // no rigid numbered steps
-    expect(out.length).toBeLessThan(360);
+    expect(out.length).toBeLessThan(420);
   });
 });

@@ -7,7 +7,10 @@ export function hasCurrentPageIntent(text: string): boolean {
 
 /** User wants the whole document, not a single page. */
 export function hasWholeDocumentIntent(text: string): boolean {
-  return /全文|整份|整个文档|整篇|所有页|全书|whole document|entire document|full document|all pages|document summary|总结(?:一下)?(?:这份|这个|整|全)|分析(?:一下)?(?:这份|这个|整|全)/i.test(
+  // 这份/这个 only count as whole-document when followed by a document noun:
+  // "总结这个章节" / "分析这个表格" are section-scoped asks, and treating them
+  // as whole-document burns a full-document read on a one-section question.
+  return /全文|整份|整个文档|整篇|所有页|全书|whole document|entire document|full document|all pages|document summary|(?:总结|分析)(?:一下)?(?:(?:这份|这个)(?:文档|文件|报告|论文|书|资料|材料|PDF)|整|全)/i.test(
     text,
   );
 }

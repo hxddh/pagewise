@@ -268,7 +268,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         if (epochRef.current !== myEpoch) return;
 
-        const messages = (await loadChat(path)) as PageWiseUIMessage[];
+        // Chat-history corruption is recoverable (start with an empty thread);
+        // failing the whole document open over it is not. Never let loadChat
+        // reject bubble into the document-load catch below.
+        let messages: PageWiseUIMessage[] = [];
+        try {
+          messages = (await loadChat(path)) as PageWiseUIMessage[];
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn("[session] chat history load failed", e);
+        }
 
         if (epochRef.current !== myEpoch) return;
 
@@ -354,6 +362,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     showToast(t("toast.reindexStarted"), "default");
   }, [showToast, t]);
 
+  // Clamp preview jumps: models cite printed/hallucinated page numbers, and an
+  // out-of-range page would leave the canvas stuck on the old page with the
+  // toolbar showing e.g. "57 / 30".
+  const setPreviewPageClamped = useCallback((page: number) => {
+    if (!Number.isFinite(page)) return;
+    const total = documentRef.current?.totalPages ?? 0;
+    const target = Math.max(1, Math.round(page));
+    setPreviewPage(total > 0 ? Math.min(total, target) : target);
+  }, []);
+
   const clearChat = useCallback(async () => {
     const doc = documentRef.current;
     if (!doc) return;
@@ -389,7 +407,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       phase,
       document,
       previewPage,
-      setPreviewPage,
+      setPreviewPage: setPreviewPageClamped,
       fileError,
       clearFileError: () => setFileError(null),
       loading,
@@ -419,6 +437,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       phase,
       document,
       previewPage,
+      setPreviewPageClamped,
       agent,
       fileError,
       loading,

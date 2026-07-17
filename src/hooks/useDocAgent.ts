@@ -67,6 +67,10 @@ export function useDocAgent(chatId: string | null = null) {
     formatAgentError(error),
   );
   formatErrorRef.current = (error) => formatAgentError(error, t);
+  // Progress data parts carry an i18n key; translate with the current locale.
+  // Read through a ref so the onData closure never holds a stale `t`.
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const transportRef = useRef<ReturnType<typeof createTransport> | null>(null);
   const agentGenRef = useRef(0);
@@ -106,7 +110,9 @@ export function useDocAgent(chatId: string | null = null) {
     },
     onData: (part) => {
       if (isAgentProgressDataPart(part)) {
-        setStreamProgress(part.data.message || null);
+        const { key, params, message } = part.data;
+        const line = key ? tRef.current(key, params) : message;
+        setStreamProgress(line || null);
       }
     },
     onFinish: ({ message, isAbort, isError }) => {
@@ -155,7 +161,10 @@ export function useDocAgent(chatId: string | null = null) {
   const [sendPhase, setSendPhase] = useState(false);
   const sendGenRef = useRef(0);
   const pendingSendContextRef = useRef<AgentMessageContext | null>(null);
-  const lastSendOptionsRef = useRef<{ includeViewingPage: boolean } | null>(null);
+  const lastSendOptionsRef = useRef<{
+    includeViewingPage: boolean;
+    webSearch: boolean;
+  } | null>(null);
   const isAgentBusyRef = useRef<() => boolean>(() => false);
   const [historySettling, setHistorySettling] = useState(false);
 
@@ -341,7 +350,10 @@ export function useDocAgent(chatId: string | null = null) {
       };
       pendingSendContextRef.current = ctx;
       beginAgentMessage(ctx);
-      lastSendOptionsRef.current = { includeViewingPage: opts.includeViewingPage };
+      lastSendOptionsRef.current = {
+        includeViewingPage: opts.includeViewingPage,
+        webSearch: opts.webSearch === true,
+      };
       streamAgentGenRef.current = agentGenRef.current;
 
       try {
@@ -440,9 +452,17 @@ export function useDocAgent(chatId: string | null = null) {
       const text = extractUserText(lastUser);
       if (!text.trim()) return false;
 
+      // Reuse the original send's options: a Retry/Regenerate of a web-enabled
+      // message must run with web search again, or the answer silently changes.
       const includeViewingPage =
         lastSendOptionsRef.current?.includeViewingPage ?? opts.includeViewingPage;
-      const sendOpts: SendDocumentMessageOptions = { ...opts, text, includeViewingPage };
+      const webSearch = lastSendOptionsRef.current?.webSearch ?? opts.webSearch === true;
+      const sendOpts: SendDocumentMessageOptions = {
+        ...opts,
+        text,
+        includeViewingPage,
+        webSearch,
+      };
 
       const sendGen = sendGenRef.current;
       sendingRef.current = true;
@@ -542,6 +562,9 @@ export function useDocAgent(chatId: string | null = null) {
         agentGenRef.current += 1;
         abortPendingSend();
         sendGenRef.current += 1;
+        // Per-message options must not leak into the next document's
+        // Retry/Regenerate (e.g. doc A's include-page choice applied to doc B).
+        lastSendOptionsRef.current = null;
         if (pruneTimeoutRef.current != null) {
           window.clearTimeout(pruneTimeoutRef.current);
           pruneTimeoutRef.current = null;
