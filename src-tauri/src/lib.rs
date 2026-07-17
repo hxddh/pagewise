@@ -61,14 +61,18 @@ async fn register_allowed_path(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let canon = canonicalize(&path)?;
-    let mut set = state
-        .0
-        .lock()
-        .map_err(|_| "allowlist lock poisoned".to_string())?;
-    set.insert(canon.clone());
+    // Grant the asset-protocol scope BEFORE recording the path, and don't hold
+    // the allowlist lock across that call: if allow_file fails, the set must not
+    // end up with a path the asset scope doesn't know about (IPC reads would
+    // work while asset URLs 404 for the rest of the session).
     app.asset_protocol_scope()
         .allow_file(&canon)
         .map_err(|e| format!("asset scope: {e}"))?;
+    state
+        .0
+        .lock()
+        .map_err(|_| "allowlist lock poisoned".to_string())?
+        .insert(canon);
     Ok(())
 }
 
@@ -216,12 +220,16 @@ async fn write_text_file(
         .ok_or_else(|| "Invalid path: no file name".to_string())?;
     let canon_parent = std::fs::canonicalize(parent).map_err(|e| format!("Invalid path: {e}"))?;
 
+    // Authorize writes ONLY via an explicitly-registered parent DIRECTORY (the
+    // save-as flow registers the chosen directory). Deliberately NOT authorized
+    // by the target file being in the allowlist: that set is populated by every
+    // opened document, which would make every read path a write target too.
     let authorized = {
         let set = allowed
             .0
             .lock()
             .map_err(|_| "allowlist lock poisoned".to_string())?;
-        set.contains(&canon_parent) || set.contains(&canon_parent.join(file_name))
+        set.contains(&canon_parent)
     };
 
     if !authorized {

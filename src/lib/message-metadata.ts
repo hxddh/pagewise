@@ -46,6 +46,25 @@ export function getPageWiseMetadata(
   return raw;
 }
 
+/**
+ * Stamp `finishedAt` on any message that started but never got one (an aborted
+ * run whose onFinish setMessages hadn't flushed to the ref before a switch
+ * snapshotted it). Without this the persisted message shows an inflated
+ * duration on reopen (computeTotalDurationMs falls back to "now"). Returns the
+ * same array reference when nothing changed. `now` is injected for testability.
+ */
+export function stampMissingFinishedAt<T extends UIMessage>(messages: T[], now: number): T[] {
+  let changed = false;
+  const next = messages.map((m) => {
+    if (m.role !== "assistant") return m;
+    const meta = getPageWiseMetadata(m);
+    if (!meta || meta.startedAt == null || meta.finishedAt != null) return m;
+    changed = true;
+    return { ...m, metadata: { ...meta, finishedAt: now } };
+  });
+  return changed ? next : messages;
+}
+
 export function formatDuration(ms: number | undefined): string {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;

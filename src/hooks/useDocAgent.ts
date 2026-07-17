@@ -109,6 +109,10 @@ export function useDocAgent(chatId: string | null = null) {
       }
     },
     onData: (part) => {
+      // Guard like onFinish/onMessagesRepaired: a buffered progress part
+      // delivered after a document switch must not set a stale activity line
+      // under the new chat.
+      if (streamAgentGenRef.current !== agentGenRef.current) return;
       if (isAgentProgressDataPart(part)) {
         const { key, params, message } = part.data;
         const line = key ? tRef.current(key, params) : message;

@@ -31,8 +31,14 @@ async function registerWithBackend(path: string, strict: boolean): Promise<boole
   try {
     await invoke("register_allowed_path", { path });
     return true;
-  } catch {
-    if (strict) throw new Error("path not authorized");
+  } catch (e) {
+    if (strict) {
+      // Surface the real Rust cause (Tauri rejects with a plain string): a
+      // moved/deleted file fails canonicalize with "No such file", which is a
+      // very different message from an authorization refusal.
+      const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+      throw new Error(raw || "path not authorized");
+    }
     return false;
   }
 }

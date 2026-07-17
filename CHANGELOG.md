@@ -4,6 +4,30 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.13] - 2026-07-17
+
+Hardening pass from three fresh review angles (the v3.5.12 diff, a Rust↔IPC contract audit, and a cross-module state-machine sweep). No data-loss bugs found; the fixes below close a real error-reporting gap, a rotated-page selection defect, and a keychain-prompt storm.
+
+### Fixed
+
+- **Real PDF-load errors now reach the user instead of a generic "load failed".** Tauri rejects a command with a plain string, not an `Error`; the load-error path and the extract-cancel detector both tested `instanceof Error`, so "Encrypted PDF requires a password", "File too large", etc. collapsed to an empty/unclassified message. File-touching commands now normalize rejections to `Error`, and both call sites read string rejections too.
+- **Text selection on intrinsically-rotated PDF pages (`/Rotate 90/180/270`) now aligns with the page.** The v3.5.12 off-DOM text-layer rewrite dropped pdf.js's `data-main-rotation` marker and the CSS lacked the matching rotation rules, so spans sat over an unrotated layout while the canvas was rotated. Both are now carried over/ported.
+- **A blocked/denied keychain no longer triggers an OS-prompt storm.** A background index sweep called into the keychain per page (concurrency 3 × up to 50 pages); once the keychain is known blocked this session, migration and per-read fallbacks stop consulting it until the user reopens Settings.
+- The asset-protocol PDF fallback works again — `connect-src` now allows `asset:`/`http://asset.localhost`, so a transient IPC read failure can actually recover via the asset protocol instead of hard-failing the load.
+- A stale scope-cancel landing on a brand-new extract (stop a run, immediately send a new message) no longer surfaces a spurious "cancelled" — the fresh request retries once when it wasn't the one that aborted.
+- Live activity progress (`onData`) is now generation-guarded like the other stream callbacks, so a buffered progress line can't leak under a document you just switched to.
+- Removing the API key mid-index-sweep aborts the background queue once instead of marking every remaining page failed one-by-one.
+- The streaming typewriter reveal self-terminates when caught up (no perpetual 12 ms wake-up during idle stretches of a run) while still never resetting on fast deltas.
+- Chat export/summary, the Test-connection toast, and startup preference/recent loads got smaller correctness/robustness fixes; an aborted last message's finish time is stamped deterministically at save so its duration isn't inflated on reopen; failed-to-restore recent files are pruned from the list (and report the real cause, e.g. "No such file", not "path not authorized"); orphaned chats (documents no longer in recents) are evicted at startup so the chat store doesn't grow unbounded.
+
+### Security
+
+- `write_text_file` now authorizes writes only via an explicitly-registered parent **directory** (the save-as flow), not by the target file being in the read allowlist — the read allowlist no longer doubles as a write allowlist. `register_allowed_path` grants the asset scope before recording the path and no longer holds the lock across that call, so a failure can't leave the two out of sync.
+
+### Known / deferred
+
+- A perf-only item (large PDFs re-parsing the whole document on each single-page agent read) is deferred: it needs a cached parsed `Document` on the Rust side, which can't be build-verified in the current environment.
+
 ## [3.5.12] - 2026-07-17
 
 27-finding hardening pass from three deep-dive reviews (the v3.5.11 diff itself, the document pipeline, and chat-stream/UI internals). Two user-data-loss bugs and a broken selection-geometry contract lead the list.

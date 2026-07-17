@@ -60,3 +60,25 @@ export async function clearChat(path: string): Promise<void> {
     await store.save();
   });
 }
+
+/**
+ * Drop persisted chats whose document is no longer in the keep-set (recent
+ * files). The store keys chats by absolute path and never evicts otherwise, so
+ * months of use would accumulate every chat ever opened, all loaded into memory
+ * by the store plugin. Best-effort — a failure here must never block startup.
+ */
+export async function pruneOrphanedChats(keepPaths: string[]): Promise<void> {
+  try {
+    await withStoreLock(async () => {
+      const store = await getStore();
+      const keep = new Set(keepPaths);
+      const keys = await store.keys();
+      const stale = keys.filter((k) => !keep.has(k));
+      if (stale.length === 0) return;
+      for (const k of stale) await store.delete(k);
+      await store.save();
+    });
+  } catch {
+    /* best-effort cleanup */
+  }
+}

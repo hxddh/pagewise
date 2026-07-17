@@ -17,10 +17,10 @@ import {
 } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
 import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
-import { addRecentFile, getRecentFiles, removeRecentFile, type RecentFile } from "../lib/recent-files";
+import { addRecentFile, getRecentFiles, removeRecentFile, removeRecentFiles, type RecentFile } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
-import { clearChat as clearChatFile, loadChat, saveChat } from "../chat/persist";
+import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
 import { useDocAgent } from "../hooks/useDocAgent";
 import { useConnectionStatus } from "../hooks/useConnectionStatus";
@@ -28,7 +28,7 @@ import { useResizeWidth } from "../hooks/useResizeWidth";
 import { useTauriFileDrop } from "../hooks/useTauriFileDrop";
 import { useI18n } from "../i18n";
 import { useToast } from "../hooks/useToast";
-import type { PageWiseUIMessage } from "../lib/message-metadata";
+import { stampMissingFinishedAt, type PageWiseUIMessage } from "../lib/message-metadata";
 import { chatToMarkdown } from "../lib/export-markdown";
 import { saveMarkdownFile } from "../lib/save-markdown";
 import type { LoadedDocument } from "../lib/types";
@@ -124,10 +124,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [agentOpen]);
 
   useEffect(() => {
-    void getRecentFiles().then((files) => {
-      setRecentFiles(files);
-      void restoreAllowedPaths(files.map((f) => f.path));
-    });
+    void getRecentFiles()
+      .then(async (files) => {
+        setRecentFiles(files);
+        // Paths that fail to re-authorize (file moved/deleted) are dropped from
+        // the allowlist by restoreAllowedPaths; also prune them from the recents
+        // UI so a dead entry doesn't linger and later report "path not authorized".
+        const { failed } = await restoreAllowedPaths(files.map((f) => f.path));
+        let kept = files;
+        if (failed.length > 0) {
+          kept = await removeRecentFiles(failed);
+          setRecentFiles(kept);
+        }
+        // Evict chats for documents no longer in recents so the chat store
+        // doesn't grow unbounded across sessions.
+        void pruneOrphanedChats(kept.map((f) => f.path));
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -238,7 +251,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setFileError(null);
 
       await agent.waitForStreamIdle();
-      const messagesToSave = [...messagesRef.current];
+      // Stamp finishedAt deterministically: an aborted last message's onFinish
+      // setMessages may not have flushed to messagesRef before this snapshot,
+      // which would persist it without a finish time (inflated duration on
+      // reopen).
+      const messagesToSave = stampMissingFinishedAt([...messagesRef.current], Date.now());
       agent.stop();
       agent.resetForDocumentSwitch();
       clearAgentMessageContext();
@@ -299,7 +316,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
         if (e instanceof Error && e.name === "AbortError") return;
-        const raw = e instanceof Error ? e.message : "";
+        // Tauri rejects invoke() with a plain string, so a Rust-side load error
+        // ("Encrypted PDF requires a password", "File too large", …) arrives as
+        // a string, not an Error — read both so the real cause reaches the user
+        // instead of collapsing to the generic load.failed message.
+        const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
         const msg =
           raw === "errors.unsupportedFile" || raw.startsWith("errors.")
             ? t(raw)

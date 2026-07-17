@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { UIMessage } from "ai";
 import {
   computeGenerationSpeed,
   computeTimeToFirstTokenMs,
@@ -9,6 +10,7 @@ import {
   formatGenerationSpeed,
   formatTokenCount,
   formatUsageSummaryLine,
+  stampMissingFinishedAt,
 } from "./message-metadata";
 
 describe("message-metadata", () => {
@@ -168,5 +170,28 @@ describe("message-metadata", () => {
     expect(finish?.stepUsage).toHaveLength(2);
     expect(finish?.stepUsage?.[0]?.toolNames).toEqual(["search_in_document"]);
     expect(finish?.stepUsage?.[1]?.inputTokens).toBe(200);
+  });
+});
+
+describe("stampMissingFinishedAt", () => {
+  const assistant = (meta: Record<string, unknown> | undefined): UIMessage =>
+    ({ id: "a1", role: "assistant", parts: [{ type: "text", text: "hi" }], ...(meta ? { metadata: meta } : {}) }) as UIMessage;
+
+  it("stamps a started-but-unfinished assistant message", () => {
+    const out = stampMissingFinishedAt([assistant({ startedAt: 1000 })], 5000);
+    expect((out[0] as { metadata?: { finishedAt?: number } }).metadata?.finishedAt).toBe(5000);
+  });
+
+  it("leaves an already-finished message untouched (same reference)", () => {
+    const input = [assistant({ startedAt: 1000, finishedAt: 2000 })];
+    const out = stampMissingFinishedAt(input, 5000);
+    expect(out).toBe(input);
+    expect((out[0] as { metadata?: { finishedAt?: number } }).metadata?.finishedAt).toBe(2000);
+  });
+
+  it("ignores user messages and messages with no startedAt", () => {
+    const user = { id: "u1", role: "user", parts: [{ type: "text", text: "q" }] } as UIMessage;
+    const input = [user, assistant(undefined)];
+    expect(stampMissingFinishedAt(input, 5000)).toBe(input);
   });
 });

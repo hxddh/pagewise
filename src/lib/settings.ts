@@ -42,6 +42,17 @@ type KeychainSet = (provider: ProviderId, key: string) => Promise<void>;
 
 let store: LazyStore | null = null;
 let migrationPromise: Promise<void> | null = null;
+/**
+ * Session-level record of a keychain we couldn't reach (denied/blocked prompt).
+ * Once set, migration and per-read fallbacks stop consulting the keychain to
+ * avoid an OS-prompt storm — a single background index sweep otherwise fires
+ * hundreds of keychain accesses (loadVisionSettings per page × concurrency).
+ * Cleared only on an explicit user action (opening Settings).
+ */
+let keychainBlockedThisSession = false;
+export function resetKeychainBlockedFlag(): void {
+  keychainBlockedThisSession = false;
+}
 
 let settingsStoreLock: Promise<unknown> = Promise.resolve();
 function withSettingsStoreLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -69,6 +80,7 @@ export function __resetSettingsStoreForTests(opts?: {
   memoryStore = { value: opts?.store ?? null };
   store = null;
   migrationPromise = null;
+  keychainBlockedThisSession = false;
   keychainGet = opts?.keychain?.get ?? getApiKey;
   keychainSet = opts?.keychain?.set ?? setApiKey;
 }
@@ -361,11 +373,17 @@ async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
   const cleared = raw?.apiKeysCleared ?? {};
   for (const provider of ALL_PROVIDER_IDS) {
     if (provider === "ollama" || fallbackKeys[provider]?.trim() || cleared[provider]) continue;
+    // Stop hitting a keychain we already know is blocked this session.
+    if (keychainBlockedThisSession) {
+      keychainBlocked = true;
+      break;
+    }
     try {
       const fromKeychain = await keychainGet(provider);
       if (fromKeychain.trim()) fallbackKeys[provider] = fromKeychain.trim();
     } catch {
       keychainBlocked = true;
+      keychainBlockedThisSession = true;
     }
   }
 
@@ -451,6 +469,11 @@ async function reconcilePlaintextKeyMirrors(): Promise<void> {
 }
 
 function ensureApiKeysMigrated(): Promise<void> {
+  // A keychain-blocked migration nulls migrationPromise to allow a later retry,
+  // but once we know the keychain is blocked this session, re-running is just
+  // churn (and would re-prompt if not for the per-loop guard) — treat it as
+  // done until the user reopens Settings (which calls resetKeychainBlockedFlag).
+  if (keychainBlockedThisSession) return Promise.resolve();
   if (!migrationPromise) {
     migrationPromise = migrateKeychainApiKeysIfNeeded()
       .then(() => reconcilePlaintextKeyMirrors())
@@ -476,11 +499,14 @@ async function loadApiKey(provider: ProviderId): Promise<string> {
   if (provider === "ollama") return "ollama";
   const fromMirror = (await getFallbackKey(provider)).trim();
   if (fromMirror) return fromMirror;
+  // Skip the per-read keychain fallback once the keychain is known blocked —
+  // otherwise every mirror-less read re-prompts the OS.
+  if (keychainBlockedThisSession) return "";
   try {
     const fromKeychain = (await keychainGet(provider)).trim();
     if (fromKeychain) return fromKeychain;
   } catch {
-    /* fall through */
+    keychainBlockedThisSession = true;
   }
   return "";
 }

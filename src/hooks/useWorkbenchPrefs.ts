@@ -15,11 +15,15 @@ export function useWorkbenchPrefs() {
   );
 
   useEffect(() => {
-    void loadPreferences().then((p) => {
-      setPrefs(p);
-      setFollowAgent(p.followAgentDefault);
-      setIncludeViewingPage(p.includeViewingPageDefault);
-    });
+    void loadPreferences()
+      .then((p) => {
+        setPrefs(p);
+        setFollowAgent(p.followAgentDefault);
+        setIncludeViewingPage(p.includeViewingPageDefault);
+      })
+      // A store that rejects outright (corrupt JSON) must not become an
+      // unhandled rejection — defaults are already in state.
+      .catch(() => {});
   }, []);
 
   const refreshPrefs = useCallback(async () => {

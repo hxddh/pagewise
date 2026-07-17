@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { resetKeychainBlockedFlag } from "../lib/settings";
 
 /** Mutually exclusive workbench overlays (palette uses its own lock in useAppCommands). */
 export function useWorkbenchOverlays(setSettingsOpen: (open: boolean) => void) {
@@ -8,6 +9,8 @@ export function useWorkbenchOverlays(setSettingsOpen: (open: boolean) => void) {
   const openSettings = useCallback(() => {
     setLibraryOpen(false);
     setClearConfirmOpen(false);
+    // Explicit user action — allow one more keychain attempt this session.
+    resetKeychainBlockedFlag();
     setSettingsOpen(true);
   }, [setSettingsOpen]);
 

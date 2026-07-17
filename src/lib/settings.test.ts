@@ -10,6 +10,7 @@ import {
   loadVisionSettings,
   migrateLlmSettings,
   migrateV1ToV2,
+  resetKeychainBlockedFlag,
   saveProviderProfile,
   saveSettings,
   setActiveProvider,
@@ -503,6 +504,11 @@ describe("store I/O — working keychain", () => {
     expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBeUndefined();
 
     denyKeychain = false;
+    // A plain re-read stays blocked this session (no keychain re-hammering /
+    // OS-prompt storm); the retry only happens after an explicit user action —
+    // opening Settings, which calls resetKeychainBlockedFlag().
+    expect((await loadProviderSettings("openrouter")).apiKey).toBe("");
+    resetKeychainBlockedFlag();
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("sk-router");
     expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBe(true);
   });

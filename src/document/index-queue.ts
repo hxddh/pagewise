@@ -122,7 +122,20 @@ async function indexPage(
       return;
     }
 
-    assertApiKeyForAgent(settings);
+    try {
+      assertApiKeyForAgent(settings);
+    } catch (keyErr) {
+      // Key removed mid-sweep: abort the whole BACKGROUND queue once instead of
+      // marking every remaining page "failed" one-by-one (50 redundant store
+      // reads). An explicit agent read (enforceGeneration=false) falls through
+      // to the normal failed emit so it isn't silently cancelled.
+      if (enforceGeneration) {
+        emitIdle(path, page);
+        cancelIndex(path);
+        return;
+      }
+      throw keyErr;
+    }
     const { bytes, mediaType } = await visionImageBytes(path, page, signal);
     if (signal.aborted || !current()) {
       emitIdle(path, page);
