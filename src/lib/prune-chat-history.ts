@@ -101,6 +101,13 @@ function compactToolOutput(
     return output;
   }
 
+  // A cancelled tool call never produced a result — keep it as "[cancelled]"
+  // rather than summarizing it into a fabricated count ("11 hits" that never
+  // happened would mislead the model on the next turn).
+  if (output === CANCELLED_OUTPUT) {
+    return output;
+  }
+
   const inp =
     input && typeof input === "object" ? (input as Record<string, unknown>) : {};
 

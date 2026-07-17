@@ -9,7 +9,7 @@
  */
 
 /** Tool-input fields that must be numbers across the document tools. */
-const NUMERIC_TOOL_FIELDS = ["page", "start", "end", "offset", "maxChars"] as const;
+const NUMERIC_TOOL_FIELDS = ["page", "start", "end", "offset", "maxChars", "maxResults"] as const;
 
 /**
  * Coerce string-encoded numeric fields in a tool-call argument JSON string.

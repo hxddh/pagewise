@@ -89,5 +89,5 @@ export function buildViewContextInstructions(ctx: AgentMessageContext): string {
 export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string {
   const name = sanitizeForPrompt(ctx.docName);
   const pages = ctx.totalPages > 0 ? `${ctx.totalPages} pages` : "unknown length";
-  return `\n\nThis is a whole-document request ("${name}", ${pages}): use ${DOCUMENT_OUTLINE_TOOL} to plan, read the full document with read_pdf_range in chunks (continue while truncated=true) until every page is covered, then answer from all of it — not a single page.`;
+  return `\n\nThis is a whole-document request ("${name}", ${pages}): use ${DOCUMENT_OUTLINE_TOOL} to plan, read the full document with read_pdf_range in chunks (continue while truncated=true) until every page is covered, then answer from all of it — not a single page. If a result reports budgetExceeded=true, stop reading and answer from the pages read, noting which pages you covered.`;
 }

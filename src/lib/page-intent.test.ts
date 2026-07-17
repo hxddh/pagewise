@@ -81,6 +81,21 @@ describe("hasWholeDocumentIntent", () => {
     expect(hasWholeDocumentIntent("entire document")).toBe(true);
     expect(hasWholeDocumentIntent("all pages")).toBe(true);
   });
+
+  it("matches 总结/分析 + document noun", () => {
+    expect(hasWholeDocumentIntent("总结这份文档")).toBe(true);
+    expect(hasWholeDocumentIntent("总结一下这个PDF")).toBe(true);
+    expect(hasWholeDocumentIntent("分析这个报告")).toBe(true);
+    expect(hasWholeDocumentIntent("总结整个文档")).toBe(true);
+    expect(hasWholeDocumentIntent("分析全文")).toBe(true);
+  });
+
+  it("does not match section-scoped 总结/分析 asks", () => {
+    expect(hasWholeDocumentIntent("总结这个章节")).toBe(false);
+    expect(hasWholeDocumentIntent("分析这个表格")).toBe(false);
+    expect(hasWholeDocumentIntent("总结一下这个段落")).toBe(false);
+    expect(hasWholeDocumentIntent("分析这个图")).toBe(false);
+  });
 });
 
 describe("isTargetedFactualQuery", () => {

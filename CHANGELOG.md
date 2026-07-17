@@ -4,6 +4,33 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.11] - 2026-07-17
+
+19-finding hardening pass from a full-repo review: agent cost rails, desktop text selection, chat-history resilience, and a prompt-injection exfiltration fix.
+
+### Fixed
+
+- **Preview: PDF text selection (and "Ask about this") now works in the desktop app.** The text layer was gated off in the Tauri runtime by a legacy v0.2-era condition, so selecting text — and the selection→ask affordance shipped in 3.5.6 — only worked in browser dev builds. The gate is removed; the raster/turbo-navigation guards remain.
+- **Agent: `document_outline` and `search_in_document` now count against the run's read budget.** Previously both bypassed the 200k-char rail entirely — a 1,000-page PDF's outline alone produced a tool result larger than the whole budget, on the exact path the whole-document hint steers toward. Outline per-page stats are additionally capped at the first 200 pages (with a note pointing at search/read for the rest), and both tools return a compact `budgetExceeded` result instead of more bulk once the budget is spent.
+- **Chat: corrupted chat history can no longer block a document from opening.** Persisted rows are normalized (malformed rows are skipped) and a history-load failure now degrades to an empty thread instead of failing the whole document open.
+- **Security: assistant markdown no longer auto-loads remote images.** A prompt-injected document could make the model emit an image URL that exfiltrates document text on render. Remote images now render as a click-to-open link (local `asset:`/`data:` images still render); the CSP `img-src` is tightened to match.
+- Chat: web search now triggers **one** OpenRouter search per opted-in message instead of injecting the plugin into every agent step (up to 30 billed searches per message), and the injection can no longer leak into unrelated requests such as connection tests.
+- Chat: Retry/Regenerate now reuses the original message's web-search opt-in (and the 🌐 toggle re-arms if a web-enabled send fails) instead of silently retrying without it.
+- Agent: "总结这个章节" / "分析这个表格" and similar section-scoped asks no longer trigger the whole-document reading directive — 这份/这个 now requires a document noun (文档/报告/论文/PDF/…).
+- Agent: `maxResults` sent as a string by weak models is now repaired like the other numeric tool fields instead of failing the call.
+- Preview: clicking a hallucinated/printed page citation ("page 57" in a 30-page PDF) now clamps to the document's page range, and a fit-width scale failure surfaces as a render error instead of a silent stuck canvas.
+- Chat: a per-message "include current page" / web-search choice no longer leaks into the next document's Retry/Regenerate.
+- Chat: a tool call cancelled mid-run is kept as `[cancelled]` in compacted history instead of being summarized into a fabricated hit/char count.
+- Search: `truncated` is now exact (probes one hit past the cap), so "exactly N matches" no longer suggests more matches exist; degenerate over-long queries are bounded instead of inflating every snippet.
+- Search: the live progress line now reports distinct matching pages instead of calling every match a page.
+- Agent: `document_outline` no longer attempts a pdf.js parse of image documents on every call.
+- Agent: a tool still in flight from an aborted run can no longer consume the next run's read budget.
+
+### Changed
+
+- Chat: agent progress lines ("Reading page 5…", "Searching document…") are now localized instead of always English.
+- Agent: the whole-document hint now tells the model to stop reading and synthesize when the budget is exhausted, instead of pointing it at an infinite `truncated=true` loop.
+
 ## [3.5.10] - 2026-07-12
 
 ### Added
