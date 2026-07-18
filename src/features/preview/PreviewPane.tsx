@@ -152,19 +152,14 @@ function PreviewPaneInner({
   const canvasBody = (
     <>
       {indexHint &&
-        (indexHintActionable ? (
-          <button
-            type="button"
-            className="preview-index-badge preview-index-badge-action"
-            aria-live="polite"
-            onClick={onOpenAiSettings}
-          >
-            {indexHint}
-          </button>
-        ) : indexFailed ? (
+        (indexFailed ? (
+          // A failed index always offers Retry (for vision_failed — often a
+          // transient network error) alongside Settings when actionable. The
+          // old settings-only branch hid Retry whenever onOpenAiSettings was
+          // present, i.e. always in production.
           <div className="preview-index-badge-row" aria-live="polite">
             <div className="preview-index-badge">{indexHint}</div>
-            {(showRetryOnVisionFailed || indexHintActionable) && (
+            {showRetryOnVisionFailed && (
               <button type="button" className="preview-index-retry-btn" onClick={retryIndex}>
                 {t("preview.retryIndex")}
               </button>
