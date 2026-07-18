@@ -164,7 +164,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const submit = useCallback(async () => {
     const text = composerDraft.trim();
     if (!text || interactionBusy) return;
-    if (!hasApiKey || !agentToolsSupported) {
+    // Only a missing API key is a hard blocker. Tool-capability is a heuristic
+    // guess (looksLikeToolModel misses grok/kimi/glm/llama-4/nova and other
+    // tool-capable routes) — don't pre-block the send on it; let the provider
+    // surface the real error. Settings/EmptyState still show the capability
+    // warning. Mirrors useDocAgent.prepareForAgentSend's own design intent.
+    if (!hasApiKey) {
       onConfigureApi();
       return;
     }
@@ -236,7 +241,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const handleRegenerate = useCallback(async () => {
     if (!activeDoc || !regenerateDocumentMessage || interactionBusy) return;
-    if (!hasApiKey || !agentToolsSupported) {
+    // Tool-capability is a heuristic; only a missing key hard-blocks (see submit).
+    if (!hasApiKey) {
       onConfigureApi();
       return;
     }
@@ -552,7 +558,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             <button type="button" className="btn stop-btn" onClick={onStop}>
               {t("agent.stop")}
             </button>
-          ) : !!activeDoc && (!hasApiKey || !agentToolsSupported) ? (
+          ) : !!activeDoc && !hasApiKey ? (
             <button
               type="button"
               className="btn primary"

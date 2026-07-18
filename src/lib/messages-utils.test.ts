@@ -7,9 +7,19 @@ import {
   dropEmptyPartMessages,
   normalizeUIMessage,
   normalizeUIMessages,
+  stripStaleScreenshotParts,
   stripUserFileParts,
 } from "./messages-utils";
 import type { UIMessage } from "ai";
+
+const userWithShot = (id: string): UIMessage => ({
+  id,
+  role: "user",
+  parts: [
+    { type: "text", text: "q" },
+    { type: "file", mediaType: "image/png", url: "data:image/png;base64,AAAA" },
+  ] as UIMessage["parts"],
+});
 
 const userMsg = (id: string): UIMessage => ({
   id,
@@ -154,5 +164,27 @@ describe("stripUserFileParts", () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0]?.parts[0]?.type).toBe("text");
+  });
+});
+
+describe("stripStaleScreenshotParts", () => {
+  it("keepLastUser=true keeps the last user's screenshot, drops earlier ones", () => {
+    const out = stripStaleScreenshotParts(
+      [userWithShot("u1"), { id: "a1", role: "assistant", parts: [{ type: "text", text: "a" }] }, userWithShot("u2")],
+      true,
+    );
+    // u1 (older) stripped, u2 (last) kept.
+    expect(out[0]?.parts.some((p) => p.type === "file")).toBe(false);
+    expect(out[2]?.parts.some((p) => p.type === "file")).toBe(true);
+  });
+
+  it("keepLastUser=false strips every user screenshot (send-history clean)", () => {
+    const out = stripStaleScreenshotParts([userWithShot("u1"), userWithShot("u2")], false);
+    expect(out.every((m) => !m.parts.some((p) => p.type === "file"))).toBe(true);
+  });
+
+  it("returns the same reference when there is nothing to strip", () => {
+    const msgs = [userMsg("u1")];
+    expect(stripStaleScreenshotParts(msgs, false)).toBe(msgs);
   });
 });

@@ -27,7 +27,7 @@ import { resolveModel, resolveReasoning } from "./llm";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { searchInDocument } from "../document/search";
-import { ensurePageIndexed } from "../document/index-queue";
+import { consumeIndexFailure, ensurePageIndexed } from "../document/index-queue";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
@@ -59,15 +59,18 @@ export function resolveRunMaxSteps(totalPages: number): number {
   return Math.min(MAX_WHOLEDOC_STEPS, Math.max(DEFAULT_MAX_AGENT_STEPS, totalPages || 0));
 }
 
-const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
-  isMetaToolOnlyLoop(
-    steps.map((step) => ({
-      toolCalls: step.toolCalls.map((call) => ({
-        toolName: call.toolName,
-        input: (call as { input?: unknown }).input,
-      })),
+/** Map SDK steps to the snapshot shape the meta-loop guard consumes. */
+function toMetaLoopSnapshot(steps: ReadonlyArray<{ toolCalls: ReadonlyArray<unknown> }>) {
+  return steps.map((step) => ({
+    toolCalls: step.toolCalls.map((call) => ({
+      toolName: (call as { toolName?: string }).toolName,
+      input: (call as { input?: unknown }).input,
     })),
-  );
+  }));
+}
+
+const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
+  isMetaToolOnlyLoop(toMetaLoopSnapshot(steps));
 
 const AGENT_STOP_WHEN = [stepCountIs(DEFAULT_MAX_AGENT_STEPS), stopMetaToolLoop];
 /**
@@ -157,7 +160,13 @@ async function readPageText(path: string, page: number) {
   throwIfAborted(signal);
   const after = docCache.getPages(path).find((p) => p.page === page);
   const text = after?.text ?? "";
-  return { page, text, source: "vision" as const };
+  // Distinguish a genuinely empty page from an index FAILURE (missing key,
+  // vision error, timeout): without this the model sees "" and concludes the
+  // page has no content, and may re-read it (each read re-triggers a billed,
+  // up-to-60s vision call).
+  const indexFailure =
+    text.trim().length < MIN_INDEX_CHARS ? consumeIndexFailure(path, page) : null;
+  return { page, text, source: "vision" as const, indexFailure };
 }
 
 const BUDGET_NOTE =
@@ -378,7 +387,22 @@ function createDocumentTools(budget: ReadBudget) {
             };
           }
 
-          const { text, source } = await readPageText(path, page);
+          const { text, source, indexFailure } = await readPageText(path, page);
+          // An index FAILURE (missing key / vision error / timeout) is not an
+          // empty page — tell the model so it doesn't conclude "no content" or
+          // waste steps re-reading (each retry re-triggers a billed vision call).
+          if (!text && indexFailure) {
+            return {
+              page,
+              text: "",
+              source,
+              truncated: false,
+              nextOffset: null,
+              charCount: 0,
+              indexingFailed: true,
+              note: `This page could not be indexed (${indexFailure}). Its text is unavailable — do not treat this as an empty page, and don't re-read it without a fix; tell the user indexing failed.`,
+            };
+          }
           if (text.length > 0 && offset > text.length) {
             return {
               page,
@@ -478,6 +502,7 @@ function createDocumentTools(budget: ReadBudget) {
           let nextStart: number | null = null;
           let nextOffset: number | null = null;
           let budgetExceeded = false;
+          const failedPages: number[] = [];
 
           for (let page = from; page <= pageLimit; page++) {
             if (budget.used >= budget.max) {
@@ -488,7 +513,10 @@ function createDocumentTools(budget: ReadBudget) {
               break;
             }
 
-            const { text } = await readPageText(path, page);
+            const { text, indexFailure } = await readPageText(path, page);
+            // Record pages that couldn't be indexed so the model doesn't read
+            // their absence as "empty page".
+            if (!text && indexFailure) failedPages.push(page);
             const pageOffset = page === from ? Math.min(offset, text.length) : 0;
             const remainingText = text.slice(pageOffset);
             const header = `--- Page ${page}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
@@ -537,6 +565,14 @@ function createDocumentTools(budget: ReadBudget) {
             actualEnd: pageLimit,
             rangeClamped,
             charCount,
+            ...(failedPages.length > 0
+              ? {
+                  indexingFailedPages: compressPageRanges(failedPages),
+                  indexingFailedNote:
+                    "These pages could not be indexed (missing key / vision error / timeout) — " +
+                    "their absence is not evidence they are blank; tell the user indexing failed.",
+                }
+              : {}),
             ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
           };
         },
@@ -654,12 +690,21 @@ export function createDocAgent() {
     experimental_refineToolInput: {
       [READ_PDF_RANGE_TOOL]: (input) => normalizeRangeInput(input),
     },
-    // Final-step nudge: on the last allowed step, force a text answer instead of
-    // another tool call — otherwise a run that reaches the step ceiling mid-read
-    // ends without ever synthesizing. Only sets toolChoice; it never mutates the
-    // messages, so it can't break tool-call/result pairing.
-    prepareStep: ({ stepNumber }) =>
-      stepNumber >= runMaxSteps - 1 ? { toolChoice: "none" } : undefined,
+    // Force a text answer instead of another tool call when the run is about to
+    // end with no synthesis:
+    //   1. the last allowed step (step ceiling), and
+    //   2. an imminent meta-tool loop — the prior steps already repeat a meta
+    //      call (window 2), so without this the next repeat would trip
+    //      stopMetaToolLoop and the run would end on a tool call → "noReply".
+    // Only sets toolChoice; never mutates messages, so tool-call/result pairing
+    // is safe.
+    prepareStep: ({ stepNumber, steps }) => {
+      if (stepNumber >= runMaxSteps - 1) return { toolChoice: "none" };
+      if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
+        return { toolChoice: "none" };
+      }
+      return undefined;
+    },
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
       budget.gen += 1;

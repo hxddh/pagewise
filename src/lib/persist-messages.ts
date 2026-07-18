@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { dropEmptyPartMessages } from "./messages-utils";
+import { dropEmptyPartMessages, stripStaleScreenshotParts } from "./messages-utils";
 import {
   pruneToolOutputsForHistory,
   sanitizeDanglingToolParts,
@@ -7,7 +7,9 @@ import {
 
 /** Sanitize dangling tools and compact bulky tool outputs before writing to disk. */
 export function prepareMessagesForPersist(messages: UIMessage[]): UIMessage[] {
+  // Never persist stale page screenshots — multi-MB base64 that would also be
+  // re-hydrated and re-sent on the next turn.
   return dropEmptyPartMessages(
-    sanitizeDanglingToolParts(pruneToolOutputsForHistory(messages)),
+    stripStaleScreenshotParts(sanitizeDanglingToolParts(pruneToolOutputsForHistory(messages))),
   );
 }

@@ -99,7 +99,7 @@ function looksLikeToolModel(model: string): boolean {
   if (looksLikeVisionModel(model) && /(?:^|[-_/])(vl|vision|llava|bakllava|minicpm-v)/.test(m)) {
     return false;
   }
-  return /(?:gpt-4|gpt-5|gpt-3\.5|claude|gemini|deepseek|mistral|mixtral|llama-3|llama3|qwen2\.5(?!vl)|qwen3(?!-vl)|command-r)/.test(
+  return /(?:gpt-4|gpt-5|gpt-3\.5|claude|gemini|deepseek|mistral|mixtral|llama-3|llama3|llama-4|llama4|qwen2\.5(?!vl)|qwen3(?!-vl)|command-r|grok|kimi|glm|nova)/.test(
     m,
   );
 }

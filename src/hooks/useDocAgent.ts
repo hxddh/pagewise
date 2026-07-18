@@ -10,6 +10,7 @@ import {
   extractUserText,
   findLastMessage,
   sanitizeMessagesForChat,
+  stripStaleScreenshotParts,
   stripUserFileParts,
 } from "../lib/messages-utils";
 import { getPageWiseMetadata, type PageWiseUIMessage } from "../lib/message-metadata";
@@ -294,9 +295,15 @@ export function useDocAgent(chatId: string | null = null) {
     chat.setMessages(
       (prev) =>
         sanitizeMessagesForChat(
-          stripUserFileParts(
-            sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)),
-            settings.provider,
+          // All history screenshots are stale here — the current turn's is
+          // added separately by sendMessage(), so keepLastUser=false. Prevents
+          // re-sending prior screenshots (linear request-body growth).
+          stripStaleScreenshotParts(
+            stripUserFileParts(
+              sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)),
+              settings.provider,
+            ),
+            false,
           ),
         ) as typeof prev,
     );
