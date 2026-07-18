@@ -21,6 +21,25 @@ describe("agent-loop-guards", () => {
     expect(shouldForceReadTools(steps)).toBe(true);
   });
 
+  it("detects an imminent meta-loop one step early with window=2 (synthesis nudge)", () => {
+    // Two identical outline calls back-to-back: window=2 flags the spin before a
+    // third call would trip the window=3 stop, so prepareStep can force an answer.
+    const steps = [
+      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
+      { toolCalls: [{ toolName: DOCUMENT_OUTLINE_TOOL }] },
+    ];
+    expect(isMetaToolOnlyLoop(steps, 2)).toBe(true);
+    expect(isMetaToolOnlyLoop(steps)).toBe(false); // default window=3 not yet
+  });
+
+  it("window=2 does not flag two DISTINCT meta calls (progress, not a spin)", () => {
+    const steps = [
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "a" } }] },
+      { toolCalls: [{ toolName: "search_in_document", input: { query: "b" } }] },
+    ];
+    expect(isMetaToolOnlyLoop(steps, 2)).toBe(false);
+  });
+
   it("does not flag when a recent read interrupts the meta calls", () => {
     const steps = [
       { toolCalls: [{ toolName: "search_in_document" }] },

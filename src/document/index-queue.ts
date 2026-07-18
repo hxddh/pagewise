@@ -30,6 +30,30 @@ function pageKey(path: string, page: number): string {
   return `${path}\0${page}`;
 }
 
+/**
+ * Last vision-index failure per page, so an agent read can tell the model
+ * "indexing failed" instead of handing back an empty string that reads as "this
+ * page has no content". Set on a failed attempt, cleared when an attempt starts
+ * or succeeds.
+ */
+const pageIndexFailure = new Map<string, string>();
+
+/** Read and clear the recorded index failure for a page, if any. */
+export function consumeIndexFailure(path: string, page: number): string | null {
+  const key = pageKey(path, page);
+  const reason = pageIndexFailure.get(key) ?? null;
+  if (reason !== null) pageIndexFailure.delete(key);
+  return reason;
+}
+
+function recordIndexFailure(path: string, page: number, reason: string): void {
+  pageIndexFailure.set(pageKey(path, page), reason);
+}
+
+function clearIndexFailure(path: string, page: number): void {
+  pageIndexFailure.delete(pageKey(path, page));
+}
+
 function nextGeneration(path: string): number {
   const gen = (pathGenerations.get(path) ?? 0) + 1;
   pathGenerations.set(path, gen);
@@ -114,6 +138,7 @@ async function indexPage(
   }
 
   emitPageIndex({ path, page, status: "indexing", source: "vision" });
+  clearIndexFailure(path, page);
 
   try {
     const settings = await loadVisionSettings();
@@ -155,8 +180,10 @@ async function indexPage(
 
     if (text.trim().length >= MIN_INDEX_CHARS) {
       docCache.upsertPageText(path, page, text.trim());
+      clearIndexFailure(path, page);
       emitPageIndex({ path, page, status: "done", source: "vision" });
     } else {
+      recordIndexFailure(path, page, "insufficient_text");
       emitPageIndex({
         path,
         page,
@@ -178,6 +205,7 @@ async function indexPage(
     if (import.meta.env.DEV) {
       console.warn(`[index] page ${page}:`, detail);
     }
+    recordIndexFailure(path, page, detail);
     emitPageIndex({
       path,
       page,
@@ -205,10 +233,12 @@ async function runIndexPage(
     await existing.promise;
     const cached = docCache.getPages(path).find((p) => p.page === page);
     const indexed = !!cached && cached.text.trim().length >= MIN_INDEX_CHARS;
-    // If the piggybacked task was aborted mid-flight and we're still live,
-    // fall through to run our own pass — otherwise an explicit read
-    // (agent tool) would report the page as blank when it was never indexed.
-    if (!existing.signal.aborted || signal.aborted || indexed || !docCache.has(path)) {
+    // Fall through to run our own pass whenever the piggybacked task left the
+    // page un-indexed and we're still live — whether it was aborted OR FAILED
+    // (vision error/timeout). Returning here would report the page as blank to
+    // an explicit agent read. Only skip when it genuinely succeeded, we're
+    // aborted, or the doc is gone. This runs at most one fresh pass (no loop).
+    if (indexed || signal.aborted || !docCache.has(path)) {
       return;
     }
   }

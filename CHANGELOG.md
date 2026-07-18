@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.14] - 2026-07-17
+
+Fixes six genuine agent-blocking / cost issues confirmed from an independent third-party review of v3.5.12 (each verified against source before fixing).
+
+### Fixed
+
+- **Agent runs no longer hang when the window is hidden/minimized.** The between-tool-step yield chained `setTimeout` inside `requestAnimationFrame`, and an occluded WKWebView / minimized WebView2 pauses rAF — so a run could wedge before its next tool call with no recovery but restoring the window. The yield now skips rAF when the document is hidden and always races a timeout fallback.
+- **Tool-capable models are no longer hard-blocked by a heuristic.** The composer blocked sending whenever `isToolModel` returned false, and its regex missed grok / kimi / glm / llama-4 / nova and other tool-capable OpenRouter routes — making the agent completely unusable on them. Sending is now gated only on a missing API key (matching the agent layer's own design intent); the capability warning still shows. The heuristic also recognizes those model families now.
+- **Vision-indexing failures are no longer invisible to the model.** A read of a page whose vision indexing failed (missing key / error / 60s timeout) returned an empty string, which the model read as "this page is blank" — and could re-read, re-triggering a billed vision call each time. Read tools now report `indexingFailed` with the reason so the model can tell the user instead.
+- **A run stopped by the meta-tool-loop guard now synthesizes an answer** instead of ending on a bare tool call (which surfaced as an empty "no reply"). When a meta-tool spin is imminent, the next step is forced to answer.
+- **Page screenshots no longer pile up in every request or bloat the chat store.** On OpenAI-family multimodal models (which, unlike OpenRouter, keep image parts), a screenshot attached to a past turn was re-sent as base64 on every subsequent request (linear growth → eventual request-body overflow and total send failure late in a long chat) and persisted as multi-MB base64. Stale screenshots are now stripped from history before send and before persist.
+- **A page read no longer returns blank when a background index sweep for the same page failed.** The dedup fast-path returned early whenever the piggybacked sweep task wasn't aborted — including when it *failed* — so an explicit agent read saw an empty page. It now runs its own indexing pass whenever the page is still un-indexed and the read is live (whether the sweep aborted or failed), at most once.
+
 ## [3.5.13] - 2026-07-17
 
 Hardening pass from three fresh review angles (the v3.5.12 diff, a Rust↔IPC contract audit, and a cross-module state-machine sweep). No data-loss bugs found; the fixes below close a real error-reporting gap, a rotated-page selection defect, and a keychain-prompt storm.

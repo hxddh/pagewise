@@ -79,6 +79,14 @@ describe("isToolModel", () => {
     expect(isToolModel("openrouter", "anthropic/claude-sonnet-4")).toBe(true);
   });
 
+  it("recognizes newer tool-capable OpenRouter routes (grok/kimi/glm/llama-4/nova)", () => {
+    expect(isToolModel("openrouter", "x-ai/grok-4")).toBe(true);
+    expect(isToolModel("openrouter", "moonshotai/kimi-k2")).toBe(true);
+    expect(isToolModel("openrouter", "z-ai/glm-4.6")).toBe(true);
+    expect(isToolModel("openrouter", "meta-llama/llama-4-maverick")).toBe(true);
+    expect(isToolModel("openrouter", "amazon/nova-pro-v1")).toBe(true);
+  });
+
   it("rejects unknown OpenRouter vision-only routes", () => {
     expect(isToolModel("openrouter", "vendor/unknown-vl-9")).toBe(false);
   });

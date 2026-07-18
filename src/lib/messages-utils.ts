@@ -74,6 +74,49 @@ export function stripUserFileParts(
   return changed ? next : messages;
 }
 
+/**
+ * Drop page-screenshot file parts from prior user messages. A screenshot is
+ * only relevant to the turn it was captured for; keeping older ones means every
+ * subsequent request re-sends all prior screenshots as base64 (linear growth →
+ * request-body blowup on OpenAI-family multimodal models, which don't hit
+ * stripUserFileParts) and persists multi-MB base64 into the chat store.
+ *
+ * `keepLastUser` keeps the most recent user message's file part:
+ *  - persist: true — the last turn's screenshot survives for display continuity
+ *    on reload (bounded to one), and is stripped on the next send anyway.
+ *  - send-history clean: false — the current turn's screenshot is added
+ *    separately by sendMessage(), so ALL history file parts are stale here.
+ */
+export function stripStaleScreenshotParts(
+  messages: UIMessage[],
+  keepLastUser = true,
+): UIMessage[] {
+  let lastUserIdx = -1;
+  if (keepLastUser) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "user") {
+        lastUserIdx = i;
+        break;
+      }
+    }
+  }
+
+  let changed = false;
+  const next = messages.map((message, idx) => {
+    if (message.role !== "user" || idx === lastUserIdx) return message;
+    const parts = message.parts.filter((part) => part.type !== "file");
+    if (parts.length === message.parts.length) return message;
+    changed = true;
+    const kept =
+      parts.length > 0
+        ? parts
+        : ([{ type: "text" as const, text: " " }] satisfies UIMessage["parts"]);
+    return { ...message, parts: kept };
+  });
+
+  return changed ? next : messages;
+}
+
 /** Sanitize persisted rows for useChat, including provider-specific image stripping. */
 export async function hydrateChatMessages(messages: UIMessage[]): Promise<UIMessage[]> {
   const settings = await loadSettings();
