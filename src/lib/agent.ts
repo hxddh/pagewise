@@ -620,9 +620,27 @@ function createDocumentTools(budget: ReadBudget) {
               params: { count: preview.pages, preview: preview.snippets },
             });
           }
+          // Signal pages search CANNOT match: image/scan pages with little or no
+          // extracted text aren't in the search index, so "no hits" there is not
+          // evidence the term is absent. The model often searches before reading,
+          // so surface this here (not just in document_outline).
+          const unindexedPages = pages
+            .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
+            .map((p) => p.page);
+          const result = {
+            hits,
+            truncated,
+            ...(unindexedPages.length > 0
+              ? {
+                  unindexedPageCount: unindexedPages.length,
+                  unindexedPages: compressPageRanges(unindexedPages),
+                  unindexedNote: UNINDEXED_NOTE,
+                }
+              : {}),
+          };
           // Search output lands in context like any read — count it.
-          chargeBudget(runGen, JSON.stringify(hits).length);
-          return { hits, truncated };
+          chargeBudget(runGen, JSON.stringify(result).length);
+          return result;
         },
       ),
     }),

@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.5.15] - 2026-07-18
+
+Three genuine findings that survived a second third-party review's adversarial (refute-first) pass — verified against source; two others (a settings-persist race and a close-flush concern) were assessed as refuted/negligible and left alone, and the review's other two live items were already fixed in 3.5.14.
+
+### Fixed
+
+- **Chat history is no longer deleted for a document that simply fell out of the 10-item recents list.** The v3.5.13 orphan-chat cleanup pruned every chat whose document wasn't in Recent (capped at 10), so opening an 11th document deleted its saved conversation on the next launch. Cleanup now keeps chats for all recents and only trims once the store exceeds a generous cap (100), dropping the oldest non-recent chats — a user must open more than 100 distinct documents before any non-recent history is touched.
+- **The "Retry" button now appears when a page's vision indexing fails.** A vision failure (often a transient network error) rendered the hint as a single "open settings" affordance and hid Retry whenever the settings handler was present — i.e. always in production — so the only recovery was to navigate away and back. Retry now shows alongside Settings for any failed index.
+- **`search_in_document` now reports pages it cannot match.** Image/scanned pages with no extracted text aren't in the search index, so "no hits" there wasn't evidence a term is absent — but only `document_outline` surfaced that, and the model often searches first. Search results now carry an unindexed-page count/note, matching the read tools' `indexingFailed` signal added in 3.5.14.
+
 ## [3.5.14] - 2026-07-17
 
 Fixes six genuine agent-blocking / cost issues confirmed from an independent third-party review of v3.5.12 (each verified against source before fixing).

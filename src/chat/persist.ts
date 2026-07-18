@@ -62,20 +62,36 @@ export async function clearChat(path: string): Promise<void> {
 }
 
 /**
- * Drop persisted chats whose document is no longer in the keep-set (recent
- * files). The store keys chats by absolute path and never evicts otherwise, so
- * months of use would accumulate every chat ever opened, all loaded into memory
- * by the store plugin. Best-effort — a failure here must never block startup.
+ * Bound the chat store's growth WITHOUT deleting history for a document the
+ * user might reopen. The store keys chats by absolute path and never evicts, so
+ * over months it would accumulate every chat ever opened. But the recent-files
+ * list is capped at 10, so pruning everything outside it (the pre-v3.5.15
+ * behavior) deleted the chat of the 11th-most-recent document — real history
+ * loss for anyone who opens more than a handful of files.
+ *
+ * Instead: always keep chats for the current recents, and only trim when the
+ * store exceeds a generous cap, dropping the oldest NON-recent keys until it
+ * fits. A user must open more than `maxChats` distinct documents before any
+ * non-recent chat is dropped. Best-effort — a failure must never block startup.
  */
-export async function pruneOrphanedChats(keepPaths: string[]): Promise<void> {
+const MAX_STORED_CHATS = 100;
+
+export async function pruneOrphanedChats(
+  keepPaths: string[],
+  maxChats = MAX_STORED_CHATS,
+): Promise<void> {
   try {
     await withStoreLock(async () => {
       const store = await getStore();
-      const keep = new Set(keepPaths);
       const keys = await store.keys();
-      const stale = keys.filter((k) => !keep.has(k));
-      if (stale.length === 0) return;
-      for (const k of stale) await store.delete(k);
+      if (keys.length <= maxChats) return;
+      const keep = new Set(keepPaths);
+      // keys() preserves insertion order → oldest first. Drop the oldest keys
+      // that aren't in recents until we're under the cap.
+      const droppable = keys.filter((k) => !keep.has(k));
+      const dropCount = Math.min(droppable.length, keys.length - maxChats);
+      if (dropCount <= 0) return;
+      for (const k of droppable.slice(0, dropCount)) await store.delete(k);
       await store.save();
     });
   } catch {
