@@ -33,7 +33,7 @@ describe("generateVisionText usage", () => {
         { attributeUsage: true },
       );
       expect(text).toBe("OK");
-      expect(getIndexUsageSnapshot()).toEqual({ inputTokens: 42, outputTokens: 7 });
+      expect(getIndexUsageSnapshot()).toEqual({ inputTokens: 42, outputTokens: 7, calls: 0 });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -59,7 +59,7 @@ describe("generateVisionText usage", () => {
       );
       // Default (no attribution): a background sweep / probe must not pollute the
       // per-send index-usage total.
-      expect(getIndexUsageSnapshot()).toEqual({ inputTokens: 0, outputTokens: 0 });
+      expect(getIndexUsageSnapshot()).toEqual({ inputTokens: 0, outputTokens: 0, calls: 0 });
     } finally {
       globalThis.fetch = originalFetch;
     }

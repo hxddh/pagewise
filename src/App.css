@@ -1837,6 +1837,11 @@ button.pages-read-chip:hover {
   margin: 8px 12px 0;
 }
 
+/* Same layout as the error line, but this is an offer, not a failure. */
+.chat-scan-hint {
+  color: var(--text-muted);
+}
+
 .chat-error {
   display: flex;
   align-items: flex-start;

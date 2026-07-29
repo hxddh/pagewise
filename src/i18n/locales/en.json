@@ -221,7 +221,11 @@
     "pagesRead": "Pages read",
     "pagesReadMore": "+{{count}} more",
     "webSearchOn": "Web search on for next message",
-    "webSearchOff": "Search the web for the next message"
+    "webSearchOff": "Search the web for the next message",
+    "unscannedPages": "1 page in this document has no text yet, so search and reading can't reach it.",
+    "unscannedPages_plural": "{{count}} pages in this document have no text yet, so search and reading can't reach them.",
+    "dismissScanHint": "Dismiss",
+    "usageScanCalls": "Scan calls"
   },
   "empty": {
     "lead": "Ask questions about your document",
@@ -360,13 +364,15 @@
     "scanning": "Scanning",
     "autoScanBudget": "Automatic scan budget",
     "autoScanOff": "Off",
-    "autoScanHint": "Pages PageWise may send to the scan model on its own when a document has no text layer. Each page is one billed call — results are cached and reused.",
+    "autoScanHint": "Pages PageWise may scan unprompted when a document has no text layer. Each page is one billed call — results are cached and reused.",
     "scanCache": "Scan cache",
     "scanCacheLoading": "Reading…",
     "scanCacheEmpty": "Nothing cached yet",
     "scanCacheStats": "{{docs}} docs · {{pages}} pages · {{size}}",
     "scanCacheClear": "Clear",
-    "scanCacheClearing": "Clearing…"
+    "scanCacheClearing": "Clearing…",
+    "agentScanBudget": "Assistant scan limit",
+    "agentScanHint": "Pages the assistant may scan while answering one question. Reading a page you asked about scans it on demand; this caps how far that can go per question."
   },
   "commands": {
     "title": "Command palette",

@@ -277,6 +277,8 @@ function AppContent() {
                   onExportChat={() => void s.exportChat()}
                   onExportSummary={() => void exportSummary()}
                   onCollapse={() => s.setAgentOpen(false)}
+                  unscannedPages={unscannedPages}
+                  onScanAllPages={requestScanAll}
                 />
               </Suspense>
             </div>

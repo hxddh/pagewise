@@ -3,9 +3,14 @@ import type { LanguageModelUsage } from "ai";
 export interface IndexUsageSnapshot {
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Vision requests made. Vision is billed per page image, so this is the
+   * number that actually describes the spend — tokens alone understate it.
+   */
+  calls: number;
 }
 
-let indexUsage: IndexUsageSnapshot = { inputTokens: 0, outputTokens: 0 };
+let indexUsage: IndexUsageSnapshot = { inputTokens: 0, outputTokens: 0, calls: 0 };
 
 function addUsage(
   target: IndexUsageSnapshot,
@@ -17,7 +22,7 @@ function addUsage(
 }
 
 export function resetIndexUsageTracker(): void {
-  indexUsage = { inputTokens: 0, outputTokens: 0 };
+  indexUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
 }
 
 export function addIndexUsage(
@@ -41,6 +46,7 @@ const docVisionCalls = new Map<string, number>();
 
 export function recordVisionCall(path: string): void {
   docVisionCalls.set(path, (docVisionCalls.get(path) ?? 0) + 1);
+  indexUsage.calls += 1;
 }
 
 export function getVisionCallCount(path: string): number {

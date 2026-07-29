@@ -27,7 +27,12 @@ import { resolveModel, resolveReasoning } from "./llm";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { searchInDocument } from "../document/search";
-import { consumeIndexFailure, ensurePageIndexed } from "../document/index-queue";
+import {
+  consumeIndexFailure,
+  DEFAULT_AGENT_SCAN_PAGES,
+  ensurePageIndexed,
+  getAgentScanCap,
+} from "../document/index-queue";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
@@ -91,6 +96,10 @@ const docToolContextSchema = z.object({
 interface ReadBudget {
   used: number;
   max: number;
+  /** Vision calls this run has triggered by reading un-indexed pages. */
+  scans: number;
+  /** Ceiling on those calls (0 = the assistant may not scan at all). */
+  maxScans: number;
   /**
    * Run generation, bumped by prepareCall. A tool promise still in flight from
    * an aborted run charges against a stale generation, so it can't eat into the
@@ -127,7 +136,7 @@ function assertPageInBounds(doc: LoadedDocument, page: number): void {
   }
 }
 
-async function readPageText(path: string, page: number) {
+async function readPageText(path: string, page: number, budget?: ReadBudget) {
   const signal = getAgentRunAbortSignal();
   throwIfAborted(signal);
 
@@ -155,6 +164,15 @@ async function readPageText(path: string, page: number) {
     }
   }
 
+  // Reaching here means the page has no usable text and only a (billed) vision
+  // call can produce any — so this is the point where the run's scan allowance
+  // is spent. Refuse instead of scanning once it's gone: without this, a
+  // question about a large scan walks the document one billed page at a time.
+  if (budget && budget.scans >= budget.maxScans) {
+    return { page, text: "", source: "vision" as const, indexFailure: null, scanLimit: true };
+  }
+  if (budget) budget.scans += 1;
+
   // Agent tool read: attribute this vision indexing to the current run's usage.
   await ensurePageIndexed(path, page, signal, true);
   throwIfAborted(signal);
@@ -168,6 +186,12 @@ async function readPageText(path: string, page: number) {
     text.trim().length < MIN_INDEX_CHARS ? consumeIndexFailure(path, page) : null;
   return { page, text, source: "vision" as const, indexFailure };
 }
+
+const SCAN_LIMIT_NOTE =
+  "This page has no extracted text and the scan allowance for this question is used up, " +
+  "so it cannot be read. Do not retry it. Answer from the pages you could read and tell the " +
+  "user plainly that some pages are unscanned — they can scan the rest from the command " +
+  "palette (\"Scan all unscanned pages\") or raise the limit in Settings.";
 
 const BUDGET_NOTE =
   "Read budget for this turn is reached; do not read more pages. Synthesize your answer " +
@@ -241,7 +265,9 @@ export function compressPageRanges(pages: number[]): string {
 
 const UNINDEXED_NOTE =
   "These pages have little or no extracted text, so search_in_document cannot match them. " +
-  "Read them directly with read_pdf_page to access their content (this triggers on-demand indexing).";
+  "Reading one with read_pdf_page scans it on demand, which costs a billed vision call and " +
+  "draws on a limited per-question allowance — read only the pages you actually need, and if " +
+  "the allowance runs out, say so rather than retrying.";
 
 /**
  * Cap on per-page stat entries in a document_outline result. Each entry is
@@ -387,7 +413,23 @@ function createDocumentTools(budget: ReadBudget) {
             };
           }
 
-          const { text, source, indexFailure } = await readPageText(path, page);
+          const { text, source, indexFailure, scanLimit } = await readPageText(
+            path,
+            page,
+            budget,
+          );
+          if (scanLimit) {
+            return {
+              page,
+              text: "",
+              source,
+              truncated: false,
+              nextOffset: null,
+              charCount: 0,
+              scanLimitReached: true,
+              note: SCAN_LIMIT_NOTE,
+            };
+          }
           // An index FAILURE (missing key / vision error / timeout) is not an
           // empty page — tell the model so it doesn't conclude "no content" or
           // waste steps re-reading (each retry re-triggers a billed vision call).
@@ -502,7 +544,9 @@ function createDocumentTools(budget: ReadBudget) {
           let nextStart: number | null = null;
           let nextOffset: number | null = null;
           let budgetExceeded = false;
+          let scanLimitReached = false;
           const failedPages: number[] = [];
+          const unscannedPages: number[] = [];
 
           for (let page = from; page <= pageLimit; page++) {
             if (budget.used >= budget.max) {
@@ -513,7 +557,15 @@ function createDocumentTools(budget: ReadBudget) {
               break;
             }
 
-            const { text, indexFailure } = await readPageText(path, page);
+            const { text, indexFailure, scanLimit } = await readPageText(path, page, budget);
+            // The allowance is gone: keep walking the range so already-indexed
+            // pages further in are still returned, but record what was skipped
+            // instead of letting it read as "these pages are blank".
+            if (scanLimit) {
+              scanLimitReached = true;
+              unscannedPages.push(page);
+              continue;
+            }
             // Record pages that couldn't be indexed so the model doesn't read
             // their absence as "empty page".
             if (!text && indexFailure) failedPages.push(page);
@@ -571,6 +623,13 @@ function createDocumentTools(budget: ReadBudget) {
                   indexingFailedNote:
                     "These pages could not be indexed (missing key / vision error / timeout) — " +
                     "their absence is not evidence they are blank; tell the user indexing failed.",
+                }
+              : {}),
+            ...(scanLimitReached
+              ? {
+                  scanLimitReached: true,
+                  unscannedPages: compressPageRanges(unscannedPages),
+                  scanLimitNote: SCAN_LIMIT_NOTE,
                 }
               : {}),
             ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
@@ -693,7 +752,13 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
 }
 
 export function createDocAgent() {
-  const budget: ReadBudget = { used: 0, max: RUN_CHAR_BUDGET, gen: 0 };
+  const budget: ReadBudget = {
+    used: 0,
+    max: RUN_CHAR_BUDGET,
+    scans: 0,
+    maxScans: DEFAULT_AGENT_SCAN_PAGES,
+    gen: 0,
+  };
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
   const tools = createDocumentTools(budget);
   const defaultRuntime = buildRuntimeContext(null);
@@ -725,6 +790,7 @@ export function createDocAgent() {
     },
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
+      budget.scans = 0;
       budget.gen += 1;
 
       const settings = await loadSettings();
@@ -743,6 +809,9 @@ export function createDocAgent() {
       }
       runMaxSteps = resolveRunMaxSteps(viewCtx?.totalPages ?? 0);
       budget.max = RUN_CHAR_BUDGET;
+      // Read at call time so a Settings change takes effect on the next
+      // question without restarting the app.
+      budget.maxScans = getAgentScanCap();
 
       return {
         ...rest,

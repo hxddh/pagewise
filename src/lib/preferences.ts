@@ -19,10 +19,22 @@ export interface AppPreferences {
    * available on demand from the preview.
    */
   autoIndexPages: number;
+  /**
+   * Pages the assistant may scan while answering one question (0 = never).
+   * Separate from `autoIndexPages`: that budget covers the background sweep,
+   * which is the app scanning unprompted, while this one covers scanning the
+   * assistant triggers by reading a page you asked about. Both are billed, so
+   * both are capped — a single control would conflate "per document" with
+   * "per question" and mean neither.
+   */
+  agentScanPages: number;
 }
 
 /** Selectable automatic-index budgets, smallest first. */
 export const AUTO_INDEX_PAGE_CHOICES = [0, 20, 50, 200] as const;
+
+/** Selectable per-question assistant scan allowances, smallest first. */
+export const AGENT_SCAN_PAGE_CHOICES = [0, 10, 20, 50] as const;
 
 const STORE_PATH = "preferences.json";
 const KEY = "app";
@@ -35,6 +47,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   includeViewingPageDefault: false,
   previewQuality: "crisp",
   autoIndexPages: 50,
+  agentScanPages: 20,
 };
 
 let store: LazyStore | null = null;
@@ -71,11 +84,15 @@ function bool(value: unknown, fallback: boolean): boolean {
  * Clamp a stored sweep budget into range. A corrupt or absurd value here would
  * otherwise translate directly into billed vision calls.
  */
-function autoIndexBudget(value: unknown, fallback: number): number {
+function scanBudget(
+  value: unknown,
+  fallback: number,
+  choices: readonly number[],
+): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   const floored = Math.floor(value);
   if (floored < 0) return 0;
-  const max = AUTO_INDEX_PAGE_CHOICES[AUTO_INDEX_PAGE_CHOICES.length - 1]!;
+  const max = choices[choices.length - 1]!;
   return floored > max ? max : floored;
 }
 
@@ -92,7 +109,16 @@ export function sanitizePreferences(raw: unknown): AppPreferences {
       DEFAULT_PREFERENCES.includeViewingPageDefault,
     ),
     previewQuality: pick(saved.previewQuality, PREVIEW_QUALITIES, DEFAULT_PREFERENCES.previewQuality),
-    autoIndexPages: autoIndexBudget(saved.autoIndexPages, DEFAULT_PREFERENCES.autoIndexPages),
+    autoIndexPages: scanBudget(
+      saved.autoIndexPages,
+      DEFAULT_PREFERENCES.autoIndexPages,
+      AUTO_INDEX_PAGE_CHOICES,
+    ),
+    agentScanPages: scanBudget(
+      saved.agentScanPages,
+      DEFAULT_PREFERENCES.agentScanPages,
+      AGENT_SCAN_PAGE_CHOICES,
+    ),
   };
 }
 

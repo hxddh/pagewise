@@ -207,6 +207,12 @@ function MessageAssistantFooterInner({
                 </div>
               </>
             ) : null}
+            {(metadata?.indexCalls ?? 0) > 0 && (
+              <div className="usage-stats-row usage-stats-sub">
+                <dt>{t("agent.usageScanCalls")}</dt>
+                <dd>{metadata!.indexCalls}</dd>
+              </div>
+            )}
             <div className="usage-stats-row">
               <dt>{t("agent.usageTtft")}</dt>
               <dd>{formatDuration(ttftMs)}</dd>
