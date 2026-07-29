@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useTheme } from "../../hooks/useTheme";
 import {
+  AGENT_SCAN_PAGE_CHOICES,
   AUTO_INDEX_PAGE_CHOICES,
   loadPreferences,
   patchPreferences,
@@ -9,7 +10,7 @@ import {
   type PreviewQuality,
 } from "../../lib/preferences";
 import { clearIndexCache, getIndexCacheStats, type IndexCacheStats } from "../../lib/index-store";
-import { setAutoIndexCap } from "../../document/index-queue";
+import { setAgentScanCap, setAutoIndexCap } from "../../document/index-queue";
 
 interface GeneralSettingsProps {
   followAgentDefault: boolean;
@@ -65,6 +66,7 @@ export function GeneralSettings({
     includeViewingPageDefault,
   );
   const [autoIndexPages, setAutoIndexPages] = useState<number | null>(null);
+  const [agentScanPages, setAgentScanPages] = useState<number | null>(null);
   const [cacheStats, setCacheStats] = useState<IndexCacheStats | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
 
@@ -74,6 +76,7 @@ export function GeneralSettings({
       setLocalFollowAgent(p.followAgentDefault);
       setLocalIncludeViewingPage(p.includeViewingPageDefault);
       setAutoIndexPages(p.autoIndexPages);
+      setAgentScanPages(p.agentScanPages);
     });
   }, []);
 
@@ -97,6 +100,13 @@ export function GeneralSettings({
     // when a document schedules its pages.
     setAutoIndexCap(next);
     await patchPreferences({ autoIndexPages: next });
+    await onPreferencesSaved?.();
+  }
+
+  async function onAgentScanPages(next: number) {
+    setAgentScanPages(next);
+    setAgentScanCap(next);
+    await patchPreferences({ agentScanPages: next });
     await onPreferencesSaved?.();
   }
 
@@ -205,6 +215,16 @@ export function GeneralSettings({
           onChange={(id) => void onAutoIndexPages(Number(id))}
         />
         <span className="settings-row-hint">{t("settings.autoScanHint")}</span>
+        <PillRow
+          label={t("settings.agentScanBudget")}
+          value={String(agentScanPages ?? "")}
+          options={AGENT_SCAN_PAGE_CHOICES.map((pages) => ({
+            id: String(pages),
+            label: pages === 0 ? t("settings.autoScanOff") : String(pages),
+          }))}
+          onChange={(id) => void onAgentScanPages(Number(id))}
+        />
+        <span className="settings-row-hint">{t("settings.agentScanHint")}</span>
         <div className="settings-card-divider" />
         <div className="settings-row-toggle">
           <div>

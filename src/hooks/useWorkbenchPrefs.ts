@@ -5,7 +5,7 @@ import {
   patchPreferences,
   type AppPreferences,
 } from "../lib/preferences";
-import { setAutoIndexCap } from "../document/index-queue";
+import { setAgentScanCap, setAutoIndexCap } from "../document/index-queue";
 
 export function useWorkbenchPrefs() {
   const [prefs, setPrefs] = useState<AppPreferences>(DEFAULT_PREFERENCES);
@@ -24,6 +24,7 @@ export function useWorkbenchPrefs() {
         // The sweep budget is read synchronously when pages are picked, so the
         // stored value has to be pushed into the queue rather than pulled.
         setAutoIndexCap(p.autoIndexPages);
+        setAgentScanCap(p.agentScanPages);
       })
       // A store that rejects outright (corrupt JSON) must not become an
       // unhandled rejection — defaults are already in state.
@@ -36,6 +37,7 @@ export function useWorkbenchPrefs() {
     setFollowAgent(p.followAgentDefault);
     setIncludeViewingPage(p.includeViewingPageDefault);
     setAutoIndexCap(p.autoIndexPages);
+    setAgentScanCap(p.agentScanPages);
     setPrefsRevision((r) => r + 1);
     return p;
   }, []);

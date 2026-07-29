@@ -38,6 +38,28 @@ export function getAutoIndexCap(): number {
   return autoIndexCap;
 }
 
+/**
+ * Pages the assistant may send to the vision model while answering ONE
+ * question. The automatic sweep budget above does not govern this path: an
+ * agent page read indexes on demand precisely so the page the user asked about
+ * is never reported blank. That exemption is correct per page and unbounded per
+ * run — a question about a 300-page scan could walk the whole document — so
+ * agent-triggered scanning carries its own ceiling.
+ */
+export const DEFAULT_AGENT_SCAN_PAGES = 20;
+
+let agentScanCap = DEFAULT_AGENT_SCAN_PAGES;
+
+/** Set the per-question agent scan allowance (0 disables agent-triggered scanning). */
+export function setAgentScanCap(pages: number): void {
+  agentScanCap =
+    Number.isFinite(pages) && pages >= 0 ? Math.floor(pages) : DEFAULT_AGENT_SCAN_PAGES;
+}
+
+export function getAgentScanCap(): number {
+  return agentScanCap;
+}
+
 const VISION_PROMPT = `Extract all visible text from this document page. Preserve reading order. Use Markdown headings and lists where appropriate. Output only the extracted content — no commentary.`;
 
 type QueueEntry = { abort: AbortController; generation: number };

@@ -96,12 +96,16 @@ import { docCache } from "../lib/doc-cache";
 import { renderPageToJpegBytes } from "../lib/pdf";
 import {
   cancelIndex,
+  DEFAULT_AGENT_SCAN_PAGES,
   DEFAULT_AUTO_INDEX_PAGES,
   ensurePageIndexed,
   indexWholeDocument,
   pendingIndexPages,
   reindexDocument,
+  getAgentScanCap,
+  getAutoIndexCap,
   scheduleIndex,
+  setAgentScanCap,
   setAutoIndexCap,
 } from "./index-queue";
 import type { LoadedDocument } from "../lib/types";
@@ -135,6 +139,7 @@ beforeEach(() => {
   h.visionMode.current = "immediate";
   h.visionText.current = "x".repeat(50);
   setAutoIndexCap(DEFAULT_AUTO_INDEX_PAGES);
+  setAgentScanCap(DEFAULT_AGENT_SCAN_PAGES);
   vi.clearAllMocks();
 });
 
@@ -318,5 +323,27 @@ describe("explicit read vs. background generation", () => {
 
     expect(h.store.get(path)?.pages.find((pg) => pg.page === 5)?.text).toBe("z".repeat(50));
     expect(statusesFor(path, 5)).toContain("done");
+  });
+});
+
+describe("agent scan allowance", () => {
+  it("clamps the stored value and treats garbage as the default", () => {
+    setAgentScanCap(0);
+    expect(getAgentScanCap()).toBe(0);
+    setAgentScanCap(12.9);
+    expect(getAgentScanCap()).toBe(12);
+    setAgentScanCap(-3);
+    expect(getAgentScanCap()).toBe(DEFAULT_AGENT_SCAN_PAGES);
+    setAgentScanCap(Number.NaN);
+    expect(getAgentScanCap()).toBe(DEFAULT_AGENT_SCAN_PAGES);
+  });
+
+  it("is independent of the automatic sweep budget", () => {
+    // Turning off unprompted scanning must not change what the assistant is
+    // allowed to scan for a question the user actually asked.
+    setAutoIndexCap(0);
+    setAgentScanCap(20);
+    expect(getAutoIndexCap()).toBe(0);
+    expect(getAgentScanCap()).toBe(20);
   });
 });

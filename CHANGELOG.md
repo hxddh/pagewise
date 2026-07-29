@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-07-29
+
+Closes the loose end in 3.6.0: the scan budget it introduced governed only the background sweep, so it did not actually bound what PageWise could spend.
+
+### Fixed
+
+- **The assistant can no longer scan an unlimited number of pages while answering one question.** An agent page read indexes on demand — deliberately exempt from the sweep budget, so the page you asked about is never reported blank — but that exemption was per page and unbounded per run: asking about a 300-page scan walked the document one billed vision call at a time, and setting the budget to *Off* did not stop it. Agent-triggered scanning now has its own per-question ceiling (default 20 pages). On reaching it, the read tools return `scanLimitReached` and the model is told to answer from what it has and say some pages are unscanned, instead of retrying.
+- **The prompt no longer steers the model onto the uncapped path.** The note attached to unindexed search results advertised reading those pages as free ("this triggers on-demand indexing"); it now states that each such read is a billed call drawing on a limited allowance.
+
+### Added
+
+- **Settings → General → Scanning** now has two controls, because the two kinds of spend are not the same thing: *Automatic scan budget* (pages the app may scan unprompted, per document) and *Assistant scan limit* (pages the assistant may scan per question). Either can be set to Off independently.
+- **The chat offers to scan when it matters.** The unscanned-page count was previously visible only inside agent tool results, with no user-facing remedy but a command-palette entry. When the open document has pages with no text, the chat now shows the count with a one-click scan action (dismissible per document).
+- The usage popover reports **scan calls** for a reply. Vision is billed per page image, so the request count describes the spend in a way the token totals do not.
+
 ## [3.6.0] - 2026-07-29
 
 The first feature release since 3.5.10. One theme: **index once, pay once, and know what you paid.** Vision indexing is the only part of PageWise that spends money per page, and until now every scanned page was re-indexed — and re-billed — on each launch.

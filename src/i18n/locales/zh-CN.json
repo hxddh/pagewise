@@ -221,7 +221,11 @@
     "pagesRead": "读过",
     "pagesReadMore": "+{{count}} 页",
     "webSearchOn": "下一条将联网搜索",
-    "webSearchOff": "让下一条联网搜索"
+    "webSearchOff": "让下一条联网搜索",
+    "unscannedPages": "本文档有 1 页尚无文字，搜索和读取都够不到它。",
+    "unscannedPages_plural": "本文档有 {{count}} 页尚无文字，搜索和读取都够不到它们。",
+    "dismissScanHint": "忽略",
+    "usageScanCalls": "扫页调用"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",
@@ -360,13 +364,15 @@
     "scanning": "扫页",
     "autoScanBudget": "自动扫页预算",
     "autoScanOff": "关闭",
-    "autoScanHint": "文档没有文字层时，PageWise 可自动送往扫页模型的页数。每页都是一次计费调用——结果会缓存复用。",
+    "autoScanHint": "文档没有文字层时，PageWise 可自动扫描的页数。每页都是一次计费调用——结果会缓存复用。",
     "scanCache": "扫页缓存",
     "scanCacheLoading": "读取中…",
     "scanCacheEmpty": "暂无缓存",
     "scanCacheStats": "{{docs}} 个文档 · {{pages}} 页 · {{size}}",
     "scanCacheClear": "清空",
-    "scanCacheClearing": "清空中…"
+    "scanCacheClearing": "清空中…",
+    "agentScanBudget": "助手扫页上限",
+    "agentScanHint": "助手回答单个问题时可扫描的页数。读取你问到的页面会按需扫描，这一项限制每次提问最多走多远。"
   },
   "commands": {
     "title": "命令面板",

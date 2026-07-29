@@ -24,6 +24,8 @@ export interface PageWiseMessageMetadata {
   /** Vision / OCR index tokens during this assistant turn. */
   indexInputTokens?: number;
   indexOutputTokens?: number;
+  /** Vision (scan) requests this reply triggered — billed per page image. */
+  indexCalls?: number;
   /** Model id at send time (for display only). */
   model?: string;
   /** True when input includes tool-loop context, not just the user turn. */
@@ -286,6 +288,7 @@ export function createUsageMetadataTracker(model: string): {
             (usage?.totalTokens ?? agentIn + agentOut) + index.inputTokens + index.outputTokens,
           indexInputTokens: index.inputTokens,
           indexOutputTokens: index.outputTokens,
+          ...(index.calls > 0 ? { indexCalls: index.calls } : {}),
           includesToolContext: true,
           ...(providerMetadata ? { providerMetadata } : {}),
           ...(lastStep?.toolNames?.length ? { finalStepTools: [...lastStep.toolNames] } : {}),

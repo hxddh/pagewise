@@ -60,6 +60,10 @@ interface ChatPanelProps {
   onExportChat: () => void;
   onExportSummary: () => void;
   onCollapse?: () => void;
+  /** Pages in the active document that still have no text (each costs a scan). */
+  unscannedPages?: number;
+  /** Prompt to scan those pages; omit to hide the affordance entirely. */
+  onScanAllPages?: () => void;
 }
 
 const COMPOSER_MAX_HEIGHT = 200;
@@ -95,11 +99,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onExportChat,
     onExportSummary,
     onCollapse,
+    unscannedPages = 0,
+    onScanAllPages,
   },
   ref,
 ) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  // Path of the document whose scan offer was dismissed. Keyed by path so
+  // dismissing it for one document doesn't hide it for the next.
+  const [scanHintDismissed, setScanHintDismissed] = useState<string | null>(null);
   const [webForNext, setWebForNext] = useState(false);
   // Bumped on every manual toggle click, so a failed send only re-arms the
   // web toggle if the user hasn't made a newer explicit choice mid-flight.
@@ -497,6 +506,43 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </>
         )}
       </div>
+
+      {/*
+        The agent can already tell that pages are unscanned (its tools report it)
+        and the app can already fix it, but until now the only remedy was a
+        command-palette entry the user had to know about. Offer it where the
+        symptom shows up.
+      */}
+      {activeDoc &&
+        onScanAllPages &&
+        unscannedPages > 0 &&
+        messages.length > 0 &&
+        scanHintDismissed !== activeDoc.path && (
+          <div className="error-line chat-error chat-scan-hint" role="status">
+            <span className="chat-error-text">
+              {t("agent.unscannedPages", { count: unscannedPages })}
+            </span>
+            <span className="chat-error-actions">
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={onScanAllPages}
+                disabled={interactionBusy}
+              >
+                {t("preview.scanAllAction")}
+              </button>
+              <button
+                type="button"
+                className="btn icon-btn btn-sm"
+                onClick={() => setScanHintDismissed(activeDoc.path)}
+                aria-label={t("agent.dismissScanHint")}
+                title={t("agent.dismissScanHint")}
+              >
+                <X size={14} />
+              </button>
+            </span>
+          </div>
+        )}
 
       {error && (
         <div className="error-line chat-error" role="alert">
