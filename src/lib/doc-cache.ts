@@ -2,6 +2,7 @@ import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
 import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
 import { clearDocumentIndexState } from "./index-events";
+import { flushIndexStore } from "./index-store";
 import { mergePageTextsOnReload, pagesTextChanged } from "./page-text-merge";
 
 type DocCacheListener = (path: string) => void;
@@ -18,6 +19,9 @@ class DocCache {
       if (oldest) {
         this.docs.delete(oldest);
         clearDocumentIndexState(oldest);
+        // Switching documents is the common way a session ends for the outgoing
+        // one — persist whatever its sweep had buffered before it's gone.
+        void flushIndexStore();
       }
     }
     const existing = this.docs.get(doc.path);
@@ -93,6 +97,7 @@ class DocCache {
   remove(path: string): void {
     if (this.docs.delete(path)) {
       clearDocumentIndexState(path);
+      void flushIndexStore();
       this.notify(path);
     }
   }

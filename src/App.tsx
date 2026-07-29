@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
 import { SessionProvider, useSession } from "./session/SessionProvider";
 import { useI18n } from "./i18n";
@@ -13,6 +13,9 @@ import { AgentDock } from "./components/AgentDock";
 import { FileErrorBanner } from "./components/FileErrorBanner";
 import { RecentFilesDrawer } from "./components/RecentFilesDrawer";
 import { ClearChatConfirm } from "./components/overlays/ClearChatConfirm";
+import { ConfirmOverlay } from "./components/overlays/ConfirmOverlay";
+import { indexWholeDocument, pendingIndexPages } from "./document/index-queue";
+import { getVisionCallCount } from "./lib/usage-tracker";
 import { CommandPalette } from "./components/CommandPalette";
 import { useAppCommands } from "./hooks/useAppCommands";
 import { useFollowAgent } from "./hooks/useFollowAgent";
@@ -73,6 +76,24 @@ function AppContent() {
 
   const openableRecents = openableRecentFiles(s.recentFiles);
 
+  // Pages with no usable text yet — i.e. what a whole-document scan would send
+  // to the vision model, and therefore bill for.
+  const unscannedPages = useMemo(
+    () => (doc ? pendingIndexPages(doc.path).length : 0),
+    [doc?.path, doc?.pages],
+  );
+  const [scanAllPrompt, setScanAllPrompt] = useState<number | null>(null);
+
+  const requestScanAll = useCallback(() => {
+    if (!doc) return;
+    const count = pendingIndexPages(doc.path).length;
+    if (count === 0) {
+      showToast(t("toast.scanAllNone"), "default");
+      return;
+    }
+    setScanAllPrompt(count);
+  }, [doc, showToast, t]);
+
   const { commands, paletteOpen, setPaletteOpen, exportSummary } = useAppCommands({
     activeDocName: doc?.name ?? null,
     messages: agent.messages,
@@ -89,6 +110,8 @@ function AppContent() {
     onStop: agent.stop,
     onCycleTheme: () => void cycleTheme(),
     onExportChat: () => void s.exportChat(),
+    onScanAllPages: requestScanAll,
+    canScanAllPages: unscannedPages > 0,
     showToast,
   });
 
@@ -120,6 +143,27 @@ function AppContent() {
           overlays.closeClearConfirm();
         }}
         onCancel={overlays.closeClearConfirm}
+      />
+
+      <ConfirmOverlay
+        open={scanAllPrompt !== null}
+        message={
+          doc && getVisionCallCount(doc.path) > 0
+            ? `${t("preview.scanAllConfirm", { count: scanAllPrompt ?? 0 })} ${t(
+                "preview.scanAllUsed",
+                { used: getVisionCallCount(doc.path) },
+              )}`
+            : t("preview.scanAllConfirm", { count: scanAllPrompt ?? 0 })
+        }
+        confirmLabel={t("preview.scanAllAction")}
+        onConfirm={() => {
+          if (doc) {
+            const started = indexWholeDocument(doc.path);
+            if (started > 0) showToast(t("toast.scanAllStarted", { count: started }), "default");
+          }
+          setScanAllPrompt(null);
+        }}
+        onCancel={() => setScanAllPrompt(null)}
       />
 
       <RecentFilesDrawer

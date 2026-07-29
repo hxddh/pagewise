@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   pending: [] as Array<{ resolve: (v: string) => void; reject: (e: unknown) => void }>,
   visionMode: { current: "immediate" as "immediate" | "manual" },
   visionText: { current: "x".repeat(50) },
+  visionCalls: [] as string[],
 }));
 
 vi.mock("../lib/doc-cache", () => ({
@@ -80,14 +81,28 @@ vi.mock("../lib/index-events", () => ({
   }),
 }));
 
+vi.mock("../lib/index-store", () => ({
+  rememberIndexedPage: vi.fn(),
+  forgetIndexedDoc: vi.fn(async () => {}),
+}));
+
+vi.mock("../lib/usage-tracker", () => ({
+  recordVisionCall: vi.fn((path: string) => {
+    h.visionCalls.push(path);
+  }),
+}));
+
 import { docCache } from "../lib/doc-cache";
 import { renderPageToJpegBytes } from "../lib/pdf";
 import {
   cancelIndex,
+  DEFAULT_AUTO_INDEX_PAGES,
   ensurePageIndexed,
-  MAX_INDEX_PAGES,
+  indexWholeDocument,
+  pendingIndexPages,
   reindexDocument,
   scheduleIndex,
+  setAutoIndexCap,
 } from "./index-queue";
 import type { LoadedDocument } from "../lib/types";
 
@@ -116,8 +131,10 @@ beforeEach(() => {
   h.store.clear();
   h.events.length = 0;
   h.pending.length = 0;
+  h.visionCalls.length = 0;
   h.visionMode.current = "immediate";
   h.visionText.current = "x".repeat(50);
+  setAutoIndexCap(DEFAULT_AUTO_INDEX_PAGES);
   vi.clearAllMocks();
 });
 
@@ -145,15 +162,15 @@ describe("scheduleIndex", () => {
 });
 
 describe("reindexDocument (H3 — bounded invalidate)", () => {
-  it("clears and rescans exactly the same page set, capped at MAX_INDEX_PAGES", async () => {
+  it("clears and rescans exactly the same page set, capped at DEFAULT_AUTO_INDEX_PAGES", async () => {
     const path = uniquePath();
-    seed(path, MAX_INDEX_PAGES + 10); // 60 pages
+    seed(path, DEFAULT_AUTO_INDEX_PAGES + 10); // 60 pages
 
     reindexDocument(path);
 
     await vi.waitFor(() => {
       const done = h.events.filter((e) => e.path === path && e.status === "done");
-      expect(done.length).toBe(MAX_INDEX_PAGES);
+      expect(done.length).toBe(DEFAULT_AUTO_INDEX_PAGES);
     });
 
     const invalidate = docCache.invalidateIndexedPageText as unknown as {
@@ -161,14 +178,75 @@ describe("reindexDocument (H3 — bounded invalidate)", () => {
     };
     expect(invalidate.mock.calls.length).toBe(1);
     const clearedPages = invalidate.mock.calls[0]![1] as number[];
-    expect(clearedPages).toHaveLength(MAX_INDEX_PAGES);
+    expect(clearedPages).toHaveLength(DEFAULT_AUTO_INDEX_PAGES);
 
     // The set of pages sent to vision must equal the set that was cleared.
     const render = renderPageToJpegBytes as unknown as { mock: { calls: unknown[][] } };
     const rescanned = render.mock.calls.map((c) => c[1] as number).sort((a, b) => a - b);
     expect(rescanned).toEqual([...clearedPages].sort((a, b) => a - b));
     // Pages 51..60 were never touched.
-    expect(Math.max(...clearedPages)).toBe(MAX_INDEX_PAGES);
+    expect(Math.max(...clearedPages)).toBe(DEFAULT_AUTO_INDEX_PAGES);
+  });
+});
+
+describe("automatic sweep budget", () => {
+  it("sends no more pages to vision than the configured budget", async () => {
+    setAutoIndexCap(2);
+    const path = uniquePath();
+    const doc = seed(path, 5);
+
+    scheduleIndex(doc);
+
+    await vi.waitFor(() => {
+      const done = h.events.filter((e) => e.path === path && e.status === "done");
+      expect(done.length).toBe(2);
+    });
+
+    // Every billed call is counted, so the budget must hold there too.
+    expect(h.visionCalls.filter((p) => p === path)).toHaveLength(2);
+    for (const page of [3, 4, 5]) {
+      expect(h.store.get(path)?.pages.find((p) => p.page === page)?.text).toBe("");
+    }
+  });
+
+  it("spends nothing when the budget is 0", async () => {
+    setAutoIndexCap(0);
+    const path = uniquePath();
+    const doc = seed(path, 5);
+
+    scheduleIndex(doc);
+    // Let any scheduled work start before asserting it never did.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+
+    expect(h.visionCalls).toHaveLength(0);
+    expect(h.events.filter((e) => e.path === path)).toHaveLength(0);
+  });
+});
+
+describe("indexWholeDocument", () => {
+  it("scans every page still missing text, ignoring the automatic budget", async () => {
+    setAutoIndexCap(2);
+    const path = uniquePath();
+    seed(path, 5);
+
+    expect(pendingIndexPages(path)).toEqual([1, 2, 3, 4, 5]);
+    expect(indexWholeDocument(path)).toBe(5);
+
+    await vi.waitFor(() => {
+      const done = h.events.filter((e) => e.path === path && e.status === "done");
+      expect(done.length).toBe(5);
+    });
+    expect(h.visionCalls.filter((p) => p === path)).toHaveLength(5);
+  });
+
+  it("reports nothing to do once every page has text", () => {
+    const path = uniquePath();
+    seed(path, 3);
+    for (const p of h.store.get(path)!.pages) p.text = "y".repeat(50);
+
+    expect(pendingIndexPages(path)).toEqual([]);
+    expect(indexWholeDocument(path)).toBe(0);
+    expect(h.visionCalls).toHaveLength(0);
   });
 });
 

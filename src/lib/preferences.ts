@@ -13,7 +13,16 @@ export interface AppPreferences {
   followAgentDefault: boolean;
   includeViewingPageDefault: boolean;
   previewQuality: PreviewQuality;
+  /**
+   * Pages the automatic vision sweep may index per document (0 = off). Each one
+   * is a billed vision call, so the default stays conservative; full coverage is
+   * available on demand from the preview.
+   */
+  autoIndexPages: number;
 }
+
+/** Selectable automatic-index budgets, smallest first. */
+export const AUTO_INDEX_PAGE_CHOICES = [0, 20, 50, 200] as const;
 
 const STORE_PATH = "preferences.json";
 const KEY = "app";
@@ -25,6 +34,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   followAgentDefault: true,
   includeViewingPageDefault: false,
   previewQuality: "crisp",
+  autoIndexPages: 50,
 };
 
 let store: LazyStore | null = null;
@@ -57,6 +67,18 @@ function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+/**
+ * Clamp a stored sweep budget into range. A corrupt or absurd value here would
+ * otherwise translate directly into billed vision calls.
+ */
+function autoIndexBudget(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  const floored = Math.floor(value);
+  if (floored < 0) return 0;
+  const max = AUTO_INDEX_PAGE_CHOICES[AUTO_INDEX_PAGE_CHOICES.length - 1]!;
+  return floored > max ? max : floored;
+}
+
 /** Coerce arbitrary stored data into a valid AppPreferences, ignoring corrupt fields. */
 export function sanitizePreferences(raw: unknown): AppPreferences {
   const saved = (raw && typeof raw === "object" ? raw : {}) as Partial<AppPreferences>;
@@ -70,6 +92,7 @@ export function sanitizePreferences(raw: unknown): AppPreferences {
       DEFAULT_PREFERENCES.includeViewingPageDefault,
     ),
     previewQuality: pick(saved.previewQuality, PREVIEW_QUALITIES, DEFAULT_PREFERENCES.previewQuality),
+    autoIndexPages: autoIndexBudget(saved.autoIndexPages, DEFAULT_PREFERENCES.autoIndexPages),
   };
 }
 

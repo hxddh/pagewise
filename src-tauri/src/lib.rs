@@ -81,6 +81,29 @@ fn cancel_pdf_extract_cmd(scope: String, cancel: State<'_, PdfExtractCancel>) {
     cancel.bump_scope(pdf::PdfExtractScope::parse(&scope));
 }
 
+/// Freshness stamp (modification time + size) for an authorized file.
+///
+/// The frontend keys its persistent page-index cache on this, so a file that was
+/// rewritten in place can never be served page text that was extracted from its
+/// previous contents.
+#[tauri::command]
+async fn file_stamp_cmd(path: String, allowed: State<'_, AllowedPaths>) -> Result<String, String> {
+    let canon = ensure_allowed(&allowed, &path)?;
+    let meta =
+        std::fs::metadata(&canon).map_err(|e| format!("Failed to read file metadata: {e}"))?;
+    let mtime = meta
+        .modified()
+        .map_err(|e| format!("Failed to read file metadata: {e}"))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("Failed to read file metadata: {e}"))?;
+    Ok(format!(
+        "{}.{:09}:{}",
+        mtime.as_secs(),
+        mtime.subsec_nanos(),
+        meta.len()
+    ))
+}
+
 #[tauri::command]
 async fn pdf_page_count_cmd(
     path: String,
@@ -295,6 +318,7 @@ pub fn run() {
             register_allowed_path,
             cancel_pdf_extract_cmd,
             cancel_file_read_cmd,
+            file_stamp_cmd,
             pdf_page_count_cmd,
             extract_pdf_text_cmd,
             read_file_bytes,
