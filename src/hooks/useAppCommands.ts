@@ -28,6 +28,10 @@ interface UseAppCommandsOptions {
   onStop: () => void;
   onCycleTheme: () => void;
   onExportChat: () => void | Promise<void>;
+  /** Prompt to send every still-unscanned page to the vision model. */
+  onScanAllPages: () => void;
+  /** False when the document has no pages left to scan (or none can be). */
+  canScanAllPages: boolean;
   showToast: (msg: string, tone?: "default" | "success" | "error") => void;
 }
 
@@ -56,6 +60,8 @@ export function useAppCommands({
   onStop,
   onCycleTheme,
   onExportChat,
+  onScanAllPages,
+  canScanAllPages,
   showToast,
 }: UseAppCommandsOptions) {
   const { t, localeMode, setLocaleMode } = useI18n();
@@ -130,6 +136,14 @@ export function useAppCommands({
         run: wrapRun("next-page", previewNextPage),
       },
       {
+        id: "scan-all",
+        label: t("commands.scanAllPages"),
+        section: "document",
+        keywords: ["ocr", "vision", "index", "scan"],
+        disabled: !activeDocName || !canScanAllPages,
+        run: wrapRun("scan-all", onScanAllPages),
+      },
+      {
         id: "export-chat",
         label: t("commands.exportChat"),
         section: "export",
@@ -197,6 +211,7 @@ export function useAppCommands({
       activeDocName,
       agentOpen,
       busy,
+      canScanAllPages,
       cycleLanguage,
       exportChat,
       exportSummary,
@@ -207,6 +222,7 @@ export function useAppCommands({
       onCycleTheme,
       onOpenDocument,
       onOpenSettings,
+      onScanAllPages,
       onStop,
       onToggleAgent,
       onToggleFollowAgent,

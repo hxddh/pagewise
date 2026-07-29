@@ -113,7 +113,11 @@
     "closeSearch": "关闭搜索",
     "more": "更多",
     "searchIndexing": "暂无匹配 — 部分页面仍在索引中，结果可能不完整。",
-    "askAboutSelection": "就这段提问"
+    "askAboutSelection": "就这段提问",
+    "scanAllConfirm": "扫描这 1 个尚无文字的页面？这是一次计费的扫页模型调用，之后会被缓存。",
+    "scanAllConfirm_plural": "扫描这 {{count}} 个尚无文字的页面？这是 {{count}} 次计费的扫页模型调用，之后会被缓存。",
+    "scanAllUsed": "本次会话中，该文档已使用 {{used}} 次扫页调用。",
+    "scanAllAction": "开始扫描"
   },
   "drop": {
     "title": "拖放以打开",
@@ -352,7 +356,17 @@
     "discardAndClose": "放弃并关闭",
     "version": "版本",
     "github": "GitHub 仓库",
-    "getApiKey": "获取 API 密钥 ↗"
+    "getApiKey": "获取 API 密钥 ↗",
+    "scanning": "扫页",
+    "autoScanBudget": "自动扫页预算",
+    "autoScanOff": "关闭",
+    "autoScanHint": "文档没有文字层时，PageWise 可自动送往扫页模型的页数。每页都是一次计费调用——结果会缓存复用。",
+    "scanCache": "扫页缓存",
+    "scanCacheLoading": "读取中…",
+    "scanCacheEmpty": "暂无缓存",
+    "scanCacheStats": "{{docs}} 个文档 · {{pages}} 页 · {{size}}",
+    "scanCacheClear": "清空",
+    "scanCacheClearing": "清空中…"
   },
   "commands": {
     "title": "命令面板",
@@ -385,7 +399,8 @@
     "openSettings": "打开设置",
     "switchLang": "切换语言",
     "recent": "最近使用",
-    "firstOpenHint": "提示：输入关键词可筛选命令"
+    "firstOpenHint": "提示：输入关键词可筛选命令",
+    "scanAllPages": "扫描所有未扫描页面"
   },
   "toast": {
     "chatExported": "对话已导出",
@@ -404,7 +419,10 @@
     "embedPageCap": "语义搜索已嵌入 {{embedded}}/{{total}} 页 — 重新打开可继续嵌入",
     "indexPartial": "本次成功索引 {{indexed}}/{{scheduled}} 页 — 部分页面失败",
     "dismiss": "关闭",
-    "copyFailed": "复制失败 — 剪贴板不可用"
+    "copyFailed": "复制失败 — 剪贴板不可用",
+    "scanAllNone": "所有页面均已有文字",
+    "scanAllStarted": "正在扫描 1 页…",
+    "scanAllStarted_plural": "正在扫描 {{count}} 页…"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",

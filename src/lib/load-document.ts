@@ -4,6 +4,9 @@ import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
 import { allowPath } from "./fs-access";
+import { fileStamp } from "./file-stamp";
+import { loadIndexedPages } from "./index-store";
+import { mergePageTextsOnReload } from "./page-text-merge";
 import { scheduleIndex } from "../document/index-queue";
 
 const SUPPORTED_EXT = new Set([
@@ -55,6 +58,11 @@ export async function loadDocument(
 
   await allowPath(path);
 
+  // Stamped after authorization (the command requires it) and before extraction,
+  // so a rewrite during the parse advances the real stamp and the next open
+  // misses the cache instead of being served text from the older contents.
+  const stamp = await fileStamp(path);
+
   report(onProgress, { stage: "opening", message: "load.openingFile", percent: 5 });
   throwIfAborted(signal);
 
@@ -78,6 +86,7 @@ export async function loadDocument(
       kind: "pdf",
       pages: extracted.pages,
       totalPages: extracted.total_pages,
+      stamp,
     };
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
@@ -87,8 +96,19 @@ export async function loadDocument(
       kind: "image",
       pages: [{ page: 1, text: "" }],
       totalPages: 1,
+      stamp,
     };
   }
+
+  // Fold in page text that previously cost a vision call. Without this every
+  // scanned page is re-indexed — and re-billed — on each launch.
+  if (stamp) {
+    const cached = await loadIndexedPages(path, stamp);
+    if (cached.length > 0) {
+      doc = { ...doc, pages: mergePageTextsOnReload(cached, doc.pages) };
+    }
+  }
+  throwIfAborted(signal);
 
   if (options?.deferCache) {
     report(onProgress, { stage: "done", message: "load.ready", percent: 100 });

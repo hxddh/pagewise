@@ -57,6 +57,11 @@ export interface LoadedDocument {
   kind: "pdf" | "image";
   pages: PageText[];
   totalPages: number;
+  /**
+   * Freshness key (mtime + size) for the file on disk. Keys the persistent page
+   * index; empty/absent means the index cache is bypassed for this document.
+   */
+  stamp?: string;
 }
 
 export const DEFAULT_SETTINGS: LlmSettings = {

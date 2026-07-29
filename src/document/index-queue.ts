@@ -9,11 +9,34 @@ import { loadVisionSettings } from "../lib/settings";
 import { assertApiKeyForAgent, formatLlmError } from "../lib/llm";
 import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { emitPageIndex } from "../lib/index-events";
+import { forgetIndexedDoc, rememberIndexedPage } from "../lib/index-store";
+import { recordVisionCall } from "../lib/usage-tracker";
 import type { LoadedDocument } from "../lib/types";
 
 const VISION_TIMEOUT_MS = 60_000;
-export const MAX_INDEX_PAGES = 50;
+/**
+ * Pages the automatic background sweep will index without being asked. Every one
+ * of them costs a vision call, so this stays deliberately small; a user who
+ * wants full coverage raises it in Settings or runs an explicit whole-document
+ * index (which shows the page count up front).
+ */
+export const DEFAULT_AUTO_INDEX_PAGES = 50;
 const CONCURRENCY = 3;
+
+let autoIndexCap = DEFAULT_AUTO_INDEX_PAGES;
+
+/**
+ * Set the automatic sweep budget (0 disables automatic indexing entirely).
+ * Kept as module state rather than read per sweep so page selection stays
+ * synchronous; the app applies the stored preference at startup and on change.
+ */
+export function setAutoIndexCap(pages: number): void {
+  autoIndexCap = Number.isFinite(pages) && pages >= 0 ? Math.floor(pages) : DEFAULT_AUTO_INDEX_PAGES;
+}
+
+export function getAutoIndexCap(): number {
+  return autoIndexCap;
+}
 
 const VISION_PROMPT = `Extract all visible text from this document page. Preserve reading order. Use Markdown headings and lists where appropriate. Output only the extracted content — no commentary.`;
 
@@ -64,19 +87,32 @@ function isCurrentGeneration(path: string, generation: number): boolean {
   return (pathGenerations.get(path) ?? 0) === generation;
 }
 
-function sparsePages(doc: LoadedDocument): number[] {
-  const pages = docCache.getPages(doc.path);
-  return pages
+/** Pages with no usable text yet. `cap` of `null` means "no budget limit". */
+function sparsePages(doc: LoadedDocument, cap: number | null): number[] {
+  const pages = docCache
+    .getPages(doc.path)
     .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
-    .map((p) => p.page)
-    .slice(0, MAX_INDEX_PAGES);
+    .map((p) => p.page);
+  return cap === null ? pages : pages.slice(0, cap);
 }
 
-function sweepPages(doc: LoadedDocument, allPages?: boolean): number[] {
-  if (allPages) {
-    return docCache.getPages(doc.path).map((p) => p.page).slice(0, MAX_INDEX_PAGES);
+function sweepPages(
+  doc: LoadedDocument,
+  options?: { allPages?: boolean; cap?: number | null },
+): number[] {
+  const cap = options?.cap === undefined ? autoIndexCap : options.cap;
+  if (options?.allPages) {
+    const all = docCache.getPages(doc.path).map((p) => p.page);
+    return cap === null ? all : all.slice(0, cap);
   }
-  return sparsePages(doc);
+  return sparsePages(doc, cap);
+}
+
+/** Pages an explicit whole-document index would have to send to vision. */
+export function pendingIndexPages(path: string): number[] {
+  const doc = docCache.get(path);
+  if (!doc) return [];
+  return sparsePages(doc, null);
 }
 
 function visionMediaType(path: string): string {
@@ -167,6 +203,7 @@ async function indexPage(
       return;
     }
 
+    recordVisionCall(path);
     const text = await generateVisionText(settings, VISION_PROMPT, bytes, {
       signal: visionFetchSignal(signal),
       mediaType,
@@ -181,6 +218,12 @@ async function indexPage(
     if (text.trim().length >= MIN_INDEX_CHARS) {
       docCache.upsertPageText(path, page, text.trim());
       clearIndexFailure(path, page);
+      // This page cost a vision call — persist it so reopening the document
+      // doesn't pay for it again.
+      const indexed = docCache.get(path);
+      if (indexed?.stamp) {
+        rememberIndexedPage(path, indexed.stamp, indexed.totalPages, page, text.trim());
+      }
       emitPageIndex({ path, page, status: "done", source: "vision" });
     } else {
       recordIndexFailure(path, page, "insufficient_text");
@@ -314,14 +357,14 @@ export function indexPageInBackground(path: string, page: number): void {
 /** Cancel any in-flight queue for this path and start a new sweep. */
 export function scheduleIndex(
   doc: LoadedDocument,
-  options?: { allPages?: boolean; pages?: number[] },
+  options?: { allPages?: boolean; pages?: number[]; cap?: number | null },
 ): void {
   queues.get(doc.path)?.abort.abort();
   const generation = nextGeneration(doc.path);
   const controller = new AbortController();
   queues.set(doc.path, { abort: controller, generation });
 
-  const pages = options?.pages ?? sweepPages(doc, options?.allPages);
+  const pages = options?.pages ?? sweepPages(doc, options);
   if (pages.length === 0) return;
 
   void runPool(doc.path, pages, controller.signal, generation).finally(() => {
@@ -341,8 +384,25 @@ export function cancelIndex(path: string): void {
 export function reindexDocument(path: string): void {
   const fresh = docCache.get(path);
   if (!fresh) return;
-  const pages = sweepPages(fresh, true);
+  const pages = sweepPages(fresh, { allPages: true });
   if (pages.length === 0) return;
+  // The persisted copy describes the text being discarded — drop it too, or the
+  // next open would restore exactly what the user asked to re-scan.
+  void forgetIndexedDoc(path);
   docCache.invalidateIndexedPageText(path, pages);
   scheduleIndex(fresh, { pages });
+}
+
+/**
+ * Index every page that still has no usable text, ignoring the automatic sweep
+ * budget. Explicit only: the caller shows the page count (i.e. the number of
+ * vision calls) first. Results persist, so the cost is paid once per file.
+ */
+export function indexWholeDocument(path: string): number {
+  const doc = docCache.get(path);
+  if (!doc) return 0;
+  const pages = sparsePages(doc, null);
+  if (pages.length === 0) return 0;
+  scheduleIndex(doc, { pages });
+  return pages.length;
 }

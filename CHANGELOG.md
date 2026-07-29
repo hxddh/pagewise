@@ -4,6 +4,30 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-07-29
+
+The first feature release since 3.5.10. One theme: **index once, pay once, and know what you paid.** Vision indexing is the only part of PageWise that spends money per page, and until now every scanned page was re-indexed — and re-billed — on each launch.
+
+### Added
+
+- **Scanned page text is now cached on disk.** Text recovered by the vision model is persisted per document, keyed by the file's modification time and size, and folded back in when the document is reopened. A scanned PDF is paid for once instead of once per launch; a file edited in place misses the cache and is re-scanned rather than being served text from its previous contents. The cache is bounded (24 documents / ~6M characters, oldest-saved evicted first) and a corrupt cache degrades to a miss instead of blocking the document from opening.
+- **Settings → General → Scanning** shows what the scan cache holds (documents, pages, approximate size) and can clear it.
+- **An automatic scan budget setting** (Off / 20 / 50 / 200, default 50 — the previous hard-coded value). This is the number of pages PageWise may send to the vision model on its own when a document has no text layer.
+- **"Scan all unscanned pages"** in the ⌘K palette, with a confirm that states how many pages will be sent (i.e. how many billed calls) and how many scan calls the document has already used this session. This is the fix for search being blind past the automatic budget on a large scan: `search_in_document` only searches indexed text, so on a 300-page scan nothing beyond the first 50 pages was findable. The action is uncapped, explicit, and — because results now persist — a one-time cost per file.
+
+### Changed
+
+- The automatic sweep budget is read from preferences instead of a fixed 50, and `0` disables automatic scanning entirely. On-demand indexing of the page you are actually viewing is unaffected by the budget, as before.
+- An explicit re-scan of a document now also drops its persisted index, so the next open doesn't restore exactly the text the user asked to discard.
+
+### Fixed
+
+- Buffered scan results are flushed when a document is switched or closed and on window close, so pages already paid for aren't lost with the process. A failed write returns them to the buffer for the next flush rather than dropping them.
+
+### Notes
+
+- The v3.5.13 entry listed a deferred perf item — large PDFs re-parsing the whole document on each single-page agent read. That note was stale: the Rust-side `PdfCache` (page text keyed by path + file stamp) already serves single-page reads from the parsed result, so single-page reads do not re-parse. No action needed; the note is withdrawn.
+
 ## [3.5.15] - 2026-07-18
 
 Three genuine findings that survived a second third-party review's adversarial (refute-first) pass — verified against source; two others (a settings-persist race and a close-flush concern) were assessed as refuted/negligible and left alone, and the review's other two live items were already fixed in 3.5.14.
@@ -49,7 +73,7 @@ Hardening pass from three fresh review angles (the v3.5.12 diff, a Rust↔IPC co
 
 ### Known / deferred
 
-- A perf-only item (large PDFs re-parsing the whole document on each single-page agent read) is deferred: it needs a cached parsed `Document` on the Rust side, which can't be build-verified in the current environment.
+- ~~A perf-only item (large PDFs re-parsing the whole document on each single-page agent read) is deferred: it needs a cached parsed `Document` on the Rust side, which can't be build-verified in the current environment.~~ **Withdrawn in 3.6.0** — the Rust `PdfCache` already keys extracted page text by path + file stamp and serves single-page reads from it, so no re-parse occurs.
 
 ## [3.5.12] - 2026-07-17
 
