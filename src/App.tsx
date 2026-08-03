@@ -14,7 +14,6 @@ import { FileErrorBanner } from "./components/FileErrorBanner";
 import { RecentFilesDrawer } from "./components/RecentFilesDrawer";
 import { ClearChatConfirm } from "./components/overlays/ClearChatConfirm";
 import { ConfirmOverlay } from "./components/overlays/ConfirmOverlay";
-import { PasswordPrompt } from "./components/overlays/PasswordPrompt";
 import { indexWholeDocument, pendingIndexPages } from "./document/index-queue";
 import { getVisionCallCount } from "./lib/usage-tracker";
 import { CommandPalette } from "./components/CommandPalette";
@@ -135,14 +134,6 @@ function AppContent() {
         <FileErrorBanner message={s.fileError} onDismiss={s.clearFileError} />
       )}
       <ToastViewport />
-
-      <PasswordPrompt
-        open={s.passwordPrompt !== null}
-        fileName={s.passwordPrompt?.name ?? ""}
-        retry={s.passwordPrompt?.retry ?? false}
-        onSubmit={s.submitPassword}
-        onCancel={s.cancelPassword}
-      />
 
       <ClearChatConfirm
         open={overlays.clearConfirmOpen}

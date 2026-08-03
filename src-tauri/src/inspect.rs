@@ -30,8 +30,7 @@ use pdf_inspector::extractor::extract_text_with_positions;
 use pdf_inspector::types::ItemType;
 use pdf_inspector::{
     detect_pdf, extract_pages_markdown, extract_tables_in_regions_mem,
-    extract_text_in_regions_mem, process_pdf_with_options, MarkdownOptions, PdfError, PdfOptions,
-    PdfType,
+    extract_text_in_regions_mem, PdfType,
 };
 use serde::{Deserialize, Serialize};
 
@@ -121,98 +120,8 @@ pub struct RegionText {
     pub table: Option<String>,
 }
 
-/// Returned verbatim when a document needs a password, so the caller can ask
-/// for one instead of reporting the file as broken. A sentinel rather than a
-/// message because it is matched on, not read.
-pub const ERR_ENCRYPTED: &str = "PDF_ENCRYPTED";
-
 fn map_err(e: impl std::fmt::Display) -> String {
     format!("PDF read failed: {e}")
-}
-
-fn map_pdf_err(e: PdfError) -> String {
-    match e {
-        PdfError::Encrypted => ERR_ENCRYPTED.to_string(),
-        other => map_err(other),
-    }
-}
-
-/// Split whole-document Markdown on the page markers the extractor inserts.
-///
-/// Only the password path needs this. `extract_pages_markdown`, which the
-/// normal path uses, accepts no options and therefore no password — so an
-/// encrypted document has to come back through `process_pdf_with_options`,
-/// which produces one string for the whole file.
-fn split_on_page_markers(markdown: &str) -> Vec<String> {
-    let mut pages: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut started = false;
-    for line in markdown.lines() {
-        if line.trim_start().starts_with("<!-- Page ") {
-            if started {
-                pages.push(std::mem::take(&mut current));
-            }
-            started = true;
-            continue;
-        }
-        if started {
-            current.push_str(line);
-            current.push('\n');
-        }
-    }
-    if started {
-        pages.push(current);
-    }
-    pages
-}
-
-/// Open a document that needs a password.
-///
-/// Everything here is narrower than the normal path, and unavoidably so: the
-/// region API and the positions API both take raw bytes with no password, so a
-/// protected document gets no blank-page recovery, no links and no figure
-/// boxes. Text, outline and classification all still work.
-fn open_encrypted(path: &str, password: &str) -> Result<DocumentModel, String> {
-    let options = PdfOptions {
-        password: Some(password.to_string()),
-        markdown: MarkdownOptions {
-            include_page_numbers: true,
-            ..MarkdownOptions::default()
-        },
-        ..PdfOptions::default()
-    };
-    let result = process_pdf_with_options(path, options).map_err(map_pdf_err)?;
-    let markdown = result.markdown.unwrap_or_default();
-    let mut texts = split_on_page_markers(&markdown);
-    // Trust the parser's page count over the marker count, padding or trimming
-    // so page N is always the Nth entry.
-    texts.resize(result.page_count as usize, String::new());
-
-    let pages: Vec<Page> = texts
-        .into_iter()
-        .enumerate()
-        .map(|(i, text)| {
-            let text = text.trim().to_string();
-            Page {
-                page: (i + 1) as u32,
-                needs_vision: text.is_empty(),
-                has_table: has_table(&text),
-                text,
-            }
-        })
-        .collect();
-
-    let outline = synthesize_outline(&pages);
-    Ok(DocumentModel {
-        page_count: pages.len() as u32,
-        pdf_type: pdf_type_name(&result.pdf_type).to_string(),
-        confidence: result.confidence,
-        title: result.title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()),
-        pages,
-        outline,
-        links: Vec::new(),
-        figures: Vec::new(),
-    })
 }
 
 fn pdf_type_name(t: &PdfType) -> &'static str {
@@ -401,14 +310,8 @@ fn collect_positions(path: &str, page_count: usize) -> (Vec<Link>, Vec<Figure>) 
 }
 
 /// Parse a PDF once and return everything PageWise needs from it.
-///
-/// `password` is supplied only after a first attempt reported [`ERR_ENCRYPTED`].
-/// It is never stored — it lives for the length of this call.
-pub fn open_document(path: &str, password: Option<&str>) -> Result<DocumentModel, String> {
-    if let Some(password) = password {
-        return open_encrypted(path, password);
-    }
-    let detected = detect_pdf(path).map_err(map_pdf_err)?;
+pub fn open_document(path: &str) -> Result<DocumentModel, String> {
+    let detected = detect_pdf(path).map_err(map_err)?;
     let pdf_type = pdf_type_name(&detected.pdf_type).to_string();
     let confidence = detected.confidence;
     let title = detected
@@ -439,7 +342,7 @@ pub fn open_document(path: &str, password: Option<&str>) -> Result<DocumentModel
         });
     }
 
-    let extracted = extract_pages_markdown(path, None).map_err(map_pdf_err)?;
+    let extracted = extract_pages_markdown(path, None).map_err(map_err)?;
     // Page identity is array position, never the `page` label — see module docs.
     let mut texts: Vec<String> = extracted
         .pages
@@ -589,7 +492,7 @@ mod tests {
 
     #[test]
     fn text_pdf_extracts_prose() {
-        let doc = open_document(&fixture("text-simple.pdf"), None).expect("open");
+        let doc = open_document(&fixture("text-simple.pdf")).expect("open");
         assert_eq!(doc.pdf_type, "text_based");
         assert_eq!(doc.page_count, 1);
         assert!(doc.pages[0].text.contains("Lorem ipsum"));
@@ -601,7 +504,7 @@ mod tests {
 
     #[test]
     fn table_columns_stay_separated() {
-        let doc = open_document(&fixture("cjk-table.pdf"), None).expect("open");
+        let doc = open_document(&fixture("cjk-table.pdf")).expect("open");
         let text = &doc.pages[0].text;
         // The defect this integration exists to remove: the previous extractor
         // ran these two numbers together as "1,2841,141", which reads as one
@@ -614,7 +517,7 @@ mod tests {
 
     #[test]
     fn scanned_pdf_routes_to_vision() {
-        let doc = open_document(&fixture("scanned.pdf"), None).expect("open");
+        let doc = open_document(&fixture("scanned.pdf")).expect("open");
         assert!(
             doc.pdf_type == "scanned" || doc.pdf_type == "image_based",
             "unexpected type {}",
@@ -625,7 +528,7 @@ mod tests {
 
     #[test]
     fn links_and_figures_carry_positions() {
-        let doc = open_document(&fixture("links-figure.pdf"), None).expect("open");
+        let doc = open_document(&fixture("links-figure.pdf")).expect("open");
         assert!(doc.links.len() >= 2, "expected hyperlinks");
         assert!(doc.links.iter().all(|l| l.url.starts_with("https://")));
         assert!(doc.links.iter().all(|l| l.page == 1));
@@ -660,48 +563,6 @@ mod tests {
 
     #[test]
     fn damaged_file_fails_cleanly() {
-        assert!(open_document(&fixture("damaged.pdf"), None).is_err());
-    }
-
-    // --- Encrypted documents ---------------------------------------------
-
-    #[test]
-    fn an_encrypted_document_asks_for_a_password_instead_of_failing() {
-        // The distinction the UI depends on: this file is fine, it is locked.
-        let err = open_document(&fixture("encrypted.pdf"), None).unwrap_err();
-        assert_eq!(err, ERR_ENCRYPTED);
-    }
-
-    #[test]
-    fn the_right_password_opens_the_document() {
-        let doc = open_document(&fixture("encrypted.pdf"), Some("secret")).expect("open");
-        assert_eq!(doc.page_count, 1);
-        assert!(doc.pages[0].text.contains("Encrypted PageWise fixture"));
-        assert!(!doc.pages[0].needs_vision);
-    }
-
-    #[test]
-    fn a_wrong_password_asks_again_rather_than_reporting_a_broken_file() {
-        let err = open_document(&fixture("encrypted.pdf"), Some("wrong")).unwrap_err();
-        assert_eq!(err, ERR_ENCRYPTED);
-    }
-
-    #[test]
-    fn page_markers_split_into_pages_and_are_not_themselves_content() {
-        let pages = split_on_page_markers(
-            "<!-- Page 1 -->\n\nfirst\n\n<!-- Page 2 -->\n\nsecond\n",
-        );
-        assert_eq!(pages.len(), 2);
-        assert!(pages[0].contains("first") && !pages[0].contains("Page 1"));
-        assert!(pages[1].contains("second"));
-    }
-
-    #[test]
-    fn text_before_the_first_marker_is_not_mistaken_for_a_page() {
-        // Nothing precedes page 1 in practice; if it ever did, it must not
-        // shift every page number by one.
-        let pages = split_on_page_markers("preamble\n<!-- Page 1 -->\nbody\n");
-        assert_eq!(pages.len(), 1);
-        assert!(pages[0].contains("body"));
+        assert!(open_document(&fixture("damaged.pdf")).is_err());
     }
 }

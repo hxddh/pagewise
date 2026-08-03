@@ -20,7 +20,6 @@ import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { addRecentFile, getRecentFiles, removeRecentFile, removeRecentFiles, type RecentFile } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
-import { isEncryptedPdfError } from "../lib/pdf";
 import { documentToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
@@ -68,10 +67,6 @@ interface SessionContextValue {
   clearChat: () => Promise<void>;
   exportChat: () => Promise<void>;
   exportDocument: () => Promise<void>;
-  /** Set while a locked document is waiting for its password. */
-  passwordPrompt: { path: string; name: string; retry: boolean } | null;
-  submitPassword: (password: string) => void;
-  cancelPassword: () => void;
   isDragging: boolean;
 }
 
@@ -100,9 +95,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [document, setDocument] = useState<LoadedDocument | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
   const [fileError, setFileError] = useState<string | null>(null);
-  const [passwordPrompt, setPasswordPrompt] = useState<
-    { path: string; name: string; retry: boolean } | null
-  >(null);
   const [loading, setLoading] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
@@ -245,7 +237,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const switchDocument = useCallback(
-    async (path: string, password?: string) => {
+    async (path: string) => {
       if (loadingRef.current) return;
 
       const prev = documentRef.current;
@@ -290,7 +282,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             if (epochRef.current === myEpoch) setProgress(p);
           },
           controller.signal,
-          { deferCache: true, password },
+          { deferCache: true },
         );
 
         if (epochRef.current !== myEpoch) return;
@@ -322,7 +314,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         const recent = await addRecentFile({ path: doc.path, name: doc.name, kind: doc.kind });
         if (epochRef.current === myEpoch) setRecentFiles(recent);
-        setPasswordPrompt(null);
         showToast(t("toast.opened", { name: doc.name }), "success");
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
@@ -332,21 +323,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // a string, not an Error — read both so the real cause reaches the user
         // instead of collapsing to the generic load.failed message.
         const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
-        // Locked is not broken: ask for the password instead of reporting a
-        // failure the user can do nothing about. `password` being set means one
-        // was already tried and rejected.
-        if (isEncryptedPdfError(raw)) {
-          setPasswordPrompt({
-            path,
-            name: path.split(/[/\\]/).pop() ?? path,
-            retry: password !== undefined,
-          });
-          setPhase(prev ? "ready" : "empty");
-          setChatLoading(false);
-          chatHydrateRef.current = null;
-          if (!prev) setDocument(null);
-          return;
-        }
         const msg =
           raw === "errors.unsupportedFile" || raw.startsWith("errors.")
             ? t(raw)
@@ -449,18 +425,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [agent.messages, showToast, t]);
 
-  const submitPassword = useCallback(
-    (password: string) => {
-      const pending = passwordPrompt;
-      if (!pending) return;
-      setPasswordPrompt(null);
-      void switchDocument(pending.path, password);
-    },
-    [passwordPrompt, switchDocument],
-  );
-
-  const cancelPassword = useCallback(() => setPasswordPrompt(null), []);
-
   const exportDocument = useCallback(async () => {
     const doc = documentRef.current;
     if (!doc) return;
@@ -504,9 +468,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clearChat,
       exportChat,
       exportDocument,
-      passwordPrompt,
-      submitPassword,
-      cancelPassword,
       isDragging,
     }),
     [
@@ -531,9 +492,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clearChat,
       exportChat,
       exportDocument,
-      passwordPrompt,
-      submitPassword,
-      cancelPassword,
       isDragging,
     ],
   );

@@ -9,12 +9,7 @@
   },
   "dialog": {
     "documentsFilter": "文档",
-    "markdownFilter": "Markdown",
-    "passwordTitle": "“{{name}}” 已加密。",
-    "passwordLabel": "PDF 密码",
-    "passwordHint": "仅用于本次打开，不会保存。",
-    "passwordWrong": "密码不正确，请重试。",
-    "passwordOpen": "打开"
+    "markdownFilter": "Markdown"
   },
   "llm": {
     "apiKeyRequired": "请填写 API 密钥",
