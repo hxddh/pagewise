@@ -4,7 +4,11 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
-### Changed
+## [4.0.0] - 2026-08-03
+
+The document pipeline was replaced. Opening a PDF parses it once and produces everything the app needs from it — per-page Markdown, a chapter outline, hyperlinks and figure boxes — instead of pulling text, page counts and bookmarks from three different places.
+
+### Changed (breaking)
 
 - **PDF text extraction was replaced.** One parse now produces everything PageWise needs from a document — per-page Markdown, a chapter outline, hyperlinks and figure boxes — instead of pulling text, page counts and bookmarks from three places. Measured against the previous extractor on a 117-page textbook: 39% more text recovered, and 1.33s → 0.49s to open.
 - **Tables keep their columns.** A financial table's cells used to arrive run together — `1,284` and `1,141` extracted as `1,2841,141` — which reads as one number that is wrong, with nothing on screen to suggest it. Page text is now Markdown, so the table survives into the answer.
