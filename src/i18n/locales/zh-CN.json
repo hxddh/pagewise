@@ -229,7 +229,8 @@
     "unscannedPages": "本文档有 1 页尚无文字，搜索和读取都够不到它。",
     "unscannedPages_plural": "本文档有 {{count}} 页尚无文字，搜索和读取都够不到它们。",
     "dismissScanHint": "忽略",
-    "usageScanCalls": "扫页调用"
+    "usageScanCalls": "扫页调用",
+    "activityFigure": "正在查看第 {{page}} 页的图…"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

@@ -1009,6 +1009,93 @@ export async function renderPageToJpegBytes(
 
 
 /**
+ * Largest page canvas we will paint to crop a figure out of.
+ *
+ * A small figure would otherwise demand an enormous page render to reach the
+ * target resolution — a 20pt logo at 1568px means painting the page at 78×.
+ */
+const MAX_CROP_PAGE_EDGE = 4096;
+
+/**
+ * Render just one region of a page as JPEG bytes.
+ *
+ * Used to send a figure to the vision model on its own, instead of the whole
+ * page with the figure somewhere in it. `rect` is in PDF points with a
+ * bottom-left origin, as `DocumentModel.figures` reports it; both corners go
+ * through the viewport transform so a rotated page crops the right area.
+ */
+export async function renderRegionToJpegBytes(
+  path: string,
+  pageNumber: number,
+  rect: PdfRect,
+  maxEdge = 1568,
+  quality = 0.85,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  throwIfAborted(signal);
+  const doc = await getPdfDocument(path);
+  throwIfAborted(signal);
+  const page = await doc.getPage(pageNumber);
+
+  const base = page.getViewport({ scale: 1 });
+  const regionEdge = Math.max(rect.width, rect.height);
+  if (regionEdge <= 0) throw new Error("Figure has no area to render");
+  const pageEdge = Math.max(base.width, base.height);
+  const scale = Math.min(
+    maxEdge / regionEdge,
+    MAX_CROP_PAGE_EDGE / Math.max(pageEdge, 1),
+  );
+
+  const viewport = page.getViewport({ scale });
+  const [ax, ay] = viewport.convertToViewportPoint(rect.x, rect.y);
+  const [bx, by] = viewport.convertToViewportPoint(
+    rect.x + rect.width,
+    rect.y + rect.height,
+  );
+  const sx = Math.max(0, Math.min(ax, bx));
+  const sy = Math.max(0, Math.min(ay, by));
+  const sw = Math.min(Math.abs(bx - ax), viewport.width - sx);
+  const sh = Math.min(Math.abs(by - ay), viewport.height - sy);
+  if (sw < 1 || sh < 1) throw new Error("Figure lies outside the page");
+
+  const pageCanvas = document.createElement("canvas");
+  const paint = await paintPage(page, scale, "performance", pageCanvas, "print");
+  throwIfAborted(signal);
+  if (paint.cancelled) {
+    throw new DOMException("Page render cancelled", "AbortError");
+  }
+
+  // paintPage may paint at a device-pixel multiple of the CSS size; crop in the
+  // canvas's own pixels rather than assuming they match viewport units.
+  const pixelRatio = pageCanvas.width / viewport.width;
+  const crop = document.createElement("canvas");
+  crop.width = Math.max(1, Math.round(sw * pixelRatio));
+  crop.height = Math.max(1, Math.round(sh * pixelRatio));
+  const ctx = crop.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+  ctx.drawImage(
+    pageCanvas,
+    sx * pixelRatio,
+    sy * pixelRatio,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    crop.width,
+    crop.height,
+  );
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    crop.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+      "image/jpeg",
+      quality,
+    );
+  });
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+/**
  * What is needed to turn a point on screen into a point on the PDF page.
  *
  * `convertToPdfPoint` carries the page's intrinsic rotation, so callers must

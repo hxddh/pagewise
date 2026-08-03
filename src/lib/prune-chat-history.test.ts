@@ -90,3 +90,27 @@ describe("sanitizeDanglingToolParts", () => {
     expect(part && "state" in part && part.state).toBe("output-available");
   });
 });
+
+describe("read_figure output", () => {
+  it("survives pruning, because regenerating it costs another billed call", () => {
+    const description = "A bar chart comparing revenue across three quarters.";
+    const messages = [
+      {
+        id: "1",
+        role: "assistant" as const,
+        parts: [
+          {
+            type: "tool-read_figure" as const,
+            toolCallId: "c1",
+            state: "output-available" as const,
+            input: { page: 4 },
+            output: { page: 4, figureIndex: 1, figureCount: 2, description },
+          },
+        ],
+      },
+    ];
+    const pruned = pruneToolOutputsForHistory(messages as never);
+    const part = (pruned[0]!.parts[0] as { output: { description: string } }).output;
+    expect(part.description).toBe(description);
+  });
+});
