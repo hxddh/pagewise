@@ -37,7 +37,8 @@ import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { describeFigure, figuresOnPage } from "./read-figure";
 import { findSectionIndex, sectionRange } from "./section-range";
-import { usableOutline } from "./outline-nav";
+import { preferAuthoredOutline, usableOutline } from "./outline-nav";
+import type { DocHeading } from "./types";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
 import { coerceNumericToolInput, normalizeRangeInput } from "./agent-tool-repair";
 import {
@@ -267,6 +268,149 @@ const UNINDEXED_NOTE =
  */
 const MAX_OUTLINE_PAGE_STATS = 200;
 
+/**
+ * Read a page range, honouring every rule a page read has to honour.
+ *
+ * Both `read_pdf_range` and `read_section` come through here. A section is a
+ * page range once its heading is resolved, and giving it its own reader would
+ * mean a second implementation of vision indexing, the scan allowance, offset
+ * continuation and indexing-failure reporting — four things that must not
+ * disagree between two tools.
+ */
+/**
+ * The section list the model is shown, and the one it is answered against.
+ *
+ * `document_outline` prefers a PDF's authored bookmarks and falls back to the
+ * headings recovered from the page text. `read_section` has to resolve titles
+ * against the same list: a model quoting a bookmark title would otherwise be
+ * told no such section exists, on exactly the well-structured documents where
+ * bookmarks are present.
+ */
+async function resolveOutline(doc: LoadedDocument, path: string): Promise<DocHeading[]> {
+  const authored = doc.kind === "pdf" ? await getPdfOutline(path) : [];
+  const usableAuthored = usableOutline(
+    authored.filter((b): b is { title: string; page: number; level: number } => b.page !== null),
+    doc.totalPages,
+  );
+  return preferAuthoredOutline(usableAuthored, usableOutline(doc.outline, doc.totalPages));
+}
+
+async function readPageRange(
+  path: string,
+  doc: LoadedDocument,
+  args: { start: number; end: number; offset: number; maxChars: number },
+  budget: ReadBudget,
+  runGen: number,
+  chargeBudget: (runGen: number, chars: number) => void,
+) {
+  const { start, end, offset, maxChars } = args;
+        const from = start;
+        const to = end;
+        assertPageInBounds(doc, from);
+
+        const requestedEnd = to;
+        const pageLimit = doc.totalPages > 0 ? Math.min(to, doc.totalPages) : to;
+        const rangeClamped = doc.totalPages > 0 && to > doc.totalPages;
+
+        const parts: string[] = [];
+        let charCount = 0;
+        let lastPage = from;
+        let truncated = false;
+        let nextStart: number | null = null;
+        let nextOffset: number | null = null;
+        let budgetExceeded = false;
+        let scanLimitReached = false;
+        const failedPages: number[] = [];
+        const unscannedPages: number[] = [];
+
+        for (let page = from; page <= pageLimit; page++) {
+          if (budget.used >= budget.max) {
+            truncated = true;
+            nextStart = page;
+            nextOffset = page === from ? offset : 0;
+            budgetExceeded = true;
+            break;
+          }
+
+          const { text, indexFailure, scanLimit } = await readPageText(path, page, budget);
+          // The allowance is gone: keep walking the range so already-indexed
+          // pages further in are still returned, but record what was skipped
+          // instead of letting it read as "these pages are blank".
+          if (scanLimit) {
+            scanLimitReached = true;
+            unscannedPages.push(page);
+            continue;
+          }
+          // Record pages that couldn't be indexed so the model doesn't read
+          // their absence as "empty page".
+          if (!text && indexFailure) failedPages.push(page);
+          const pageOffset = page === from ? Math.min(offset, text.length) : 0;
+          const remainingText = text.slice(pageOffset);
+          const header = `--- Page ${page}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
+          const separator = parts.length > 0 ? 2 : 0;
+
+          const maxRoom = maxChars - charCount - separator - header.length;
+          const budgetRoom = budget.max - budget.used - separator - header.length;
+          const room = Math.min(maxRoom, budgetRoom);
+          const limitedByBudget = budgetRoom <= maxRoom;
+
+          if (room <= 0) {
+            truncated = true;
+            nextStart = page;
+            nextOffset = pageOffset;
+            budgetExceeded = limitedByBudget;
+            break;
+          }
+
+          if (remainingText.length > room) {
+            const slice = remainingText.slice(0, room);
+            parts.push(header + slice);
+            charCount += separator + header.length + slice.length;
+            chargeBudget(runGen, slice.length);
+            lastPage = page;
+            truncated = true;
+            nextStart = page;
+            nextOffset = pageOffset + slice.length;
+            budgetExceeded = limitedByBudget;
+            break;
+          }
+
+          parts.push(header + remainingText);
+          charCount += separator + header.length + remainingText.length;
+          chargeBudget(runGen, remainingText.length);
+          lastPage = page;
+        }
+
+        return {
+          text: parts.join("\n\n"),
+          truncated,
+          nextStart,
+          nextOffset,
+          startPage: from,
+          endPage: lastPage,
+          requestedEnd,
+          actualEnd: pageLimit,
+          rangeClamped,
+          charCount,
+          ...(failedPages.length > 0
+            ? {
+                indexingFailedPages: compressPageRanges(failedPages),
+                indexingFailedNote:
+                  "These pages could not be indexed (missing key / vision error / timeout) — " +
+                  "their absence is not evidence they are blank; tell the user indexing failed.",
+              }
+            : {}),
+          ...(scanLimitReached
+            ? {
+                scanLimitReached: true,
+                unscannedPages: compressPageRanges(unscannedPages),
+                scanLimitNote: SCAN_LIMIT_NOTE,
+              }
+            : {}),
+          ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
+        };
+}
+
 function createDocumentTools(budget: ReadBudget) {
   // Charge chars to the run's budget — unless the charging tool belongs to an
   // earlier aborted run (stale generation), so it can't drain the new run.
@@ -313,8 +457,7 @@ function createDocumentTools(budget: ReadBudget) {
           // authoritative when the PDF carries them; most do not, and for those
           // the headings recovered from the page text are the only structure
           // there is. Image documents have neither.
-          const authored = doc.kind === "pdf" ? await getPdfOutline(path) : [];
-          const bookmarks = authored.length > 0 ? authored : (doc.outline ?? []);
+          const bookmarks = await resolveOutline(doc, path);
           const statsOmitted = Math.max(0, allStats.length - MAX_OUTLINE_PAGE_STATS);
           const result = {
             totalPages: doc.totalPages || pages.length,
@@ -526,111 +669,14 @@ function createDocumentTools(budget: ReadBudget) {
               `start page ${start} is out of range: "${doc.name}" has ${doc.totalPages} page(s).`,
             );
           }
-          const from = start;
-          const to = end;
-          assertPageInBounds(doc, from);
-
-          const requestedEnd = to;
-          const pageLimit = doc.totalPages > 0 ? Math.min(to, doc.totalPages) : to;
-          const rangeClamped = doc.totalPages > 0 && to > doc.totalPages;
-
-          const parts: string[] = [];
-          let charCount = 0;
-          let lastPage = from;
-          let truncated = false;
-          let nextStart: number | null = null;
-          let nextOffset: number | null = null;
-          let budgetExceeded = false;
-          let scanLimitReached = false;
-          const failedPages: number[] = [];
-          const unscannedPages: number[] = [];
-
-          for (let page = from; page <= pageLimit; page++) {
-            if (budget.used >= budget.max) {
-              truncated = true;
-              nextStart = page;
-              nextOffset = page === from ? offset : 0;
-              budgetExceeded = true;
-              break;
-            }
-
-            const { text, indexFailure, scanLimit } = await readPageText(path, page, budget);
-            // The allowance is gone: keep walking the range so already-indexed
-            // pages further in are still returned, but record what was skipped
-            // instead of letting it read as "these pages are blank".
-            if (scanLimit) {
-              scanLimitReached = true;
-              unscannedPages.push(page);
-              continue;
-            }
-            // Record pages that couldn't be indexed so the model doesn't read
-            // their absence as "empty page".
-            if (!text && indexFailure) failedPages.push(page);
-            const pageOffset = page === from ? Math.min(offset, text.length) : 0;
-            const remainingText = text.slice(pageOffset);
-            const header = `--- Page ${page}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
-            const separator = parts.length > 0 ? 2 : 0;
-
-            const maxRoom = maxChars - charCount - separator - header.length;
-            const budgetRoom = budget.max - budget.used - separator - header.length;
-            const room = Math.min(maxRoom, budgetRoom);
-            const limitedByBudget = budgetRoom <= maxRoom;
-
-            if (room <= 0) {
-              truncated = true;
-              nextStart = page;
-              nextOffset = pageOffset;
-              budgetExceeded = limitedByBudget;
-              break;
-            }
-
-            if (remainingText.length > room) {
-              const slice = remainingText.slice(0, room);
-              parts.push(header + slice);
-              charCount += separator + header.length + slice.length;
-              chargeBudget(runGen, slice.length);
-              lastPage = page;
-              truncated = true;
-              nextStart = page;
-              nextOffset = pageOffset + slice.length;
-              budgetExceeded = limitedByBudget;
-              break;
-            }
-
-            parts.push(header + remainingText);
-            charCount += separator + header.length + remainingText.length;
-            chargeBudget(runGen, remainingText.length);
-            lastPage = page;
-          }
-
-          return {
-            text: parts.join("\n\n"),
-            truncated,
-            nextStart,
-            nextOffset,
-            startPage: from,
-            endPage: lastPage,
-            requestedEnd,
-            actualEnd: pageLimit,
-            rangeClamped,
-            charCount,
-            ...(failedPages.length > 0
-              ? {
-                  indexingFailedPages: compressPageRanges(failedPages),
-                  indexingFailedNote:
-                    "These pages could not be indexed (missing key / vision error / timeout) — " +
-                    "their absence is not evidence they are blank; tell the user indexing failed.",
-                }
-              : {}),
-            ...(scanLimitReached
-              ? {
-                  scanLimitReached: true,
-                  unscannedPages: compressPageRanges(unscannedPages),
-                  scanLimitNote: SCAN_LIMIT_NOTE,
-                }
-              : {}),
-            ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
-          };
+          return readPageRange(
+            path,
+            doc,
+            { start, end, offset, maxChars },
+            budget,
+            runGen,
+            chargeBudget,
+          );
         },
       ),
     }),
@@ -638,12 +684,20 @@ function createDocumentTools(budget: ReadBudget) {
     read_section: tool({
       description:
         "Read a whole section by its heading, instead of guessing which pages it " +
-        "spans. Take the heading from document_outline. Section boundaries come " +
-        "from headings recovered from the page text, so on a document whose " +
-        "headings are not visually distinct they may be approximate — fall back to " +
-        "read_pdf_range when the result looks wrong.",
+        "spans. Take the heading from document_outline. Continue exactly as with " +
+        "read_pdf_range when truncated=true: nextStart/nextOffset say where to " +
+        "resume. Section boundaries come from the document's own bookmarks when it " +
+        "has them, otherwise from headings recovered from the page text, which on " +
+        "a document whose headings are not visually distinct can be approximate — " +
+        "fall back to read_pdf_range when the result looks wrong.",
       inputSchema: z.object({
         title: z.string().min(1).describe("Heading text, as document_outline reported it"),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Character offset into the first page to resume from (a previous nextOffset)"),
         maxChars: z
           .number()
           .int()
@@ -661,16 +715,14 @@ function createDocumentTools(budget: ReadBudget) {
         }),
         "read",
         () => budget.gen,
-        async ({ title, maxChars = DEFAULT_RANGE_MAX_CHARS }, options, runGen) => {
+        async ({ title, offset = 0, maxChars = DEFAULT_RANGE_MAX_CHARS }, options, runGen) => {
           const path = resolvePathInput(undefined, options);
           const doc = requireLoadedDoc(path);
           if (budget.used >= budget.max) {
             return { budgetExceeded: true, note: BUDGET_NOTE };
           }
 
-          // Same filter the sidebar uses: an entry with no title or a page
-          // outside the document cannot be read.
-          const outline = usableOutline(doc.outline, doc.totalPages);
+          const outline = await resolveOutline(doc, path);
           const index = findSectionIndex(outline, title);
           const range = sectionRange(outline, index, doc.totalPages);
           if (!range) {
@@ -682,32 +734,18 @@ function createDocumentTools(budget: ReadBudget) {
             };
           }
 
-          const pages = docCache.getPages(path);
-          let text = "";
-          let lastPage = range.startPage;
-          for (let p = range.startPage; p <= range.endPage; p++) {
-            const pageText = pages.find((x) => x.page === p)?.text ?? "";
-            if (text.length + pageText.length > maxChars && text.length > 0) break;
-            if (pageText) text += (text ? "\n\n" : "") + pageText;
-            lastPage = p;
-          }
-          const truncated = lastPage < range.endPage;
-
-          const result = {
-            title: range.title,
-            startPage: range.startPage,
-            endPage: range.endPage,
-            readThroughPage: lastPage,
-            text: text.slice(0, maxChars),
-            truncated,
-            ...(truncated
-              ? {
-                  note: `Section continues past page ${lastPage}; read pages ${lastPage + 1}–${range.endPage} to finish it.`,
-                }
-              : {}),
-          };
-          chargeBudget(runGen, JSON.stringify(result).length);
-          return result;
+          // A resolved section is a page range, and a page range already has one
+          // correct reader — including vision indexing for pages with no text
+          // layer, the scan allowance, and offset continuation.
+          const read = await readPageRange(
+            path,
+            doc,
+            { start: range.startPage, end: range.endPage, offset, maxChars },
+            budget,
+            runGen,
+            chargeBudget,
+          );
+          return { section: range.title, ...read };
         },
       ),
     }),

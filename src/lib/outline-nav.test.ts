@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeHeadingIndex, usableOutline } from "./outline-nav";
+import { activeHeadingIndex, preferAuthoredOutline, usableOutline } from "./outline-nav";
 import type { DocHeading } from "./types";
 
 const outline: DocHeading[] = [
@@ -57,5 +57,24 @@ describe("usableOutline", () => {
 
   it("treats a document with no outline as empty rather than throwing", () => {
     expect(usableOutline(undefined, 10)).toEqual([]);
+  });
+});
+
+describe("preferAuthoredOutline", () => {
+  const authored: DocHeading[] = [{ title: "Chapter One", page: 3, level: 1 }];
+  const synthesized: DocHeading[] = [{ title: "1 Chapter One", page: 3, level: 1 }];
+
+  it("uses the document's own bookmarks when it has them", () => {
+    // The model is shown these titles; a section read must resolve against the
+    // same list or its own quote comes back as "no such section".
+    expect(preferAuthoredOutline(authored, synthesized)).toBe(authored);
+  });
+
+  it("falls back to recovered headings when there are no bookmarks", () => {
+    expect(preferAuthoredOutline([], synthesized)).toBe(synthesized);
+  });
+
+  it("yields nothing when the document has neither", () => {
+    expect(preferAuthoredOutline([], [])).toEqual([]);
   });
 });

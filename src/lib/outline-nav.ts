@@ -39,3 +39,19 @@ export function usableOutline(
       (totalPages <= 0 || h.page <= totalPages),
   );
 }
+
+/**
+ * Which section list wins: the document's own bookmarks, or the headings
+ * recovered from its text?
+ *
+ * Authored bookmarks are the document's own answer and are preferred whenever
+ * it has usable ones. Every consumer must apply this same rule — a model shown
+ * bookmark titles and answered against synthesized ones is told its own quote
+ * does not exist.
+ */
+export function preferAuthoredOutline(
+  authored: DocHeading[],
+  synthesized: DocHeading[],
+): DocHeading[] {
+  return authored.length > 0 ? authored : synthesized;
+}
