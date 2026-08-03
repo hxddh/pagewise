@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-08-03
+
+4.0 collapsed document parsing into a single call, but half of what that produced had no consumer: the outline was used only by the assistant, links and figure boxes were parsed and then ignored. This release adds no parsing — it connects what was already there.
+
+### Added
+
+- **Chapter navigation for documents with no bookmarks.** Most PDFs carry none, which left the thumbnail strip as the only way through a long document. The sidebar gains an outline tab, shown when the document has headings; the section you are in is highlighted and follows you.
+- **Search results show where the hit is.** Clicking a result used to jump to page 42 and leave you to find the phrase. The hit is now marked on the page. The box covers the line rather than the exact characters — the extractor reports text runs, not glyph positions — and a phrase broken across two lines is not marked at all rather than marked in the wrong place.
+- **The links inside a PDF are clickable.** Links outside the app's scheme allowlist are not drawn at all, and following one asks first and shows where it goes: a document's URLs are untrusted input.
+- **`read_figure`** — the assistant can look at a single figure instead of sending the whole page to the vision model. Figures are ordered by size, decorative images under 24pt are skipped, and each call draws on the same per-question scan allowance as reading an unreadable page.
+
+### Removed
+
+- The `image` and `tempfile` crates, which had no references left in the Rust source.
+
 ## [4.0.0] - 2026-08-03
 
 The document pipeline was replaced. Opening a PDF parses it once and produces everything the app needs from it — per-page Markdown, a chapter outline, hyperlinks and figure boxes — instead of pulling text, page counts and bookmarks from three different places.

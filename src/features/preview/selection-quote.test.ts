@@ -8,7 +8,9 @@ const PAGE_H = 842;
 /** An upright page: the viewport only flips y to reach PDF user space. */
 const upright: PageGeometry = {
   viewportWidth: PAGE_W,
+  viewportHeight: PAGE_H,
   toPdfPoint: (x, y) => [x, PAGE_H - y],
+  toViewportPoint: (x, y) => [x, PAGE_H - y],
   view: [0, 0, PAGE_W, PAGE_H],
 };
 
@@ -18,7 +20,9 @@ const upright: PageGeometry = {
  */
 const rotated90: PageGeometry = {
   viewportWidth: PAGE_H,
+  viewportHeight: PAGE_W,
   toPdfPoint: (x, y) => [y, x],
+  toViewportPoint: (x, y) => [y, x],
   view: [0, 0, PAGE_W, PAGE_H],
 };
 
@@ -93,7 +97,9 @@ describe("clientRectToPageRect", () => {
   it("offsets by a page box whose origin is not zero", () => {
     const shifted: PageGeometry = {
       viewportWidth: PAGE_W,
+      viewportHeight: PAGE_H,
       toPdfPoint: (x, y) => [x + 20, PAGE_H + 10 - y],
+      toViewportPoint: (x, y) => [x - 20, PAGE_H + 10 - y],
       view: [20, 10, PAGE_W + 20, PAGE_H + 10],
     };
     const rect = clientRectToPageRect(

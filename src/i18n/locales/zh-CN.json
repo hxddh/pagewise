@@ -117,7 +117,11 @@
     "scanAllConfirm": "扫描这 1 个尚无文字的页面？这是一次计费的扫页模型调用，之后会被缓存。",
     "scanAllConfirm_plural": "扫描这 {{count}} 个尚无文字的页面？这是 {{count}} 次计费的扫页模型调用，之后会被缓存。",
     "scanAllUsed": "本次会话中，该文档已使用 {{used}} 次扫页调用。",
-    "scanAllAction": "开始扫描"
+    "scanAllAction": "开始扫描",
+    "outline": "大纲",
+    "outlineEmpty": "未找到标题",
+    "openLinkConfirm": "在浏览器中打开 {{url}}？",
+    "openLinkAction": "打开链接"
   },
   "drop": {
     "title": "拖放以打开",
@@ -225,7 +229,8 @@
     "unscannedPages": "本文档有 1 页尚无文字，搜索和读取都够不到它。",
     "unscannedPages_plural": "本文档有 {{count}} 页尚无文字，搜索和读取都够不到它们。",
     "dismissScanHint": "忽略",
-    "usageScanCalls": "扫页调用"
+    "usageScanCalls": "扫页调用",
+    "activityFigure": "正在查看第 {{page}} 页的图…"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

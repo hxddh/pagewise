@@ -1,4 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { ConfirmOverlay } from "../../components/overlays/ConfirmOverlay";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
@@ -10,9 +12,14 @@ import { indexPageInBackground } from "../../document/index-queue";
 import { usePdfViewer } from "./usePdfViewer";
 import { useAskSelection } from "./useAskSelection";
 import { selectionQuote } from "./selection-quote";
+import { SearchHighlight } from "./SearchHighlight";
+import { LinkLayer } from "./LinkLayer";
+import { displayUrl } from "../../lib/safe-link";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
+import { OutlineSidebar } from "../../components/OutlineSidebar";
+import { usableOutline } from "../../lib/outline-nav";
 import { DocumentSearch } from "../../components/DocumentSearch";
 
 interface PreviewPaneProps {
@@ -34,6 +41,13 @@ function PreviewPaneInner({
 }: PreviewPaneProps) {
   const { t } = useI18n();
   const [thumbsVisible, setThumbsVisible] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
+  // What the reader searched for when they jumped here, so the hit can be
+  // marked on the page. Cleared as soon as they navigate away from it.
+  const [searchHit, setSearchHit] = useState<{ page: number; query: string } | null>(null);
+  // A link the reader clicked, held until they confirm. Document URLs are
+  // untrusted input, so nothing opens the browser on its own.
+  const [pendingLink, setPendingLink] = useState<string | null>(null);
 
   const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision });
   // Bumped whenever the view changes or this pane goes away, so an in-flight
@@ -241,6 +255,17 @@ function PreviewPaneInner({
               className={`pdf-text-layer${viewer.textLayerActive ? " pdf-text-layer-active" : ""}`}
               aria-hidden={!viewer.textLayerActive}
             />
+            {searchHit?.page === page && (
+              <SearchHighlight path={doc.path} page={page} query={searchHit.query} />
+            )}
+            {doc.links && doc.links.length > 0 && (
+              <LinkLayer
+                path={doc.path}
+                page={page}
+                links={doc.links}
+                onActivate={setPendingLink}
+              />
+            )}
           </>
         ) : (
           <img src={convertFileSrc(doc.path)} alt={doc.name} className="preview-image" />
@@ -268,7 +293,13 @@ function PreviewPaneInner({
   if (doc.kind === "image") {
     return (
       <div className="preview-panel">
-        <DocumentSearch doc={doc} onJumpToPage={onPageChange} />
+        <DocumentSearch
+        doc={doc}
+        onJumpToPage={(target, query) => {
+          onPageChange(target);
+          setSearchHit(query ? { page: target, query } : null);
+        }}
+      />
         {toolbar}
         <div
           className="preview-canvas-wrap image-wrap preview-focusable"
@@ -282,20 +313,63 @@ function PreviewPaneInner({
     );
   }
 
+  // Recovered from the page text when the document was opened; a document with
+  // no headings simply has no tab to switch to.
+  const outline = usableOutline(doc.outline, doc.totalPages);
+  const showOutline = sidebarTab === "outline" && outline.length > 0;
+  const sidebarTabs = (
+    <div className="sidebar-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={!showOutline}
+        className={`sidebar-tab ${!showOutline ? "active" : ""}`}
+        onClick={() => setSidebarTab("pages")}
+      >
+        {t("preview.pages")}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={showOutline}
+        className={`sidebar-tab ${showOutline ? "active" : ""}`}
+        onClick={() => setSidebarTab("outline")}
+      >
+        {t("preview.outline")}
+      </button>
+    </div>
+  );
+
   return (
     <div className="preview-panel preview-with-thumbs">
-      <DocumentSearch doc={doc} onJumpToPage={onPageChange} />
+      <DocumentSearch
+        doc={doc}
+        onJumpToPage={(target, query) => {
+          onPageChange(target);
+          setSearchHit(query ? { page: target, query } : null);
+        }}
+      />
 
-      {thumbsVisible && (
-        <ThumbnailSidebar
-          path={doc.path}
-          totalPages={doc.totalPages}
-          currentPage={page}
-          collapsed={false}
-          onToggle={() => setThumbsVisible(false)}
-          onPageSelect={onPageChange}
-        />
-      )}
+      {thumbsVisible &&
+        (showOutline ? (
+          <OutlineSidebar
+            outline={outline}
+            currentPage={page}
+            tabs={sidebarTabs}
+            onClose={() => setThumbsVisible(false)}
+            onPageSelect={onPageChange}
+          />
+        ) : (
+          <ThumbnailSidebar
+            path={doc.path}
+            totalPages={doc.totalPages}
+            currentPage={page}
+            collapsed={false}
+            tabs={outline.length > 0 ? sidebarTabs : undefined}
+            onToggle={() => setThumbsVisible(false)}
+            onPageSelect={onPageChange}
+          />
+        ))}
 
       <div className="preview-main">
         {toolbar}
@@ -309,6 +383,18 @@ function PreviewPaneInner({
         </div>
       </div>
       {askButton}
+
+      <ConfirmOverlay
+        open={pendingLink !== null}
+        message={t("preview.openLinkConfirm", { url: displayUrl(pendingLink ?? "") })}
+        confirmLabel={t("preview.openLinkAction")}
+        onConfirm={() => {
+          const url = pendingLink;
+          setPendingLink(null);
+          if (url) void openUrl(url);
+        }}
+        onCancel={() => setPendingLink(null)}
+      />
     </div>
   );
 }

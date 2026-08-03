@@ -35,6 +35,7 @@ import {
 } from "../document/index-queue";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
+import { describeFigure, figuresOnPage } from "./read-figure";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
 import { coerceNumericToolInput, normalizeRangeInput } from "./agent-tool-repair";
 import {
@@ -632,6 +633,74 @@ function createDocumentTools(budget: ReadBudget) {
       ),
     }),
 
+    read_figure: tool({
+      description:
+        "Look at a figure, chart or diagram on a page and describe it. Figures are " +
+        "numbered from 1 in order of size on that page; omit index for the largest. " +
+        "Use this when a page's text refers to something the text alone does not " +
+        "convey. Each call sends one image to the vision model and is billed.",
+      inputSchema: z.object({
+        page: z.number().int().min(1),
+        index: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Which figure on the page, largest first (default 1)"),
+      }),
+      contextSchema: docToolContextSchema,
+      execute: bindToolExecute(
+        ({ page }) => ({
+          message: `Looking at the figure on page ${page}…`,
+          key: "agent.activityFigure",
+          params: { page },
+        }),
+        "index",
+        () => budget.gen,
+        async ({ page, index = 1 }, options, runGen) => {
+          const path = resolvePathInput(undefined, options);
+          const doc = requireLoadedDoc(path);
+          assertPageInBounds(doc, page);
+          if (budget.used >= budget.max) {
+            return { budgetExceeded: true, note: BUDGET_NOTE };
+          }
+
+          const figures = figuresOnPage(doc.figures, page);
+          if (figures.length === 0) {
+            return {
+              page,
+              figureCount: 0,
+              note: "This page has no embedded figure to look at. Its content is in the page text.",
+            };
+          }
+          const figure = figures[index - 1];
+          if (!figure) {
+            return {
+              page,
+              figureCount: figures.length,
+              note: `Page ${page} has ${figures.length} figure(s); index ${index} is out of range.`,
+            };
+          }
+
+          // A figure costs a billed vision call, so it draws on the same
+          // per-question allowance as scanning an unreadable page.
+          if (budget.scans >= budget.maxScans) {
+            return { page, scanLimitReached: true, note: SCAN_LIMIT_NOTE };
+          }
+          budget.scans += 1;
+
+          const signal = getAgentRunAbortSignal();
+          throwIfAborted(signal);
+          const description = await describeFigure(path, page, figure, signal);
+          throwIfAborted(signal);
+
+          const result = { page, figureIndex: index, figureCount: figures.length, description };
+          chargeBudget(runGen, JSON.stringify(result).length);
+          return result;
+        },
+      ),
+    }),
+
     search_in_document: tool({
       description:
         "Search for a keyword or phrase in the active document. Returns up to " +
@@ -742,6 +811,7 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
     read_pdf_page: docCtx,
     read_pdf_range: docCtx,
     search_in_document: docCtx,
+    read_figure: docCtx,
   };
 }
 

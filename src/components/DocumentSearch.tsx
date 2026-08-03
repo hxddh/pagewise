@@ -16,7 +16,7 @@ import {
 
 interface DocumentSearchProps {
   doc: LoadedDocument;
-  onJumpToPage: (page: number) => void;
+  onJumpToPage: (page: number, query?: string) => void;
 }
 
 export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
@@ -156,7 +156,9 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
                         type="button"
                         className="doc-search-hit"
                         onClick={() => {
-                          onJumpToPage(hit.page);
+                          // The query travels with the jump so the page can
+                          // show where the hit is, not just which page it is on.
+                          onJumpToPage(hit.page, query);
                           setOpen(false);
                           setQuery("");
                         }}

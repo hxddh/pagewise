@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use inspect::{DocumentModel, Rect, RegionText};
+use inspect::{DocumentModel, Rect, RegionText, TextItemRect};
 use tauri::{Manager, State};
 
 #[derive(Default)]
@@ -109,6 +109,23 @@ async fn open_document_cmd(
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
     tauri::async_runtime::spawn_blocking(move || {
         run_blocking_pdf(|| inspect::open_document(&canon_str))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
+}
+
+/// Every text run on one page, with its position — used to point at a search
+/// hit on the rendered page.
+#[tauri::command]
+async fn page_text_items_cmd(
+    path: String,
+    page: u32,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<Vec<TextItemRect>, String> {
+    let canon = ensure_allowed(&allowed, &path)?;
+    let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        run_blocking_pdf(|| inspect::page_text_items(&canon_str, page))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -304,6 +321,7 @@ pub fn run() {
             file_stamp_cmd,
             open_document_cmd,
             extract_region_cmd,
+            page_text_items_cmd,
             read_file_bytes,
             write_text_file,
             secrets::set_api_key,

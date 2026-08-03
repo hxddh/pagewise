@@ -117,7 +117,11 @@
     "scanAllConfirm": "Scan the 1 page that has no text yet? It is one billed call to the scan model, cached afterwards.",
     "scanAllConfirm_plural": "Scan the {{count}} pages that have no text yet? That is {{count}} billed calls to the scan model, cached afterwards.",
     "scanAllUsed": "This document has used {{used}} scan calls so far this session.",
-    "scanAllAction": "Scan pages"
+    "scanAllAction": "Scan pages",
+    "outline": "Outline",
+    "outlineEmpty": "No headings found",
+    "openLinkConfirm": "Open {{url}} in your browser?",
+    "openLinkAction": "Open link"
   },
   "drop": {
     "title": "Drop to open",
@@ -225,7 +229,8 @@
     "unscannedPages": "1 page in this document has no text yet, so search and reading can't reach it.",
     "unscannedPages_plural": "{{count}} pages in this document have no text yet, so search and reading can't reach them.",
     "dismissScanHint": "Dismiss",
-    "usageScanCalls": "Scan calls"
+    "usageScanCalls": "Scan calls",
+    "activityFigure": "Looking at the figure on page {{page}}…"
   },
   "empty": {
     "lead": "Ask questions about your document",

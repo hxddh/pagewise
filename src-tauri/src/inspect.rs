@@ -26,13 +26,14 @@
 //! rect, which is what a viewport selection already is — so that path needs no
 //! conversion at all.
 
-use pdf_inspector::extractor::extract_text_with_positions;
+use pdf_inspector::extractor::{extract_text_with_positions, extract_text_with_positions_pages};
 use pdf_inspector::types::ItemType;
 use pdf_inspector::{
     detect_pdf, extract_pages_markdown, extract_tables_in_regions_mem,
     extract_text_in_regions_mem, PdfType,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// Above this page count the positions pass (links/figures) is skipped.
 ///
@@ -111,6 +112,18 @@ pub struct DocumentModel {
     pub outline: Vec<Heading>,
     pub links: Vec<Link>,
     pub figures: Vec<Figure>,
+}
+
+/// One run of text on a page, with where it sits.
+///
+/// Granularity is a line or text run, not a character — upstream reports no
+/// per-glyph advances — so a caller can point at the line a phrase is on, not
+/// at the phrase itself.
+#[derive(Debug, Clone, Serialize)]
+pub struct TextItemRect {
+    pub text: String,
+    /// Bottom-left origin. See module docs.
+    pub rect: Rect,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -394,6 +407,33 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
     })
 }
 
+/// Every text run on one page, with its position.
+///
+/// Fetched per page rather than carried in [`DocumentModel`]: a 117-page
+/// document holds some 23,000 runs, which is a heavy thing to pay for on every
+/// open in service of a feature used occasionally.
+pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, String> {
+    if page == 0 {
+        return Err("page must be 1-based".to_string());
+    }
+    // This filter is 1-based, unlike the region API's 0-based page index.
+    let filter: HashSet<u32> = HashSet::from([page]);
+    let items = extract_text_with_positions_pages(path, Some(&filter)).map_err(map_err)?;
+    Ok(items
+        .into_iter()
+        .filter(|item| matches!(item.item_type, ItemType::Text) && !item.text.trim().is_empty())
+        .map(|item| TextItemRect {
+            text: item.text,
+            rect: Rect {
+                x: item.x,
+                y: item.y,
+                width: item.width,
+                height: item.height,
+            },
+        })
+        .collect())
+}
+
 /// Read one rectangle of one page — the text under a selection.
 ///
 /// `rect` uses a **top-left** origin in PDF points, which is what a pdf.js
@@ -559,6 +599,27 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("1-based"));
+    }
+
+    #[test]
+    fn page_text_items_carry_geometry_for_the_requested_page() {
+        let items = page_text_items(&fixture("cjk-table.pdf"), 1).expect("items");
+        assert!(!items.is_empty());
+        assert!(items.iter().all(|i| i.rect.width > 0.0 && i.rect.height > 0.0));
+        // A table cell is its own run, which is what makes a hit locatable.
+        assert!(items.iter().any(|i| i.text.contains("1,284")));
+    }
+
+    #[test]
+    fn page_text_items_rejects_a_zero_page() {
+        let err = page_text_items(&fixture("cjk-table.pdf"), 0).unwrap_err();
+        assert!(err.contains("1-based"));
+    }
+
+    #[test]
+    fn page_text_items_is_empty_past_the_end_rather_than_failing() {
+        let items = page_text_items(&fixture("cjk-table.pdf"), 99).expect("items");
+        assert!(items.is_empty());
     }
 
     #[test]
