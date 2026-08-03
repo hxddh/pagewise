@@ -55,16 +55,25 @@ class DocCache {
    * document object so React state consumers re-render when background
    * vision indexing lands.
    */
-  upsertPageText(path: string, page: number, text: string): void {
+  upsertPageText(
+    path: string,
+    page: number,
+    text: string,
+    source: "native" | "vision" = "native",
+  ): void {
     const doc = this.docs.get(path);
     if (!doc) return;
 
-    const existing = doc.pages.find((p) => p.page === page)?.text ?? "";
-    const merged = pickBetterPageText(existing, text);
-    const exists = doc.pages.some((p) => p.page === page);
+    const prev = doc.pages.find((p) => p.page === page);
+    const merged = pickBetterPageText(prev?.text ?? "", text, prev?.source, source);
+    // Provenance follows the text that won, so a later merge still knows which
+    // side cost money.
+    const mergedSource = prev && merged === prev.text ? prev.source : source;
+    const exists = prev !== undefined;
+    const next: PageText = { page, text: merged, source: mergedSource };
     const nextPages: PageText[] = exists
-      ? doc.pages.map((p) => (p.page === page ? { page, text: merged } : p))
-      : [...doc.pages, { page, text: merged }];
+      ? doc.pages.map((p) => (p.page === page ? next : p))
+      : [...doc.pages, next];
     nextPages.sort((a, b) => a.page - b.page);
 
     const nextDoc: LoadedDocument = { ...doc, pages: nextPages };
@@ -86,7 +95,7 @@ class DocCache {
       if (!pageSet && p.text.trim().length < MIN_INDEX_CHARS) return p;
       if (p.text.trim().length === 0) return p;
       changed = true;
-      return { page: p.page, text: "" };
+      return { page: p.page, text: "", source: undefined };
     });
     if (!changed) return;
     this.docs.set(path, { ...doc, pages: nextPages });

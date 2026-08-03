@@ -44,11 +44,54 @@ export interface LlmSettings {
 export interface PageText {
   page: number;
   text: string;
+  /**
+   * Where the text came from. Vision text was paid for per page; native text is
+   * free to recompute on every open. Merges must never let the free one win.
+   */
+  source?: "native" | "vision";
 }
 
-export interface PdfExtractResult {
-  pages: PageText[];
-  total_pages: number;
+/** A rectangle in PDF points. Bottom-left origin, as the Rust side documents. */
+export interface PdfRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface DocHeading {
+  title: string;
+  page: number;
+  level: number;
+}
+
+export interface DocLink {
+  page: number;
+  text: string;
+  url: string;
+  rect: PdfRect;
+}
+
+export interface DocFigure {
+  page: number;
+  rect: PdfRect;
+}
+
+/** Everything one parse of a PDF yields. Mirrors `inspect::DocumentModel`. */
+export interface DocumentModel {
+  page_count: number;
+  pdf_type: string;
+  confidence: number;
+  title: string | null;
+  pages: { page: number; text: string; needs_vision: boolean; has_table: boolean }[];
+  outline: DocHeading[];
+  links: DocLink[];
+  figures: DocFigure[];
+}
+
+export interface RegionText {
+  text: string;
+  table: string | null;
 }
 
 export interface LoadedDocument {
@@ -62,6 +105,14 @@ export interface LoadedDocument {
    * index; empty/absent means the index cache is bypassed for this document.
    */
   stamp?: string;
+  /** Chapter headings recovered from the text, for documents without bookmarks. */
+  outline?: DocHeading[];
+  links?: DocLink[];
+  figures?: DocFigure[];
+  /** `text_based` | `scanned` | `image_based` | `mixed` | `unknown`. */
+  pdfType?: string;
+  /** Pages whose text contains a table. */
+  tablePages?: number[];
 }
 
 export const DEFAULT_SETTINGS: LlmSettings = {

@@ -1,5 +1,5 @@
 import { throwIfAborted } from "./abort-utils";
-import { extractPageText, getPdfOutline } from "./pdf";
+import { getPdfOutline } from "./pdf";
 import {
   ToolLoopAgent,
   stepCountIs,
@@ -34,7 +34,7 @@ import {
   getAgentScanCap,
 } from "../document/index-queue";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
-import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
+import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
 import { coerceNumericToolInput, normalizeRangeInput } from "./agent-tool-repair";
 import {
@@ -140,29 +140,17 @@ async function readPageText(path: string, page: number, budget?: ReadBudget) {
   const signal = getAgentRunAbortSignal();
   throwIfAborted(signal);
 
-  const doc = docCache.get(path);
-  const kind = doc?.kind ?? (path.split(".").pop()?.toLowerCase() === "pdf" ? "pdf" : "image");
-
   const cached = docCache.getPages(path).find((p) => p.page === page);
   if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
     return { page, text: cached.text, source: "cache" as const };
   }
 
+  // Opening the document extracted every page it could, so a page still empty
+  // here has no text layer to re-read — only a vision call can produce one.
   emitAgentProgress(`Indexing page ${page}…`, "index", {
     key: "agent.activityIndexPage",
     params: { page },
   });
-
-  if (kind === "pdf") {
-    throwIfAborted(signal);
-    const text = await extractPageText(path, page, signal);
-    throwIfAborted(signal);
-    if (text.trim().length >= MIN_INDEX_CHARS) {
-      const merged = pickBetterPageText(cached?.text ?? "", text);
-      docCache.upsertPageText(path, page, merged);
-      return { page, text: merged, source: "pdf-text" as const };
-    }
-  }
 
   // Reaching here means the page has no usable text and only a (billed) vision
   // call can produce any — so this is the point where the run's scan allowance
@@ -317,10 +305,13 @@ function createDocumentTools(budget: ReadBudget) {
           const unindexedPages = pages
             .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
             .map((p) => p.page);
-          // Native bookmark/section tree, so the agent can jump by section
-          // ("summarize chapter 3") instead of scanning per-page previews.
-          // Image documents have no pdf.js outline — don't parse them as PDFs.
-          const bookmarks = doc.kind === "pdf" ? await getPdfOutline(path) : [];
+          // A section tree so the agent can jump by section ("summarize chapter
+          // 3") instead of scanning per-page previews. Authored bookmarks are
+          // authoritative when the PDF carries them; most do not, and for those
+          // the headings recovered from the page text are the only structure
+          // there is. Image documents have neither.
+          const authored = doc.kind === "pdf" ? await getPdfOutline(path) : [];
+          const bookmarks = authored.length > 0 ? authored : (doc.outline ?? []);
           const statsOmitted = Math.max(0, allStats.length - MAX_OUTLINE_PAGE_STATS);
           const result = {
             totalPages: doc.totalPages || pages.length,
@@ -338,6 +329,9 @@ function createDocumentTools(budget: ReadBudget) {
                 }
               : {}),
             ...(bookmarks.length > 0 ? { bookmarks } : {}),
+            // Tables must be read whole — a reflowed table merges neighbouring
+            // numbers into one wrong number.
+            ...(doc.tablePages?.length ? { pagesWithTables: compressPageRanges(doc.tablePages) } : {}),
             ...(unindexedPages.length > 0
               ? {
                   unindexedPageCount: unindexedPages.length,

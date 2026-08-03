@@ -1,5 +1,5 @@
 import { docCache } from "./doc-cache";
-import { extractPdfFromRust } from "./pdf";
+import { openDocument } from "./pdf";
 import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
@@ -70,13 +70,13 @@ export async function loadDocument(
 
   if (kind === "pdf") {
     report(onProgress, { stage: "extracting", message: "load.extracting", percent: 20 });
-    const extracted = await extractPdfFromRust(path, signal);
+    const model = await openDocument(path, signal);
     throwIfAborted(signal);
 
     report(onProgress, {
       stage: "extracting",
       message: "load.extractedPages",
-      messageParams: { count: extracted.total_pages },
+      messageParams: { count: model.page_count },
       percent: 55,
     });
 
@@ -84,9 +84,14 @@ export async function loadDocument(
       path,
       name,
       kind: "pdf",
-      pages: extracted.pages,
-      totalPages: extracted.total_pages,
+      pages: model.pages.map((p) => ({ page: p.page, text: p.text, source: "native" as const })),
+      totalPages: model.page_count,
       stamp,
+      outline: model.outline,
+      links: model.links,
+      figures: model.figures,
+      pdfType: model.pdf_type,
+      tablePages: model.pages.filter((p) => p.has_table).map((p) => p.page),
     };
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });

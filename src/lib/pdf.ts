@@ -8,7 +8,7 @@ import {
   type PDFDocumentProxy,
 } from "./pdf-loader";
 import type { PreviewQuality } from "./types";
-import type { PdfExtractResult } from "./types";
+import type { DocumentModel, PdfRect, RegionText } from "./types";
 import { raceWithAbort, throwIfAborted } from "./abort-utils";
 import { ensureProviderCompatibleImage } from "./image-transcode";
 import { isTauriRuntime } from "./runtime";
@@ -325,94 +325,49 @@ async function drainQueue(): Promise<void> {
   }
 }
 
-export function isPdfExtractCancelledError(err: unknown): boolean {
-  // Accept both Error and raw string rejections: Tauri rejects invoke() with a
-  // plain string, and not every path is guaranteed to have gone through the
-  // Error-normalizing invokeCmd wrapper.
-  const msg = err instanceof Error ? err.message : typeof err === "string" ? err : "";
-  return /cancelled/i.test(msg);
-}
 
-export type PdfExtractScope = "load" | "agent";
-
-/** Bump the Rust PDF extract generation for one scope (load vs agent tools). */
-export async function cancelPdfExtract(scope: PdfExtractScope = "load"): Promise<void> {
-  if (!isTauriRuntime()) return;
-  await invoke("cancel_pdf_extract_cmd", { scope });
-}
-
-async function invokePdfExtract<T>(
-  run: () => Promise<T>,
+/**
+ * Parse a document once. Everything downstream reads the returned model — text,
+ * outline, links and figure boxes — so a PDF is interpreted in exactly one
+ * place.
+ *
+ * There is no cancellation: the extractor offers no cancel token, so an
+ * in-flight parse always runs to completion. A superseded load is discarded by
+ * the caller instead, which is what `AbortSignal` means here.
+ */
+export async function openDocument(
+  path: string,
   signal?: AbortSignal,
-  scope: PdfExtractScope = "agent",
-): Promise<T> {
-  if (!signal) return run();
+): Promise<DocumentModel> {
+  const run = invokeCmd<DocumentModel>("open_document_cmd", { path });
+  if (!signal) return run;
   throwIfAborted(signal);
-  const onAbort = () => {
-    void cancelPdfExtract(scope);
-  };
-  signal.addEventListener("abort", onAbort, { once: true });
-  try {
-    try {
-      return await raceWithAbort(run(), signal);
-    } catch (err) {
-      // A prior run's fire-and-forget scope-cancel bump can land AFTER this
-      // fresh request captured its generation (Tauri gives no cross-command
-      // ordering), so a brand-new extract can spuriously return "cancelled"
-      // even though WE never aborted. Retry once — the generation has settled.
-      if (!signal.aborted && isPdfExtractCancelledError(err)) {
-        throwIfAborted(signal);
-        return await raceWithAbort(run(), signal);
-      }
-      throw err;
-    }
-  } catch (err) {
-    if (signal.aborted || isPdfExtractCancelledError(err)) {
-      throw new DOMException("Operation aborted", "AbortError");
-    }
-    throw err;
-  } finally {
-    signal.removeEventListener("abort", onAbort);
-  }
+  return raceWithAbort(run, signal);
 }
 
-export async function extractPdfFromRust(
+/**
+ * Read the text under a selection rectangle.
+ *
+ * `rect` is in PDF points with a **top-left** origin — which is exactly what a
+ * pdf.js viewport rectangle already is, so a selection needs no conversion.
+ */
+export async function extractRegion(
   path: string,
-  signal?: AbortSignal,
-): Promise<PdfExtractResult> {
-  return invokePdfExtract(
-    () =>
-      invokeCmd<PdfExtractResult>("extract_pdf_text_cmd", {
-        path,
-        page: null,
-        scope: "load",
-      }),
-    signal,
-    "load",
-  );
+  page: number,
+  rect: PdfRect,
+): Promise<RegionText> {
+  return invokeCmd<RegionText>("extract_region_cmd", { path, page, rect });
 }
 
-export async function extractPageTextFromRust(
-  path: string,
-  pageNumber: number,
-  signal?: AbortSignal,
-): Promise<string> {
-  const result = await invokePdfExtract(
-    () =>
-      invokeCmd<PdfExtractResult>("extract_pdf_text_cmd", {
-        path,
-        page: pageNumber,
-        scope: "agent",
-      }),
-    signal,
-    "agent",
-  );
-  return result.pages[0]?.text?.trim() ?? "";
+/**
+ * Flip a rect the Rust side reported in PDF's bottom-left origin into the
+ * top-left origin the viewport uses. Link and figure boxes arrive that way
+ * because page height is not reachable from the extractor.
+ */
+export function pdfRectToTopLeft(rect: PdfRect, pageHeight: number): PdfRect {
+  return { ...rect, y: pageHeight - rect.y - rect.height };
 }
 
-// `read_file_bytes` now returns raw bytes via tauri::ipc::Response, which the
-// webview receives as an ArrayBuffer (or Uint8Array). Older/other callers may
-// still hand back a number[] — accept all forms so every path keeps working.
 function coerceInvokeBytes(raw: unknown): Uint8Array {
   if (raw instanceof Uint8Array) return raw;
   if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
@@ -551,39 +506,6 @@ export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
   } finally {
     inFlightDocs.delete(path);
   }
-}
-
-export async function getPdfPageCount(path: string, signal?: AbortSignal): Promise<number> {
-  if (pdfDocCache?.path === path) return pdfDocCache.doc.numPages;
-  return invokePdfExtract(
-    () => invoke<number>("pdf_page_count_cmd", { path, scope: "load" }),
-    signal,
-    "load",
-  );
-}
-
-/** Extract plain text for one page — Rust pdf-extract (reliable in Tauri). */
-export async function extractPageText(
-  path: string,
-  pageNumber: number,
-  signal?: AbortSignal,
-): Promise<string> {
-  return extractPageTextFromRust(path, pageNumber, signal);
-}
-
-/** Background-fill sparse page texts after open. */
-export async function extractAllPageTexts(
-  path: string,
-  onPage?: (page: number, text: string) => void,
-): Promise<{ page: number; text: string }[]> {
-  const doc = await getPdfDocument(path);
-  const out: { page: number; text: string }[] = [];
-  for (let p = 1; p <= doc.numPages; p++) {
-    const text = await extractPageText(path, p);
-    out.push({ page: p, text });
-    onPage?.(p, text);
-  }
-  return out;
 }
 
 async function paintPage(
@@ -961,7 +883,6 @@ export function clearPdfCache(): void {
   renderEpoch += 1;
   pdfDocEpoch += 1;
   bumpFileReadGeneration();
-  void cancelPdfExtract("load");
   for (const item of renderQueue) item.cancel();
   renderQueue.length = 0;
   for (const paint of activePaints) paint.cancel();

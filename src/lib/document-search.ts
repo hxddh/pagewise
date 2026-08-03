@@ -1,3 +1,4 @@
+import { markdownToPlainText } from "./markdown-text";
 import type { PageText } from "./types";
 
 export interface SearchHit {
@@ -42,6 +43,9 @@ export function searchDocumentPages(
   query: string,
   limit = 80,
 ): SearchHit[] {
+  // Page text is Markdown; searching it raw would miss a table cell whose row
+  // reads `|1,284|1,141|` and would quote the pipes back at the user.
+  pages = pages.map((p) => ({ ...p, text: markdownToPlainText(p.text) }));
   const rawQuery = query.trim();
   if (!rawQuery) return [];
 
