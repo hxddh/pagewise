@@ -105,6 +105,8 @@ export interface LoadedDocument {
    * index; empty/absent means the index cache is bypassed for this document.
    */
   stamp?: string;
+  /** Title from the PDF's metadata, when it has one. */
+  title?: string;
   /** Chapter headings recovered from the text, for documents without bookmarks. */
   outline?: DocHeading[];
   links?: DocLink[];

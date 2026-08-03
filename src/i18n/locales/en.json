@@ -394,6 +394,7 @@
     "prevPage": "Previous page",
     "nextPage": "Next page",
     "exportChat": "Export chat as Markdown",
+    "exportDocument": "Export document as Markdown",
     "exportSummary": "Export summary as Markdown",
     "clearChat": "Clear chat",
     "stopGen": "Stop generation",
@@ -410,6 +411,7 @@
   },
   "toast": {
     "chatExported": "Chat exported",
+    "documentExported": "Document exported",
     "summaryExported": "Summary exported",
     "exportSummaryProgress": "Generating summary…",
     "noMessages": "No messages to export",

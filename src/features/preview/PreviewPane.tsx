@@ -9,6 +9,7 @@ import { isRasterHeavyPage } from "../../lib/pdf";
 import { indexPageInBackground } from "../../document/index-queue";
 import { usePdfViewer } from "./usePdfViewer";
 import { useAskSelection } from "./useAskSelection";
+import { selectionQuote } from "./selection-quote";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
@@ -49,9 +50,13 @@ function PreviewPaneInner({
         // Keep the selection alive through the click.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          onAskAboutSelection(askSel.text);
+          const box = viewer.textLayerRef.current?.getBoundingClientRect() ?? null;
+          const selectionRect = askSel.rect;
           clearAskSel();
           window.getSelection()?.removeAllRanges();
+          void selectionQuote(doc.path, page, askSel.text, selectionRect, box).then(
+            onAskAboutSelection,
+          );
         }}
       >
         {t("preview.askAboutSelection")}

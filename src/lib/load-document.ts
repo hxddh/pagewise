@@ -87,6 +87,7 @@ export async function loadDocument(
       pages: model.pages.map((p) => ({ page: p.page, text: p.text, source: "native" as const })),
       totalPages: model.page_count,
       stamp,
+      title: model.title ?? undefined,
       outline: model.outline,
       links: model.links,
       figures: model.figures,

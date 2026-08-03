@@ -5,6 +5,8 @@ export interface AskSelection {
   /** Viewport px: horizontal center and top of the selection rect. */
   x: number;
   y: number;
+  /** The selection's box in viewport px, for re-reading the region it covers. */
+  rect: { left: number; top: number; width: number; height: number };
 }
 
 const MAX_QUOTE = 500;
@@ -47,6 +49,7 @@ export function useAskSelection<T extends HTMLElement>(
         text: text.length > MAX_QUOTE ? `${text.slice(0, MAX_QUOTE)}…` : text,
         x: rect.left + rect.width / 2,
         y: rect.top,
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       });
     };
     // selectionchange fires rapidly during a drag; coalesce to one rAF.
