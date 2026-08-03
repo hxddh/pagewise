@@ -107,8 +107,8 @@
     "pageRange": "第 {{page}}–{{pageEnd}} 页",
     "pageTitle": "第 {{page}} 页",
     "pages": "页面",
-    "thumbnailsShow": "显示缩略图",
     "thumbnailsHide": "隐藏缩略图",
+    "thumbnailsShow": "显示缩略图",
     "renderFailed": "页面渲染失败",
     "closeSearch": "关闭搜索",
     "more": "更多",
@@ -230,7 +230,8 @@
     "unscannedPages_plural": "本文档有 {{count}} 页尚无文字，搜索和读取都够不到它们。",
     "dismissScanHint": "忽略",
     "usageScanCalls": "扫页调用",
-    "activityFigure": "正在查看第 {{page}} 页的图…"
+    "activityFigure": "正在查看第 {{page}} 页的图…",
+    "activityReadSection": "正在读取「{{title}}」…"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

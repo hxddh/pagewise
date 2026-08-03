@@ -80,8 +80,6 @@ export interface DocFigure {
 /** Everything one parse of a PDF yields. Mirrors `inspect::DocumentModel`. */
 export interface DocumentModel {
   page_count: number;
-  pdf_type: string;
-  confidence: number;
   title: string | null;
   pages: { page: number; text: string; needs_vision: boolean; has_table: boolean }[];
   outline: DocHeading[];
@@ -117,8 +115,6 @@ export interface LoadedDocument {
   outline?: DocHeading[];
   links?: DocLink[];
   figures?: DocFigure[];
-  /** `text_based` | `scanned` | `image_based` | `mixed` | `unknown`. */
-  pdfType?: string;
   /** Pages whose text contains a table. */
   tablePages?: number[];
 }

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { renderThumbnail } from "../lib/pdf";
@@ -10,7 +10,6 @@ interface ThumbnailSidebarProps {
   path: string;
   totalPages: number;
   currentPage: number;
-  collapsed: boolean;
   /** Replaces the header label so the sidebars can switch in place. */
   tabs?: React.ReactNode;
   onToggle: () => void;
@@ -88,7 +87,6 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   path,
   totalPages,
   currentPage,
-  collapsed,
   tabs,
   onToggle,
   onPageSelect,
@@ -129,7 +127,6 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   // active thumbnail can be outside the rendered window and never gets revealed.
   // Scroll it into view and recompute the range so it renders.
   useEffect(() => {
-    if (collapsed) return;
     const el = listRef.current;
     if (!el) return;
     const rowTop = (currentPage - 1) * THUMB_ROW_HEIGHT;
@@ -138,21 +135,7 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
       el.scrollTop = Math.max(0, rowTop - el.clientHeight / 2 + THUMB_ROW_HEIGHT / 2);
       updateRange();
     }
-  }, [currentPage, collapsed, updateRange]);
-
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        className="thumb-collapse-rail"
-        onClick={onToggle}
-        title={t("preview.thumbnailsShow")}
-        aria-label={t("preview.thumbnailsShow")}
-      >
-        <ChevronRight size={14} />
-      </button>
-    );
-  }
+  }, [currentPage, updateRange]);
 
   const pages: number[] = [];
   for (let p = range.start; p <= range.end; p++) pages.push(p);

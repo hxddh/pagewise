@@ -36,6 +36,8 @@ import {
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { describeFigure, figuresOnPage } from "./read-figure";
+import { findSectionIndex, sectionRange } from "./section-range";
+import { usableOutline } from "./outline-nav";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
 import { coerceNumericToolInput, normalizeRangeInput } from "./agent-tool-repair";
 import {
@@ -633,6 +635,83 @@ function createDocumentTools(budget: ReadBudget) {
       ),
     }),
 
+    read_section: tool({
+      description:
+        "Read a whole section by its heading, instead of guessing which pages it " +
+        "spans. Take the heading from document_outline. Section boundaries come " +
+        "from headings recovered from the page text, so on a document whose " +
+        "headings are not visually distinct they may be approximate — fall back to " +
+        "read_pdf_range when the result looks wrong.",
+      inputSchema: z.object({
+        title: z.string().min(1).describe("Heading text, as document_outline reported it"),
+        maxChars: z
+          .number()
+          .int()
+          .min(2000)
+          .max(50_000)
+          .optional()
+          .describe(`Max characters to return (default ${DEFAULT_RANGE_MAX_CHARS})`),
+      }),
+      contextSchema: docToolContextSchema,
+      execute: bindToolExecute(
+        ({ title }) => ({
+          message: `Reading section “${title}”…`,
+          key: "agent.activityReadSection",
+          params: { title },
+        }),
+        "read",
+        () => budget.gen,
+        async ({ title, maxChars = DEFAULT_RANGE_MAX_CHARS }, options, runGen) => {
+          const path = resolvePathInput(undefined, options);
+          const doc = requireLoadedDoc(path);
+          if (budget.used >= budget.max) {
+            return { budgetExceeded: true, note: BUDGET_NOTE };
+          }
+
+          // Same filter the sidebar uses: an entry with no title or a page
+          // outside the document cannot be read.
+          const outline = usableOutline(doc.outline, doc.totalPages);
+          const index = findSectionIndex(outline, title);
+          const range = sectionRange(outline, index, doc.totalPages);
+          if (!range) {
+            return {
+              note:
+                outline.length === 0
+                  ? "This document has no section headings; read by page range instead."
+                  : `No section matches "${title}". Call document_outline for the headings that exist.`,
+            };
+          }
+
+          const pages = docCache.getPages(path);
+          let text = "";
+          let lastPage = range.startPage;
+          for (let p = range.startPage; p <= range.endPage; p++) {
+            const pageText = pages.find((x) => x.page === p)?.text ?? "";
+            if (text.length + pageText.length > maxChars && text.length > 0) break;
+            if (pageText) text += (text ? "\n\n" : "") + pageText;
+            lastPage = p;
+          }
+          const truncated = lastPage < range.endPage;
+
+          const result = {
+            title: range.title,
+            startPage: range.startPage,
+            endPage: range.endPage,
+            readThroughPage: lastPage,
+            text: text.slice(0, maxChars),
+            truncated,
+            ...(truncated
+              ? {
+                  note: `Section continues past page ${lastPage}; read pages ${lastPage + 1}–${range.endPage} to finish it.`,
+                }
+              : {}),
+          };
+          chargeBudget(runGen, JSON.stringify(result).length);
+          return result;
+        },
+      ),
+    }),
+
     read_figure: tool({
       description:
         "Look at a figure, chart or diagram on a page and describe it. Figures are " +
@@ -812,6 +891,7 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
     read_pdf_range: docCtx,
     search_in_document: docCtx,
     read_figure: docCtx,
+    read_section: docCtx,
   };
 }
 

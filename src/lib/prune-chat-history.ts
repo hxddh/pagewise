@@ -4,6 +4,7 @@ import {
   PRUNE_DOCUMENT_TOOLS,
   READ_PDF_PAGE_TOOL,
   READ_PDF_RANGE_TOOL,
+  READ_SECTION_TOOL,
   SEARCH_IN_DOCUMENT_TOOL,
   type DocumentToolName,
 } from "./document-tool-names";
@@ -159,6 +160,14 @@ function compactToolOutput(
         : null;
     const hits = hitList ? hitList.length : textLength(output);
     return `[Search "${q.slice(0, 40)}", ${hits} hits — omitted from chat history]`;
+  }
+
+  if (name === READ_SECTION_TOOL) {
+    // Free to recover — the section is page text already in the cache — so
+    // pruning it costs nothing but the tokens it was taking up.
+    const title = typeof inp.title === "string" ? inp.title : "section";
+    const chars = textLength(output);
+    return `[Read section "${title.slice(0, 60)}", ${chars} chars — omitted from chat history]`;
   }
 
   if (name === DOCUMENT_OUTLINE_TOOL) {

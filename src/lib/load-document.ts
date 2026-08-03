@@ -91,7 +91,6 @@ export async function loadDocument(
       outline: model.outline,
       links: model.links,
       figures: model.figures,
-      pdfType: model.pdf_type,
       tablePages: model.pages.filter((p) => p.has_table).map((p) => p.page),
     };
   } else {

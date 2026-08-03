@@ -107,8 +107,8 @@
     "pageRange": "pp. {{page}}–{{pageEnd}}",
     "pageTitle": "Page {{page}}",
     "pages": "Pages",
-    "thumbnailsShow": "Show thumbnails",
     "thumbnailsHide": "Hide thumbnails",
+    "thumbnailsShow": "Show thumbnails",
     "renderFailed": "Failed to render page",
     "closeSearch": "Close search",
     "more": "More",
@@ -230,7 +230,8 @@
     "unscannedPages_plural": "{{count}} pages in this document have no text yet, so search and reading can't reach them.",
     "dismissScanHint": "Dismiss",
     "usageScanCalls": "Scan calls",
-    "activityFigure": "Looking at the figure on page {{page}}…"
+    "activityFigure": "Looking at the figure on page {{page}}…",
+    "activityReadSection": "Reading section “{{title}}”…"
   },
   "empty": {
     "lead": "Ask questions about your document",
