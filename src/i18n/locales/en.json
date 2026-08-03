@@ -119,7 +119,9 @@
     "scanAllUsed": "This document has used {{used}} scan calls so far this session.",
     "scanAllAction": "Scan pages",
     "outline": "Outline",
-    "outlineEmpty": "No headings found"
+    "outlineEmpty": "No headings found",
+    "openLinkConfirm": "Open {{url}} in your browser?",
+    "openLinkAction": "Open link"
   },
   "drop": {
     "title": "Drop to open",

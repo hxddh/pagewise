@@ -370,15 +370,6 @@ export async function pageTextItems(
   return invokeCmd<TextItemRect[]>("page_text_items_cmd", { path, page });
 }
 
-/**
- * Flip a rect the Rust side reported in PDF's bottom-left origin into the
- * top-left origin the viewport uses. Link and figure boxes arrive that way
- * because page height is not reachable from the extractor.
- */
-export function pdfRectToTopLeft(rect: PdfRect, pageHeight: number): PdfRect {
-  return { ...rect, y: pageHeight - rect.y - rect.height };
-}
-
 function coerceInvokeBytes(raw: unknown): Uint8Array {
   if (raw instanceof Uint8Array) return raw;
   if (raw instanceof ArrayBuffer) return new Uint8Array(raw);

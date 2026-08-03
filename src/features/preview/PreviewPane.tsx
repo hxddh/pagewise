@@ -1,4 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { ConfirmOverlay } from "../../components/overlays/ConfirmOverlay";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
@@ -11,6 +13,8 @@ import { usePdfViewer } from "./usePdfViewer";
 import { useAskSelection } from "./useAskSelection";
 import { selectionQuote } from "./selection-quote";
 import { SearchHighlight } from "./SearchHighlight";
+import { LinkLayer } from "./LinkLayer";
+import { displayUrl } from "../../lib/safe-link";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
@@ -41,6 +45,9 @@ function PreviewPaneInner({
   // What the reader searched for when they jumped here, so the hit can be
   // marked on the page. Cleared as soon as they navigate away from it.
   const [searchHit, setSearchHit] = useState<{ page: number; query: string } | null>(null);
+  // A link the reader clicked, held until they confirm. Document URLs are
+  // untrusted input, so nothing opens the browser on its own.
+  const [pendingLink, setPendingLink] = useState<string | null>(null);
 
   const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision });
   // Bumped whenever the view changes or this pane goes away, so an in-flight
@@ -251,6 +258,14 @@ function PreviewPaneInner({
             {searchHit?.page === page && (
               <SearchHighlight path={doc.path} page={page} query={searchHit.query} />
             )}
+            {doc.links && doc.links.length > 0 && (
+              <LinkLayer
+                path={doc.path}
+                page={page}
+                links={doc.links}
+                onActivate={setPendingLink}
+              />
+            )}
           </>
         ) : (
           <img src={convertFileSrc(doc.path)} alt={doc.name} className="preview-image" />
@@ -368,6 +383,18 @@ function PreviewPaneInner({
         </div>
       </div>
       {askButton}
+
+      <ConfirmOverlay
+        open={pendingLink !== null}
+        message={t("preview.openLinkConfirm", { url: displayUrl(pendingLink ?? "") })}
+        confirmLabel={t("preview.openLinkAction")}
+        onConfirm={() => {
+          const url = pendingLink;
+          setPendingLink(null);
+          if (url) void openUrl(url);
+        }}
+        onCancel={() => setPendingLink(null)}
+      />
     </div>
   );
 }

