@@ -338,8 +338,12 @@ async function drainQueue(): Promise<void> {
 export async function openDocument(
   path: string,
   signal?: AbortSignal,
+  password?: string,
 ): Promise<DocumentModel> {
-  const run = invokeCmd<DocumentModel>("open_document_cmd", { path });
+  const run = invokeCmd<DocumentModel>("open_document_cmd", {
+    path,
+    password: password ?? null,
+  });
   if (!signal) return run;
   throwIfAborted(signal);
   return raceWithAbort(run, signal);
@@ -351,6 +355,15 @@ export async function openDocument(
  * `rect` is in PDF points with a **top-left** origin — which is exactly what a
  * pdf.js viewport rectangle already is, so a selection needs no conversion.
  */
+/** The Rust side reports this verbatim when a document needs a password. */
+export const ERR_ENCRYPTED = "PDF_ENCRYPTED";
+
+/** Does this load failure mean "locked", as opposed to "broken"? */
+export function isEncryptedPdfError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  return msg.trim() === ERR_ENCRYPTED;
+}
+
 export async function extractRegion(
   path: string,
   page: number,

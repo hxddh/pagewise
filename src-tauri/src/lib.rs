@@ -103,12 +103,13 @@ async fn file_stamp_cmd(path: String, allowed: State<'_, AllowedPaths>) -> Resul
 #[tauri::command]
 async fn open_document_cmd(
     path: String,
+    password: Option<String>,
     allowed: State<'_, AllowedPaths>,
 ) -> Result<DocumentModel, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        run_blocking_pdf(|| inspect::open_document(&canon_str))
+        run_blocking_pdf(|| inspect::open_document(&canon_str, password.as_deref()))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?

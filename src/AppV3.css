@@ -760,3 +760,36 @@
   min-height: 40px;
   max-height: 200px;
 }
+
+/* Password prompt: the confirm bar stacked, with a field between message and
+   actions. */
+.confirm-bar.password-prompt {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.password-prompt .password-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.password-prompt .password-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.password-prompt .password-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.password-prompt .confirm-bar-actions {
+  justify-content: flex-end;
+}

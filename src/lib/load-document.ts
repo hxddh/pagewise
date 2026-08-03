@@ -34,6 +34,8 @@ export function inferDocumentKind(path: string): "pdf" | "image" {
 export interface LoadDocumentOptions {
   /** When true, build the document without touching docCache or the index queue. */
   deferCache?: boolean;
+  /** Supplied only after a first attempt reported the document as encrypted. */
+  password?: string;
 }
 
 /** Commit a staged document after chat hydration succeeds. */
@@ -70,7 +72,7 @@ export async function loadDocument(
 
   if (kind === "pdf") {
     report(onProgress, { stage: "extracting", message: "load.extracting", percent: 20 });
-    const model = await openDocument(path, signal);
+    const model = await openDocument(path, signal, options?.password);
     throwIfAborted(signal);
 
     report(onProgress, {

@@ -9,7 +9,12 @@
   },
   "dialog": {
     "documentsFilter": "Documents",
-    "markdownFilter": "Markdown"
+    "markdownFilter": "Markdown",
+    "passwordTitle": "“{{name}}” is password-protected.",
+    "passwordLabel": "PDF password",
+    "passwordHint": "Used once to open this document. It is not saved.",
+    "passwordWrong": "That password did not work. Try again.",
+    "passwordOpen": "Open"
   },
   "llm": {
     "apiKeyRequired": "API key is required",
