@@ -4,6 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-08-03
+
+### Added
+
+- **`read_section`** — the assistant can read a chapter by its heading instead of converting the outline it was just given back into page numbers and guessing where the section ends. A heading owns everything up to the next heading at its level or shallower, so a subsection no longer cuts its parent short. Boundaries come from headings recovered from the page text, so on a document whose headings are not visually distinct they can be approximate; reading by page range is still there for that.
+
+### Fixed
+
+- **A search hit could appear not to highlight.** Text runs with no width — 75 of 23,107 in one test document — produced an invisible box. They are now skipped at the source.
+- **A heading pointing past the end of a document produced a page range over pages that do not exist.** Such an entry cannot describe a section, so it now yields nothing rather than an invented range.
+
+### Removed
+
+- The thumbnail sidebar's collapse rail, which could never render: its only caller passed `collapsed={false}`.
+- `pdfType` and `confidence` from the data sent to the interface. Both remain in use inside the Rust side, where they decide whether a scan skips text extraction; one was assigned and never read, the other was sent and dropped.
+
 ## [4.1.0] - 2026-08-03
 
 4.0 collapsed document parsing into a single call, but half of what that produced had no consumer: the outline was used only by the assistant, links and figure boxes were parsed and then ignored. This release adds no parsing — it connects what was already there.

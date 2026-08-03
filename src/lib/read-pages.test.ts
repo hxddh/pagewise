@@ -83,3 +83,32 @@ describe("collectReadPages", () => {
     ).toEqual([]);
   });
 });
+
+describe("collectReadPages with read_section", () => {
+  it("counts the pages a section read covered", () => {
+    // A section read grounds an answer exactly as a range read does.
+    const parts = [
+      {
+        type: "tool-read_section" as const,
+        toolCallId: "s1",
+        state: "output-available" as const,
+        input: { title: "1.2 Metrische Räume" },
+        output: { section: "1.2 Metrische Räume", startPage: 10, endPage: 12, text: "…" },
+      },
+    ];
+    expect(collectReadPages(parts as never)).toEqual([10, 11, 12]);
+  });
+
+  it("claims nothing when the section could not be resolved", () => {
+    const parts = [
+      {
+        type: "tool-read_section" as const,
+        toolCallId: "s2",
+        state: "output-available" as const,
+        input: { title: "Nowhere" },
+        output: { note: "No section matches" },
+      },
+    ];
+    expect(collectReadPages(parts as never)).toEqual([]);
+  });
+});

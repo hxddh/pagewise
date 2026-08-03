@@ -2021,22 +2021,6 @@ button.pages-read-chip:hover {
   font-variant-numeric: tabular-nums;
 }
 
-.thumb-collapse-rail {
-  width: 20px;
-  flex-shrink: 0;
-  border: none;
-  border-right: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 10px;
-}
-
-.thumb-collapse-rail:hover {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-
 .doc-search {
   position: relative;
   display: flex;

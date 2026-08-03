@@ -364,7 +364,6 @@ function PreviewPaneInner({
             path={doc.path}
             totalPages={doc.totalPages}
             currentPage={page}
-            collapsed={false}
             tabs={outline.length > 0 ? sidebarTabs : undefined}
             onToggle={() => setThumbsVisible(false)}
             onPageSelect={onPageChange}

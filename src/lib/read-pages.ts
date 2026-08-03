@@ -1,5 +1,9 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
-import { READ_PDF_PAGE_TOOL, READ_PDF_RANGE_TOOL } from "./document-tool-names";
+import {
+  READ_PDF_PAGE_TOOL,
+  READ_PDF_RANGE_TOOL,
+  READ_SECTION_TOOL,
+} from "./document-tool-names";
 
 /** Cap range expansion so a whole-document read can't produce an unbounded list. */
 const MAX_PAGES = 300;
@@ -36,6 +40,24 @@ export function collectReadPages(parts: UIMessage["parts"] | undefined): number[
     // Cancelled / budget-refused reads never delivered text — claiming those
     // pages as "read" would overstate the answer's grounding.
     if (output !== undefined && outputShowsNothingRead(output)) continue;
+
+    // A section read is a range read with its bounds resolved from a heading,
+    // so it grounds the answer in exactly the same way and belongs in the trail.
+    if (name === READ_SECTION_TOOL && output && typeof output === "object") {
+      const o = output as { startPage?: unknown; endPage?: unknown };
+      if (
+        typeof o.startPage === "number" &&
+        typeof o.endPage === "number" &&
+        Number.isInteger(o.startPage) &&
+        Number.isInteger(o.endPage) &&
+        o.startPage >= 1 &&
+        o.endPage >= o.startPage
+      ) {
+        const end = Math.min(o.endPage, o.startPage + MAX_PAGES);
+        for (let pg = o.startPage; pg <= end && set.size < MAX_PAGES; pg++) set.add(pg);
+      }
+      continue;
+    }
 
     if (name === READ_PDF_PAGE_TOOL && typeof input.page === "number") {
       if (Number.isInteger(input.page) && input.page > 0) set.add(input.page);

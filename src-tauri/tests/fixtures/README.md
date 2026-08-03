@@ -12,4 +12,5 @@ detection, or link positions must.
 | `cjk-table.pdf` | Chromium `--print-to-pdf`, CJK + a 3×3 financial table | CJK decoding, and that table columns never run together |
 | `scanned.pdf` | Chromium `--print-to-pdf`, a single image, no text layer | scanned classification routes to vision |
 | `links-figure.pdf` | Chromium `--print-to-pdf`, two hyperlinks and one image | link URLs and figure boxes carry positions |
+| `form-fields.pdf` | hand-built AcroForm with two filled text fields | filled form values reach the page text, so the assistant can read them |
 | `damaged.pdf` | first 600 bytes of a valid PDF | a malformed file fails cleanly instead of panicking |

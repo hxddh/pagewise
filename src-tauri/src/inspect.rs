@@ -104,9 +104,6 @@ pub struct Figure {
 #[derive(Debug, Clone, Serialize)]
 pub struct DocumentModel {
     pub page_count: u32,
-    /// `text_based` | `scanned` | `image_based` | `mixed` | `unknown`.
-    pub pdf_type: String,
-    pub confidence: f32,
     pub title: Option<String>,
     pub pages: Vec<Page>,
     pub outline: Vec<Heading>,
@@ -137,19 +134,6 @@ fn map_err(e: impl std::fmt::Display) -> String {
     format!("PDF read failed: {e}")
 }
 
-fn pdf_type_name(t: &PdfType) -> &'static str {
-    // The catch-all is exhaustive today and deliberately kept: the dependency
-    // is a version range, so a variant added upstream must degrade to
-    // "unknown" rather than fail the build.
-    #[allow(unreachable_patterns)]
-    match t {
-        PdfType::TextBased => "text_based",
-        PdfType::Scanned => "scanned",
-        PdfType::ImageBased => "image_based",
-        PdfType::Mixed => "mixed",
-        _ => "unknown",
-    }
-}
 
 /// A box large enough to cover any page, for whole-page region extraction.
 const WHOLE_PAGE: [f32; 4] = [0.0, 0.0, 20_000.0, 20_000.0];
@@ -325,8 +309,6 @@ fn collect_positions(path: &str, page_count: usize) -> (Vec<Link>, Vec<Figure>) 
 /// Parse a PDF once and return everything PageWise needs from it.
 pub fn open_document(path: &str) -> Result<DocumentModel, String> {
     let detected = detect_pdf(path).map_err(map_err)?;
-    let pdf_type = pdf_type_name(&detected.pdf_type).to_string();
-    let confidence = detected.confidence;
     let title = detected
         .title
         .map(|t| t.trim().to_string())
@@ -334,7 +316,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
 
     // A confident scan has no text layer to extract. Detection costs about a
     // millisecond and saves parsing the whole document to produce blank pages.
-    if matches!(detected.pdf_type, PdfType::Scanned) && confidence >= SCANNED_CONFIDENCE {
+    if matches!(detected.pdf_type, PdfType::Scanned) && detected.confidence >= SCANNED_CONFIDENCE {
         let pages = (1..=detected.page_count)
             .map(|page| Page {
                 page,
@@ -345,8 +327,6 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
             .collect();
         return Ok(DocumentModel {
             page_count: detected.page_count,
-            pdf_type,
-            confidence,
             title,
             pages,
             outline: Vec::new(),
@@ -397,8 +377,6 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
 
     Ok(DocumentModel {
         page_count: pages.len() as u32,
-        pdf_type,
-        confidence,
         title,
         pages,
         outline,
@@ -421,7 +399,15 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
     let items = extract_text_with_positions_pages(path, Some(&filter)).map_err(map_err)?;
     Ok(items
         .into_iter()
-        .filter(|item| matches!(item.item_type, ItemType::Text) && !item.text.trim().is_empty())
+        // A run with no area cannot be pointed at: a zero-width box draws
+        // nothing, and a caller highlighting it would look broken rather than
+        // absent. Measured at 75 of 23,107 runs in a real document.
+        .filter(|item| {
+            matches!(item.item_type, ItemType::Text)
+                && !item.text.trim().is_empty()
+                && item.width > 0.0
+                && item.height > 0.0
+        })
         .map(|item| TextItemRect {
             text: item.text,
             rect: Rect {
@@ -533,7 +519,6 @@ mod tests {
     #[test]
     fn text_pdf_extracts_prose() {
         let doc = open_document(&fixture("text-simple.pdf")).expect("open");
-        assert_eq!(doc.pdf_type, "text_based");
         assert_eq!(doc.page_count, 1);
         assert!(doc.pages[0].text.contains("Lorem ipsum"));
         assert!(!doc.pages[0].needs_vision);
@@ -557,13 +542,12 @@ mod tests {
 
     #[test]
     fn scanned_pdf_routes_to_vision() {
+        // Classification is internal now, so assert on what it produces: a
+        // scan yields no text and every page routed to vision.
         let doc = open_document(&fixture("scanned.pdf")).expect("open");
-        assert!(
-            doc.pdf_type == "scanned" || doc.pdf_type == "image_based",
-            "unexpected type {}",
-            doc.pdf_type
-        );
+        assert!(doc.page_count >= 1);
         assert!(doc.pages.iter().all(|p| p.needs_vision));
+        assert!(doc.pages.iter().all(|p| p.text.is_empty()));
     }
 
     #[test]
@@ -608,6 +592,25 @@ mod tests {
         assert!(items.iter().all(|i| i.rect.width > 0.0 && i.rect.height > 0.0));
         // A table cell is its own run, which is what makes a hit locatable.
         assert!(items.iter().any(|i| i.text.contains("1,284")));
+    }
+
+    #[test]
+    fn page_text_items_skips_runs_with_no_area() {
+        // A zero-width run draws an invisible box; a caller highlighting it
+        // looks broken rather than absent. 75 of 23,107 runs in a real
+        // document have no width.
+        let items = page_text_items(&fixture("form-fields.pdf"), 1).expect("items");
+        assert!(items.iter().all(|i| i.rect.width > 0.0 && i.rect.height > 0.0));
+    }
+
+    #[test]
+    fn filled_form_values_reach_the_page_text() {
+        // Form field values arrive through the ordinary text path, so the
+        // assistant can read them with no special handling.
+        let doc = open_document(&fixture("form-fields.pdf")).expect("open");
+        let text = &doc.pages[0].text;
+        assert!(text.contains("Ada Lovelace"), "form value missing from page text");
+        assert!(text.contains("1,284.00"));
     }
 
     #[test]
