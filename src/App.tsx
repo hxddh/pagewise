@@ -110,6 +110,7 @@ function AppContent() {
     onStop: agent.stop,
     onCycleTheme: () => void cycleTheme(),
     onExportChat: () => void s.exportChat(),
+    onExportDocument: () => void s.exportDocument(),
     onScanAllPages: requestScanAll,
     canScanAllPages: unscannedPages > 0,
     showToast,

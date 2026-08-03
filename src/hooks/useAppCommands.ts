@@ -28,6 +28,7 @@ interface UseAppCommandsOptions {
   onStop: () => void;
   onCycleTheme: () => void;
   onExportChat: () => void | Promise<void>;
+  onExportDocument: () => void | Promise<void>;
   /** Prompt to send every still-unscanned page to the vision model. */
   onScanAllPages: () => void;
   /** False when the document has no pages left to scan (or none can be). */
@@ -60,6 +61,7 @@ export function useAppCommands({
   onStop,
   onCycleTheme,
   onExportChat,
+  onExportDocument,
   onScanAllPages,
   canScanAllPages,
   showToast,
@@ -71,6 +73,10 @@ export function useAppCommands({
   const exportChat = useCallback(async () => {
     await onExportChat();
   }, [onExportChat]);
+
+  const exportDocument = useCallback(async () => {
+    await onExportDocument();
+  }, [onExportDocument]);
 
   const exportSummary = useCallback(async () => {
     const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
@@ -153,6 +159,15 @@ export function useAppCommands({
         run: wrapRun("export-chat", exportChat),
       },
       {
+        id: "export-document",
+        label: t("commands.exportDocument"),
+        section: "export",
+        // The document's own text, not the conversation — available whenever a
+        // document is open, streaming or not.
+        disabled: !activeDocName,
+        run: wrapRun("export-document", exportDocument),
+      },
+      {
         id: "export-summary",
         label: t("commands.exportSummary"),
         section: "export",
@@ -214,6 +229,7 @@ export function useAppCommands({
       canScanAllPages,
       cycleLanguage,
       exportChat,
+      exportDocument,
       exportSummary,
       followAgent,
       messages.length,

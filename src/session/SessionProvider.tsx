@@ -20,6 +20,7 @@ import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { addRecentFile, getRecentFiles, removeRecentFile, removeRecentFiles, type RecentFile } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
+import { documentToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
 import { useDocAgent } from "../hooks/useDocAgent";
@@ -65,6 +66,7 @@ interface SessionContextValue {
   setSettingsOpen: (open: boolean) => void;
   clearChat: () => Promise<void>;
   exportChat: () => Promise<void>;
+  exportDocument: () => Promise<void>;
   isDragging: boolean;
 }
 
@@ -423,6 +425,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [agent.messages, showToast, t]);
 
+  const exportDocument = useCallback(async () => {
+    const doc = documentRef.current;
+    if (!doc) return;
+    const md = documentToMarkdown(doc);
+    const name = doc.name.replace(/\.[^.]+$/, "") + ".md";
+    try {
+      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
+      if (ok) showToast(t("toast.documentExported"), "success");
+    } catch {
+      showToast(t("toast.exportFailed"), "error");
+    }
+  }, [showToast, t]);
+
   const value = useMemo<SessionContextValue>(
     () => ({
       phase,
@@ -452,6 +467,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setSettingsOpen,
       clearChat,
       exportChat,
+      exportDocument,
       isDragging,
     }),
     [
@@ -475,6 +491,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       settingsOpen,
       clearChat,
       exportChat,
+      exportDocument,
       isDragging,
     ],
   );

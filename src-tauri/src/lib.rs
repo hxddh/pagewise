@@ -1,4 +1,4 @@
-mod pdf;
+mod inspect;
 mod secrets;
 
 use std::collections::HashSet;
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pdf::{extract_pdf_text, pdf_page_count, PdfCache, PdfExtractCancel, PdfExtractResult};
+use inspect::{DocumentModel, Rect, RegionText};
 use tauri::{Manager, State};
 
 #[derive(Default)]
@@ -76,11 +76,6 @@ async fn register_allowed_path(
     Ok(())
 }
 
-#[tauri::command]
-fn cancel_pdf_extract_cmd(scope: String, cancel: State<'_, PdfExtractCancel>) {
-    cancel.bump_scope(pdf::PdfExtractScope::parse(&scope));
-}
-
 /// Freshness stamp (modification time + size) for an authorized file.
 ///
 /// The frontend keys its persistent page-index cache on this, so a file that was
@@ -104,42 +99,33 @@ async fn file_stamp_cmd(path: String, allowed: State<'_, AllowedPaths>) -> Resul
     ))
 }
 
+/// Parse a document once and hand back everything the app needs from it.
 #[tauri::command]
-async fn pdf_page_count_cmd(
+async fn open_document_cmd(
     path: String,
-    scope: String,
     allowed: State<'_, AllowedPaths>,
-    cancel: State<'_, PdfExtractCancel>,
-) -> Result<u32, String> {
+) -> Result<DocumentModel, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
-    let cancel = cancel.inner().clone();
-    let pdf_scope = pdf::PdfExtractScope::parse(&scope);
-    let gen = cancel.capture(pdf_scope);
     tauri::async_runtime::spawn_blocking(move || {
-        run_blocking_pdf(|| pdf_page_count(&canon_str, &cancel, pdf_scope, gen))
+        run_blocking_pdf(|| inspect::open_document(&canon_str))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
 }
 
+/// Read the text under a selection rectangle (top-left origin, PDF points).
 #[tauri::command]
-async fn extract_pdf_text_cmd(
+async fn extract_region_cmd(
     path: String,
-    page: Option<u32>,
-    scope: String,
+    page: u32,
+    rect: Rect,
     allowed: State<'_, AllowedPaths>,
-    cache: State<'_, PdfCache>,
-    cancel: State<'_, PdfExtractCancel>,
-) -> Result<PdfExtractResult, String> {
+) -> Result<RegionText, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
-    let cache = cache.inner().clone();
-    let cancel = cancel.inner().clone();
-    let pdf_scope = pdf::PdfExtractScope::parse(&scope);
-    let gen = cancel.capture(pdf_scope);
     tauri::async_runtime::spawn_blocking(move || {
-        run_blocking_pdf(|| extract_pdf_text(&canon_str, page, &cache, &cancel, pdf_scope, gen))
+        run_blocking_pdf(|| inspect::extract_region(&canon_str, page, rect))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -311,16 +297,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AllowedPaths::default())
-        .manage(PdfCache::default())
-        .manage(PdfExtractCancel::default())
         .manage(FileReadCancel::default())
         .invoke_handler(tauri::generate_handler![
             register_allowed_path,
-            cancel_pdf_extract_cmd,
             cancel_file_read_cmd,
             file_stamp_cmd,
-            pdf_page_count_cmd,
-            extract_pdf_text_cmd,
+            open_document_cmd,
+            extract_region_cmd,
             read_file_bytes,
             write_text_file,
             secrets::set_api_key,

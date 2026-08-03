@@ -173,7 +173,12 @@ export async function loadIndexedPages(path: string, stamp: string): Promise<Pag
     const docs = await withStoreLock(readDocs);
     const doc = docs.find((d) => d.path === path);
     if (!doc || doc.stamp !== stamp) return [];
-    return doc.pages.filter((p) => p.text.trim().length >= MIN_INDEX_CHARS);
+    // Only vision-derived text is ever written here (see the module docs), so
+    // the provenance is known and must travel with the text — the merge rules
+    // use it to keep free re-extraction from displacing what was paid for.
+    return doc.pages
+      .filter((p) => p.text.trim().length >= MIN_INDEX_CHARS)
+      .map((p) => ({ ...p, source: "vision" as const }));
   } catch {
     // A cache miss is always safe — the pages are re-derived (re-indexed).
     return [];

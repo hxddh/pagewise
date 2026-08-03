@@ -4,6 +4,30 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-08-03
+
+The document pipeline was replaced. Opening a PDF parses it once and produces everything the app needs from it — per-page Markdown, a chapter outline, hyperlinks and figure boxes — instead of pulling text, page counts and bookmarks from three different places.
+
+### Changed (breaking)
+
+- **PDF text extraction was replaced.** One parse now produces everything PageWise needs from a document — per-page Markdown, a chapter outline, hyperlinks and figure boxes — instead of pulling text, page counts and bookmarks from three places. Measured against the previous extractor on a 117-page textbook: 39% more text recovered, and 1.33s → 0.49s to open.
+- **Tables keep their columns.** A financial table's cells used to arrive run together — `1,284` and `1,141` extracted as `1,2841,141` — which reads as one number that is wrong, with nothing on screen to suggest it. Page text is now Markdown, so the table survives into the answer.
+- **In-document search reads the text, not its markup.** ⌘F and the assistant's search normalize Markdown first, so a query for a table cell matches and the quoted snippet is the row rather than a line of pipes.
+
+### Added
+
+- **Chapter navigation for documents with no bookmarks.** Most PDFs carry none — a 117-page textbook in the test fixtures carries zero — which left the assistant with per-page character counts and a 160-character preview to navigate by. Headings recovered from the page text now give it a real section tree; authored bookmarks still win where a PDF has them.
+- **Export document as Markdown** (command palette). The page text is already Markdown, so the export preserves headings and tables; page boundaries are kept as HTML comments.
+- **Selecting a table quotes it as a table.** "Ask about this" used to send whatever the text layer concatenated; it now re-reads the selected region, so a selected table arrives with its columns intact.
+
+### Fixed
+
+- **Freshly extracted text could overwrite text you had paid for.** Page versions were compared by length alone, and native extraction is reliably longer than a vision transcription of the same page — so a vision result could be discarded the moment it landed, and again on every reopen. Provenance now outranks length.
+
+### Removed
+
+- The `pdf-extract` dependency, and with it 72 transitive crates. Along the way: `getPdfPageCount`, `pdf_page_count_cmd` and `extractAllPageTexts`, none of which had callers, and the PDF-extract cancellation helpers, which have nothing left to cancel.
+
 ## [3.6.1] - 2026-07-29
 
 Closes the loose end in 3.6.0: the scan budget it introduced governed only the background sweep, so it did not actually bound what PageWise could spend.

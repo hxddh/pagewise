@@ -110,6 +110,13 @@ function isCurrentGeneration(path: string, generation: number): boolean {
 }
 
 /** Pages with no usable text yet. `cap` of `null` means "no budget limit". */
+/**
+ * Pages with no usable text yet. `cap` of `null` means "no budget limit".
+ *
+ * The extractor's own verdict (`needs_vision`) is the union partner rather than
+ * the sole judge: a page it left empty is definitely a candidate, and so is one
+ * whose text later fell below the threshold.
+ */
 function sparsePages(doc: LoadedDocument, cap: number | null): number[] {
   const pages = docCache
     .getPages(doc.path)
@@ -238,7 +245,7 @@ async function indexPage(
     }
 
     if (text.trim().length >= MIN_INDEX_CHARS) {
-      docCache.upsertPageText(path, page, text.trim());
+      docCache.upsertPageText(path, page, text.trim(), "vision");
       clearIndexFailure(path, page);
       // This page cost a vision call — persist it so reopening the document
       // doesn't pay for it again.
