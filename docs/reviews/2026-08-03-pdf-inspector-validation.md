@@ -195,3 +195,35 @@ paper.pdf 的 /Outlines 出现次数: 0
 `MarkdownOptions::default()`：`detect_headers/lists/code/bold/italic/underline = true`、`format_urls = true`、`fix_hyphenation = true`（跨行断词修复）、`remove_page_numbers = true`、`include_links = true`、`include_images = false`（上游为避免静默回归而默认关闭）。
 
 `MarkdownProfile` 两档：`Fidelity`（默认，保真）与 `Compact`（省 token，会折叠长点线 leader）。→ 若担心 markdown 进入 LLM 上下文的 token 成本，`Compact` 是现成开关。
+
+## V14：位置、链接、图区均可用（本轮实测）
+
+`extract_text_with_positions_mem_pages` 在自造的 `rich.pdf`（含 2 个超链接与 1 张图）上：
+
+```
+items=10  text=7  image=1  link=2  form=0
+"Report"  x=33.8 y=736.5 w=71.9 h=24.0 font=F4 size=24.0 bold=true mcid=Some(0)
+IMAGE bbox x=33.8 y=599.2 w=90.0 h=90.0
+LINK "https://example.com/spec" -> https://example.com/spec
+```
+
+`TextItem` 带完整几何与字体属性（含 `is_bold` 正确识别、`mcid` 标记内容 id），`ItemType::Link(url)` 与 `ItemType::Image` 均带 bbox。→ 支撑框选提问、图区裁剪、可点击链接三项功能。
+
+**第四处页号基准不一致**：该函数的页过滤是 **1-based**（传 `{0}` 返回 0 个 item，传 `{1}` 返回 12 个），而区域 API 的页号是 0-based。
+
+**坐标系分歧**：`TextItem.y` 为**左下原点**（页高 792 的文档，标题 y=737.2 位于页面顶部），而区域 bbox 是**左上原点**（V8）。同一个库的两条路径约定相反，必须在适配层归一。
+
+## V15：本样本上没有 vision 调用的节省
+
+按 PageWise 现有的 20 字符阈值统计 `paper.pdf`：
+
+```
+pdf-extract   需 vision 的页: 0
+pdf-inspector 需 vision 的页: 0（含区域取回）
+```
+
+→ "提取更好所以少花钱"在本样本上**没有证据**，不应列为收益。真正能省的是把整页 1568px JPEG 换成图区裁剪。
+
+## V16：PageWise 侧的死代码（已核实零调用方）
+
+`getPdfPageCount`、`pdf_page_count_cmd`、`extractAllPageTexts` 均无任何调用方 —— 属可直接删除的历史遗留。
