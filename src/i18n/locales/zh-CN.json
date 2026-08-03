@@ -117,7 +117,9 @@
     "scanAllConfirm": "扫描这 1 个尚无文字的页面？这是一次计费的扫页模型调用，之后会被缓存。",
     "scanAllConfirm_plural": "扫描这 {{count}} 个尚无文字的页面？这是 {{count}} 次计费的扫页模型调用，之后会被缓存。",
     "scanAllUsed": "本次会话中，该文档已使用 {{used}} 次扫页调用。",
-    "scanAllAction": "开始扫描"
+    "scanAllAction": "开始扫描",
+    "outline": "大纲",
+    "outlineEmpty": "未找到标题"
   },
   "drop": {
     "title": "拖放以打开",

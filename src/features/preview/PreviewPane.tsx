@@ -13,6 +13,8 @@ import { selectionQuote } from "./selection-quote";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
+import { OutlineSidebar } from "../../components/OutlineSidebar";
+import { usableOutline } from "../../lib/outline-nav";
 import { DocumentSearch } from "../../components/DocumentSearch";
 
 interface PreviewPaneProps {
@@ -34,6 +36,7 @@ function PreviewPaneInner({
 }: PreviewPaneProps) {
   const { t } = useI18n();
   const [thumbsVisible, setThumbsVisible] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
 
   const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision });
   // Bumped whenever the view changes or this pane goes away, so an in-flight
@@ -282,20 +285,57 @@ function PreviewPaneInner({
     );
   }
 
+  // Recovered from the page text when the document was opened; a document with
+  // no headings simply has no tab to switch to.
+  const outline = usableOutline(doc.outline, doc.totalPages);
+  const showOutline = sidebarTab === "outline" && outline.length > 0;
+  const sidebarTabs = (
+    <div className="sidebar-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={!showOutline}
+        className={`sidebar-tab ${!showOutline ? "active" : ""}`}
+        onClick={() => setSidebarTab("pages")}
+      >
+        {t("preview.pages")}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={showOutline}
+        className={`sidebar-tab ${showOutline ? "active" : ""}`}
+        onClick={() => setSidebarTab("outline")}
+      >
+        {t("preview.outline")}
+      </button>
+    </div>
+  );
+
   return (
     <div className="preview-panel preview-with-thumbs">
       <DocumentSearch doc={doc} onJumpToPage={onPageChange} />
 
-      {thumbsVisible && (
-        <ThumbnailSidebar
-          path={doc.path}
-          totalPages={doc.totalPages}
-          currentPage={page}
-          collapsed={false}
-          onToggle={() => setThumbsVisible(false)}
-          onPageSelect={onPageChange}
-        />
-      )}
+      {thumbsVisible &&
+        (showOutline ? (
+          <OutlineSidebar
+            outline={outline}
+            currentPage={page}
+            tabs={sidebarTabs}
+            onClose={() => setThumbsVisible(false)}
+            onPageSelect={onPageChange}
+          />
+        ) : (
+          <ThumbnailSidebar
+            path={doc.path}
+            totalPages={doc.totalPages}
+            currentPage={page}
+            collapsed={false}
+            tabs={outline.length > 0 ? sidebarTabs : undefined}
+            onToggle={() => setThumbsVisible(false)}
+            onPageSelect={onPageChange}
+          />
+        ))}
 
       <div className="preview-main">
         {toolbar}

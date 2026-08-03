@@ -11,6 +11,8 @@ interface ThumbnailSidebarProps {
   totalPages: number;
   currentPage: number;
   collapsed: boolean;
+  /** Replaces the header label so the sidebars can switch in place. */
+  tabs?: React.ReactNode;
   onToggle: () => void;
   onPageSelect: (page: number) => void;
 }
@@ -87,6 +89,7 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   totalPages,
   currentPage,
   collapsed,
+  tabs,
   onToggle,
   onPageSelect,
 }: ThumbnailSidebarProps) {
@@ -157,7 +160,7 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   return (
     <aside className="thumb-sidebar" aria-label={t("preview.pages")}>
       <div className="thumb-sidebar-header">
-        <span>{t("preview.pages")}</span>
+        {tabs ?? <span>{t("preview.pages")}</span>}
         <button
           type="button"
           className="toolbar-btn"

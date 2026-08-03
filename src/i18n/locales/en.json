@@ -117,7 +117,9 @@
     "scanAllConfirm": "Scan the 1 page that has no text yet? It is one billed call to the scan model, cached afterwards.",
     "scanAllConfirm_plural": "Scan the {{count}} pages that have no text yet? That is {{count}} billed calls to the scan model, cached afterwards.",
     "scanAllUsed": "This document has used {{used}} scan calls so far this session.",
-    "scanAllAction": "Scan pages"
+    "scanAllAction": "Scan pages",
+    "outline": "Outline",
+    "outlineEmpty": "No headings found"
   },
   "drop": {
     "title": "Drop to open",
