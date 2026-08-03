@@ -284,3 +284,29 @@ cjk.pdf    Fidelity 156     → Compact 156       省 0.0%
 ## V20：Rust 侧两个 crate 已无任何引用
 
 `image` 与 `tempfile` 在 `src-tauri/src/` 中引用数均为 0（`image` 的转码早已搬到前端 `image-transcode.ts`）。
+
+## V18（更正 V16）：零宽 item 真实存在，占比 0.3%
+
+V16 写的"23,107 个 item 几何缺失 0 个"是把 `cjk.pdf` 的测量结果套在了 `paper.pdf` 上。逐样本重测：
+
+| 样本 | 文本 item | 零宽 | 零高 |
+|---|---|---|---|
+| `paper.pdf` | 23,107 | **75** | 0 |
+| `cjk.pdf` | 12 | 0 | 0 |
+| `rich.pdf` | 7 | 0 | 0 |
+| `form.pdf` | 1 | 1 | 0 |
+| `s1.pdf` | 7 | 0 | 0 |
+
+零宽 item 会让搜索高亮画出一个不可见的框，用户看到的是"高亮没生效"。
+
+## V19：表单字段已经通过文本路径工作，无需新功能
+
+自造填好的 AcroForm PDF（两个文本域，手写对象表，1551 字节）：
+
+```
+items=3  text=1  image=0  link=0  formfield=2
+  "applicant_name: Ada Lovelace"  type=FormField  w=300 h=24
+  "amount: 1,284.00"              type=FormField  w=200 h=24
+```
+
+且这两条**已经出现在 markdown 里**（`applicant_name: Ada Lovelace`）。→ agent 现在就能读到填写的表单值；`ItemType::FormField` 无需单独接线。
