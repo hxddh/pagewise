@@ -36,6 +36,12 @@ function PreviewPaneInner({
   const [thumbsVisible, setThumbsVisible] = useState(false);
 
   const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision });
+  // Bumped whenever the view changes or this pane goes away, so an in-flight
+  // selection read can tell that its answer no longer belongs anywhere.
+  const quoteRun = useRef(0);
+  useEffect(() => () => {
+    quoteRun.current += 1;
+  }, [doc.path, page]);
   const [askSel, clearAskSel] = useAskSelection(
     viewer.textLayerRef,
     !!onAskAboutSelection && doc.kind === "pdf",
@@ -52,10 +58,18 @@ function PreviewPaneInner({
         onClick={() => {
           const box = viewer.textLayerRef.current?.getBoundingClientRect() ?? null;
           const selectionRect = askSel.rect;
+          const run = quoteRun.current;
           clearAskSel();
           window.getSelection()?.removeAllRanges();
           void selectionQuote(doc.path, page, askSel.text, selectionRect, box).then(
-            onAskAboutSelection,
+            (quote) => {
+              // Reading the region is a round trip, and the user can turn the
+              // page or open another document while it is in flight. Dropping
+              // a superseded result keeps a quote from the old page out of the
+              // new one's composer.
+              if (quoteRun.current !== run) return;
+              onAskAboutSelection(quote);
+            },
           );
         }}
       >

@@ -1,4 +1,4 @@
-import { extractRegion, getPageViewport } from "../../lib/pdf";
+import { extractRegion, getPageGeometry, type PageGeometry } from "../../lib/pdf";
 import type { PdfRect } from "../../lib/types";
 
 /** Cap a quote so a large selection cannot flood the composer. */
@@ -12,24 +12,43 @@ export interface ClientRect {
 }
 
 /**
- * Convert a selection rectangle in screen pixels into PDF points.
+ * Convert a selection rectangle in screen pixels into the page's own points.
  *
- * The text layer overlays the rendered page exactly, so its own box is the
- * page's box; the ratio between it and the page's width in points is the scale,
- * whatever zoom or device pixel ratio produced it. Both spaces put the origin
- * at the top-left, so no flip is involved.
+ * The text layer overlays the rendered page exactly, so its box is the page's
+ * box and the ratio between them is the scale — whatever zoom or device pixel
+ * ratio produced it. Beyond that, nothing about the screen's axes can be
+ * assumed: a `/Rotate 90` page is painted turned, and the text layer with it,
+ * so the corners go through the viewport's own transform rather than a
+ * width-only ratio. Both corners are converted and then normalized, since
+ * rotation can swap which one ends up on top.
+ *
+ * The result uses a top-left origin, matching what `extract_region` expects.
  */
 export function clientRectToPageRect(
   selection: ClientRect,
   pageBox: ClientRect,
-  pageWidthPoints: number,
+  geometry: PageGeometry,
 ): PdfRect {
-  const scale = pageBox.width > 0 ? pageWidthPoints / pageBox.width : 1;
+  const scale = pageBox.width > 0 ? geometry.viewportWidth / pageBox.width : 1;
+  const x1 = (selection.left - pageBox.left) * scale;
+  const y1 = (selection.top - pageBox.top) * scale;
+  const x2 = x1 + selection.width * scale;
+  const y2 = y1 + selection.height * scale;
+
+  const [ax, ay] = geometry.toPdfPoint(x1, y1);
+  const [bx, by] = geometry.toPdfPoint(x2, y2);
+  const [viewLeft, , , viewTop] = geometry.view;
+
+  const left = Math.min(ax, bx);
+  const right = Math.max(ax, bx);
+  const bottom = Math.min(ay, by);
+  const top = Math.max(ay, by);
+
   return {
-    x: (selection.left - pageBox.left) * scale,
-    y: (selection.top - pageBox.top) * scale,
-    width: selection.width * scale,
-    height: selection.height * scale,
+    x: left - viewLeft,
+    y: viewTop - top,
+    width: right - left,
+    height: top - bottom,
   };
 }
 
@@ -56,8 +75,8 @@ export async function selectionQuote(
 ): Promise<string> {
   if (!pageBox || pageBox.width <= 0) return truncate(domText);
   try {
-    const viewport = await getPageViewport(path, page, 1);
-    const rect = clientRectToPageRect(selection, pageBox, viewport.width);
+    const geometry = await getPageGeometry(path, page);
+    const rect = clientRectToPageRect(selection, pageBox, geometry);
     if (rect.width <= 0 || rect.height <= 0) return truncate(domText);
 
     const region = await extractRegion(path, page, rect);

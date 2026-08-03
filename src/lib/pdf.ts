@@ -1006,10 +1006,38 @@ export async function renderPageToJpegBytes(
 }
 
 
-export async function getPageViewport(path: string, pageNumber: number, scale: number) {
+/**
+ * What is needed to turn a point on screen into a point on the PDF page.
+ *
+ * `convertToPdfPoint` carries the page's intrinsic rotation, so callers must
+ * not assume the rendered axes line up with the page's own — a `/Rotate 90`
+ * page is painted turned, and its text layer with it.
+ */
+export interface PageGeometry {
+  /** Page width in viewport units at scale 1, i.e. after rotation. */
+  viewportWidth: number;
+  /** Viewport point → PDF user space (bottom-left origin, unrotated). */
+  toPdfPoint: (x: number, y: number) => [number, number];
+  /** The page box in PDF user space: `[x0, y0, x1, y1]`. */
+  view: [number, number, number, number];
+}
+
+export async function getPageGeometry(
+  path: string,
+  pageNumber: number,
+): Promise<PageGeometry> {
   const doc = await getPdfDocument(path);
   const page = await doc.getPage(pageNumber);
-  return page.getViewport({ scale });
+  const viewport = page.getViewport({ scale: 1 });
+  const view = page.view as [number, number, number, number];
+  return {
+    viewportWidth: viewport.width,
+    toPdfPoint: (x, y) => {
+      const [px, py] = viewport.convertToPdfPoint(x, y);
+      return [px, py];
+    },
+    view,
+  };
 }
 
 /** Capture the current document page as a multimodal `FileUIPart` for AI SDK messages. */
