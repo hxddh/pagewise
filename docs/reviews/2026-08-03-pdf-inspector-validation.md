@@ -310,3 +310,34 @@ items=3  text=1  image=0  link=0  formfield=2
 ```
 
 且这两条**已经出现在 markdown 里**（`applicant_name: Ada Lovelace`）。→ agent 现在就能读到填写的表单值；`ItemType::FormField` 无需单独接线。
+
+## V20：运行页眉进入正文，上游的开关关不掉
+
+`extract_pages_markdown` 把运行页眉当正文交出。`paper.pdf` 第 10 页首行即 `<u>1.2. METRISCHE RÄUME</u>`。
+
+```
+117 页；重复 ≥3 次的首/末行 20 种，覆盖 80 页次
+  7× "<u>2.3. SIMPLIZIALKOMPLEX</u>"
+  7× "<u>4.3. HYPERBOLISCHE GEOMETRIE</u>"
+  5× "<u>Lösungen der Übungsaufgaben</u>"
+
+搜索 "Kompaktheit" → 5 条命中行，其中 3 条是页眉
+搜索 "Metrische"   → 25 条命中行，其中 3 条是页眉
+```
+
+危害在搜索精度：按章节名搜索时多数命中可能是页眉，而 4.2 的命中高亮会忠实地把它们标出来。
+
+上游 `MarkdownOptions{ strip_headers_footers: true }` 实测**删除 0 行**（155,844 → 155,844），且 `extract_pages_markdown` 不接受任何 options，我们的路径本就用不上它。
+
+## V21：`include_images` 有效，但属于污染正文
+
+```
+默认            155,844 字符
+include_images  156,069 字符（+0.1%），新增 20 个 "![Image: ImN](image)"
+```
+
+模型能就地看到"这里有张图"确有价值，但占位符会同时进入 ⌘F 搜索、导出的 Markdown 和每次页读的上下文。同一信息放进 `document_outline` 的元数据即可，一处也不污染。
+
+## V22：上游未发新版
+
+`cargo search pdf-inspector` → 仍为 0.1.7，与 4.0 集成时同一版本。本轮没有"不固化版本"带来的能力增长。
