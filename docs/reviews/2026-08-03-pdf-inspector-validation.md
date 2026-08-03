@@ -134,3 +134,64 @@ extract_pages_markdown(paper.pdf, None)           → 468ms, pages_needing_ocr=[
 风险因此不在编译失败，而在**行为漂移**（markdown 字符数在版本间 ±10%，表格数 178–183 浮动）。防线应当是行为回归夹具，不是版本锁。
 
 上游工程状态：crates.io 有 8 个版本，**GitHub 无 Release、无 Release Notes**，26 个 open issue / 31 个 open PR。→ 升级时没有 changelog 可读，只能靠自己的夹具判断。
+
+---
+
+# 第二轮验证（2026-08-03 续）
+
+## V10：空页是**主动丢弃**,不是提取失败 —— 且文本可以原样取回
+
+读上游源码 `lib.rs:563`：
+
+```rust
+markdown: if needs_ocr { String::new() } else { md },
+```
+
+页面文本是**提取成功后被质量判定丢弃的**。上游的设计假设是"下游有 OCR 接手"（源码注释里点名 GLM-OCR），与 PageWise 的 vision 兜底是同一形状。
+
+关键在于：**区域提取路径不做这个丢弃**。对 V1 里那两个被清空的页调用 `extract_text_in_regions_mem`（整页 bbox）：
+
+```
+idx=3  (real p4)  → 2539 字符完整目录取回   needs_ocr=true 但文本照给
+idx=45 (real p46) → 550 字符取回
+批量一次调用取回 2 页：19 ms
+```
+
+**这推翻了"必须保留 pdf-extract 做兜底"的结论**：同一个库、一次额外调用、19 ms 就能取回被丢弃的文本。兜底不再需要第二个提取器。
+
+代价需如实记录：区域路径取回的数学页文本有符号退化（`Zn → Hn` 变成 `Zn! Hn`、`Bn−1` 的减号丢失），这几处 `pdf-extract` 更准。影响面是数学符号密集页。
+
+## V11：质量判定器的实现质量高于预期
+
+`text_quality.rs`（520 行）不是简单的字符比例判断，而是四类判据：U+FFFD 簇、CID 落入私用区/C1 控制区、`Word$Word$Word`（ToUnicode 损坏）、以及**替换密码字频统计**（对英文字频做余弦相似度，声称拉丁语系语言 ≥0.80 而密码文本 ~0.53）。目录点线 leader（`.` 连续 ≥3）已被显式豁免。
+
+即便如此，V1 的两页仍是误判 —— 说明该判据在数学符号密集页上会过杀。但**误判的代价现在只是 19 ms 的重取**（V10），不再是一次计费调用。
+
+## V12（质变证据）：117 页教科书**没有任何书签**,而标题可以合成出准确目录
+
+```
+paper.pdf 的 /Outlines 出现次数: 0
+```
+
+即：PageWise 现有的 `getPdfOutline()`（依赖 pdf.js `getOutline()`）对这份 117 页教科书**返回空数组**。agent 的 `document_outline` 工具此时只能给出"每页字符数 + 前 160 字预览"，想定位"第 2.3 节"只能盲扫。
+
+而从逐页 markdown 里提取 `#` 标题，得到 158 个标题。**只取 L1 的结果，与书本自己印的目录逐条对照**（书本页码 = PDF 页码 − 4）：
+
+| 合成结果 | 书本目录 | 换算 | 命中 |
+|---|---|---|---|
+| `1 Topologische Grundbegriffe` p6 | 第 2 页 | PDF 6 | ✅ |
+| `1.2 Metrische Räume` p10 | 第 6 页 | PDF 10 | ✅ |
+| `1.3 Stetigkeit` p13 | 第 9 页 | PDF 13 | ✅ |
+| `1.4 Zusammenhang` p15 | 第 11 页 | PDF 15 | ✅ |
+| `1.5 Kompaktheit` p18 | 第 14 页 | PDF 18 | ✅ |
+| `1.6 Wege und Knoten` p21 | 第 17 页 | PDF 21 | ✅ |
+
+**L1 标题与页码全部命中。** 噪音集中在 L2（图注 `Abbildung 2.4:Kartenwechsel`、公式 `4 2 2 4 6 8`、残句 `) Widerspruch`），约占 L2 的四成 → 取 L1、或 L2 中匹配编号模式者，即可得到高精度目录。
+
+实现成本：**零新增调用** —— 从已经拿到的逐页 markdown 里 grep `^#{1,2} ` 即可，页码天然精确（逐页返回）。
+
+## V13：markdown 默认已开的能力
+
+`MarkdownOptions::default()`：`detect_headers/lists/code/bold/italic/underline = true`、`format_urls = true`、`fix_hyphenation = true`（跨行断词修复）、`remove_page_numbers = true`、`include_links = true`、`include_images = false`（上游为避免静默回归而默认关闭）。
+
+`MarkdownProfile` 两档：`Fidelity`（默认，保真）与 `Compact`（省 token，会折叠长点线 leader）。→ 若担心 markdown 进入 LLM 上下文的 token 成本，`Compact` 是现成开关。
