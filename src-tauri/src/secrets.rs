@@ -68,15 +68,45 @@ pub async fn delete_api_key(provider: String) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// Does this error mean the environment has no keychain at all?
+    ///
+    /// Deliberately narrow: it matches the Secret Service simply not being
+    /// there, which is the shape of a headless Linux runner. A keychain that
+    /// exists and misbehaves must still fail the test.
+    fn keychain_unavailable(err: &str) -> bool {
+        err.contains("org.freedesktop.secrets")
+    }
+
     #[test]
     fn keyring_roundtrip() {
         // Must be a known provider now that entry() validates the name.
         let provider = "custom";
         let key = format!("test-key-{}", std::process::id());
-        set_api_key_impl(provider, &key).expect("set");
+        match set_api_key_impl(provider, &key) {
+            Ok(()) => {}
+            // Step aside where there is no keychain to talk to, rather than
+            // deleting a test that does real work on every machine that has
+            // one — including the macOS runner that builds releases.
+            Err(e) if keychain_unavailable(&e) => {
+                eprintln!("skipping keyring roundtrip: no OS keychain here ({e})");
+                return;
+            }
+            Err(e) => panic!("set: {e}"),
+        }
         let got = get_api_key_impl(provider).expect("get");
         assert_eq!(got, key, "keychain roundtrip failed");
         delete_api_key_impl(provider).expect("delete");
+    }
+
+    #[test]
+    fn only_a_missing_secret_service_counts_as_unavailable() {
+        assert!(keychain_unavailable(
+            "Platform secure storage failure: DBus error: The name \
+             org.freedesktop.secrets was not provided by any .service files"
+        ));
+        // A real keychain returning a real error is not a reason to skip.
+        assert!(!keychain_unavailable("Platform secure storage failure: access denied"));
+        assert!(!keychain_unavailable("No entry found"));
     }
 
     #[test]
