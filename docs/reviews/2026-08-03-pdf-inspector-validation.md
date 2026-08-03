@@ -227,3 +227,60 @@ pdf-inspector 需 vision 的页: 0（含区域取回）
 ## V16：PageWise 侧的死代码（已核实零调用方）
 
 `getPdfPageCount`、`pdf_page_count_cmd`、`extractAllPageTexts` 均无任何调用方 —— 属可直接删除的历史遗留。
+
+---
+
+# 第三轮验证（2026-08-03，面向 4.1）
+
+## V15：加密 PDF 的三种结果可区分
+
+自造 RC4-40 加密 PDF（`/V 1 /R 2`，用户密码 `secret`，按算法 3.2/3.3/3.4 手写，845 字节，已入库为 `src-tauri/tests/fixtures/encrypted.pdf`）：
+
+```
+process_pdf                                → Err(Encrypted)
+process_pdf_with_options(password="secret") → Ok(1 页, "## Encrypted PageWise fixture")
+process_pdf_with_options(password="wrong")  → Err(Encrypted)
+```
+
+→ 足以驱动"打不开就弹密码框、密码错就重试"的交互。PageWise 今天只试空密码，加密文件一律打不开。
+
+## V16：搜索命中可精确定位，但粒度是行级
+
+`extract_text_with_positions`：`paper.pdf` 得 23,107 个文本 item，**几何缺失 0 个**；`cjk.pdf` 得 12 个。逐条查询定位结果：
+
+```
+"1,284"        → p1  x=105.8 y=654.0 w=32.3  h=12.0   "1,284"
+"营业收入"      → p1  x=42.0  y=654.0 w=48.0  h=12.0   "营业收入"
+"Kompaktheit"  → p18 x=90.1  y=437.1 w=117.7 h=14.3   "1.5 Kompaktheit"
+```
+
+item 是**行/文本段**级而非逐字符（`"本报告涵盖…百分之十二点五。"` 是一个 w=388.5 的 item），所以高亮框覆盖整行，不是命中的那几个字——上游没有给逐字符推进宽度。
+
+整档取位置 739 ms（117 页）→ 应按页懒取，不进 `DocumentModel`。
+
+## V17：矢量网格代替 TSR 模型 —— 漏真表、造假表
+
+`extract_tables_with_structure_cells_mem` 的 `TsrTableInput.structure_tokens` 注释写明来自"TSR 模型"。唯一的免模型替代 `detect_vector_grid_in_region_mem` 实测 6 页：
+
+- **5 页未检出**，包括 `cjk.pdf` 的真实 CSS 边框表格，以及多数 LaTeX 表格页
+- **1 页检出即误报**：数学证明页被判为 6×2 表格，单元格是打乱的散文
+  `"TY = und jedem dY gegeben . (U Beh. (U (f ( Teilmenge"`
+
+→ 结构化表格这条路在没有 ML 模型时不成立。
+
+## V18：`structure_tree` 从外部够不着
+
+`StructTree::from_doc(doc: &lopdf::Document)` 需要 lopdf 的 `Document`，而 `pdf-inspector` 未再导出 lopdf。要用就得把 lopdf 加成直接依赖 —— 在刚移除一个 PDF 解析器之后再引入第二个。
+
+## V19：`MarkdownProfile::Compact` 省不下 token
+
+```
+paper.pdf  Fidelity 155,844 → Compact 155,841   省 0.0%
+cjk.pdf    Fidelity 156     → Compact 156       省 0.0%
+```
+
+它只折叠长点线 leader，而这类 leader 早已被 `is_garbage_text` 显式豁免。**不是可用的省钱开关。**
+
+## V20：Rust 侧两个 crate 已无任何引用
+
+`image` 与 `tempfile` 在 `src-tauri/src/` 中引用数均为 0（`image` 的转码早已搬到前端 `image-transcode.ts`）。

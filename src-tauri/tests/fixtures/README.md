@@ -13,3 +13,4 @@ detection, or link positions must.
 | `scanned.pdf` | Chromium `--print-to-pdf`, a single image, no text layer | scanned classification routes to vision |
 | `links-figure.pdf` | Chromium `--print-to-pdf`, two hyperlinks and one image | link URLs and figure boxes carry positions |
 | `damaged.pdf` | first 600 bytes of a valid PDF | a malformed file fails cleanly instead of panicking |
+| `encrypted.pdf` | hand-built RC4-40 (`/V 1 /R 2`), user password `secret` | an encrypted file is reported as such rather than as broken, and opens with the right password |
