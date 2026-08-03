@@ -1,0 +1,55 @@
+# Early warning for upstream drift in the PDF extractor.
+#
+# `pdf-inspector` is declared as a version range so PageWise picks up upstream
+# improvements — the garbled-text detection this app relies on appeared partway
+# through 0.1.x, and a pin would have forfeited it. Upstream publishes no
+# release notes, so the only way to know what a new version changes is to run
+# the golden fixtures against it.
+#
+# This job never blocks a merge: it upgrades in a scratch checkout and reports.
+# Acting on a failure is a decision for a person.
+name: Extraction drift
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            build-essential
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Upgrade the extractor
+        working-directory: src-tauri
+        run: |
+          cargo update -p pdf-inspector
+          cargo tree -p pdf-inspector --depth 0
+
+      - name: Golden fixtures against the newest version
+        working-directory: src-tauri
+        run: cargo test

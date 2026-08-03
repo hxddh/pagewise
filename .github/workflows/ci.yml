@@ -66,3 +66,9 @@ jobs:
       - name: cargo check
         working-directory: src-tauri
         run: cargo check --locked
+
+      # Golden fixtures. `pdf-inspector` is a version range rather than a pin,
+      # so these — not the manifest — are what catches a behavior regression.
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --locked

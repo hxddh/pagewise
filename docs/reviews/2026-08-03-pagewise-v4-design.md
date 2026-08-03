@@ -170,3 +170,33 @@ pdf-inspector = "0.1"
 8. 待验证项：结构化表格（#7）、加密 PDF（#9）
 
 **回退**：适配层失败即返回错误，不做静默降级 —— 不考虑历史兼容意味着不保留双引擎。
+
+---
+
+## 10. 实施记录（2026-08-03）
+
+已落地，`npm test` 300 项通过、`tsc --noEmit` 干净、`npm run build` 成功、Rust 侧 10 项测试（含 5 个黄金夹具）通过。
+
+### 与设计的一致处
+
+- `open_document` / `extract_region` 两个命令，PDF 相关命令数量保持为 2。
+- `inspect.rs` 是唯一适配层；页号一律按数组顺序定位，对外 1-based。
+- `pdf-extract` 连同 `pdf.rs`、`PdfCache`、`PdfExtractCancel`、`PdfExtractScope` 全部删除。
+- `pdf-inspector = "0.1"` 不固化；`Cargo.lock` 入库锁定实际构建；黄金夹具进 CI（`cargo test`），另加一个**不阻塞合并**的周期性 drift job：`cargo update -p pdf-inspector && cargo test`。
+
+### 与设计的偏离
+
+**保留了 `getPdfOutline`（pdf.js 书签）。** 设计里写的是"大纲单一来源"，实现时保留了"文档自带书签优先、缺失时用合成大纲"这一行规则。理由：删掉它是为简化而简化——有书签的 PDF 恰恰是结构良好、用户最期待按章节导航的那批，合成大纲在这类文档上不会更好。这一行不构成架构。
+
+**坐标系没有在 Rust 侧统一。** 页高在上游是私有函数，Rust 拿不到，无法做左下→左上翻转。因此 `Link`/`Figure` 的 rect 保持 PDF 左下原点，前端用 pdf.js 已有的 viewport 高度翻转（`pdfRectToTopLeft`）；而 `extract_region` 收左上原点，正好等于 viewport 选区坐标，那条路径零转换。这是实测约束，不是取舍。
+
+### 撤回一条收益主张
+
+设计 §4 把"图区裁剪送 vision"列为最值得做的三件之一。实现前重新推演发现**它几乎没有适用场景**：需要 vision 的页是没有文本层的扫描页，而扫描页的"图"就是整页，裁剪省不下任何东西；有插图又有文本的页面根本不会走 vision。真正有价值的变体是"用户问某张图时只发那张图"——那是一个新的 agent 工具，不是索引管线的优化。**本轮不做，理由如实记录在此。**
+
+### 未做（按价值排序，留待后续）
+
+1. `read_figure` agent 工具 —— 用 `ItemType::Image` 的 bbox 裁图送 vision，回答"图 2 说明了什么"。
+2. 预览层的可点击链接 —— 数据（`links` + `pdfRectToTopLeft`）已就绪，缺一个覆盖层组件。
+3. 大纲侧栏 —— `outline` 已在文档模型里，agent 已在用，UI 尚未消费。
+4. 结构化表格（`extract_tables_with_structure_cells_mem`）与加密 PDF 密码 —— 两者**至今未实测**，落地前必须先验证。
