@@ -10,6 +10,7 @@ import { indexPageInBackground } from "../../document/index-queue";
 import { usePdfViewer } from "./usePdfViewer";
 import { useAskSelection } from "./useAskSelection";
 import { selectionQuote } from "./selection-quote";
+import { SearchHighlight } from "./SearchHighlight";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
@@ -37,6 +38,9 @@ function PreviewPaneInner({
   const { t } = useI18n();
   const [thumbsVisible, setThumbsVisible] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
+  // What the reader searched for when they jumped here, so the hit can be
+  // marked on the page. Cleared as soon as they navigate away from it.
+  const [searchHit, setSearchHit] = useState<{ page: number; query: string } | null>(null);
 
   const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision });
   // Bumped whenever the view changes or this pane goes away, so an in-flight
@@ -244,6 +248,9 @@ function PreviewPaneInner({
               className={`pdf-text-layer${viewer.textLayerActive ? " pdf-text-layer-active" : ""}`}
               aria-hidden={!viewer.textLayerActive}
             />
+            {searchHit?.page === page && (
+              <SearchHighlight path={doc.path} page={page} query={searchHit.query} />
+            )}
           </>
         ) : (
           <img src={convertFileSrc(doc.path)} alt={doc.name} className="preview-image" />
@@ -271,7 +278,13 @@ function PreviewPaneInner({
   if (doc.kind === "image") {
     return (
       <div className="preview-panel">
-        <DocumentSearch doc={doc} onJumpToPage={onPageChange} />
+        <DocumentSearch
+        doc={doc}
+        onJumpToPage={(target, query) => {
+          onPageChange(target);
+          setSearchHit(query ? { page: target, query } : null);
+        }}
+      />
         {toolbar}
         <div
           className="preview-canvas-wrap image-wrap preview-focusable"
@@ -314,7 +327,13 @@ function PreviewPaneInner({
 
   return (
     <div className="preview-panel preview-with-thumbs">
-      <DocumentSearch doc={doc} onJumpToPage={onPageChange} />
+      <DocumentSearch
+        doc={doc}
+        onJumpToPage={(target, query) => {
+          onPageChange(target);
+          setSearchHit(query ? { page: target, query } : null);
+        }}
+      />
 
       {thumbsVisible &&
         (showOutline ? (

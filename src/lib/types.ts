@@ -89,6 +89,12 @@ export interface DocumentModel {
   figures: DocFigure[];
 }
 
+/** A run of text on a page and where it sits. Rect is bottom-left origin. */
+export interface TextItemRect {
+  text: string;
+  rect: PdfRect;
+}
+
 export interface RegionText {
   text: string;
   table: string | null;

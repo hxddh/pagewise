@@ -8,7 +8,7 @@ import {
   type PDFDocumentProxy,
 } from "./pdf-loader";
 import type { PreviewQuality } from "./types";
-import type { DocumentModel, PdfRect, RegionText } from "./types";
+import type { DocumentModel, PdfRect, RegionText, TextItemRect } from "./types";
 import { raceWithAbort, throwIfAborted } from "./abort-utils";
 import { ensureProviderCompatibleImage } from "./image-transcode";
 import { isTauriRuntime } from "./runtime";
@@ -357,6 +357,17 @@ export async function extractRegion(
   rect: PdfRect,
 ): Promise<RegionText> {
   return invokeCmd<RegionText>("extract_region_cmd", { path, page, rect });
+}
+
+/**
+ * Every text run on one page, with its position in PDF points (bottom-left
+ * origin). Fetched per page: a long document holds tens of thousands of runs.
+ */
+export async function pageTextItems(
+  path: string,
+  page: number,
+): Promise<TextItemRect[]> {
+  return invokeCmd<TextItemRect[]>("page_text_items_cmd", { path, page });
 }
 
 /**
@@ -1014,10 +1025,13 @@ export async function renderPageToJpegBytes(
  * page is painted turned, and its text layer with it.
  */
 export interface PageGeometry {
-  /** Page width in viewport units at scale 1, i.e. after rotation. */
+  /** Page size in viewport units at scale 1, i.e. after rotation. */
   viewportWidth: number;
+  viewportHeight: number;
   /** Viewport point → PDF user space (bottom-left origin, unrotated). */
   toPdfPoint: (x: number, y: number) => [number, number];
+  /** PDF user space → viewport point (top-left origin, rotation applied). */
+  toViewportPoint: (x: number, y: number) => [number, number];
   /** The page box in PDF user space: `[x0, y0, x1, y1]`. */
   view: [number, number, number, number];
 }
@@ -1032,9 +1046,14 @@ export async function getPageGeometry(
   const view = page.view as [number, number, number, number];
   return {
     viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
     toPdfPoint: (x, y) => {
       const [px, py] = viewport.convertToPdfPoint(x, y);
       return [px, py];
+    },
+    toViewportPoint: (x, y) => {
+      const [vx, vy] = viewport.convertToViewportPoint(x, y);
+      return [vx, vy];
     },
     view,
   };

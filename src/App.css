@@ -2981,3 +2981,27 @@ button.pages-read-chip:hover {
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary, var(--text-secondary));
 }
+
+/* Search hit markers. Sized as fractions of the page, so they follow zoom. */
+.search-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.search-highlight {
+  position: absolute;
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: search-highlight-in 0.2s ease;
+}
+
+@keyframes search-highlight-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
