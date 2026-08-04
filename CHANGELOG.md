@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-08-04
+
+### Fixed
+
+- **Searching a chapter name mostly found the chapter name.** Running headers arrived as body text, so a query for a heading matched the header printed at the top of every page in that chapter — 3 of 5 hits for one heading in a 117-page test document, each faithfully highlighted on the page. Lines that open or close a page, repeat in that position across several pages, and are short are now dropped. A heading is never dropped, whatever it repeats: one chapter in that document is both a title and, on the pages after it, a running footer.
+
+### Added
+
+- **The assistant is told which pages carry a figure.** `read_figure` shipped in 4.1 with nothing pointing to it — the document index listed pages with tables but never pages with figures — so the tool could only be reached by guessing.
+
 ## [4.2.0] - 2026-08-03
 
 ### Added

@@ -35,7 +35,7 @@ import {
 } from "../document/index-queue";
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
-import { describeFigure, figuresOnPage } from "./read-figure";
+import { describeFigure, figuresOnPage, pagesWithFigures } from "./read-figure";
 import { findSectionIndex, sectionRange } from "./section-range";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import type { DocHeading } from "./types";
@@ -458,6 +458,7 @@ function createDocumentTools(budget: ReadBudget) {
           // the headings recovered from the page text are the only structure
           // there is. Image documents have neither.
           const bookmarks = await resolveOutline(doc, path);
+          const figurePages = pagesWithFigures(doc.figures);
           const statsOmitted = Math.max(0, allStats.length - MAX_OUTLINE_PAGE_STATS);
           const result = {
             totalPages: doc.totalPages || pages.length,
@@ -478,6 +479,16 @@ function createDocumentTools(budget: ReadBudget) {
             // Tables must be read whole — a reflowed table merges neighbouring
             // numbers into one wrong number.
             ...(doc.tablePages?.length ? { pagesWithTables: compressPageRanges(doc.tablePages) } : {}),
+            // Without this, read_figure could only be reached by guessing that
+            // a page has a figure.
+            ...(figurePages.length > 0
+              ? {
+                  pagesWithFigures: compressPageRanges(figurePages),
+                  figuresNote:
+                    "Use read_figure on these pages when the text refers to something " +
+                    "it does not convey — a chart, a diagram, a photograph.",
+                }
+              : {}),
             ...(unindexedPages.length > 0
               ? {
                   unindexedPageCount: unindexedPages.length,

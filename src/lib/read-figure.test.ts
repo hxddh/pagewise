@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { figuresOnPage } from "./read-figure";
+import { figuresOnPage, pagesWithFigures } from "./read-figure";
 import type { DocFigure } from "./types";
 
 function figure(page: number, width: number, height: number, x = 0): DocFigure {
@@ -30,5 +30,22 @@ describe("figuresOnPage", () => {
   it("treats a document with no figures as empty rather than throwing", () => {
     expect(figuresOnPage(undefined, 1)).toEqual([]);
     expect(figuresOnPage([], 1)).toEqual([]);
+  });
+});
+
+describe("pagesWithFigures", () => {
+  it("lists each page once, in order", () => {
+    const figures = [figure(3, 200, 150), figure(1, 300, 200), figure(3, 100, 100)];
+    expect(pagesWithFigures(figures)).toEqual([1, 3]);
+  });
+
+  it("applies the same size filter as the reader", () => {
+    // Advertising a page whose only image the reader would skip sends the
+    // model to a tool that reports nothing.
+    expect(pagesWithFigures([figure(1, 400, 2), figure(2, 8, 8)])).toEqual([]);
+  });
+
+  it("treats a document with no figures as empty", () => {
+    expect(pagesWithFigures(undefined)).toEqual([]);
   });
 });
