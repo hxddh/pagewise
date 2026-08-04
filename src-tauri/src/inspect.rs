@@ -215,16 +215,16 @@ fn strip_running_lines(pages: &mut [String]) {
         if lines.len() < 3 {
             continue;
         }
-        if let Some(first) = lines.first().filter(|l| !is_heading_line(l)) {
+        if let Some(first) = lines.first().filter(|l| !is_structural_line(l)) {
             *first_counts.entry(running_key(first)).or_default() += 1;
         }
-        if let Some(last) = lines.last().filter(|l| !is_heading_line(l)) {
+        if let Some(last) = lines.last().filter(|l| !is_structural_line(l)) {
             *last_counts.entry(running_key(last)).or_default() += 1;
         }
     }
 
     let repeats = |counts: &HashMap<String, usize>, line: &str| {
-        if is_heading_line(line) {
+        if is_structural_line(line) {
             return false;
         }
         let key = running_key(line);
@@ -277,9 +277,17 @@ fn running_key(line: &str) -> String {
     clean_heading(line).to_lowercase()
 }
 
-/// Did the extractor promote this line to a heading? Then it is structure.
-fn is_heading_line(line: &str) -> bool {
-    line.trim_start().starts_with('#')
+/// Structure, not decoration — exempt from stripping however often it repeats.
+///
+/// A heading the extractor promoted by font size is the document's own
+/// skeleton. A table row is the same kind of thing for a different reason: a
+/// table continued across pages repeats its header row at the top of each one,
+/// which reads exactly like running furniture. Strip it and the `|---|`
+/// delimiter and every data row below are left with no column labels, so the
+/// values become uninterpretable in both page reads and search results.
+fn is_structural_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with('#') || trimmed.starts_with('|')
 }
 
 /// Strip the inline Markdown we added so a heading reads as plain text.
@@ -796,6 +804,23 @@ mod tests {
         assert!(
             pages[1..].iter().all(|p| !p.contains("Lösungen")),
             "the running footer must not",
+        );
+    }
+
+    #[test]
+    fn keeps_the_header_row_of_a_table_continued_across_pages() {
+        // A table spanning pages repeats its header row at the top of each one,
+        // which looks exactly like running furniture. Stripping it leaves the
+        // delimiter and every data row with no column labels at all.
+        let header = "| Year | Revenue |";
+        let mut pages: Vec<String> = ["10", "12", "14", "16"]
+            .iter()
+            .map(|v| format!("{header}\n|---|---|\n| 2021 | {v} |"))
+            .collect();
+        strip_running_lines(&mut pages);
+        assert!(
+            pages.iter().all(|p| p.starts_with(header)),
+            "column labels must survive on every page of the table",
         );
     }
 
