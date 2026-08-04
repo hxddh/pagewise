@@ -202,7 +202,8 @@ const RUNNING_LINE_MAX_CHARS: usize = 80;
 /// page whose entire content is one such line keeps it: an empty page would be
 /// a worse lie than a repeated one.
 ///
-/// A heading is never furniture, whatever it repeats. The sample document's
+/// Headings and table rows are never furniture, whatever they repeat — see
+/// `is_structural_line`. The sample document's
 /// "Lösungen der Übungsaufgaben" is both a chapter title and, on the pages
 /// that follow, a running footer; without this the chapter vanished from the
 /// outline. If the extractor promoted a line by font size, it is structure.
