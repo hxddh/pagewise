@@ -52,6 +52,9 @@ let migrationPromise: Promise<void> | null = null;
 let keychainBlockedThisSession = false;
 export function resetKeychainBlockedFlag(): void {
   keychainBlockedThisSession = false;
+  // Opening Settings is the moment to re-ask the OS, so a key that was
+  // unreadable a moment ago is not answered from a stale cache.
+  forgetSessionKey();
 }
 
 let settingsStoreLock: Promise<unknown> = Promise.resolve();
@@ -81,6 +84,7 @@ export function __resetSettingsStoreForTests(opts?: {
   store = null;
   migrationPromise = null;
   keychainBlockedThisSession = false;
+  forgetSessionKey();
   keychainGet = opts?.keychain?.get ?? getApiKey;
   keychainSet = opts?.keychain?.set ?? setApiKey;
 }
@@ -339,6 +343,7 @@ async function writeStoreV2(
 }
 
 async function persistApiKey(provider: ProviderId, apiKey: string): Promise<boolean> {
+  forgetSessionKey(provider);
   try {
     await keychainSet(provider, apiKey);
     return true;
@@ -491,20 +496,47 @@ function ensureApiKeysMigrated(): Promise<void> {
  * Load API key for a provider from the local settings.json mirror only.
  * Keychain is consulted once during {@link ensureApiKeysMigrated}, not on every read.
  */
+/**
+ * API keys resolved this session, so the OS keychain is asked once per key.
+ *
+ * On a machine where the keychain works there is deliberately no plaintext
+ * mirror on disk, so every read went to the OS — and settings are resolved on
+ * every vision-indexed page, so indexing a scan meant one keychain round trip
+ * per page. On macOS, where an unsigned build's changed signature makes the
+ * system re-ask for the login keychain password, that is one prompt per page.
+ *
+ * Cleared whenever a key is written or removed, which is the only way it
+ * changes from inside the app.
+ */
+const sessionKeys = new Map<ProviderId, string>();
+
+function forgetSessionKey(provider?: ProviderId): void {
+  if (provider === undefined) sessionKeys.clear();
+  else sessionKeys.delete(provider);
+}
+
 async function loadApiKey(provider: ProviderId): Promise<string> {
+  const cached = sessionKeys.get(provider);
+  if (cached !== undefined) return cached;
   await ensureApiKeysMigrated();
   const s = await getStore();
   const raw = await s.get<RawStored>(SETTINGS_KEY);
   if (raw?.apiKeysCleared?.[provider]) return "";
   if (provider === "ollama") return "ollama";
   const fromMirror = (await getFallbackKey(provider)).trim();
-  if (fromMirror) return fromMirror;
+  if (fromMirror) {
+    sessionKeys.set(provider, fromMirror);
+    return fromMirror;
+  }
   // Skip the per-read keychain fallback once the keychain is known blocked —
   // otherwise every mirror-less read re-prompts the OS.
   if (keychainBlockedThisSession) return "";
   try {
     const fromKeychain = (await keychainGet(provider)).trim();
-    if (fromKeychain) return fromKeychain;
+    if (fromKeychain) {
+      sessionKeys.set(provider, fromKeychain);
+      return fromKeychain;
+    }
   } catch {
     keychainBlockedThisSession = true;
   }
@@ -691,6 +723,7 @@ export async function saveProviderProfile(
     resolvedKey = await loadApiKey(provider);
   } else {
     // Explicit clear of the key.
+    forgetSessionKey(provider);
     try {
       await deleteApiKey(provider);
     } catch {

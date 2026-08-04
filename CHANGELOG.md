@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [6.0.1] - 2026-08-04
+
+### Fixed
+
+- **6.0.0 could not change pages.** The scrolling container was sized by flex inside a row flex container that aligns its children to the top, so its height collapsed to the height of the whole column — leaving nothing to scroll. The page number moved and the view did not. It is now positioned against its wrapper and does not depend on the wrapper's flex alignment.
+- **Zoomed past the window width, the left edge of the page was unreachable.** The column is now at least as wide as its widest page rather than always the width of the window.
+- **The OS keychain was asked for the API key on every read.** Settings are resolved once per vision-indexed page, so indexing a scan meant a keychain round trip per page — and on macOS, where an unsigned build is a new application to the system after every update, a login-keychain password prompt per page. The key is now resolved once per session and forgotten whenever it is saved or removed.
+
+### Notes
+
+- **The repeated keychain and folder-permission prompts after each update are the unsigned build.** macOS ties keychain access and folder permissions to an application's code signature; an unsigned build's identity changes with every version, so the system treats each update as a different application and asks again. A Developer ID signature is stable across versions and both prompts stop. Signing needs credentials only the repository owner can add.
+
 ## [6.0.0] - 2026-08-04
 
 ### Changed

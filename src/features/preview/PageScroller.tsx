@@ -145,6 +145,10 @@ export function PageScroller({
     [],
   );
 
+  // Zoomed past the container width, the column has to be as wide as its
+  // widest page or the half of that page hanging off centre is unreachable.
+  const widest = layout.widths.length > 0 ? Math.max(...layout.widths) : 0;
+
   const { first, last } = visibleRange(layout, scrollTop, viewportHeight, 1);
   const slots: React.ReactNode[] = [];
   for (let p = first; p <= last; p++) {
@@ -170,7 +174,10 @@ export function PageScroller({
 
   return (
     <div ref={bind} className="pdf-scroller preview-focusable" onScroll={onScroll} tabIndex={0}>
-      <div className="pdf-scroller-column" style={{ height: layout.total }}>
+      <div
+        className="pdf-scroller-column"
+        style={{ height: layout.total, minWidth: widest + SIDE_PADDING * 2 }}
+      >
         {slots}
       </div>
     </div>
