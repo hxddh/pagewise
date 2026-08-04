@@ -10,6 +10,7 @@ import { sanitizeIndexErrorDetail } from "../../lib/index-error-display";
 import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { isRasterHeavyPage } from "../../lib/pdf";
 import { indexPageInBackground } from "../../document/index-queue";
+import { useSettled } from "../../lib/use-settled";
 import { usePdfViewer } from "./usePdfViewer";
 import { useAskSelection } from "./useAskSelection";
 import { selectionQuote } from "./selection-quote";
@@ -33,6 +34,9 @@ import { OutlineSidebar } from "../../components/OutlineSidebar";
 import { MarkSidebar } from "../../components/MarkSidebar";
 import { usableOutline } from "../../lib/outline-nav";
 import { DocumentSearch } from "../../components/DocumentSearch";
+
+/** How long the page has to stay put before it counts as being read. */
+const INDEX_SETTLE_MS = 500;
 
 interface PreviewPaneProps {
   doc: LoadedDocument;
@@ -173,7 +177,13 @@ function PreviewPaneInner({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [regionMode]);
 
-  const indexPage = doc.kind === "pdf" ? page : 1;
+  // The page below indexes itself when it has no text of its own, and indexing
+  // a scanned page is a billed vision call. While the preview flipped one page
+  // at a time, a click cost at most one call. Scrolling changes the current
+  // page continuously, so an unsettled page number would spend a call on every
+  // page scrolled *past* — a 200-page scan, scrolled through once, unattended.
+  // The page you are looking at is the one you stopped on.
+  const indexPage = useSettled(doc.kind === "pdf" ? page : 1, INDEX_SETTLE_MS);
   const indexState = usePageIndexStatus(doc.path, indexPage);
   const pageTextLen = getPageTextLen(doc.path, indexPage, doc.pages);
 
@@ -264,6 +274,71 @@ function PreviewPaneInner({
   const rasterHint = rasterHeavy ? t("preview.rasterHint") : null;
   const totalPages = doc.kind === "pdf" ? doc.totalPages : 1;
 
+  // One function for every page rather than a closure per page: the scroller
+  // re-renders on every frame of a scroll, and a fresh function each time would
+  // make `PageSlot`'s memo miss, re-reconciling every mounted page and all four
+  // of its overlay layers sixty times a second.
+  const renderOverlays = useCallback(
+    (slotPage: number) => (
+      <>
+        {searchHit?.page === slotPage && (
+          <SearchHighlight path={doc.path} page={slotPage} query={searchHit.query} />
+        )}
+        <RegionSelectLayer
+          active={regionMode}
+          onRegion={(rect, pageBox) => {
+            const run = quoteRun.current;
+            void (async () => {
+              try {
+                const geometry = await getPageGeometry(doc.path, slotPage);
+                // The reader can scroll on while the geometry is in flight, but
+                // the page a region belongs to is the one it was drawn on,
+                // which is fixed at this point.
+                if (quoteRun.current !== run) return;
+                const pdfRect = clientRectToPageRect(rect, pageBox, geometry);
+                let text = "";
+                try {
+                  text = regionSnapshot(await extractRegion(doc.path, slotPage, pdfRect));
+                } catch {
+                  // A region with no readable text is normal on a scan;
+                  // the rectangle is what locates the mark.
+                }
+                if (quoteRun.current !== run) return;
+                const mark = addMark(doc.path, {
+                  page: slotPage,
+                  rects: [pdfRect],
+                  text,
+                  stamp: doc.stamp ?? "",
+                  kind: "region",
+                });
+                if (mark) setSelectedMarkId(mark.id);
+                else showToast(t("marks.capReached"), "error");
+              } catch {
+                // Nothing to place the mark against.
+              }
+            })();
+          }}
+        />
+        <MarkLayer
+          path={doc.path}
+          page={slotPage}
+          revision={markRevision}
+          selectedId={selectedMarkId}
+          onSelect={setSelectedMarkId}
+        />
+        {doc.links && doc.links.length > 0 && (
+          <LinkLayer
+            path={doc.path}
+            page={slotPage}
+            links={doc.links}
+            onActivate={setPendingLink}
+          />
+        )}
+      </>
+    ),
+    [doc.path, doc.links, doc.stamp, searchHit, regionMode, markRevision, selectedMarkId, showToast, t],
+  );
+
   const canvasBody = (
     <>
       {indexHint &&
@@ -303,65 +378,7 @@ function PreviewPaneInner({
           zoom={viewer.zoom}
           quality={viewer.quality}
           containerRef={bindScroller}
-          renderOverlays={(slotPage) => (
-            <>
-              {searchHit?.page === slotPage && (
-                <SearchHighlight path={doc.path} page={slotPage} query={searchHit.query} />
-              )}
-              <RegionSelectLayer
-                active={regionMode}
-                onRegion={(rect, pageBox) => {
-                  const run = quoteRun.current;
-                  void (async () => {
-                    try {
-                      const geometry = await getPageGeometry(doc.path, slotPage);
-                      // The reader can scroll on while the geometry is in
-                      // flight, but the page a region belongs to is the one it
-                      // was drawn on, which is fixed at this point.
-                      if (quoteRun.current !== run) return;
-                      const pdfRect = clientRectToPageRect(rect, pageBox, geometry);
-                      let text = "";
-                      try {
-                        text = regionSnapshot(
-                          await extractRegion(doc.path, slotPage, pdfRect),
-                        );
-                      } catch {
-                        // A region with no readable text is normal on a scan;
-                        // the rectangle is what locates the mark.
-                      }
-                      if (quoteRun.current !== run) return;
-                      const mark = addMark(doc.path, {
-                        page: slotPage,
-                        rects: [pdfRect],
-                        text,
-                        stamp: doc.stamp ?? "",
-                        kind: "region",
-                      });
-                      if (mark) setSelectedMarkId(mark.id);
-                      else showToast(t("marks.capReached"), "error");
-                    } catch {
-                      // Nothing to place the mark against.
-                    }
-                  })();
-                }}
-              />
-              <MarkLayer
-                path={doc.path}
-                page={slotPage}
-                revision={markRevision}
-                selectedId={selectedMarkId}
-                onSelect={setSelectedMarkId}
-              />
-              {doc.links && doc.links.length > 0 && (
-                <LinkLayer
-                  path={doc.path}
-                  page={slotPage}
-                  links={doc.links}
-                  onActivate={setPendingLink}
-                />
-              )}
-            </>
-          )}
+          renderOverlays={renderOverlays}
         />
       ) : (
         <div className="preview-page-frame">

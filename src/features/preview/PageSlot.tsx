@@ -27,8 +27,14 @@ export interface PageSlotProps {
   containerWidth: number;
   /** The zoom mode, for the same reason. */
   zoom: "fit-width" | number;
-  /** Overlays for this page — highlights, marks, links, region select. */
-  children?: (state: { textLayerActive: boolean }) => React.ReactNode;
+  /**
+   * Overlays for this page — highlights, marks, links, region select.
+   *
+   * Taken as one function for the whole document rather than a per-page
+   * closure: a new closure on every scroll frame would make `memo` below a
+   * decoration, and every mounted page would re-reconcile 60 times a second.
+   */
+  renderOverlays?: (page: number, state: { textLayerActive: boolean }) => React.ReactNode;
 }
 
 /**
@@ -50,7 +56,7 @@ export const PageSlot = memo(function PageSlot({
   hurried,
   containerWidth,
   zoom,
-  children,
+  renderOverlays,
 }: PageSlotProps) {
   const { t } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -149,7 +155,7 @@ export const PageSlot = memo(function PageSlot({
         className={`pdf-text-layer${textLayerActive ? " pdf-text-layer-active" : ""}`}
         aria-hidden={!textLayerActive}
       />
-      {children?.({ textLayerActive })}
+      {renderOverlays?.(page, { textLayerActive })}
       {error && <div className="pdf-page-error">{error}</div>}
       <span className="pdf-page-number" aria-hidden>
         {page}
