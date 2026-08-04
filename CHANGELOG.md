@@ -4,6 +4,23 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-08-04
+
+### Changed
+
+- **The document scrolls.** PageWise drew one page at a time and flipped between them: the wheel was a gesture that turned a sheet, not a scroll. A paragraph that crossed a page break had to be read in two halves, two facing numbers could not be compared, and finding a half-remembered figure meant clicking through the document a page at a time. Every page is now one continuous surface. Pages are virtualized, so a thousand-page document still holds only the pages you can see and their neighbours.
+- **Page Up/Down move by a screenful** rather than by a sheet of paper, which is what they mean when a document scrolls. Home/End go to the first and last page; the arrow keys still move page by page.
+- **A selection knows which page it is on**, rather than assuming the one the app called current. That is what makes marking work while the neighbouring page is also on screen.
+
+### Removed
+
+- The page-flip wheel gesture and its thresholds, the page-turn animation, and the click targets on the left and right edges of the page. All of them existed to turn a sheet.
+- `prefetchPage`, `resolveFitWidthScale` and `hasPageCache`: the first warmed the next sheet, which mounting a neighbour now does; the second fitted one page, where the column fits its widest.
+
+### Notes
+
+- Fit-width now fits the **widest** page in the document rather than the current one, so a landscape page in the middle no longer reflows every page around it as you pass.
+
 ## [5.2.0] - 2026-08-04
 
 ### Added

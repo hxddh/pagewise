@@ -282,42 +282,7 @@
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-.page-edge {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 12%;
-  min-width: 48px;
-  max-width: 120px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  z-index: 2;
-  opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast);
-}
-
-.page-edge-left {
-  left: 0;
-}
-
-.page-edge-right {
-  right: 0;
-}
-
-.preview-canvas-wrap:hover .page-edge:not(:disabled) {
-  opacity: 1;
-}
-
-.page-edge:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.page-edge:disabled {
-  pointer-events: none;
-}
-
-.anchored-popover {
+.preview-canvas-wrap:hover .anchored-popover {
   min-width: 120px;
   padding: 4px;
   background: var(--bg-elevated);
@@ -385,14 +350,6 @@
 
 [data-theme="light"] .app.v3 .preview-page-frame {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.preview-page-frame.page-turn-next {
-  animation: preview-page-enter-next 0.22s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.preview-page-frame.page-turn-prev {
-  animation: preview-page-enter-prev 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes preview-page-enter-next {
@@ -482,4 +439,58 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
   pointer-events: auto;
   animation: popover-in 0.16s ease;
+}
+
+/* --- The document as one scrolling surface ------------------------------- */
+
+.pdf-scroller {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: auto;
+  /* Wheel and trackpad scroll the document; nothing intercepts them to flip a
+     page any more. */
+  overscroll-behavior: contain;
+  outline: none;
+}
+
+.pdf-scroller-column {
+  position: relative;
+  width: 100%;
+}
+
+.pdf-page-slot {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.pdf-page-slot .preview-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-page-number {
+  position: absolute;
+  right: 8px;
+  bottom: -18px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.pdf-page-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: var(--danger, #e5484d);
+  font-size: 12px;
+  text-align: center;
 }

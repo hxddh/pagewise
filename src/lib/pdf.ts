@@ -600,15 +600,6 @@ export function tryApplyCachedPage(
   return true;
 }
 
-export function hasPageCache(
-  path: string,
-  pageNumber: number,
-  scaleKey: string,
-  quality: PreviewQuality,
-): boolean {
-  return findCachedPageKey(path, pageNumber, scaleKey, quality) !== undefined;
-}
-
 async function renderAndCache(
   path: string,
   pageNumber: number,
@@ -699,33 +690,6 @@ export async function renderPageToCanvas(
   });
 
   return result;
-}
-
-export function prefetchPage(
-  path: string,
-  pageNumber: number,
-  scale: number,
-  quality: PreviewQuality = "crisp",
-  scaleKey?: string,
-): void {
-  const key = scaleKey ?? `fixed:${scale.toFixed(4)}`;
-  if (hasPageCache(path, pageNumber, key, quality)) return;
-  if (pdfActivePath !== null && pdfActivePath !== path) return;
-
-  void enqueueRender("low", async () => {
-    if (pdfActivePath !== null && pdfActivePath !== path) return;
-    const offscreen = document.createElement("canvas");
-    await renderAndCache(
-      path,
-      pageNumber,
-      scale,
-      key,
-      quality,
-      offscreen,
-      "display",
-      () => pdfActivePath !== null && pdfActivePath !== path,
-    );
-  });
 }
 
 export interface PdfBookmark {
@@ -900,21 +864,6 @@ export function clearPdfCache(): void {
   for (const snap of pageCache.values()) snap.bitmap.close();
   pageCache.clear();
   pageCacheBytes = 0;
-}
-
-export async function resolveFitWidthScale(
-  path: string,
-  pageNumber: number,
-  containerWidth: number,
-  padding = 4,
-): Promise<number> {
-  const qWidth = quantizeWidth(containerWidth);
-  const cacheId = `${path}|${pageNumber}|${qWidth}`;
-  const cached = fitScaleCache.get(cacheId);
-  if (cached !== undefined) return cached;
-  const scale = await computeFitWidthScale(path, pageNumber, qWidth, padding);
-  fitScaleCache.set(cacheId, scale);
-  return scale;
 }
 
 export async function computeFitWidthScale(
@@ -1186,5 +1135,42 @@ export async function capturePageFilePart(
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Every page's size at scale 1, so the scrolling column can be laid out before
+ * a single page has been drawn.
+ *
+ * Measured in the background: `getPage` is cheap but not free, and a reader
+ * should not wait on a thousand of them to see page 1. Until a page has been
+ * measured the layout stands it in at the first known size, so this converges
+ * rather than blocking.
+ */
+export async function measurePageSizes(
+  path: string,
+  pageCount: number,
+  onBatch: (sizes: Array<{ width: number; height: number } | undefined>) => void,
+  isStale?: () => boolean,
+  batchSize = 24,
+): Promise<void> {
+  const doc = await getPdfDocument(path);
+  const sizes: Array<{ width: number; height: number } | undefined> = new Array(pageCount);
+  for (let i = 0; i < pageCount; i++) {
+    if (isStale?.()) return;
+    try {
+      const page = await doc.getPage(i + 1);
+      const viewport = page.getViewport({ scale: 1 });
+      sizes[i] = { width: viewport.width, height: viewport.height };
+    } catch {
+      // A page that will not open keeps the fallback size; the rest still lay
+      // out, and rendering it will surface the real error.
+    }
+    // Publish page 1 immediately — the column's whole shape depends on it —
+    // then in batches, so a long document does not re-render per page.
+    if (i === 0 || (i + 1) % batchSize === 0 || i === pageCount - 1) {
+      if (isStale?.()) return;
+      onBatch([...sizes]);
+    }
   }
 }

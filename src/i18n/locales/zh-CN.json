@@ -65,7 +65,6 @@
     "noDocument": "暂无文档",
     "dropHint": "打开文件，或将 PDF / 图片拖放到此处",
     "dropHintShort": "点击「打开文档」或拖放文件到此处",
-    "rendering": "渲染中…",
     "indexing": "正在建立文本索引…",
     "indexedVision": "已索引 · 多模态模型",
     "indexFailedNeedVision": "索引失败 · 请在设置中选择扫页模型",

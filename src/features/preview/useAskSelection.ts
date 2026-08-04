@@ -9,10 +9,20 @@ export interface AskSelection {
   rect: { left: number; top: number; width: number; height: number };
   /** One box per line of the selection, for drawing it. See `lineRects`. */
   rects: { left: number; top: number; width: number; height: number }[];
+  /** 1-based page the selection is on. */
+  page: number;
+  /** That page's box in viewport px, which every rect is measured against. */
+  pageBox: { left: number; top: number; width: number; height: number };
 }
 
 const MAX_QUOTE = 500;
 type ClientRectLike = { left: number; top: number; width: number; height: number };
+
+/** The page element a node sits in, or null when it is outside every page. */
+function slotOf(node: Node | null): HTMLElement | null {
+  const el = node instanceof Element ? node : (node?.parentElement ?? null);
+  return el?.closest<HTMLElement>(".pdf-page-slot[data-page]") ?? null;
+}
 
 /** Ignore sub-pixel client rects — a collapsed run between two lines. */
 const MIN_LINE_RECT = 1;
@@ -70,6 +80,14 @@ export function useAskSelection<T extends HTMLElement>(
       }
       const text = s.toString().replace(/\s+/g, " ").trim();
       if (text.length < 2) return setSel(null);
+      // With every page on one scrolling surface, a rectangle only means
+      // something against the page it is on — so the page has to come out of
+      // the selection rather than from whatever the app calls "current".
+      const slot = slotOf(anchorNode);
+      if (!slot) return setSel(null);
+      const pageAttr = Number(slot.dataset.page);
+      if (!Number.isInteger(pageAttr) || pageAttr < 1) return setSel(null);
+      const slotBox = slot.getBoundingClientRect();
       const range = s.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return setSel(null);
@@ -79,6 +97,13 @@ export function useAskSelection<T extends HTMLElement>(
         y: rect.top,
         rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
         rects: lineRects(range, rect),
+        page: pageAttr,
+        pageBox: {
+          left: slotBox.left,
+          top: slotBox.top,
+          width: slotBox.width,
+          height: slotBox.height,
+        },
       });
     };
     // selectionchange fires rapidly during a drag; coalesce to one rAF.
