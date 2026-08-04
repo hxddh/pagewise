@@ -4,6 +4,10 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release pages showed only the pull request title.** Every release body was GitHub's generated "What's Changed" line and nothing else, so everything the CHANGELOG says about a version stayed in the repository, where nobody downloading a build would look. The release now leads with that version's CHANGELOG section, and a version with no section fails the release before the build rather than publishing empty notes.
+
 ## [5.0.0] - 2026-08-04
 
 ### Added

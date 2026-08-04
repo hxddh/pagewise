@@ -49,6 +49,12 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Release tag: $tag (VERSION=$file_version)"
 
+      - name: Build release notes from CHANGELOG
+        # Before the build, not after: a missing entry should cost seconds, not
+        # a full macOS build. Without this the release page carries only
+        # GitHub's generated "What's Changed" line.
+        run: node scripts/changelog-section.mjs > release-notes.md
+
       - name: Secret scan
         run: npm run check:secrets
 
@@ -98,6 +104,9 @@ jobs:
           files: |
             release-artifacts/*.dmg
             release-artifacts/*.tar.gz
+          body_path: release-notes.md
+          # Appends the generated "What's Changed" list below the CHANGELOG
+          # section rather than replacing it.
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
