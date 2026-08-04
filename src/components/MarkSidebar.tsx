@@ -1,5 +1,5 @@
 import { ChevronLeft } from "lucide-react";
-import { memo } from "react";
+import { memo, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { getMarks } from "../lib/mark-store";
 
@@ -34,9 +34,20 @@ export const MarkSidebar = memo(function MarkSidebar({
   onSelect,
 }: MarkSidebarProps) {
   const { t } = useI18n();
+  const [filter, setFilter] = useState("");
   // `revision` is the subscription; the marks themselves are read synchronously.
-  void revision;
-  const marks = getMarks(path);
+  const marks = useMemo(() => {
+    void revision;
+    const all = getMarks(path);
+    // Notes are the reader's own words and are in no search index — ⌘F covers
+    // the document, deliberately not this. Once there are fifty marks, "where
+    // did I write that" needs an answer somewhere.
+    const needle = filter.trim().normalize("NFC").toLowerCase();
+    if (!needle) return all;
+    return all.filter((m) =>
+      `${m.text}\n${m.note}`.normalize("NFC").toLowerCase().includes(needle),
+    );
+  }, [path, revision, filter]);
 
   return (
     <aside className="thumb-sidebar outline-sidebar" aria-label={t("preview.marks")}>
@@ -53,8 +64,18 @@ export const MarkSidebar = memo(function MarkSidebar({
         </button>
       </div>
       {stale && <p className="mark-stale-note">{t("marks.staleFile")}</p>}
+      {(marks.length > 0 || filter) && (
+        <input
+          type="search"
+          className="mark-filter"
+          value={filter}
+          placeholder={t("marks.filterPlaceholder")}
+          aria-label={t("marks.filterPlaceholder")}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      )}
       {marks.length === 0 ? (
-        <p className="outline-empty">{t("marks.empty")}</p>
+        <p className="outline-empty">{filter ? t("marks.noFilterMatch") : t("marks.empty")}</p>
       ) : (
         <nav className="outline-list">
           {marks.map((mark) => (

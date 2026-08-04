@@ -3025,26 +3025,49 @@ button.pages-read-chip:hover {
   padding: 0;
   border: none;
   border-radius: 2px;
-  /* Multiply keeps the words readable through the wash rather than dimming
-     them, which is the whole point of highlighting them. */
-  mix-blend-mode: multiply;
-  background: color-mix(in srgb, #ffd54a 55%, transparent);
   cursor: pointer;
   pointer-events: auto;
 }
 
-.pdf-mark-noted {
+.pdf-mark-text {
+  /* Multiply keeps the words readable through the wash rather than dimming
+     them, which is the whole point of highlighting them. */
+  mix-blend-mode: multiply;
+  background: color-mix(in srgb, #ffd54a 55%, transparent);
+}
+
+/* A region encloses a figure, a chart, a scanned page. A wash over it would
+   hide exactly what the reader boxed it to see, so it is drawn as an edge. */
+.pdf-mark-region {
+  background: transparent;
+  border: 2px solid color-mix(in srgb, #ffb300 90%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.pdf-mark-text.pdf-mark-noted {
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
-.pdf-mark:hover,
-.pdf-mark:focus-visible,
-.pdf-mark-selected {
+.pdf-mark-region.pdf-mark-noted {
+  border-color: var(--accent);
+}
+
+.pdf-mark-text:hover,
+.pdf-mark-text:focus-visible,
+.pdf-mark-text.pdf-mark-selected {
   background: color-mix(in srgb, #ffd54a 78%, transparent);
 }
 
-:root[data-theme="dark"] .pdf-mark,
-.theme-dark .pdf-mark {
+.pdf-mark-region:hover,
+.pdf-mark-region:focus-visible,
+.pdf-mark-region.pdf-mark-selected {
+  border-width: 3px;
+  border-color: var(--accent);
+}
+
+:root[data-theme="dark"] .pdf-mark-text,
+.theme-dark .pdf-mark-text {
   /* The page is rendered light in both themes, so the wash does not invert. */
   mix-blend-mode: multiply;
 }
@@ -3176,4 +3199,21 @@ button.pages-read-chip:hover {
 
 .mark-item-here .outline-page {
   color: var(--accent);
+}
+
+.pdf-region-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: crosshair;
+  /* Only mounted while the mode is on, so this never shadows the text layer. */
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.pdf-region-band {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
 }

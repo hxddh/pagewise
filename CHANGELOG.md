@@ -4,9 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-08-04
+
 ### Fixed
 
+- **A scanned page could not be marked at all.** Marking required selecting text, and a scan has no text layer — measured, zero selectable runs — so on exactly the pages vision indexing pays for, and on every figure and chart, nothing could be marked. Turn on region marking in the preview toolbar and drag a box instead. A region with nothing readable in it keeps an empty snapshot rather than the extractor's `[Image: …]` marker, which would have read as though those were the words on the page.
 - **Release pages showed only the pull request title.** Every release body was GitHub's generated "What's Changed" line and nothing else, so everything the CHANGELOG says about a version stayed in the repository, where nobody downloading a build would look. The release now leads with that version's CHANGELOG section, and a version with no section fails the release before the build rather than publishing empty notes.
+
+### Added
+
+- **The document index lists the marks themselves**, not only which pages carry them. Asking the assistant to summarize what you marked previously cost one page read per marked page, for text already held in memory.
+- **A filter box in the marks sidebar.** Notes are your own words and are in no search index — ⌘F covers the document, deliberately not this — so past fifty marks "where did I write that" had no answer.
+- **Export marks on their own**, rather than only as a section at the end of the full document export.
+
+### Changed
+
+- **A region mark is drawn as an outline, not a wash.** Filling it would hide the figure it was drawn around, which is the thing it was drawn to look at.
 
 ## [5.0.0] - 2026-08-04
 

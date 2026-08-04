@@ -1,4 +1,4 @@
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, SquareDashedMousePointer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type { ZoomMode } from "../lib/zoom";
@@ -17,6 +17,9 @@ interface PreviewToolbarProps {
   onPageChange: (page: number) => void;
   thumbsVisible: boolean;
   onToggleThumbs: () => void;
+  /** Region-marking mode. Absent on documents that cannot be marked. */
+  regionMode?: boolean;
+  onToggleRegionMode?: () => void;
 }
 
 function PageNav({
@@ -127,6 +130,8 @@ export function PreviewToolbar({
   onPageChange,
   thumbsVisible,
   onToggleThumbs,
+  regionMode,
+  onToggleRegionMode,
 }: PreviewToolbarProps) {
   const { t } = useI18n();
 
@@ -158,6 +163,20 @@ export function PreviewToolbar({
               aria-pressed={thumbsVisible}
             >
               <LayoutGrid size={14} strokeWidth={1.75} />
+            </button>
+          </div>
+        )}
+        {onToggleRegionMode && (
+          <div className="toolbar-group">
+            <button
+              type="button"
+              className={`toolbar-btn ${regionMode ? "active" : ""}`}
+              onClick={onToggleRegionMode}
+              title={t("marks.regionMode")}
+              aria-label={t("marks.regionMode")}
+              aria-pressed={!!regionMode}
+            >
+              <SquareDashedMousePointer size={14} strokeWidth={1.75} />
             </button>
           </div>
         )}

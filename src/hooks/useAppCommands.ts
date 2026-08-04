@@ -14,6 +14,8 @@ import { isOverlayOpen } from "../lib/overlay-state";
 
 interface UseAppCommandsOptions {
   activeDocName: string | null;
+  /** Whether the open document has any marks, so the export can be gated. */
+  hasMarks: boolean;
   messages: UIMessage[];
   busy: boolean;
   followAgent: boolean;
@@ -29,6 +31,7 @@ interface UseAppCommandsOptions {
   onCycleTheme: () => void;
   onExportChat: () => void | Promise<void>;
   onExportDocument: () => void | Promise<void>;
+  onExportMarks: () => void | Promise<void>;
   /** Prompt to send every still-unscanned page to the vision model. */
   onScanAllPages: () => void;
   /** False when the document has no pages left to scan (or none can be). */
@@ -62,6 +65,8 @@ export function useAppCommands({
   onCycleTheme,
   onExportChat,
   onExportDocument,
+  onExportMarks,
+  hasMarks,
   onScanAllPages,
   canScanAllPages,
   showToast,
@@ -77,6 +82,10 @@ export function useAppCommands({
   const exportDocument = useCallback(async () => {
     await onExportDocument();
   }, [onExportDocument]);
+
+  const exportMarks = useCallback(async () => {
+    await onExportMarks();
+  }, [onExportMarks]);
 
   const exportSummary = useCallback(async () => {
     const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
@@ -166,6 +175,15 @@ export function useAppCommands({
         // document is open, streaming or not.
         disabled: !activeDocName,
         run: wrapRun("export-document", exportDocument),
+      },
+      {
+        id: "export-marks",
+        label: t("commands.exportMarks"),
+        section: "export",
+        // Nothing marked means nothing to write; offering it would export an
+        // empty file.
+        disabled: !activeDocName || !hasMarks,
+        run: wrapRun("export-marks", exportMarks),
       },
       {
         id: "export-summary",

@@ -85,6 +85,20 @@ describe("mark-store", () => {
     expect(add(1)).toBeNull();
   });
 
+  it("records a region mark's kind and leaves text marks unmarked", () => {
+    // Only the drawing differs — a wash over a figure would hide it — so the
+    // field exists, but a document of text marks stores nothing extra.
+    const region = addMark(PATH, {
+      page: 1,
+      rects: [RECT],
+      text: "",
+      stamp: "s1",
+      kind: "region",
+    });
+    expect(region!.kind).toBe("region");
+    expect(add(2)!.kind).toBeUndefined();
+  });
+
   it("edits and deletes by id", () => {
     const mark = add(1)!;
     setMarkNote(PATH, mark.id, "look here");
@@ -144,6 +158,12 @@ describe("mark-store", () => {
     it("reads back what it wrote", () => {
       const docs = sanitizeStoredMarks({ version: 1, docs: [{ path: PATH, marks: [good] }] });
       expect(docs).toEqual([{ path: PATH, marks: [good] }]);
+    });
+
+    it("accepts a 5.0 mark with no kind, and rejects an unknown one", () => {
+      expect(sanitizeStoredMarks({ version: 1, docs: [{ path: PATH, marks: [good] }] })).toHaveLength(1);
+      const bad = { ...good, kind: "scribble" };
+      expect(sanitizeStoredMarks({ version: 1, docs: [{ path: PATH, marks: [bad] }] })).toEqual([]);
     });
 
     it("drops a mark with no rectangle instead of failing the whole document", () => {
