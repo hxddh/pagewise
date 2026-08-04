@@ -14,7 +14,21 @@ interface LinkLayerProps {
 
 interface PlacedLink {
   url: string;
+  label: string;
   box: HighlightBox;
+}
+
+/**
+ * What the link says out loud.
+ *
+ * A bare URL is what a screen reader had to read out before — for a link whose
+ * visible words are "the specification", announcing the raw href is the least
+ * useful thing available. The line the link sits on names it the way the page
+ * does; the URL still follows, since where a link goes is worth hearing.
+ */
+function linkLabel(context: string, url: string): string {
+  const trimmed = context.trim();
+  return trimmed ? `${trimmed} — ${url}` : url;
 }
 
 /**
@@ -42,6 +56,7 @@ export function LinkLayer({ path, page, links, onActivate }: LinkLayerProps) {
         setPlaced(
           onPage.map((link) => ({
             url: link.url,
+            label: linkLabel(link.context, link.url),
             box: pdfRectToBox(link.rect, geometry),
           })),
         );
@@ -64,8 +79,8 @@ export function LinkLayer({ path, page, links, onActivate }: LinkLayerProps) {
           key={`${link.url}-${i}`}
           type="button"
           className="pdf-link"
-          title={link.url}
-          aria-label={link.url}
+          title={link.label}
+          aria-label={link.label}
           style={{
             left: `${link.box.left * 100}%`,
             top: `${link.box.top * 100}%`,

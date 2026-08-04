@@ -36,6 +36,7 @@ import {
 import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { describeFigure, figuresOnPage, pagesWithFigures } from "./read-figure";
+import { linksOnPages, pagesWithLinks, type PageLink } from "./page-links";
 import { findSectionIndex, sectionRange } from "./section-range";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import type { DocHeading } from "./types";
@@ -408,7 +409,39 @@ async function readPageRange(
               }
             : {}),
           ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
+          ...withPageLinks(doc, rangeOf(from, lastPage), runGen, chargeBudget),
         };
+}
+
+/** The pages a read actually returned text for. */
+function rangeOf(from: number, to: number): number[] {
+  const pages: number[] = [];
+  for (let page = from; page <= to; page++) pages.push(page);
+  return pages;
+}
+
+/**
+ * The links on the pages a read covered, charged like any other output.
+ *
+ * The destination of a hyperlink is nowhere in the page text, so without this
+ * a read gives the model the anchor's words and nothing else — "See the
+ * specification" with no way to learn what it points at.
+ */
+function withPageLinks(
+  doc: LoadedDocument,
+  pages: readonly number[],
+  runGen: number,
+  chargeBudget: (runGen: number, chars: number) => void,
+): { links?: PageLink[]; linksNote?: string } {
+  const links = linksOnPages(doc.links, pages);
+  if (links.length === 0) return {};
+  chargeBudget(runGen, JSON.stringify(links).length);
+  return {
+    links,
+    linksNote:
+      "Hyperlink destinations from these pages. They are not in the page text — " +
+      "context is the line each link sits on.",
+  };
 }
 
 function createDocumentTools(budget: ReadBudget) {
@@ -459,6 +492,7 @@ function createDocumentTools(budget: ReadBudget) {
           // there is. Image documents have neither.
           const bookmarks = await resolveOutline(doc, path);
           const figurePages = pagesWithFigures(doc.figures);
+          const linkPages = pagesWithLinks(doc.links);
           const statsOmitted = Math.max(0, allStats.length - MAX_OUTLINE_PAGE_STATS);
           const result = {
             totalPages: doc.totalPages || pages.length,
@@ -487,6 +521,16 @@ function createDocumentTools(budget: ReadBudget) {
                   figuresNote:
                     "Use read_figure on these pages when the text refers to something " +
                     "it does not convey — a chart, a diagram, a photograph.",
+                }
+              : {}),
+            // Hyperlink destinations live only in the PDF's annotations, never
+            // in the page text — reading a page is the only way to see them.
+            ...(linkPages.length > 0
+              ? {
+                  pagesWithLinks: compressPageRanges(linkPages),
+                  linksNote:
+                    "Reading one of these pages also returns its hyperlink destinations, " +
+                    "which the page text does not contain.",
                 }
               : {}),
             ...(unindexedPages.length > 0
@@ -624,6 +668,7 @@ function createDocumentTools(budget: ReadBudget) {
             nextOffset: truncated ? consumedEnd : null,
             charCount: slice.length,
             ...(limitedByBudget ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
+            ...withPageLinks(doc, [page], runGen, chargeBudget),
           };
         },
       ),

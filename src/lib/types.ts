@@ -67,8 +67,9 @@ export interface DocHeading {
 
 export interface DocLink {
   page: number;
-  text: string;
   url: string;
+  /** The line the link sits on, or "" when none could be matched. */
+  context: string;
   rect: PdfRect;
 }
 
