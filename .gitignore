@@ -37,3 +37,6 @@ src-tauri/target
 *.njsproj
 *.sln
 *.sw?
+
+# Generated in CI from CHANGELOG.md for the release body
+release-notes.md
