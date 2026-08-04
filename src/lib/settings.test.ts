@@ -611,3 +611,46 @@ describe("normalizeStore edge cases", () => {
     expect(store.profiles.openai).toEqual(defaultProviderProfile("openai"));
   });
 });
+
+describe("session key cache", () => {
+  it("asks the keychain once per key, not once per read", async () => {
+    // Settings are resolved on every vision-indexed page, so without this a
+    // scan meant one keychain round trip per page — and on an unsigned macOS
+    // build, one OS password prompt per page.
+    let reads = 0;
+    __resetSettingsStoreForTests({
+      store: { activeProvider: "openai", profiles: {} } as never,
+      keychain: {
+        get: async () => {
+          reads += 1;
+          return "sk-cached";
+        },
+        set: async () => {},
+      },
+    });
+    expect(await loadApiKeyForProvider("openai")).toBe("sk-cached");
+    // The first resolve also runs the one-time migration, which walks every
+    // provider. What matters is that reading again costs nothing.
+    const afterFirst = reads;
+    expect(await loadApiKeyForProvider("openai")).toBe("sk-cached");
+    expect(await loadApiKeyForProvider("openai")).toBe("sk-cached");
+    expect(reads).toBe(afterFirst);
+  });
+
+  it("re-reads after the key is saved", async () => {
+    const keys = ["sk-old", "sk-new"];
+    let i = 0;
+    __resetSettingsStoreForTests({
+      store: { activeProvider: "openai", profiles: {} } as never,
+      keychain: {
+        get: async () => keys[Math.min(i, keys.length - 1)]!,
+        set: async () => {
+          i = 1;
+        },
+      },
+    });
+    expect(await loadApiKeyForProvider("openai")).toBe("sk-old");
+    await saveProviderProfile("openai", {}, "sk-new");
+    expect(await loadApiKeyForProvider("openai")).toBe("sk-new");
+  });
+});
