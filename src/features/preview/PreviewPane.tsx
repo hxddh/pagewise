@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ConfirmOverlay } from "../../components/overlays/ConfirmOverlay";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
+import { useToast } from "../../hooks/useToast";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
 import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
 import { sanitizeIndexErrorDetail } from "../../lib/index-error-display";
@@ -14,11 +15,18 @@ import { useAskSelection } from "./useAskSelection";
 import { selectionQuote } from "./selection-quote";
 import { SearchHighlight } from "./SearchHighlight";
 import { LinkLayer } from "./LinkLayer";
+import { MarkLayer } from "./MarkLayer";
+import { MarkNote } from "./MarkNote";
+import { useMarkRevision } from "./useMarks";
+import { addMark, getMarks, marksAreStale } from "../../lib/mark-store";
+import { clientRectToPageRect } from "./selection-quote";
+import { getPageGeometry } from "../../lib/pdf";
 import { displayUrl } from "../../lib/safe-link";
 import type { LoadedDocument } from "../../lib/types";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
 import { OutlineSidebar } from "../../components/OutlineSidebar";
+import { MarkSidebar } from "../../components/MarkSidebar";
 import { usableOutline } from "../../lib/outline-nav";
 import { DocumentSearch } from "../../components/DocumentSearch";
 
@@ -40,8 +48,11 @@ function PreviewPaneInner({
   onAskAboutSelection,
 }: PreviewPaneProps) {
   const { t } = useI18n();
+  const { showToast } = useToast();
   const [thumbsVisible, setThumbsVisible] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
+  const [sidebarTab, setSidebarTab] = useState<"pages" | "outline" | "marks">("pages");
+  const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
+  const markRevision = useMarkRevision(doc.path);
   // What the reader searched for when they jumped here, so the hit can be
   // marked on the page. Cleared as soon as they navigate away from it.
   const [searchHit, setSearchHit] = useState<{ page: number; query: string } | null>(null);
@@ -88,6 +99,49 @@ function PreviewPaneInner({
         }}
       >
         {t("preview.askAboutSelection")}
+      </button>
+    ) : null;
+
+  const markButton =
+    askSel && doc.kind === "pdf" ? (
+      <button
+        type="button"
+        className="mark-selection-btn"
+        style={{ left: askSel.x, top: askSel.y }}
+        // Keep the selection alive through the click.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          const box = viewer.textLayerRef.current?.getBoundingClientRect() ?? null;
+          const rects = askSel.rects;
+          const text = askSel.text;
+          const run = quoteRun.current;
+          clearAskSel();
+          window.getSelection()?.removeAllRanges();
+          if (!box) return;
+          void (async () => {
+            try {
+              const geometry = await getPageGeometry(doc.path, page);
+              // The reader can turn the page while the geometry is in flight;
+              // a mark placed then would land on the wrong page.
+              if (quoteRun.current !== run) return;
+              const mark = addMark(doc.path, {
+                page,
+                rects: rects.map((r) => clientRectToPageRect(r, box, geometry)),
+                // The words are a snapshot for the reader, never an anchor —
+                // the rectangles locate the mark.
+                text,
+                stamp: doc.stamp ?? "",
+              });
+              if (mark) setSelectedMarkId(mark.id);
+              else showToast(t("marks.capReached"), "error");
+            } catch {
+              // Nothing to place the mark against; leaving the page unmarked is
+              // better than marking it in the wrong spot.
+            }
+          })();
+        }}
+      >
+        {t("marks.markSelection")}
       </button>
     ) : null;
 
@@ -258,6 +312,13 @@ function PreviewPaneInner({
             {searchHit?.page === page && (
               <SearchHighlight path={doc.path} page={page} query={searchHit.query} />
             )}
+            <MarkLayer
+              path={doc.path}
+              page={page}
+              revision={markRevision}
+              selectedId={selectedMarkId}
+              onSelect={setSelectedMarkId}
+            />
             {doc.links && doc.links.length > 0 && (
               <LinkLayer
                 path={doc.path}
@@ -317,6 +378,15 @@ function PreviewPaneInner({
   // no headings simply has no tab to switch to.
   const outline = usableOutline(doc.outline, doc.totalPages);
   const showOutline = sidebarTab === "outline" && outline.length > 0;
+  const showMarks = sidebarTab === "marks";
+  const marks = (void markRevision, getMarks(doc.path));
+  const selectedMark = marks.find((m) => m.id === selectedMarkId) ?? null;
+  // Marks made against a different version of this file. Unlike the page index,
+  // which is discarded when the file changes because it can be recomputed, the
+  // reader's own marks are kept — the rectangles may now point at the wrong
+  // place, but only the reader can judge that, and the snapshot still says what
+  // was marked.
+  const staleMarks = marksAreStale(doc.path, doc.stamp ?? "");
   const sidebarTabs = (
     <div className="sidebar-tabs" role="tablist">
       <button
@@ -332,10 +402,23 @@ function PreviewPaneInner({
         type="button"
         role="tab"
         aria-selected={showOutline}
+        // The tabs are always shown now that marks need reaching, so a document
+        // without a recovered outline disables this one rather than offering a
+        // tab that silently falls back to pages.
+        disabled={outline.length === 0}
         className={`sidebar-tab ${showOutline ? "active" : ""}`}
         onClick={() => setSidebarTab("outline")}
       >
         {t("preview.outline")}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={showMarks}
+        className={`sidebar-tab ${showMarks ? "active" : ""}`}
+        onClick={() => setSidebarTab("marks")}
+      >
+        {t("preview.marks")}
       </button>
     </div>
   );
@@ -351,7 +434,21 @@ function PreviewPaneInner({
       />
 
       {thumbsVisible &&
-        (showOutline ? (
+        (showMarks ? (
+          <MarkSidebar
+            path={doc.path}
+            revision={markRevision}
+            currentPage={page}
+            selectedId={selectedMarkId}
+            stale={staleMarks}
+            tabs={sidebarTabs}
+            onClose={() => setThumbsVisible(false)}
+            onSelect={(target, id) => {
+              onPageChange(target);
+              setSelectedMarkId(id);
+            }}
+          />
+        ) : showOutline ? (
           <OutlineSidebar
             outline={outline}
             currentPage={page}
@@ -364,7 +461,7 @@ function PreviewPaneInner({
             path={doc.path}
             totalPages={doc.totalPages}
             currentPage={page}
-            tabs={outline.length > 0 ? sidebarTabs : undefined}
+            tabs={sidebarTabs}
             onToggle={() => setThumbsVisible(false)}
             onPageSelect={onPageChange}
           />
@@ -382,6 +479,15 @@ function PreviewPaneInner({
         </div>
       </div>
       {askButton}
+      {markButton}
+      {selectedMark && (
+        <MarkNote
+          path={doc.path}
+          mark={selectedMark}
+          currentStamp={doc.stamp ?? ""}
+          onClose={() => setSelectedMarkId(null)}
+        />
+      )}
 
       <ConfirmOverlay
         open={pendingLink !== null}

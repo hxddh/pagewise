@@ -1,4 +1,25 @@
+import { getMarks } from "./mark-store";
 import type { LoadedDocument } from "./types";
+
+/**
+ * The reader's marks, appended to the export.
+ *
+ * Export is the only way marks leave PageWise. They are deliberately NOT
+ * written back into the PDF: that needs a PDF writer and, worse, rewrites the
+ * reader's original file — corrupting a contract costs more than portability
+ * between readers is worth.
+ */
+function marksSection(path: string): string[] {
+  const marks = getMarks(path);
+  if (marks.length === 0) return [];
+  const parts = ["## Marks", ""];
+  for (const mark of marks) {
+    parts.push(`- **p. ${mark.page}** — ${mark.text || "(no text)"}`);
+    if (mark.note) parts.push(`  - ${mark.note}`);
+  }
+  parts.push("");
+  return parts;
+}
 
 /**
  * Render a loaded document as one Markdown file.
@@ -14,6 +35,8 @@ export function documentToMarkdown(doc: LoadedDocument): string {
   if (doc.title?.trim() && doc.title.trim() !== doc.name) {
     parts.push(`**Source:** ${doc.name}`, "");
   }
+
+  parts.push(...marksSection(doc.path));
 
   for (const page of [...doc.pages].sort((a, b) => a.page - b.page)) {
     const text = page.text.trim();

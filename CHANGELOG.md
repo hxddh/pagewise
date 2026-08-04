@@ -4,6 +4,23 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-08-04
+
+### Added
+
+- **Marks.** PageWise was read-only: you read, you asked, and closing the document left nothing on it. Select a passage and mark it — with or without a note. Marks persist per document, list in the sidebar in page order, and come out with the Markdown export.
+- **The assistant sees what you marked.** A marked passage is the strongest signal in a document of what its reader cares about, and it appears nowhere in the page text. Page and range reads return the marks they cover, and the document index lists which pages carry them. The assistant cannot create or change marks.
+
+### Changed
+
+- **A multi-line selection highlights line by line** rather than as one block over the paragraph, which would also cover the first line's left margin and the last line's right margin.
+- **The outline tab is disabled rather than hidden** on a document with no recovered headings, now that the sidebar tabs are always shown so marks can be reached.
+
+### Notes
+
+- Marks are anchored on page geometry, never on text. Matching quoted text back to the page was measured first and rejected: page text and text positions come from different extraction paths that disagree, so only 24% of sentence-length quotes could be located, and even a 15-character anchor landed 71% of the time.
+- A mark survives the file changing under it. The page-text cache discards itself on a file change because it can be recomputed; a mark cannot, so it is kept and flagged — the rectangle may point at the wrong place now, but the snapshot still says what was marked.
+
 ## [4.4.0] - 2026-08-04
 
 ### Added

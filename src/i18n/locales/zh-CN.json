@@ -5,7 +5,8 @@
   },
   "common": {
     "cancel": "取消",
-    "dismiss": "关闭"
+    "dismiss": "关闭",
+    "close": "关闭"
   },
   "dialog": {
     "documentsFilter": "文档",
@@ -121,7 +122,22 @@
     "outline": "大纲",
     "outlineEmpty": "未找到标题",
     "openLinkConfirm": "在浏览器中打开 {{url}}？",
-    "openLinkAction": "打开链接"
+    "openLinkAction": "打开链接",
+    "marks": "标记"
+  },
+  "marks": {
+    "markSelection": "标记",
+    "markPlain": "标记：{text}",
+    "markWithNote": "带批注的标记：{note}",
+    "noteDialog": "标记批注",
+    "notePlaceholder": "写点什么…",
+    "onPage": "第 {page} 页",
+    "delete": "删除标记",
+    "empty": "还没有标记。在页面上选中文字，然后点“标记”。",
+    "noText": "（无文字）",
+    "capReached": "这份文档的标记数量已达上限。",
+    "staleFile": "文件在部分标记之后被改动过，它们可能已经指错了地方。",
+    "staleMark": "创建于此文件的较早版本，可能已经指错了地方。"
   },
   "drop": {
     "title": "拖放以打开",
