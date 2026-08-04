@@ -35,6 +35,27 @@ export function figuresOnPage(figures: DocFigure[] | undefined, page: number): D
 }
 
 /**
+ * Pages carrying a figure worth looking at.
+ *
+ * `read_figure` was added without anything telling the model when to use it:
+ * the outline reported pages with tables but never pages with figures, so the
+ * tool could only be reached by guessing. Same size filter as the reader, so a
+ * page is never advertised as having a figure the reader would then skip.
+ */
+export function pagesWithFigures(figures: DocFigure[] | undefined): number[] {
+  const pages = new Set<number>();
+  for (const figure of figures ?? []) {
+    if (
+      figure.rect.width >= MIN_FIGURE_POINTS &&
+      figure.rect.height >= MIN_FIGURE_POINTS
+    ) {
+      pages.add(figure.page);
+    }
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
+/**
  * Send one figure to the vision model and return what it says.
  *
  * The whole page would otherwise go — the figure diluted by the surrounding

@@ -33,7 +33,7 @@ use pdf_inspector::{
     extract_text_in_regions_mem, PdfType,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Above this page count the positions pass (links/figures) is skipped.
 ///
@@ -180,6 +180,115 @@ fn recover_blank_pages(bytes: &[u8], blank: &[usize]) -> Vec<(usize, String)> {
         }
     }
     out
+}
+
+/// A running header must repeat on at least this many pages to be one.
+const RUNNING_LINE_MIN_PAGES: usize = 3;
+/// And be short enough to be furniture rather than a paragraph.
+const RUNNING_LINE_MAX_CHARS: usize = 80;
+
+/// Remove the chapter title a document repeats at the top or bottom of its
+/// pages.
+///
+/// The extractor hands these back as body text — page 10 of the test fixture
+/// opens with its own chapter header — and they cost more than the space they
+/// take. Searching a chapter name, which is what a reader searches while
+/// navigating, returns mostly headers: 3 of 5 hits for one heading in the
+/// sample document. Upstream's `strip_headers_footers` removes none of them
+/// here, and the per-page extraction path takes no options regardless.
+///
+/// Deliberately narrow. A line is furniture only if it opens or closes its
+/// page, repeats in that same position across several pages, and is short. A
+/// page whose entire content is one such line keeps it: an empty page would be
+/// a worse lie than a repeated one.
+///
+/// Headings and table rows are never furniture, whatever they repeat — see
+/// `is_structural_line`. The sample document's
+/// "Lösungen der Übungsaufgaben" is both a chapter title and, on the pages
+/// that follow, a running footer; without this the chapter vanished from the
+/// outline. If the extractor promoted a line by font size, it is structure.
+fn strip_running_lines(pages: &mut [String]) {
+    let mut first_counts: HashMap<String, usize> = HashMap::new();
+    let mut last_counts: HashMap<String, usize> = HashMap::new();
+
+    for text in pages.iter() {
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        if lines.len() < 3 {
+            continue;
+        }
+        if let Some(first) = lines.first().filter(|l| !is_structural_line(l)) {
+            *first_counts.entry(running_key(first)).or_default() += 1;
+        }
+        if let Some(last) = lines.last().filter(|l| !is_structural_line(l)) {
+            *last_counts.entry(running_key(last)).or_default() += 1;
+        }
+    }
+
+    let repeats = |counts: &HashMap<String, usize>, line: &str| {
+        if is_structural_line(line) {
+            return false;
+        }
+        let key = running_key(line);
+        !key.is_empty()
+            && key.chars().count() <= RUNNING_LINE_MAX_CHARS
+            && counts.get(&key).copied().unwrap_or(0) >= RUNNING_LINE_MIN_PAGES
+    };
+
+    for text in pages.iter_mut() {
+        let lines: Vec<&str> = text.lines().collect();
+        let content: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| !l.trim().is_empty())
+            .map(|(i, _)| i)
+            .collect();
+        if content.len() < 3 {
+            continue;
+        }
+
+        let mut drop_first = false;
+        let mut drop_last = false;
+        if let Some(&i) = content.first() {
+            drop_first = repeats(&first_counts, lines[i]);
+        }
+        if let Some(&i) = content.last() {
+            drop_last = repeats(&last_counts, lines[i]);
+        }
+        if !drop_first && !drop_last {
+            continue;
+        }
+
+        let skip_first = drop_first.then(|| content[0]);
+        let skip_last = drop_last.then(|| content[content.len() - 1]);
+        *text = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| Some(*i) != skip_first && Some(*i) != skip_last)
+            .map(|(_, l)| *l)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+    }
+}
+
+/// Compare running lines by their words, not their decoration: the same header
+/// appears both underlined and bold in the sample document.
+fn running_key(line: &str) -> String {
+    clean_heading(line).to_lowercase()
+}
+
+/// Structure, not decoration — exempt from stripping however often it repeats.
+///
+/// A heading the extractor promoted by font size is the document's own
+/// skeleton. A table row is the same kind of thing for a different reason: a
+/// table continued across pages repeats its header row at the top of each one,
+/// which reads exactly like running furniture. Strip it and the `|---|`
+/// delimiter and every data row below are left with no column labels, so the
+/// values become uninterpretable in both page reads and search results.
+fn is_structural_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with('#') || trimmed.starts_with('|')
 }
 
 /// Strip the inline Markdown we added so a heading reads as plain text.
@@ -360,6 +469,8 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
             }
         }
     }
+
+    strip_running_lines(&mut texts);
 
     let pages: Vec<Page> = texts
         .into_iter()
@@ -592,6 +703,133 @@ mod tests {
         assert!(items.iter().all(|i| i.rect.width > 0.0 && i.rect.height > 0.0));
         // A table cell is its own run, which is what makes a hit locatable.
         assert!(items.iter().any(|i| i.text.contains("1,284")));
+    }
+
+    // --- Running headers -------------------------------------------------
+
+    fn pages_of(texts: &[&str]) -> Vec<String> {
+        texts.iter().map(|t| t.to_string()).collect()
+    }
+
+    #[test]
+    fn strips_a_chapter_title_repeated_at_the_top_of_pages() {
+        let mut pages = pages_of(&[
+            "<u>1.2. METRISCHE RÄUME</u>\nbody one\nmore text",
+            "<u>1.2. METRISCHE RÄUME</u>\nbody two\nmore text",
+            "**1.2. Metrische Räume**\nbody three\nmore text",
+        ]);
+        strip_running_lines(&mut pages);
+        // Compared by words, not decoration: the same header appears both
+        // underlined and bold in a real document.
+        assert!(pages.iter().all(|p| !p.contains("METRISCHE") && !p.contains("Metrische")));
+        assert!(pages[0].starts_with("body one"));
+    }
+
+    #[test]
+    fn strips_a_footer_repeated_at_the_bottom_of_pages() {
+        let mut pages = pages_of(&[
+            "body one\nmore\nLösungen der Übungsaufgaben",
+            "body two\nmore\nLösungen der Übungsaufgaben",
+            "body three\nmore\nLösungen der Übungsaufgaben",
+        ]);
+        strip_running_lines(&mut pages);
+        assert!(pages.iter().all(|p| !p.contains("Lösungen")));
+        assert!(pages[2].ends_with("more"));
+    }
+
+    #[test]
+    fn keeps_a_line_that_repeats_only_twice() {
+        let mut pages = pages_of(&[
+            "Shared\nbody one\nmore",
+            "Shared\nbody two\nmore",
+        ]);
+        strip_running_lines(&mut pages);
+        assert!(pages.iter().all(|p| p.contains("Shared")));
+    }
+
+    #[test]
+    fn keeps_a_repeated_line_that_is_not_at_the_edge_of_the_page() {
+        // A recurring phrase mid-paragraph is content, not furniture.
+        let mut pages = pages_of(&[
+            "top one\nSee also Chapter 3\nend one",
+            "top two\nSee also Chapter 3\nend two",
+            "top three\nSee also Chapter 3\nend three",
+        ]);
+        strip_running_lines(&mut pages);
+        assert!(pages.iter().all(|p| p.contains("See also Chapter 3")));
+    }
+
+    #[test]
+    fn keeps_a_long_first_line_even_when_it_repeats() {
+        // A repeated paragraph is not page furniture.
+        let long = "x".repeat(RUNNING_LINE_MAX_CHARS + 1);
+        let mut pages = pages_of(&[
+            &format!("{long}\nbody\nmore"),
+            &format!("{long}\nbody\nmore"),
+            &format!("{long}\nbody\nmore"),
+        ]);
+        strip_running_lines(&mut pages);
+        assert!(pages.iter().all(|p| p.contains(&long)));
+    }
+
+    #[test]
+    fn never_empties_a_page_whose_only_line_is_the_header() {
+        // A blank page would be a worse lie than a repeated header.
+        let mut pages = pages_of(&[
+            "1.2. METRISCHE RÄUME",
+            "1.2. METRISCHE RÄUME",
+            "1.2. METRISCHE RÄUME",
+            "1.2. METRISCHE RÄUME\nbody\nmore",
+        ]);
+        strip_running_lines(&mut pages);
+        assert!(pages[0].contains("METRISCHE"));
+        assert!(pages[1].contains("METRISCHE"));
+    }
+
+    #[test]
+    fn keeps_a_chapter_title_that_also_runs_as_a_footer() {
+        // Measured on the sample document: "Lösungen der Übungsaufgaben" is a
+        // chapter heading and, on the pages after it, a running footer. Without
+        // the heading exemption the chapter disappeared from the outline.
+        let mut pages = pages_of(&[
+            "# Lösungen der Übungsaufgaben\nfirst answer\nsecond answer",
+            "more answers\nstill more\n<u>Lösungen der Übungsaufgaben</u>",
+            "further answers\nstill more\n<u>Lösungen der Übungsaufgaben</u>",
+            "final answers\nstill more\n<u>Lösungen der Übungsaufgaben</u>",
+        ]);
+        strip_running_lines(&mut pages);
+        assert!(
+            pages[0].contains("# Lösungen der Übungsaufgaben"),
+            "the chapter heading must survive",
+        );
+        assert!(
+            pages[1..].iter().all(|p| !p.contains("Lösungen")),
+            "the running footer must not",
+        );
+    }
+
+    #[test]
+    fn keeps_the_header_row_of_a_table_continued_across_pages() {
+        // A table spanning pages repeats its header row at the top of each one,
+        // which looks exactly like running furniture. Stripping it leaves the
+        // delimiter and every data row with no column labels at all.
+        let header = "| Year | Revenue |";
+        let mut pages: Vec<String> = ["10", "12", "14", "16"]
+            .iter()
+            .map(|v| format!("{header}\n|---|---|\n| 2021 | {v} |"))
+            .collect();
+        strip_running_lines(&mut pages);
+        assert!(
+            pages.iter().all(|p| p.starts_with(header)),
+            "column labels must survive on every page of the table",
+        );
+    }
+
+    #[test]
+    fn running_headers_are_gone_from_the_real_document() {
+        // The fixture has none; this guards the call site, not the rule.
+        let doc = open_document(&fixture("text-simple.pdf")).expect("open");
+        assert!(doc.pages[0].text.contains("Lorem ipsum"));
     }
 
     #[test]
