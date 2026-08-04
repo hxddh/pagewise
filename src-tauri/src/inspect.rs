@@ -88,8 +88,12 @@ pub struct Heading {
 #[derive(Debug, Clone, Serialize)]
 pub struct Link {
     pub page: u32,
-    pub text: String,
     pub url: String,
+    /// The line the link sits on, or empty when none could be matched.
+    ///
+    /// Not the anchor text — see `link_context`. Upstream's own `text` for a
+    /// link item is the URI echoed back, which told a reader nothing.
+    pub context: String,
     /// Bottom-left origin. See module docs.
     pub rect: Rect,
 }
@@ -391,6 +395,9 @@ fn collect_positions(path: &str, page_count: usize) -> (Vec<Link>, Vec<Figure>) 
 
     let mut links = Vec::new();
     let mut figures = Vec::new();
+    // The same pass already reports the page's text runs; keeping them lets a
+    // link be placed in its sentence without parsing the file a second time.
+    let mut lines: Vec<(u32, Rect, String)> = Vec::new();
     for item in items {
         let rect = Rect {
             x: item.x,
@@ -401,18 +408,82 @@ fn collect_positions(path: &str, page_count: usize) -> (Vec<Link>, Vec<Figure>) 
         match item.item_type {
             ItemType::Link(url) => links.push(Link {
                 page: item.page,
-                text: item.text,
                 url,
+                context: String::new(),
                 rect,
             }),
             ItemType::Image => figures.push(Figure {
                 page: item.page,
                 rect,
             }),
+            ItemType::Text => {
+                if !item.text.trim().is_empty() {
+                    lines.push((item.page, rect, item.text));
+                }
+            }
             _ => {}
         }
     }
+
+    for link in links.iter_mut() {
+        link.context = link_context(link, &lines);
+    }
     (links, figures)
+}
+
+/// A link box must cover at least this much of a line to be sitting on it.
+const LINK_CONTEXT_MIN_OVERLAP: f32 = 0.3;
+/// Longer context is a paragraph, not a place — cut it.
+const LINK_CONTEXT_MAX_CHARS: usize = 200;
+
+/// The line a link sits on.
+///
+/// Not the anchor text: upstream reports text per line or run, never per
+/// character, so the span under the link box cannot be isolated — measured on
+/// the sample document, a 24-character anchor comes back as its whole
+/// 90-character line. That is why the destination stays in metadata instead of
+/// being written back into the page as `[anchor](url)`, which would swallow the
+/// sentence. The line is still the useful thing to show: it says whose link it
+/// is in a way the URL alone often does not.
+fn link_context(link: &Link, lines: &[(u32, Rect, String)]) -> String {
+    let mut best: Option<(f32, &str)> = None;
+    for (page, rect, text) in lines {
+        if *page != link.page {
+            continue;
+        }
+        let share = covered_share(&link.rect, rect);
+        if share < LINK_CONTEXT_MIN_OVERLAP {
+            continue;
+        }
+        if best.is_none_or(|(top, _)| share > top) {
+            best = Some((share, text));
+        }
+    }
+    let Some((_, text)) = best else {
+        return String::new();
+    };
+    let cleaned = clean_heading(text).split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.chars().count() <= LINK_CONTEXT_MAX_CHARS {
+        return cleaned;
+    }
+    let cut: String = cleaned.chars().take(LINK_CONTEXT_MAX_CHARS).collect();
+    format!("{cut}…")
+}
+
+/// How much of `link` falls inside `line`, as a fraction of the link's area.
+fn covered_share(link: &Rect, line: &Rect) -> f32 {
+    let x1 = link.x.max(line.x);
+    let y1 = link.y.max(line.y);
+    let x2 = (link.x + link.width).min(line.x + line.width);
+    let y2 = (link.y + link.height).min(line.y + line.height);
+    if x2 <= x1 || y2 <= y1 {
+        return 0.0;
+    }
+    let area = link.width * link.height;
+    if area <= 0.0 {
+        return 0.0;
+    }
+    ((x2 - x1) * (y2 - y1)) / area
 }
 
 /// Parse a PDF once and return everything PageWise needs from it.
@@ -669,6 +740,67 @@ mod tests {
         assert!(doc.links.iter().all(|l| l.page == 1));
         assert!(!doc.figures.is_empty(), "expected a figure box");
         assert!(doc.figures.iter().all(|f| f.rect.width > 0.0 && f.rect.height > 0.0));
+        // The destination is nowhere in the page text — this is the only way a
+        // reader of that text learns the link exists, so it must say where.
+        assert!(
+            doc.links.iter().all(|l| !l.context.is_empty()),
+            "every link should be placed in its line",
+        );
+        assert!(
+            doc.links.iter().all(|l| !l.context.contains("http")),
+            "context is the sentence, not the URL echoed back",
+        );
+    }
+
+    fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
+        Rect { x, y, width, height }
+    }
+
+    fn link_at(r: Rect) -> Link {
+        Link {
+            page: 1,
+            url: "https://example.com/".into(),
+            context: String::new(),
+            rect: r,
+        }
+    }
+
+    #[test]
+    fn places_a_link_on_the_line_it_covers_most() {
+        let lines = vec![
+            (1, rect(0.0, 100.0, 300.0, 12.0), "the line above".to_string()),
+            (1, rect(0.0, 80.0, 300.0, 12.0), "See <u>the spec</u> for details".to_string()),
+        ];
+        let link = link_at(rect(30.0, 81.0, 40.0, 10.0));
+        // Inline markup is stripped: the context reads as a sentence.
+        assert_eq!(link_context(&link, &lines), "See the spec for details");
+    }
+
+    #[test]
+    fn never_borrows_a_line_from_another_page() {
+        let lines = vec![(2, rect(0.0, 80.0, 300.0, 12.0), "on page two".to_string())];
+        let link = link_at(rect(30.0, 81.0, 40.0, 10.0));
+        assert_eq!(link_context(&link, &lines), "");
+    }
+
+    #[test]
+    fn leaves_context_empty_rather_than_guessing_a_distant_line() {
+        // A link box floating clear of every run — a bare annotation over a
+        // figure. Naming the nearest line would attribute it to a sentence it
+        // has nothing to do with.
+        let lines = vec![(1, rect(0.0, 400.0, 300.0, 12.0), "far away".to_string())];
+        let link = link_at(rect(30.0, 81.0, 40.0, 10.0));
+        assert_eq!(link_context(&link, &lines), "");
+    }
+
+    #[test]
+    fn truncates_a_context_that_is_really_a_paragraph() {
+        let long = "word ".repeat(80);
+        let lines = vec![(1, rect(0.0, 80.0, 300.0, 12.0), long)];
+        let link = link_at(rect(30.0, 81.0, 40.0, 10.0));
+        let context = link_context(&link, &lines);
+        assert!(context.ends_with('…'));
+        assert_eq!(context.chars().count(), LINK_CONTEXT_MAX_CHARS + 1);
     }
 
     #[test]

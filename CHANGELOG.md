@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-08-04
+
+### Added
+
+- **The assistant can see where a link goes.** A hyperlink's destination lives in the PDF's annotations, never in the page text, so a page reading "See the specification and PageWise." gave no hint that two links were in that sentence. In one 117-page test document, 16 of 29 destinations could not be recovered from the text at all. Page and range reads now return the links on those pages, each with the line it sits on, and the document index lists which pages carry them.
+
+### Changed
+
+- **A clickable link in the preview announces the sentence it belongs to**, not just its raw address — for a link whose visible words are "the specification", reading out the URL was the least useful thing available.
+
 ## [4.3.0] - 2026-08-04
 
 ### Fixed
