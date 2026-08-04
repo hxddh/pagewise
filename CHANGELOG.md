@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [6.1.0] - 2026-08-04
+
+### Fixed
+
+- **Scrolling through a scanned document could spend one billed vision call per page.** The preview indexes the page you are on when that page has no text of its own, and that call is not covered by either scan quota. While the preview flipped one page at a time, a click cost at most one call; once the document scrolled, the current page changed continuously, so scrolling once through a 200-page scan could bill up to 200 calls, unattended and without the confirmation the "scan every unscanned page" command asks for. The page you are looking at is now the page you have stopped on — half a second of stillness — and the pages you scroll past cost nothing.
+- **Every mounted page re-rendered on every scroll event.** Each page received a freshly built overlay function on each render, so the memo meant to hold them still never matched, and each frame of a scroll re-reconciled every mounted page along with its highlight, mark, link and region layers. Pages now receive one shared function, and the scroll position is committed at most once per frame.
+- **Opening a document measured every one of its pages.** A thousand-page document meant a thousand page loads in the background, none of which the reader had asked for. Pages are now measured around the window being read and as the reader moves; unmeasured pages are laid out at the first known size, as they already were.
+- **The preview kept a reference to its scroll container after it was unmounted.** React 19 stops calling a ref callback with `null` once that callback returns a cleanup function, so the reference outlived the element — which is what decides whether a text selection belongs to the preview.
+
+### Notes
+
+- Fit-width now fits the widest page **measured so far** rather than the widest in the document, so reaching a landscape page mid-document narrows the column once. Measuring every page up front to avoid that is the unbounded chain removed above.
+
 ## [6.0.1] - 2026-08-04
 
 ### Fixed

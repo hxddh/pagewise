@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { measurePageSizes } from "../../lib/pdf";
+import { measurePages } from "../../lib/pdf";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
 import { PageSlot } from "./PageSlot";
 import {
@@ -18,6 +18,8 @@ const MAX_ZOOM = 4;
 /** Below this, a scroll is treated as reading rather than seeking. */
 const HURRY_PX_PER_TICK = 240;
 const HURRY_IDLE_MS = 160;
+/** Pages measured either side of the mounted window, so the layout runs ahead. */
+const MEASURE_MARGIN = 8;
 
 interface PageScrollerProps {
   doc: LoadedDocument;
@@ -64,18 +66,23 @@ export function PageScroller({
   const selfScrollRef = useRef(false);
   const lastScrollRef = useRef(0);
   const hurryTimerRef = useRef<number | undefined>(undefined);
+  const rafRef = useRef<number | undefined>(undefined);
+  // Pages asked for, and pages whose answer came back. A window abandoned
+  // mid-flight has to leave its unanswered pages askable again, or scrolling
+  // quickly past them would strand them at the fallback size forever.
+  const requestedRef = useRef<Set<number>>(new Set());
+  const measuredRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
+    requestedRef.current = new Set();
+    measuredRef.current = new Set();
     setSizes([]);
-    let cancelled = false;
-    void measurePageSizes(doc.path, pageCount, (next) => {
-      if (!cancelled) setSizes(next);
-    }, () => cancelled);
-    return () => {
-      cancelled = true;
-    };
   }, [doc.path, pageCount]);
 
+  // Fit-width fits the widest page measured so far, so arriving at a landscape
+  // page mid-document narrows the column once. Measuring every page up front to
+  // avoid that costs an unbounded chain of `getPage` on every open, for pages
+  // most readers never reach — the one reflow is the cheaper of the two.
   const scale = useMemo(() => {
     if (zoom !== "fit-width") return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
     if (containerWidth <= 0) return 1;
@@ -86,6 +93,52 @@ export function PageScroller({
     () => layoutPages(sizes, pageCount, scale, PAGE_GAP),
     [sizes, pageCount, scale],
   );
+
+  // Zoomed past the container width, the column has to be as wide as its
+  // widest page or the half of that page hanging off centre is unreachable.
+  const widest = layout.widths.length > 0 ? Math.max(...layout.widths) : 0;
+
+  const { first, last } = visibleRange(layout, scrollTop, viewportHeight, 1);
+
+  // Measure the window the reader is in, and a margin either side. Measuring
+  // the whole document on open is a background chain with no ceiling; the
+  // layout already stands unmeasured pages in at the first known size, so
+  // measuring as the reader arrives is the same picture at a bounded cost.
+  useEffect(() => {
+    let cancelled = false;
+    const from = Math.max(1, first - MEASURE_MARGIN);
+    const to = Math.min(pageCount, last + MEASURE_MARGIN);
+    const wanted: number[] = [];
+    // Page 1 leads: every page not yet measured is laid out at its size.
+    if (!requestedRef.current.has(1)) wanted.push(1);
+    for (let p = from; p <= to; p++) {
+      if (!requestedRef.current.has(p)) wanted.push(p);
+    }
+    if (wanted.length === 0) return;
+    for (const p of wanted) requestedRef.current.add(p);
+
+    void measurePages(
+      doc.path,
+      wanted,
+      (measured) => {
+        if (cancelled) return;
+        for (const m of measured) measuredRef.current.add(m.page);
+        setSizes((prev) => {
+          const next = prev.slice();
+          for (const m of measured) next[m.page - 1] = m.size;
+          return next;
+        });
+      },
+      () => cancelled,
+    );
+
+    return () => {
+      cancelled = true;
+      for (const p of wanted) {
+        if (!measuredRef.current.has(p)) requestedRef.current.delete(p);
+      }
+    };
+  }, [doc.path, pageCount, first, last]);
 
   const bind = useCallback(
     (node: HTMLDivElement | null) => {
@@ -99,7 +152,14 @@ export function PageScroller({
         setViewportHeight(node.clientHeight);
       });
       ro.observe(node);
-      return () => ro.disconnect();
+      // React 19 calls this cleanup instead of re-invoking the ref with null,
+      // so anything holding the node has to be told here or it keeps pointing
+      // at a node that has left the document.
+      return () => {
+        ro.disconnect();
+        nodeRef.current = null;
+        containerRef?.(null);
+      };
     },
     [containerRef],
   );
@@ -125,7 +185,16 @@ export function PageScroller({
     const node = nodeRef.current;
     if (!node) return;
     const top = node.scrollTop;
-    setScrollTop(top);
+    // A scroll fires far more often than a frame is drawn, and this state
+    // decides which pages are mounted — one commit per frame is the most that
+    // can show. Everything below is cheap enough to run per event.
+    if (rafRef.current === undefined) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = undefined;
+        const current = nodeRef.current;
+        if (current) setScrollTop(current.scrollTop);
+      });
+    }
 
     const jump = Math.abs(top - lastScrollRef.current);
     lastScrollRef.current = top;
@@ -141,15 +210,11 @@ export function PageScroller({
   useEffect(
     () => () => {
       window.clearTimeout(hurryTimerRef.current);
+      if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current);
     },
     [],
   );
 
-  // Zoomed past the container width, the column has to be as wide as its
-  // widest page or the half of that page hanging off centre is unreachable.
-  const widest = layout.widths.length > 0 ? Math.max(...layout.widths) : 0;
-
-  const { first, last } = visibleRange(layout, scrollTop, viewportHeight, 1);
   const slots: React.ReactNode[] = [];
   for (let p = first; p <= last; p++) {
     const i = p - 1;
@@ -166,9 +231,8 @@ export function PageScroller({
         hurried={hurried}
         containerWidth={containerWidth}
         zoom={zoom}
-      >
-        {(state) => renderOverlays?.(p, state)}
-      </PageSlot>,
+        renderOverlays={renderOverlays}
+      />,
     );
   }
 

@@ -1139,38 +1139,49 @@ export async function capturePageFilePart(
 }
 
 /**
- * Every page's size at scale 1, so the scrolling column can be laid out before
- * a single page has been drawn.
+ * The size at scale 1 of the pages asked for, so the scrolling column can be
+ * laid out before those pages have been drawn.
  *
- * Measured in the background: `getPage` is cheap but not free, and a reader
- * should not wait on a thousand of them to see page 1. Until a page has been
- * measured the layout stands it in at the first known size, so this converges
- * rather than blocking.
+ * Only the pages asked for: `getPage` is cheap but not free, and pdf.js holds
+ * on to every page object it hands out, so measuring a thousand-page document
+ * on open is a background chain with no ceiling — for pages the reader may
+ * never reach. The caller measures the window it is showing and asks again as
+ * the reader moves; until a page has been measured the layout stands it in at
+ * the first known size, so this converges rather than blocking.
  */
-export async function measurePageSizes(
+export async function measurePages(
   path: string,
-  pageCount: number,
-  onBatch: (sizes: Array<{ width: number; height: number } | undefined>) => void,
+  pages: number[],
+  onMeasured: (measured: Array<{ page: number; size: { width: number; height: number } }>) => void,
   isStale?: () => boolean,
-  batchSize = 24,
+  batchSize = 8,
 ): Promise<void> {
+  if (pages.length === 0) return;
   const doc = await getPdfDocument(path);
-  const sizes: Array<{ width: number; height: number } | undefined> = new Array(pageCount);
-  for (let i = 0; i < pageCount; i++) {
+  let batch: Array<{ page: number; size: { width: number; height: number } }> = [];
+  const flush = () => {
+    if (batch.length === 0) return;
+    onMeasured(batch);
+    batch = [];
+  };
+  for (const p of pages) {
     if (isStale?.()) return;
     try {
-      const page = await doc.getPage(i + 1);
+      const page = await doc.getPage(p);
       const viewport = page.getViewport({ scale: 1 });
-      sizes[i] = { width: viewport.width, height: viewport.height };
+      batch.push({ page: p, size: { width: viewport.width, height: viewport.height } });
     } catch {
       // A page that will not open keeps the fallback size; the rest still lay
       // out, and rendering it will surface the real error.
     }
-    // Publish page 1 immediately — the column's whole shape depends on it —
-    // then in batches, so a long document does not re-render per page.
-    if (i === 0 || (i + 1) % batchSize === 0 || i === pageCount - 1) {
+    // The first page decides the column's whole shape, so it is published on
+    // its own; after that in batches, so a long scroll does not re-lay out the
+    // column once per page.
+    if (batch.length >= batchSize || p === pages[0]) {
       if (isStale?.()) return;
-      onBatch([...sizes]);
+      flush();
     }
   }
+  if (isStale?.()) return;
+  flush();
 }
