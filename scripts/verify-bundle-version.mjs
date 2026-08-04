@@ -1,11 +1,21 @@
 #!/usr/bin/env node
 /**
- * Verify built macOS .app Info.plist matches VERSION (release CI only).
+ * Verify the built macOS .app's Info.plist matches VERSION (release CI only).
+ *
+ * The check reads a plist with `defaults`, which exists only on macOS, so on
+ * the other platforms it exits quietly rather than failing a build it was never
+ * written for. Those bundles carry the version in their filenames, which the
+ * release workflow checks instead.
  */
 import { execSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+if (process.platform !== "darwin") {
+  console.log(`Skipping bundle version check on ${process.platform} (macOS only).`);
+  process.exit(0);
+}
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const expected = readFileSync(join(root, "VERSION"), "utf8").trim();

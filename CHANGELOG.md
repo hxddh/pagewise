@@ -4,6 +4,25 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-08-04
+
+### Added
+
+- **Windows and Linux builds.** Every release now carries an `.msi` and an `.exe` installer for Windows and an `.AppImage` and `.deb` for Linux, alongside the macOS `.dmg`. Nothing in the code needed porting — there is not one platform-specific block in the Rust, and all three keychain backends were already compiled in — the release only ever built on macOS. Linux is built on Ubuntu 22.04 rather than the newest image, because a binary's glibc floor is the image it was built on.
+
+### Changed
+
+- **A failing platform no longer cancels the release.** The three builds are independent and the release publishes whatever succeeded, so one broken runner costs one installer instead of the whole version. A release with nothing built at all is still refused.
+- **Everything that can fail without compiling now runs first** — tag/VERSION agreement, the CHANGELOG section, the secret scan and the tests — so a mistake there costs seconds rather than three platform builds.
+
+### Removed
+
+- `isEmbeddingCapableProvider`, left behind when semantic retrieval was pulled. Nothing had called it since.
+
+### Notes
+
+- **Still unsigned on every platform.** macOS Gatekeeper and Windows SmartScreen both block a first launch; README says how to get past each. Signing needs credentials that only the repository owner can add.
+
 ## [5.1.0] - 2026-08-04
 
 ### Fixed

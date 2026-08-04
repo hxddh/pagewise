@@ -149,25 +149,6 @@ export function canAttemptVisionIndexing(provider: ProviderId, visionModel: stri
   return isVisionModel(provider, visionModel);
 }
 
-/** Providers known to expose an OpenAI-style `/embeddings` endpoint. */
-const EMBEDDING_CAPABLE_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>([
-  "openai",
-  "ollama",
-]);
-
-/**
- * Whether a provider has a known embeddings endpoint we can POST to.
- *
- * PageWise embeds against the active chat provider's baseURL/key. Only OpenAI and
- * Ollama reliably expose an embeddings route; DeepSeek, OpenRouter and custom
- * endpoints generally do not, so attempting an embedding there just 404s. Callers
- * use this to SKIP embedding (and fall back to keyword-only retrieval) instead of
- * attempting-and-swallowing.
- */
-export function isEmbeddingCapableProvider(provider: ProviderId): boolean {
-  return EMBEDDING_CAPABLE_PROVIDERS.has(provider);
-}
-
 /** Whether the assistant model can accept AI SDK `reasoning` (thinking mode). */
 export function isThinkingCapableModel(provider: ProviderId, model: string): boolean {
   if (provider === "custom" || provider === "ollama" || provider === "openai") return false;
