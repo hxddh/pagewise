@@ -65,7 +65,6 @@
     "noDocument": "No document",
     "dropHint": "Open a file or drag & drop a PDF / image here",
     "dropHintShort": "Use Open document or drag a file here",
-    "rendering": "Rendering…",
     "indexing": "Building text index…",
     "indexedVision": "Indexed · vision model",
     "indexFailedNeedVision": "Indexing failed · pick a scan model in Settings",

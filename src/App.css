@@ -449,7 +449,9 @@ body {
 
 .preview-canvas-wrap {
   flex: 1;
-  overflow: auto;
+  /* The scroller inside owns scrolling now; two nested scroll containers
+     would fight over the wheel. An image document still needs this one. */
+  overflow: hidden;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -461,6 +463,7 @@ body {
 
 .preview-canvas-wrap.image-wrap {
   align-items: center;
+  overflow: auto;
 }
 
 .preview-canvas,

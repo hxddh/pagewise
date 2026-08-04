@@ -1,7 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ConfirmOverlay } from "../../components/overlays/ConfirmOverlay";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useToast } from "../../hooks/useToast";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
@@ -17,6 +17,7 @@ import { SearchHighlight } from "./SearchHighlight";
 import { LinkLayer } from "./LinkLayer";
 import { MarkLayer } from "./MarkLayer";
 import { RegionSelectLayer } from "./RegionSelectLayer";
+import { PageScroller } from "./PageScroller";
 import { regionSnapshot } from "./region-snapshot";
 import { MarkNote } from "./MarkNote";
 import { useMarkRevision } from "./useMarks";
@@ -70,9 +71,17 @@ function PreviewPaneInner({
   const quoteRun = useRef(0);
   useEffect(() => () => {
     quoteRun.current += 1;
-  }, [doc.path, page]);
+  }, [doc.path]);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const bindScroller = useCallback(
+    (node: HTMLDivElement | null) => {
+      scrollerRef.current = node;
+      viewer.bindScroller(node);
+    },
+    [viewer],
+  );
   const [askSel, clearAskSel] = useAskSelection(
-    viewer.textLayerRef,
+    scrollerRef,
     !!onAskAboutSelection && doc.kind === "pdf",
   );
 
@@ -85,12 +94,13 @@ function PreviewPaneInner({
         // Keep the selection alive through the click.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          const box = viewer.textLayerRef.current?.getBoundingClientRect() ?? null;
+          const box = askSel.pageBox;
           const selectionRect = askSel.rect;
+          const selPage = askSel.page;
           const run = quoteRun.current;
           clearAskSel();
           window.getSelection()?.removeAllRanges();
-          void selectionQuote(doc.path, page, askSel.text, selectionRect, box).then(
+          void selectionQuote(doc.path, selPage, askSel.text, selectionRect, box).then(
             (quote) => {
               // Reading the region is a round trip, and the user can turn the
               // page or open another document while it is in flight. Dropping
@@ -115,8 +125,9 @@ function PreviewPaneInner({
         // Keep the selection alive through the click.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          const box = viewer.textLayerRef.current?.getBoundingClientRect() ?? null;
+          const box = askSel.pageBox;
           const rects = askSel.rects;
+          const selPage = askSel.page;
           const text = askSel.text;
           const run = quoteRun.current;
           clearAskSel();
@@ -124,12 +135,12 @@ function PreviewPaneInner({
           if (!box) return;
           void (async () => {
             try {
-              const geometry = await getPageGeometry(doc.path, page);
-              // The reader can turn the page while the geometry is in flight;
-              // a mark placed then would land on the wrong page.
+              const geometry = await getPageGeometry(doc.path, selPage);
+              // The page a selection belongs to came out of the selection
+              // itself, so scrolling on cannot move the mark.
               if (quoteRun.current !== run) return;
               const mark = addMark(doc.path, {
-                page,
+                page: selPage,
                 rects: rects.map((r) => clientRectToPageRect(r, box, geometry)),
                 // The words are a snapshot for the reader, never an anchor —
                 // the rectangles locate the mark.
@@ -283,106 +294,80 @@ function PreviewPaneInner({
             {indexHint}
           </div>
         ))}
-      {viewer.renderError && (
-        <div className="preview-error-banner" role="alert">
-          {viewer.renderError}
-        </div>
-      )}
-      {viewer.showLoading && (
-        <div className="preview-loading" aria-live="polite">
-          <span className="preview-loading-spinner" aria-hidden />
-          {t("preview.rendering")}
-        </div>
-      )}
       {rasterHint && <p className="preview-raster-hint">{rasterHint}</p>}
-      {doc.kind === "pdf" && totalPages > 1 && (
-        <>
-          <button
-            type="button"
-            className="page-edge page-edge-left"
-            onClick={viewer.prevPage}
-            disabled={page <= 1}
-            aria-label={t("preview.previousPage")}
-            tabIndex={0}
-          />
-          <button
-            type="button"
-            className="page-edge page-edge-right"
-            onClick={viewer.nextPage}
-            disabled={page >= totalPages}
-            aria-label={t("preview.nextPage")}
-            tabIndex={0}
-          />
-        </>
-      )}
-      <div
-        className={`preview-page-frame${viewer.pageTurnAnim ? ` page-turn-${viewer.pageTurnAnim}` : ""}`}
-      >
-        {doc.kind === "pdf" ? (
-          <>
-            <canvas ref={viewer.canvasRef} className="preview-canvas" />
-            <div
-              ref={viewer.textLayerRef}
-              className={`pdf-text-layer${viewer.textLayerActive ? " pdf-text-layer-active" : ""}`}
-              aria-hidden={!viewer.textLayerActive}
-            />
-            {searchHit?.page === page && (
-              <SearchHighlight path={doc.path} page={page} query={searchHit.query} />
-            )}
-            <RegionSelectLayer
-              active={regionMode}
-              onRegion={(rect, pageBox) => {
-                const run = quoteRun.current;
-                void (async () => {
-                  try {
-                    const geometry = await getPageGeometry(doc.path, page);
-                    // A page turn while the geometry is in flight would land
-                    // the mark on the wrong page.
-                    if (quoteRun.current !== run) return;
-                    const pdfRect = clientRectToPageRect(rect, pageBox, geometry);
-                    let text = "";
+      {doc.kind === "pdf" ? (
+        <PageScroller
+          doc={doc}
+          page={page}
+          onPageChange={onPageChange}
+          zoom={viewer.zoom}
+          quality={viewer.quality}
+          containerRef={bindScroller}
+          renderOverlays={(slotPage) => (
+            <>
+              {searchHit?.page === slotPage && (
+                <SearchHighlight path={doc.path} page={slotPage} query={searchHit.query} />
+              )}
+              <RegionSelectLayer
+                active={regionMode}
+                onRegion={(rect, pageBox) => {
+                  const run = quoteRun.current;
+                  void (async () => {
                     try {
-                      text = regionSnapshot(await extractRegion(doc.path, page, pdfRect));
+                      const geometry = await getPageGeometry(doc.path, slotPage);
+                      // The reader can scroll on while the geometry is in
+                      // flight, but the page a region belongs to is the one it
+                      // was drawn on, which is fixed at this point.
+                      if (quoteRun.current !== run) return;
+                      const pdfRect = clientRectToPageRect(rect, pageBox, geometry);
+                      let text = "";
+                      try {
+                        text = regionSnapshot(
+                          await extractRegion(doc.path, slotPage, pdfRect),
+                        );
+                      } catch {
+                        // A region with no readable text is normal on a scan;
+                        // the rectangle is what locates the mark.
+                      }
+                      if (quoteRun.current !== run) return;
+                      const mark = addMark(doc.path, {
+                        page: slotPage,
+                        rects: [pdfRect],
+                        text,
+                        stamp: doc.stamp ?? "",
+                        kind: "region",
+                      });
+                      if (mark) setSelectedMarkId(mark.id);
+                      else showToast(t("marks.capReached"), "error");
                     } catch {
-                      // A region with no readable text is normal on a scan; the
-                      // rectangle is what locates the mark.
+                      // Nothing to place the mark against.
                     }
-                    if (quoteRun.current !== run) return;
-                    const mark = addMark(doc.path, {
-                      page,
-                      rects: [pdfRect],
-                      text,
-                      stamp: doc.stamp ?? "",
-                      kind: "region",
-                    });
-                    if (mark) setSelectedMarkId(mark.id);
-                    else showToast(t("marks.capReached"), "error");
-                  } catch {
-                    // Nothing to place the mark against.
-                  }
-                })();
-              }}
-            />
-            <MarkLayer
-              path={doc.path}
-              page={page}
-              revision={markRevision}
-              selectedId={selectedMarkId}
-              onSelect={setSelectedMarkId}
-            />
-            {doc.links && doc.links.length > 0 && (
-              <LinkLayer
-                path={doc.path}
-                page={page}
-                links={doc.links}
-                onActivate={setPendingLink}
+                  })();
+                }}
               />
-            )}
-          </>
-        ) : (
+              <MarkLayer
+                path={doc.path}
+                page={slotPage}
+                revision={markRevision}
+                selectedId={selectedMarkId}
+                onSelect={setSelectedMarkId}
+              />
+              {doc.links && doc.links.length > 0 && (
+                <LinkLayer
+                  path={doc.path}
+                  page={slotPage}
+                  links={doc.links}
+                  onActivate={setPendingLink}
+                />
+              )}
+            </>
+          )}
+        />
+      ) : (
+        <div className="preview-page-frame">
           <img src={convertFileSrc(doc.path)} alt={doc.name} className="preview-image" />
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
 
@@ -417,12 +402,7 @@ function PreviewPaneInner({
         }}
       />
         {toolbar}
-        <div
-          className="preview-canvas-wrap image-wrap preview-focusable"
-          ref={viewer.wrapRef}
-          tabIndex={0}
-          onClick={viewer.focusPreview}
-        >
+        <div className="preview-canvas-wrap image-wrap" onClick={viewer.focusPreview}>
           {canvasBody}
         </div>
       </div>
@@ -524,12 +504,7 @@ function PreviewPaneInner({
 
       <div className="preview-main">
         {toolbar}
-        <div
-          className="preview-canvas-wrap preview-focusable"
-          ref={viewer.wrapRef}
-          tabIndex={0}
-          onClick={viewer.focusPreview}
-        >
+        <div className="preview-canvas-wrap" onClick={viewer.focusPreview}>
           {canvasBody}
         </div>
       </div>
