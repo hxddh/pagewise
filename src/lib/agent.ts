@@ -37,7 +37,7 @@ import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { describeFigure, figuresOnPage, pagesWithFigures } from "./read-figure";
 import { linksOnPages, pagesWithLinks, type PageLink } from "./page-links";
-import { marksOnPage, pagesWithMarks } from "./mark-store";
+import { getMarks, marksOnPage, pagesWithMarks } from "./mark-store";
 import { findSectionIndex, sectionRange } from "./section-range";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import type { DocHeading } from "./types";
@@ -441,6 +441,26 @@ function withPageMarks(
   };
 }
 
+/** Marks listed in the document index, or null when there are too many. */
+const MAX_OUTLINE_MARKS = 100;
+/** The index is for locating a mark; the page read gives the whole passage. */
+const MAX_OUTLINE_MARK_CHARS = 120;
+
+function outlineMarkList(
+  path: string,
+): { page: number; text: string; note?: string }[] | null {
+  const marks = getMarks(path);
+  if (marks.length === 0 || marks.length > MAX_OUTLINE_MARKS) return null;
+  return marks.map((m) => ({
+    page: m.page,
+    text:
+      m.text.length > MAX_OUTLINE_MARK_CHARS
+        ? `${m.text.slice(0, MAX_OUTLINE_MARK_CHARS)}…`
+        : m.text,
+    ...(m.note ? { note: m.note } : {}),
+  }));
+}
+
 /** The pages a read actually returned text for. */
 function rangeOf(from: number, to: number): number[] {
   const pages: number[] = [];
@@ -522,6 +542,7 @@ function createDocumentTools(budget: ReadBudget) {
           const figurePages = pagesWithFigures(doc.figures);
           const linkPages = pagesWithLinks(doc.links);
           const markPages = pagesWithMarks(path);
+          const outlineMarks = outlineMarkList(path);
           const statsOmitted = Math.max(0, allStats.length - MAX_OUTLINE_PAGE_STATS);
           const result = {
             totalPages: doc.totalPages || pages.length,
@@ -563,13 +584,20 @@ function createDocumentTools(budget: ReadBudget) {
                 }
               : {}),
             // What the reader marked says what they care about; it is nowhere in
-            // the page text.
+            // the page text. Carried here in full rather than as page numbers
+            // alone: "summarize what I marked" otherwise costs one page read
+            // per marked page for text already held in memory.
             ...(markPages.length > 0
               ? {
                   pagesWithMarks: compressPageRanges(markPages),
-                  marksNote:
-                    "The user marked passages on these pages. Reading one returns the " +
-                    "marked text and any note. Marks are read-only.",
+                  ...(outlineMarks
+                    ? { marks: outlineMarks }
+                    : { markCount: getMarks(path).length }),
+                  marksNote: outlineMarks
+                    ? "Passages the user marked, with their notes. Read-only. Snippets are " +
+                      "truncated — read the page for the full passage."
+                    : "The user marked too many passages to list here; read a page from " +
+                      "pagesWithMarks to see the ones on it. Marks are read-only.",
                 }
               : {}),
             ...(unindexedPages.length > 0

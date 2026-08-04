@@ -21,7 +21,7 @@ import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { addRecentFile, getRecentFiles, removeRecentFile, removeRecentFiles, type RecentFile } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
-import { documentToMarkdown } from "../lib/export-document";
+import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
 import { useDocAgent } from "../hooks/useDocAgent";
@@ -68,6 +68,7 @@ interface SessionContextValue {
   clearChat: () => Promise<void>;
   exportChat: () => Promise<void>;
   exportDocument: () => Promise<void>;
+  exportMarks: () => Promise<void>;
   isDragging: boolean;
 }
 
@@ -445,6 +446,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [showToast, t]);
 
+  const exportMarks = useCallback(async () => {
+    const doc = documentRef.current;
+    if (!doc) return;
+    const md = marksToMarkdown(doc);
+    // The command is disabled without marks; this guards the keyboard path.
+    if (!md) return;
+    const name = doc.name.replace(/\.[^.]+$/, "") + "-marks.md";
+    try {
+      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
+      if (ok) showToast(t("toast.marksExported"), "success");
+    } catch {
+      showToast(t("toast.exportFailed"), "error");
+    }
+  }, [showToast, t]);
+
   const value = useMemo<SessionContextValue>(
     () => ({
       phase,
@@ -475,6 +491,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clearChat,
       exportChat,
       exportDocument,
+      exportMarks,
       isDragging,
     }),
     [
@@ -499,6 +516,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clearChat,
       exportChat,
       exportDocument,
+      exportMarks,
       isDragging,
     ],
   );

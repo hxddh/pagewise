@@ -137,7 +137,10 @@
     "noText": "（无文字）",
     "capReached": "这份文档的标记数量已达上限。",
     "staleFile": "文件在部分标记之后被改动过，它们可能已经指错了地方。",
-    "staleMark": "创建于此文件的较早版本，可能已经指错了地方。"
+    "staleMark": "创建于此文件的较早版本，可能已经指错了地方。",
+    "regionMode": "框选标记（拖出一个框，Esc 退出）",
+    "filterPlaceholder": "过滤标记",
+    "noFilterMatch": "没有匹配的标记。"
   },
   "drop": {
     "title": "拖放以打开",
@@ -429,7 +432,8 @@
     "switchLang": "切换语言",
     "recent": "最近使用",
     "firstOpenHint": "提示：输入关键词可筛选命令",
-    "scanAllPages": "扫描所有未扫描页面"
+    "scanAllPages": "扫描所有未扫描页面",
+    "exportMarks": "导出标记"
   },
   "toast": {
     "chatExported": "对话已导出",
@@ -452,7 +456,8 @@
     "copyFailed": "复制失败 — 剪贴板不可用",
     "scanAllNone": "所有页面均已有文字",
     "scanAllStarted": "正在扫描 1 页…",
-    "scanAllStarted_plural": "正在扫描 {{count}} 页…"
+    "scanAllStarted_plural": "正在扫描 {{count}} 页…",
+    "marksExported": "标记已导出"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",

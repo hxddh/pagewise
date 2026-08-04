@@ -9,7 +9,7 @@ import type { LoadedDocument } from "./types";
  * reader's original file — corrupting a contract costs more than portability
  * between readers is worth.
  */
-function marksSection(path: string): string[] {
+export function marksSection(path: string): string[] {
   const marks = getMarks(path);
   if (marks.length === 0) return [];
   const parts = ["## Marks", ""];
@@ -50,4 +50,17 @@ export function documentToMarkdown(doc: LoadedDocument): string {
 /** Pages that would contribute nothing to an export — nothing was read from them. */
 export function emptyExportPages(doc: LoadedDocument): number[] {
   return doc.pages.filter((p) => !p.text.trim()).map((p) => p.page);
+}
+
+/**
+ * The marks alone, as their own document.
+ *
+ * What a reader worked out on a pass through a contract is a thing in itself;
+ * appended to forty thousand words of the contract it is not findable.
+ */
+export function marksToMarkdown(doc: LoadedDocument): string {
+  const section = marksSection(doc.path);
+  if (section.length === 0) return "";
+  const heading = doc.title?.trim() || doc.name;
+  return [`# ${heading} — marks`, "", ...section].join("\n").trimEnd() + "\n";
 }

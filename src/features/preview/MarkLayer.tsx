@@ -65,9 +65,11 @@ export function MarkLayer({ path, page, revision, selectedId, onSelect }: MarkLa
           <button
             key={`${mark.id}-${i}`}
             type="button"
-            className={`pdf-mark${mark.note ? " pdf-mark-noted" : ""}${
-              mark.id === selectedId ? " pdf-mark-selected" : ""
-            }`}
+            // A region mark is an outline, not a wash: filling it would hide
+            // the figure the reader boxed in order to see it.
+            className={`pdf-mark pdf-mark-${mark.kind ?? "text"}${
+              mark.note ? " pdf-mark-noted" : ""
+            }${mark.id === selectedId ? " pdf-mark-selected" : ""}`}
             title={mark.note || mark.text}
             aria-label={
               mark.note

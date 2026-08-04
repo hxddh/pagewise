@@ -43,6 +43,14 @@ export interface Mark {
   text: string;
   /** What the reader wanted to say. Empty for a plain highlight. */
   note: string;
+  /**
+   * How to draw it. Absent means "text" — marks stored by 5.0 have no kind.
+   *
+   * A wash over words makes them easier to find; the same wash over a figure
+   * hides the figure, which is the thing the reader boxed it to see. Only the
+   * drawing differs — both are located by their rectangles.
+   */
+  kind?: "text" | "region";
   createdAt: number;
   /** The file's stamp when the mark was made — see `marksAreStale`. */
   stamp: string;
@@ -113,7 +121,8 @@ function isValidMark(value: unknown): value is Mark {
     typeof m.note === "string" &&
     typeof m.createdAt === "number" &&
     Number.isFinite(m.createdAt) &&
-    typeof m.stamp === "string"
+    typeof m.stamp === "string" &&
+    (m.kind === undefined || m.kind === "text" || m.kind === "region")
   );
 }
 
@@ -287,6 +296,7 @@ export interface NewMark {
   text: string;
   note?: string;
   stamp: string;
+  kind?: "text" | "region";
 }
 
 /** Add a mark and return it, or null when the document is already at its cap. */
@@ -302,6 +312,8 @@ export function addMark(path: string, input: NewMark): Mark | null {
     note: (input.note ?? "").slice(0, MAX_NOTE_TEXT),
     createdAt: Date.now(),
     stamp: input.stamp,
+    // Omitted for text marks, so a document of them stores nothing extra.
+    ...(input.kind === "region" ? { kind: "region" as const } : {}),
   };
   mutate(path, [...existing, mark]);
   return mark;

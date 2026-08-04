@@ -23,6 +23,8 @@ import { useWorkbenchOverlays } from "./hooks/useWorkbenchOverlays";
 import { useTheme } from "./hooks/useTheme";
 import { useWorkbenchPrefs } from "./hooks/useWorkbenchPrefs";
 import { openableRecentFiles } from "./lib/recent-files";
+import { getMarks } from "./lib/mark-store";
+import { useMarkRevision } from "./features/preview/useMarks";
 import "./styles/tokens.css";
 import "./styles/preview.css";
 import "./styles/settings.css";
@@ -58,6 +60,13 @@ function AppContent() {
 
   const doc = s.document;
   const agent = s.agent;
+  // Recomputed when marks change so the export command enables the moment the
+  // first one is made.
+  const markRevision = useMarkRevision(doc?.path ?? "");
+  const hasMarks = useMemo(
+    () => (doc ? (void markRevision, getMarks(doc.path).length > 0) : false),
+    [doc, markRevision],
+  );
   const conn = s.connection;
   const agentBusy = agent.isAgentBusy();
 
@@ -96,6 +105,7 @@ function AppContent() {
 
   const { commands, paletteOpen, setPaletteOpen, exportSummary } = useAppCommands({
     activeDocName: doc?.name ?? null,
+    hasMarks,
     messages: agent.messages,
     busy: agentBusy,
     followAgent: prefs.followAgent,
@@ -111,6 +121,7 @@ function AppContent() {
     onCycleTheme: () => void cycleTheme(),
     onExportChat: () => void s.exportChat(),
     onExportDocument: () => void s.exportDocument(),
+    onExportMarks: () => void s.exportMarks(),
     onScanAllPages: requestScanAll,
     canScanAllPages: unscannedPages > 0,
     showToast,

@@ -16,9 +16,12 @@ import { selectionQuote } from "./selection-quote";
 import { SearchHighlight } from "./SearchHighlight";
 import { LinkLayer } from "./LinkLayer";
 import { MarkLayer } from "./MarkLayer";
+import { RegionSelectLayer } from "./RegionSelectLayer";
+import { regionSnapshot } from "./region-snapshot";
 import { MarkNote } from "./MarkNote";
 import { useMarkRevision } from "./useMarks";
 import { addMark, getMarks, marksAreStale } from "../../lib/mark-store";
+import { extractRegion } from "../../lib/pdf";
 import { clientRectToPageRect } from "./selection-quote";
 import { getPageGeometry } from "../../lib/pdf";
 import { displayUrl } from "../../lib/safe-link";
@@ -52,6 +55,7 @@ function PreviewPaneInner({
   const [thumbsVisible, setThumbsVisible] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline" | "marks">("pages");
   const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
+  const [regionMode, setRegionMode] = useState(false);
   const markRevision = useMarkRevision(doc.path);
   // What the reader searched for when they jumped here, so the hit can be
   // marked on the page. Cleared as soon as they navigate away from it.
@@ -144,6 +148,19 @@ function PreviewPaneInner({
         {t("marks.markSelection")}
       </button>
     ) : null;
+
+  // Leaving the mode has to be possible without finding the button again.
+  useEffect(() => {
+    if (!regionMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setRegionMode(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [regionMode]);
 
   const indexPage = doc.kind === "pdf" ? page : 1;
   const indexState = usePageIndexStatus(doc.path, indexPage);
@@ -312,6 +329,40 @@ function PreviewPaneInner({
             {searchHit?.page === page && (
               <SearchHighlight path={doc.path} page={page} query={searchHit.query} />
             )}
+            <RegionSelectLayer
+              active={regionMode}
+              onRegion={(rect, pageBox) => {
+                const run = quoteRun.current;
+                void (async () => {
+                  try {
+                    const geometry = await getPageGeometry(doc.path, page);
+                    // A page turn while the geometry is in flight would land
+                    // the mark on the wrong page.
+                    if (quoteRun.current !== run) return;
+                    const pdfRect = clientRectToPageRect(rect, pageBox, geometry);
+                    let text = "";
+                    try {
+                      text = regionSnapshot(await extractRegion(doc.path, page, pdfRect));
+                    } catch {
+                      // A region with no readable text is normal on a scan; the
+                      // rectangle is what locates the mark.
+                    }
+                    if (quoteRun.current !== run) return;
+                    const mark = addMark(doc.path, {
+                      page,
+                      rects: [pdfRect],
+                      text,
+                      stamp: doc.stamp ?? "",
+                      kind: "region",
+                    });
+                    if (mark) setSelectedMarkId(mark.id);
+                    else showToast(t("marks.capReached"), "error");
+                  } catch {
+                    // Nothing to place the mark against.
+                  }
+                })();
+              }}
+            />
             <MarkLayer
               path={doc.path}
               page={page}
@@ -348,6 +399,10 @@ function PreviewPaneInner({
       onPageChange={onPageChange}
       thumbsVisible={thumbsVisible}
       onToggleThumbs={() => setThumbsVisible((v) => !v)}
+      regionMode={regionMode}
+      onToggleRegionMode={
+        doc.kind === "pdf" ? () => setRegionMode((v) => !v) : undefined
+      }
     />
   );
 

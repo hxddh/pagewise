@@ -137,7 +137,10 @@
     "noText": "(no text)",
     "capReached": "This document has reached its limit of marks.",
     "staleFile": "The file changed since some of these were made — they may sit in the wrong place now.",
-    "staleMark": "Made against an earlier version of this file, so it may sit in the wrong place now."
+    "staleMark": "Made against an earlier version of this file, so it may sit in the wrong place now.",
+    "regionMode": "Mark a region (drag a box; Esc to exit)",
+    "filterPlaceholder": "Filter marks",
+    "noFilterMatch": "No mark matches that."
   },
   "drop": {
     "title": "Drop to open",
@@ -429,7 +432,8 @@
     "switchLang": "Switch language",
     "recent": "Recent",
     "firstOpenHint": "Tip: type to filter commands",
-    "scanAllPages": "Scan all unscanned pages"
+    "scanAllPages": "Scan all unscanned pages",
+    "exportMarks": "Export marks"
   },
   "toast": {
     "chatExported": "Chat exported",
@@ -452,7 +456,8 @@
     "copyFailed": "Copy failed — clipboard unavailable",
     "scanAllNone": "Every page already has text",
     "scanAllStarted": "Scanning 1 page…",
-    "scanAllStarted_plural": "Scanning {{count}} pages…"
+    "scanAllStarted_plural": "Scanning {{count}} pages…",
+    "marksExported": "Marks exported"
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",
