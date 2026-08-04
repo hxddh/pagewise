@@ -7,9 +7,36 @@ export interface AskSelection {
   y: number;
   /** The selection's box in viewport px, for re-reading the region it covers. */
   rect: { left: number; top: number; width: number; height: number };
+  /** One box per line of the selection, for drawing it. See `lineRects`. */
+  rects: { left: number; top: number; width: number; height: number }[];
 }
 
 const MAX_QUOTE = 500;
+type ClientRectLike = { left: number; top: number; width: number; height: number };
+
+/** Ignore sub-pixel client rects — a collapsed run between two lines. */
+const MIN_LINE_RECT = 1;
+/** A selection wider than a page is a stray drag, not a passage. */
+const MAX_LINE_RECTS = 200;
+
+/**
+ * The selection line by line, rather than as one box.
+ *
+ * A three-line selection's bounding box also covers the first line's left
+ * margin and the last line's right margin — drawn as a highlight it is a slab
+ * over the paragraph rather than over the words. `getClientRects` reports the
+ * per-line boxes the browser already computed, so the right shape costs a loop.
+ */
+export function lineRects(range: Pick<Range, "getClientRects">, fallback: ClientRectLike): AskSelection["rects"] {
+  const rects = Array.from(range.getClientRects())
+    .filter((r) => r.width > MIN_LINE_RECT && r.height > MIN_LINE_RECT)
+    .slice(0, MAX_LINE_RECTS)
+    .map((r) => ({ left: r.left, top: r.top, width: r.width, height: r.height }));
+  if (rects.length > 0) return rects;
+  return [
+    { left: fallback.left, top: fallback.top, width: fallback.width, height: fallback.height },
+  ];
+}
 
 /**
  * Track a non-empty text selection inside `containerRef` (the PDF text layer's
@@ -43,13 +70,15 @@ export function useAskSelection<T extends HTMLElement>(
       }
       const text = s.toString().replace(/\s+/g, " ").trim();
       if (text.length < 2) return setSel(null);
-      const rect = s.getRangeAt(0).getBoundingClientRect();
+      const range = s.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return setSel(null);
       setSel({
         text: text.length > MAX_QUOTE ? `${text.slice(0, MAX_QUOTE)}…` : text,
         x: rect.left + rect.width / 2,
         y: rect.top,
         rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        rects: lineRects(range, rect),
       });
     };
     // selectionchange fires rapidly during a drag; coalesce to one rAF.

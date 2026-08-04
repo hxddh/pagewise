@@ -37,6 +37,7 @@ import { DEFAULT_SETTINGS, type LoadedDocument } from "./types";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { describeFigure, figuresOnPage, pagesWithFigures } from "./read-figure";
 import { linksOnPages, pagesWithLinks, type PageLink } from "./page-links";
+import { marksOnPage, pagesWithMarks } from "./mark-store";
 import { findSectionIndex, sectionRange } from "./section-range";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import type { DocHeading } from "./types";
@@ -410,7 +411,34 @@ async function readPageRange(
             : {}),
           ...(budgetExceeded ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
           ...withPageLinks(doc, rangeOf(from, lastPage), runGen, chargeBudget),
+          ...withPageMarks(path, rangeOf(from, lastPage), runGen, chargeBudget),
         };
+}
+
+/**
+ * What the reader marked on the pages a read covered.
+ *
+ * A marked passage is the strongest signal in the document of what this reader
+ * cares about, and it exists nowhere in the page text. Same placement as the
+ * links above: beside the text, never inside it.
+ */
+function withPageMarks(
+  path: string,
+  pages: readonly number[],
+  runGen: number,
+  chargeBudget: (runGen: number, chars: number) => void,
+): { marks?: { page: number; text: string; note?: string }[]; marksNote?: string } {
+  const marks = pages
+    .flatMap((page) => marksOnPage(path, page))
+    .map((m) => ({ page: m.page, text: m.text, ...(m.note ? { note: m.note } : {}) }));
+  if (marks.length === 0) return {};
+  chargeBudget(runGen, JSON.stringify(marks).length);
+  return {
+    marks,
+    marksNote:
+      "Passages the user marked on these pages, with their notes. Read-only: " +
+      "you cannot create or change marks.",
+  };
 }
 
 /** The pages a read actually returned text for. */
@@ -493,6 +521,7 @@ function createDocumentTools(budget: ReadBudget) {
           const bookmarks = await resolveOutline(doc, path);
           const figurePages = pagesWithFigures(doc.figures);
           const linkPages = pagesWithLinks(doc.links);
+          const markPages = pagesWithMarks(path);
           const statsOmitted = Math.max(0, allStats.length - MAX_OUTLINE_PAGE_STATS);
           const result = {
             totalPages: doc.totalPages || pages.length,
@@ -531,6 +560,16 @@ function createDocumentTools(budget: ReadBudget) {
                   linksNote:
                     "Reading one of these pages also returns its hyperlink destinations, " +
                     "which the page text does not contain.",
+                }
+              : {}),
+            // What the reader marked says what they care about; it is nowhere in
+            // the page text.
+            ...(markPages.length > 0
+              ? {
+                  pagesWithMarks: compressPageRanges(markPages),
+                  marksNote:
+                    "The user marked passages on these pages. Reading one returns the " +
+                    "marked text and any note. Marks are read-only.",
                 }
               : {}),
             ...(unindexedPages.length > 0
@@ -669,6 +708,7 @@ function createDocumentTools(budget: ReadBudget) {
             charCount: slice.length,
             ...(limitedByBudget ? { budgetExceeded: true, note: BUDGET_NOTE } : {}),
             ...withPageLinks(doc, [page], runGen, chargeBudget),
+            ...withPageMarks(path, [page], runGen, chargeBudget),
           };
         },
       ),

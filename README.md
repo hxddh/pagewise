@@ -10,6 +10,7 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 - **Preview** — Page navigation, thumbnails, zoom, in-document search (⌘F)
 - **Indexing** — PDF text layer plus optional vision model indexing for scans and images
 - **Agent** — Streaming chat with tool calls (`document_outline`, `read_pdf_page`, `search_in_document`, …)
+- **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
 - **Chat** — One thread per document, persisted locally
 - **Library** — Recent files
 - **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint

@@ -5,7 +5,8 @@
   },
   "common": {
     "cancel": "Cancel",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "close": "Close"
   },
   "dialog": {
     "documentsFilter": "Documents",
@@ -121,7 +122,22 @@
     "outline": "Outline",
     "outlineEmpty": "No headings found",
     "openLinkConfirm": "Open {{url}} in your browser?",
-    "openLinkAction": "Open link"
+    "openLinkAction": "Open link",
+    "marks": "Marks"
+  },
+  "marks": {
+    "markSelection": "Mark",
+    "markPlain": "Mark: {text}",
+    "markWithNote": "Mark with note: {note}",
+    "noteDialog": "Mark note",
+    "notePlaceholder": "Add a note…",
+    "onPage": "Page {page}",
+    "delete": "Delete mark",
+    "empty": "Nothing marked yet. Select text on a page and choose Mark.",
+    "noText": "(no text)",
+    "capReached": "This document has reached its limit of marks.",
+    "staleFile": "The file changed since some of these were made — they may sit in the wrong place now.",
+    "staleMark": "Made against an earlier version of this file, so it may sit in the wrong place now."
   },
   "drop": {
     "title": "Drop to open",

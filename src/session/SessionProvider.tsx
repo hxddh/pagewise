@@ -16,6 +16,7 @@ import {
   loadDocument,
 } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
+import { flushMarkStore, forgetMarks, loadMarks } from "../lib/mark-store";
 import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { addRecentFile, getRecentFiles, removeRecentFile, removeRecentFiles, type RecentFile } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
@@ -302,11 +303,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (prevPath) {
           cancelIndex(prevPath);
           docCache.remove(prevPath);
+          // Marks are the reader's own work, so the stored copy stays; only the
+          // in-memory copy for the document being closed goes.
+          void flushMarkStore().then(() => forgetMarks(prevPath));
         }
 
         const doc = commitLoadedDocument(staged);
         clearPdfCache();
         setActivePdfPath(doc.path);
+        // Marks are drawn synchronously from memory, so they load with the
+        // document rather than on first paint.
+        await loadMarks(doc.path);
         chatHydrateRef.current = { path: doc.path, messages };
         setDocument(docCache.get(doc.path) ?? doc);
         setPreviewPage(1);
