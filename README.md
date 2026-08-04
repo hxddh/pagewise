@@ -53,7 +53,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 | `npm run dev` | Vite dev server only |
 | `npm run tauri dev` | Desktop app (recommended) |
 | `npm run build` | Frontend production build |
-| `npm run tauri build` | macOS `.app` + `.dmg` |
+| `npm run tauri build` | Desktop installers for the current platform |
 | `npm test` | Unit tests (Vitest) |
 | `npm run check:secrets` | Pre-release credential scan |
 | `npm run version:sync` | Sync `VERSION` → package / Tauri / Cargo |
@@ -72,25 +72,33 @@ Release notes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ```
 React UI  →  PagewiseChatTransport + ToolLoopAgent (AI SDK)
-          →  Tauri invoke  →  Rust (pdf-extract, file I/O, keychain)
+          →  Tauri invoke  →  Rust (pdf-inspector, file I/O, keychain)
           →  OS Keychain   →  API keys (per provider)
 ```
 
-## macOS install
+## Install
 
-Download the latest **`.dmg`** from [GitHub Releases](https://github.com/hxddh/pagewise/releases), open it, and drag PageWise to Applications.
+Every release on [GitHub Releases](https://github.com/hxddh/pagewise/releases) carries installers for three platforms:
 
-**Unsigned builds** — CI-built DMGs are **not code-signed or notarized**, so Gatekeeper will block the first launch. Either right-click the app and choose **Open** (then confirm), or clear the quarantine attribute:
+| Platform | Asset |
+|---|---|
+| macOS (Apple Silicon) | `PageWise_<version>_aarch64.dmg` — open it and drag PageWise to Applications |
+| Windows (x86-64) | `PageWise_<version>_x64-setup.exe` or `PageWise_<version>_x64_en-US.msi` |
+| Linux (x86-64) | `pagewise_<version>_amd64.AppImage` (`chmod +x` and run) or `.deb` |
+
+**Nothing is code-signed or notarized.** On macOS, Gatekeeper blocks the first launch — either right-click the app and choose **Open** (then confirm), or clear the quarantine attribute:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/PageWise.app
 ```
 
+Windows SmartScreen shows a "unrecognized app" warning for the same reason; choose **More info → Run anyway**.
+
 To build locally:
 
 ```bash
 npm run tauri build
-# Artifacts: src-tauri/target/release/bundle/dmg/*.dmg
+# Artifacts: src-tauri/target/release/bundle/
 ```
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the full release checklist.

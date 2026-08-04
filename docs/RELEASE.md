@@ -25,22 +25,32 @@ Verify:
 - [ ] No API keys in git history or working tree
 - [ ] About screen shows correct version
 - [ ] macOS `.dmg` opens and app launches
+- [ ] Windows installer runs and the app starts (keys land in Credential Manager)
+- [ ] Linux `.AppImage` runs (keys land in Secret Service — needs a running keyring daemon)
 - [ ] Agent works with a tool-capable model
 - [ ] Keychain read/write in Settings → AI Provider
 
-## macOS artifacts
+## Artifacts
 
-After `npm run tauri build` on `macos-latest` (Apple Silicon runner):
+`release.yml` builds on three runners in parallel and attaches everything to one
+release:
 
-```
-src-tauri/target/release/bundle/macos/PageWise.app
-src-tauri/target/release/bundle/dmg/PageWise_0.2.0_aarch64.dmg   # Apple Silicon (arm64)
-```
+| Runner | `--bundles` | Produces |
+|---|---|---|
+| `macos-latest` (Apple Silicon) | `dmg,app` | `PageWise_<v>_aarch64.dmg`, `PageWise.app.tar.gz` |
+| `windows-latest` | `msi,nsis` | `PageWise_<v>_x64_en-US.msi`, `PageWise_<v>_x64-setup.exe` |
+| `ubuntu-22.04` | `deb,appimage` | `pagewise_<v>_amd64.deb`, `pagewise_<v>_amd64.AppImage` |
 
-> The CI workflow runs a plain `npm run tauri build` on `macos-latest`, which
-> produces the **arm64 DMG only**. An Intel `x64.dmg` is **not currently
-> produced** — it would require an explicit `--target x86_64-apple-darwin`
-> cross-build step that the workflow does not yet include.
+Ubuntu 22.04 rather than `ubuntu-latest` on purpose: a binary's glibc floor is
+the image it was built on, so building on the oldest supported image is what
+lets it run on anything older.
+
+**Still not produced:** an Intel macOS `x64.dmg` (needs an explicit
+`--target x86_64-apple-darwin` cross-build), and any ARM Linux/Windows build.
+
+`fail-fast` is off and the release job runs even when a platform fails, so one
+broken runner degrades the release to the platforms that did build rather than
+cancelling it. A release with every platform failed is refused.
 
 ## GitHub release
 
@@ -52,7 +62,7 @@ src-tauri/target/release/bundle/dmg/PageWise_0.2.0_aarch64.dmg   # Apple Silicon
    git push origin v0.2.0
    ```
 
-3. GitHub Actions (`release.yml`) builds the macOS DMG and attaches it to the release, **or** upload the local DMG manually via the Releases UI.
+3. GitHub Actions (`release.yml`) builds all three platforms and attaches them to the release, **or** upload local installers manually via the Releases UI.
 
 ### Code signing (not yet wired)
 
@@ -74,6 +84,8 @@ See [Tauri macOS code signing](https://v2.tauri.app/distribute/sign/macos/).
 
 - **ci.yml** — secret scan, unit tests, frontend typecheck/build, version-sync
   drift check, and `cargo check` (Rust) on pushes to `main` and PRs targeting `main`
-- **release.yml** — triggered on `v*` tags. Verifies the tag matches `VERSION`,
-  builds the arm64 macOS bundle, fails if no `.dmg` is produced, and attaches the
-  `.dmg` (plus a `PageWise.app.tar.gz` of the `.app`) to the GitHub Release
+- **release.yml** — triggered on `v*` tags or dispatched manually. Three jobs:
+  `prepare` (tag/VERSION match, CHANGELOG section, secret scan, tests — all the
+  failures that should not cost a build), `build` (the three-platform matrix),
+  and `release` (collects every artifact and publishes one release whose body is
+  that version's CHANGELOG section followed by the generated commit list)

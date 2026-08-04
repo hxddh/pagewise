@@ -13,8 +13,12 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    runs-on: macos-latest
+  # Everything that can fail without compiling anything, so a bad tag or a
+  # missing CHANGELOG entry costs seconds rather than three platform builds.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.rel.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,9 +26,6 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
         run: npm ci
@@ -43,16 +44,15 @@ jobs:
             fi
           else
             # Manual dispatch: derive the tag from VERSION; it is created by the
-            # release step below from the checked-out commit.
+            # release job below from the checked-out commit.
             tag="v${file_version}"
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Release tag: $tag (VERSION=$file_version)"
 
       - name: Build release notes from CHANGELOG
-        # Before the build, not after: a missing entry should cost seconds, not
-        # a full macOS build. Without this the release page carries only
-        # GitHub's generated "What's Changed" line.
+        # Without this the release page carries only GitHub's generated
+        # "What's Changed" line.
         run: node scripts/changelog-section.mjs > release-notes.md
 
       - name: Secret scan
@@ -61,50 +61,144 @@ jobs:
       - name: Tests
         run: npm test
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  build:
+    needs: prepare
+    strategy:
+      # One platform failing should not throw away the others — the release job
+      # decides whether what did build is enough.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos-aarch64
+            bundles: dmg,app
+          - os: windows-latest
+            name: windows-x86_64
+            bundles: msi,nsis
+          # Not ubuntu-latest: a binary's glibc floor is the runner it was built
+          # on, so building on the oldest supported image is what lets it run on
+          # anything older than that image.
+          - os: ubuntu-22.04
+            name: linux-x86_64
+            bundles: deb,appimage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          # webkit2gtk/gtk are Tauri's webview; libdbus is what keyring's
+          # secret-service backend links against.
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            libdbus-1-dev \
+            build-essential \
+            file
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Sync version manifests
         run: npm run version:sync
 
-      - name: Build macOS bundle
-        run: npm run tauri build
+      - name: Build
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
 
-      - name: Verify bundle Info.plist version
+      - name: Verify bundle version
+        # Reads the .app's Info.plist, so it is a macOS check; it exits quietly
+        # elsewhere and the filename check below covers those platforms.
         run: npm run verify:bundle-version
 
       - name: Collect artifacts
+        shell: bash
         run: |
           mkdir -p release-artifacts
-          cp src-tauri/target/release/bundle/dmg/*.dmg release-artifacts/
-          # Ship a tarball of the .app so symlinks/permissions survive (a raw
-          # .app directory cannot be a release asset).
-          if ls src-tauri/target/release/bundle/macos/*.app >/dev/null 2>&1; then
-            tar -czf release-artifacts/PageWise.app.tar.gz \
-              -C src-tauri/target/release/bundle/macos \
-              "$(basename src-tauri/target/release/bundle/macos/*.app)"
-          fi
+          bundle="src-tauri/target/release/bundle"
+          shopt -s nullglob
+          for f in "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe \
+                   "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage; do
+            cp "$f" release-artifacts/
+          done
+          # A raw .app directory cannot be a release asset; tar keeps its
+          # symlinks and permissions intact.
+          for app in "$bundle"/macos/*.app; do
+            tar -czf release-artifacts/PageWise.app.tar.gz -C "$bundle/macos" "$(basename "$app")"
+          done
           ls -la release-artifacts/
 
-      - name: Ensure a DMG was produced
+      - name: Ensure something was produced
+        shell: bash
         run: |
-          if [ -z "$(ls release-artifacts/*.dmg 2>/dev/null)" ]; then
-            echo "::error::No .dmg artifact found — aborting release"
+          if [ -z "$(ls -A release-artifacts 2>/dev/null)" ]; then
+            echo "::error::No installer produced for ${{ matrix.name }} — aborting"
             exit 1
           fi
+          version="$(cat VERSION)"
+          # Catches a stale target/ shipping the previous version's file.
+          if ! ls release-artifacts | grep -qF "$version"; then
+            echo "::warning::No artifact filename contains $version:"
+            ls release-artifacts
+          fi
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: pagewise-macos
+          name: pagewise-${{ matrix.name }}
           path: release-artifacts/
+
+  release:
+    needs: [prepare, build]
+    # Runs even when a platform failed, so a green build still ships and the
+    # missing installer is visible on the release page rather than blocking it.
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+
+      - name: Stage assets
+        run: |
+          mkdir -p release-assets
+          find downloaded -type f ! -name release-notes.md -exec cp {} release-assets/ \;
+          ls -la release-assets/
+          if [ -z "$(ls -A release-assets)" ]; then
+            echo "::error::Every platform build failed — nothing to release"
+            exit 1
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.rel.outputs.tag }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          files: |
-            release-artifacts/*.dmg
-            release-artifacts/*.tar.gz
-          body_path: release-notes.md
+          files: release-assets/*
+          body_path: downloaded/release-notes/release-notes.md
           # Appends the generated "What's Changed" list below the CHANGELOG
           # section rather than replacing it.
           generate_release_notes: true
