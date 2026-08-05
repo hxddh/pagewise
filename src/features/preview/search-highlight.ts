@@ -53,17 +53,27 @@ export function pdfRectToBox(
   const [ax, ay] = geometry.toViewportPoint(rect.x, rect.y);
   const [bx, by] = geometry.toViewportPoint(rect.x + rect.width, rect.y + rect.height);
 
-  const left = Math.min(ax, bx);
-  const right = Math.max(ax, bx);
-  const top = Math.min(ay, by);
-  const bottom = Math.max(ay, by);
+  // Clamped to the page. 6.2 stopped a region drag from running off the page's
+  // edge, but only at the point where marks are made — every mark written by an
+  // earlier build is still in the file, and an unclamped box draws outside its
+  // page and over the neighbouring one. A rectangle that does not touch the
+  // page at all comes back empty, which draws nothing.
+  const left = clamp01(Math.min(ax, bx) / w);
+  const right = clamp01(Math.max(ax, bx) / w);
+  const top = clamp01(Math.min(ay, by) / h);
+  const bottom = clamp01(Math.max(ay, by) / h);
 
   return {
-    left: left / w,
-    top: top / h,
-    width: (right - left) / w,
-    height: (bottom - top) / h,
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
   };
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
 }
 
 /** Boxes for every run on this page that contains the query. */
