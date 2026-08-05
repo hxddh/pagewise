@@ -231,3 +231,28 @@ describe("toolStepLabel", () => {
     expect(bucket).toBe("search");
   });
 });
+
+describe("page anchors on tool steps", () => {
+  it("carries the page a read went to, so the step list can lead back to it", () => {
+    expect(toolStepLabel("read_pdf_page", { page: 12 }, t).page).toBe(12);
+    expect(toolStepLabel("read_pdf_range", { start: 8, end: 14 }, t).page).toBe(8);
+  });
+
+  it("has no page for steps that did not go to one", () => {
+    expect(toolStepLabel("search_in_document", { query: "revenue" }, t).page).toBeUndefined();
+    expect(toolStepLabel("document_outline", {}, t).page).toBeUndefined();
+  });
+
+  it("keeps the anchor on the summarized detail rows", () => {
+    const steps = [
+      { toolName: "read_pdf_page", bucket: "read" as const, label: "p12", key: "read:12", running: false, page: 12 },
+      { toolName: "read_pdf_page", bucket: "read" as const, label: "p12", key: "read:12", running: false, page: 12 },
+      { toolName: "search_in_document", bucket: "search" as const, label: "s", key: "search:x", running: false },
+    ];
+    const { details } = summarizeToolSteps(steps, t);
+    const read = details.find((d) => d.label === "p12");
+    expect(read?.count).toBe(2);
+    expect(read?.page).toBe(12);
+    expect(details.find((d) => d.label === "s")?.page).toBeUndefined();
+  });
+});

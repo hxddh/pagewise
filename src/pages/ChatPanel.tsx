@@ -25,6 +25,7 @@ import {
   getInFlightAssistantMessage,
   hasSubstantialAnswerText,
 } from "../lib/messages-utils";
+import { Button } from "../components/ui/Button";
 
 export interface ChatPanelHandle {
   focusComposer: () => void;
@@ -296,15 +297,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
         <div className="header-actions">
           {onCollapse && (
-            <button
-              type="button"
-              className="btn icon-btn"
+            <Button
+              variant="ghost" size="md" icon
               onClick={onCollapse}
               title={t("agent.hidePanel")}
               aria-label={t("agent.hidePanel")}
             >
               <PanelRightClose size={16} />
-            </button>
+            </Button>
           )}
           <button
             ref={moreBtnRef}
@@ -451,19 +451,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       autoFocus
                     />
                     <div className="message-edit-actions">
-                      <button type="submit" className="btn btn-primary btn-sm" disabled={interactionBusy}>
+                      <Button type="submit" variant="primary" size="md" disabled={interactionBusy}>
                         {t("agent.resend")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-sm"
+                      </Button>
+                      <Button
+                        variant="secondary" size="sm"
                         onClick={() => {
                           setEditingUserId(null);
                           setEditError(null);
                         }}
                       >
                         {t("agent.cancelEdit")}
-                      </button>
+                      </Button>
                     </div>
                     {editError && (
                       <p className="message-edit-error" role="alert">
@@ -475,9 +474,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                   <>
                     <MessageContent message={m} />
                     {editUserMessage && !interactionBusy && m.id === lastUser?.id && (
-                      <button
-                        type="button"
-                        className="message-edit-btn"
+                      <Button
+                        variant="secondary" size="sm"
                         onClick={() => {
                           setEditingUserId(m.id);
                           setEditError(null);
@@ -485,7 +483,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                         }}
                       >
                         {t("agent.editMessage")}
-                      </button>
+                      </Button>
                     )}
                   </>
                 )}
@@ -523,23 +521,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               {t("agent.unscannedPages", { count: unscannedPages })}
             </span>
             <span className="chat-error-actions">
-              <button
-                type="button"
-                className="btn btn-sm"
+              <Button
+                variant="secondary" size="sm"
                 onClick={onScanAllPages}
                 disabled={interactionBusy}
               >
                 {t("preview.scanAllAction")}
-              </button>
-              <button
-                type="button"
-                className="btn icon-btn btn-sm"
+              </Button>
+              <Button
+                variant="ghost" size="md" icon
                 onClick={() => setScanHintDismissed(activeDoc.path)}
                 aria-label={t("agent.dismissScanHint")}
                 title={t("agent.dismissScanHint")}
               >
                 <X size={14} />
-              </button>
+              </Button>
             </span>
           </div>
         )}
@@ -549,25 +545,23 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           <span className="chat-error-text">{errorMessage ?? error.message}</span>
           <span className="chat-error-actions">
             {regenerateDocumentMessage && (
-              <button
-                type="button"
-                className="btn btn-sm"
+              <Button
+                variant="secondary" size="sm"
                 onClick={() => void handleRegenerate()}
                 disabled={interactionBusy || !activeDoc}
               >
                 {t("agent.retry")}
-              </button>
+              </Button>
             )}
             {onDismissError && (
-              <button
-                type="button"
-                className="btn icon-btn btn-sm"
+              <Button
+                variant="ghost" size="md" icon
                 onClick={onDismissError}
                 aria-label={t("agent.dismissError")}
                 title={t("agent.dismissError")}
               >
                 <X size={14} />
-              </button>
+              </Button>
             )}
           </span>
         </div>
@@ -601,26 +595,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             </button>
           )}
           {busy || agentBusy ? (
-            <button type="button" className="btn stop-btn" onClick={onStop}>
+            <Button variant="secondary" size="md" onClick={onStop}>
               {t("agent.stop")}
-            </button>
+            </Button>
           ) : !!activeDoc && !hasApiKey ? (
-            <button
-              type="button"
-              className="btn primary"
+            <Button
+              variant="primary" size="md"
               onClick={onConfigureApi}
               disabled={loadingDoc}
             >
               {t("agent.configureApiCta")}
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
               type="submit"
-              className="btn primary"
+              variant="primary" size="md"
               disabled={!composerDraft.trim() || loadingDoc || !activeDoc}
             >
               {t("agent.send")}
-            </button>
+            </Button>
           )}
         </div>
       </form>

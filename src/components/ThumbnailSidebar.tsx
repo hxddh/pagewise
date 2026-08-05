@@ -2,6 +2,7 @@ import { ChevronLeft } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { renderThumbnail } from "../lib/pdf";
+import { Button } from "./ui/Button";
 
 const THUMB_ROW_HEIGHT = 112;
 const OVERSCAN = 4;
@@ -144,15 +145,15 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
     <aside className="thumb-sidebar" aria-label={t("preview.pages")}>
       <div className="thumb-sidebar-header">
         {tabs ?? <span>{t("preview.pages")}</span>}
-        <button
-          type="button"
+        <Button variant="ghost" size="md"
+         
           className="toolbar-btn"
           onClick={onToggle}
           title={t("preview.thumbnailsHide")}
           aria-label={t("preview.thumbnailsHide")}
         >
           <ChevronLeft size={14} />
-        </button>
+        </Button>
       </div>
       <div
         className="thumb-list"

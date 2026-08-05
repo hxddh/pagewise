@@ -8,6 +8,7 @@ import {
   ZOOM_PRESETS,
 } from "../lib/zoom";
 import { AnchoredMenu } from "./AnchoredMenu";
+import { Button } from "./ui/Button";
 
 interface ZoomStepperProps {
   zoom: ZoomMode;
@@ -38,8 +39,8 @@ export function ZoomStepper({
       ref={anchorRef}
       className={`toolbar-group toolbar-group-zoom ${disabled ? "disabled" : ""}`}
     >
-      <button
-        type="button"
+      <Button variant="ghost" size="md"
+       
         className="toolbar-btn toolbar-zoom-trigger"
         onClick={() => setOpen((o) => !o)}
         disabled={disabled}
@@ -49,7 +50,7 @@ export function ZoomStepper({
       >
         <span className="toolbar-zoom-label">{label}</span>
         <ChevronDown size={12} className="toolbar-zoom-chevron" aria-hidden />
-      </button>
+      </Button>
       <AnchoredMenu
         open={open && !disabled}
         onClose={() => setOpen(false)}

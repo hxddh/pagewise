@@ -6,6 +6,8 @@ export interface StepUsageEntry {
   step: number;
   inputTokens?: number;
   outputTokens?: number;
+  /** Input tokens the provider served from its prompt cache, if it reports it. */
+  cachedInputTokens?: number;
   toolNames?: string[];
 }
 
@@ -26,6 +28,14 @@ export interface PageWiseMessageMetadata {
   indexOutputTokens?: number;
   /** Vision (scan) requests this reply triggered — billed per page image. */
   indexCalls?: number;
+  /**
+   * Input tokens the provider charged at the cached rate.
+   *
+   * Recorded because the opposite was invisible: the system prompt used to
+   * carry the page being viewed, so the cached prefix was thrown away on most
+   * turns and nothing in the app could have shown it.
+   */
+  cachedInputTokens?: number;
   /** Model id at send time (for display only). */
   model?: string;
   /** True when input includes tool-loop context, not just the user turn. */
@@ -125,13 +135,18 @@ export function formatCompactTokenCount(value: number | undefined): string {
   return `${Math.round(rounded / 1000)}k`;
 }
 
-function sumStepTokens(steps: StepUsageEntry[]): { input: number; output: number } {
+function sumStepTokens(steps: StepUsageEntry[]): {
+  input: number;
+  output: number;
+  cached: number;
+} {
   return steps.reduce(
     (acc, step) => ({
       input: acc.input + (step.inputTokens ?? 0),
       output: acc.output + (step.outputTokens ?? 0),
+      cached: acc.cached + (step.cachedInputTokens ?? 0),
     }),
-    { input: 0, output: 0 },
+    { input: 0, output: 0, cached: 0 },
   );
 }
 
@@ -208,13 +223,18 @@ export function createUsageMetadataTracker(model: string): {
 
   const upsertStepEntry = (
     step: number,
-    usage: { inputTokens?: number; outputTokens?: number } | undefined,
+    usage:
+      | { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number }
+      | undefined,
     toolNames: string[] | undefined,
   ): void => {
     const entry = stepUsage.find((s) => s.step === step);
     if (entry) {
       if (usage?.inputTokens != null) entry.inputTokens = usage.inputTokens;
       if (usage?.outputTokens != null) entry.outputTokens = usage.outputTokens;
+      if (usage?.cachedInputTokens != null) {
+        entry.cachedInputTokens = usage.cachedInputTokens;
+      }
       if (toolNames && toolNames.length > 0) entry.toolNames = toolNames;
       return;
     }
@@ -222,6 +242,9 @@ export function createUsageMetadataTracker(model: string): {
       step,
       inputTokens: usage?.inputTokens,
       outputTokens: usage?.outputTokens,
+      ...(usage?.cachedInputTokens != null
+        ? { cachedInputTokens: usage.cachedInputTokens }
+        : {}),
       ...(toolNames && toolNames.length > 0 ? { toolNames } : {}),
     });
   };
@@ -265,6 +288,7 @@ export function createUsageMetadataTracker(model: string): {
           includesToolContext: true,
           inputTokens: totals.input,
           outputTokens: totals.output,
+          ...(totals.cached > 0 ? { cachedInputTokens: totals.cached } : {}),
           stepUsage: [...stepUsage],
         };
       }

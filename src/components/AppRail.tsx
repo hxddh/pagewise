@@ -2,6 +2,7 @@ import { FolderOpen, Settings } from "lucide-react";
 import { useI18n } from "../i18n";
 import { IconDot } from "./Icon";
 import { LogoMark } from "./LogoMark";
+import { Button } from "./ui/Button";
 
 interface AppRailProps {
   showLibrary?: boolean;
@@ -32,18 +33,18 @@ export function AppRail({
 
       <div className="app-rail-actions">
         {showLibrary && (
-        <button
-          type="button"
+        <Button variant="ghost" size="lg" icon
+         
           className={`rail-btn ${libraryOpen ? "active" : ""}`}
           onClick={onLibrary}
           title={t("sidebar.library")}
           aria-label={t("sidebar.library")}
         >
           <FolderOpen size={18} strokeWidth={1.75} />
-        </button>
+        </Button>
         )}
-        <button
-          type="button"
+        <Button variant="ghost" size="lg" icon
+         
           className="rail-btn rail-btn-accent"
           onClick={onOpenFile}
           disabled={opening}
@@ -51,11 +52,11 @@ export function AppRail({
           aria-label={t("sidebar.openDocument")}
         >
           <span className="rail-btn-label">+</span>
-        </button>
+        </Button>
       </div>
 
-      <button
-        type="button"
+      <Button variant="ghost" size="lg" icon
+       
         className="rail-btn rail-btn-bottom"
         onClick={onSettings}
         title={
@@ -69,7 +70,7 @@ export function AppRail({
       >
         <Settings size={18} strokeWidth={1.75} />
         <IconDot connected={connected} />
-      </button>
+      </Button>
     </nav>
   );
 }

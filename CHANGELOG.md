@@ -4,6 +4,26 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-08-05
+
+### Fixed
+
+- **A question re-sent the same pages up to twenty times.** A tool loop carries every earlier result forward on every step. Between turns that was already handled — a finished turn keeps `[Read page 12, 5,800 chars]` rather than the page — but *inside* a run every page stayed at full size for all remaining steps. A twenty-step run over six-thousand-character pages carried about 1.26 million characters of input, roughly 1.2 million of them the same pages again. Reads the model has moved past are now shortened mid-run to the same one-line summary; the four most recent are left whole, and the page text is still in the local cache if it is wanted again.
+- **The prompt's cached prefix was thrown away on almost every turn.** The system prompt is the first block of a request and providers cache on an exact prefix — and it carried "the user is viewing page 47". In a reading tool that changes constantly, so each turn re-charged the entire conversation at full price. The per-message context now rides on the newest user message, leaving everything before it identical from turn to turn. **Tokens served from cache are now shown in the usage panel**, because the absence of that number is why nobody could see this.
+- **The document index cost about ten thousand tokens whether or not anyone wanted it.** `document_outline` returned a 160-character preview of every page, up to 200 of them, in a single result — which the loop then resent on every later step. Previews are opt-in now and shorter; the section tree and per-page lengths, which is what planning actually uses, are unchanged.
+- **Every step of a run reasoned as hard as the last one.** "Read page 14 next" was given the same reasoning effort as turning twelve pages into an answer. Fetching steps now use a low effort and the step that writes the answer gets the configured level back.
+- **A reply had no length ceiling at all.** There is now a generous one, so a generation that runs away costs a bounded amount of money and time.
+
+### Added
+
+- **A shared button.** There were twenty-one button class names — `btn`, `icon-btn`, `settings-btn-primary`, `stop-btn`, `mark-ask-btn`, `toolbar-btn` and on — each with its own padding, height, hover and focus. None was wrong alone; together they meant no two buttons in the app were quite the same, which is what roughness looks like up close. All 44 buttons now come from one component with four intents and three sizes. Where a class remains it carries placement or a reveal-on-hover, not what a button is.
+- **The steps of a run lead back to the pages they read.** The tool list showed "read page 12" as dead text while the "pages read" trail beside it was clickable — the same information, one of the two navigable. Every step that went to a page is now a link to it, and a failed step is marked as one.
+- **A step counter while the agent works.** A twenty-step run showed one line that changed wording occasionally, with no sense of progress.
+
+### Changed
+
+- **The AI SDK and pdf.js are current again**: `ai` 7.0.14 → 7.0.52, `@ai-sdk/react` 4.0.15 → 4.0.55, `@ai-sdk/openai` 4.0.7 → 4.0.30, `pdfjs-dist` 6.1.200 → 6.2.108, `lucide-react` 1.23 → 1.28. The version range always allowed these; the lockfile held them back, so what shipped was thirty-eight patch releases old. Among them: per-step model settings (which the reasoning change above needs), tool parts surviving repeated call ids across steps, and errored replies staying loadable from a saved session. `repairToolCall` is no longer used under its `experimental_` name.
+
 ## [6.3.0] - 2026-08-05
 
 ### Fixed

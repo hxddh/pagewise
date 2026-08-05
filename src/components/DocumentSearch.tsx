@@ -13,6 +13,7 @@ import {
   popOverlayLayer,
   pushOverlayLayer,
 } from "../lib/overlay-state";
+import { Button } from "./ui/Button";
 
 interface DocumentSearchProps {
   doc: LoadedDocument;
@@ -119,9 +120,8 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
           placeholder={t("preview.searchPlaceholder")}
           autoFocus
         />
-        <button
-          type="button"
-          className="btn icon-btn"
+        <Button
+          variant="ghost" size="md" icon
           onClick={() => {
             setOpen(false);
             setQuery("");
@@ -129,7 +129,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
           aria-label={t("preview.closeSearch")}
         >
           ×
-        </button>
+        </Button>
         {query.trim() && (
           <div className="doc-search-results">
             {searching ? (

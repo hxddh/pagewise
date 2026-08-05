@@ -252,7 +252,10 @@
     "dismissScanHint": "忽略",
     "usageScanCalls": "扫页调用",
     "activityFigure": "正在查看第 {{page}} 页的图…",
-    "activityReadSection": "正在读取「{{title}}」…"
+    "activityReadSection": "正在读取「{{title}}」…",
+    "usageCached": "缓存命中",
+    "usageCachedHint": "按缓存价计费的输入 token。",
+    "stepCounter": "第 {step} 步"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

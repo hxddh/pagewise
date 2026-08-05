@@ -252,7 +252,10 @@
     "dismissScanHint": "Dismiss",
     "usageScanCalls": "Scan calls",
     "activityFigure": "Looking at the figure on page {{page}}…",
-    "activityReadSection": "Reading section “{{title}}”…"
+    "activityReadSection": "Reading section “{{title}}”…",
+    "usageCached": "Served from cache",
+    "usageCachedHint": "Input tokens the provider charged at the cached rate.",
+    "stepCounter": "Step {step}"
   },
   "empty": {
     "lead": "Ask questions about your document",
