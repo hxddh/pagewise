@@ -4,6 +4,23 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [6.2.0] - 2026-08-05
+
+### Fixed
+
+- **A region marked while the document scrolled landed in the wrong place.** The drag recorded its starting corner in window coordinates and read the page's position again only when the drag ended. Pointer capture holds pointer events but not the wheel, so scrolling mid-drag left those two in different frames of reference and shifted the whole rectangle by however far the document had moved. A drag is now measured in the page's own pixels, which cannot drift.
+- **A region dragged past the edge of its page produced a rectangle outside that page.** Pointer capture keeps the whole drag on the page it started on, so it can be dragged onto the next page or into the gutter, and nothing clamped the result — the mark landed off the page and, since a page does not clip its contents, drew over its neighbour. A region now stops at the edge of the page it belongs to, and a drag entirely off the page marks nothing.
+- **Home and End did nothing from within the first or last page.** They asked to go to page 1 or page N, and going to the page you are already on is not a move — so from halfway down page 1, Home was a dead key. They now go to the start and the end of the document, which is what they mean once a document scrolls.
+
+### Added
+
+- **The interface can be tested.** Until now not one of this app's 50 components had ever been rendered in a test: 424 tests, all of them over pure functions. That is the blind spot 6.0.0's unscrollable scroller shipped through, and where every 6.1 defect lived. There are now 24 tests that mount real components — the scroller virtualizes, reports the page the viewport is on, measures a bounded window, releases its container reference, and holds its pages still while scrolling; a region drag survives a scroll and stops at the page edge; Home/End and the arrow keys do what they say; and a settled page skips everything scrolled past. Each was checked against the defect it describes: reintroduce the bug and the test fails.
+
+### Notes
+
+- **jsdom has no layout engine.** It runs components, not CSS, so the specific failure in 6.0.0 — a flex child collapsing to zero height — still cannot be caught this way. What these tests cover is behaviour and collaboration, which is where three of 6.1's four defects were. Real layout still needs a real window.
+- PostCSS (a build-time dependency of Vite) updated to 8.5.25, clearing a path-traversal advisory. It never shipped in the application.
+
 ## [6.1.0] - 2026-08-04
 
 ### Fixed
