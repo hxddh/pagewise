@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoadedDocument } from "../../lib/types";
 
@@ -71,6 +72,20 @@ async function frame() {
   await act(async () => {
     await new Promise((resolve) => requestAnimationFrame(resolve));
   });
+}
+
+/** The scroller as the app wires it: it reports the page, and is told it back. */
+function Controlled({ totalPages }: { totalPages: number }) {
+  const [page, setPage] = useState(1);
+  return (
+    <PageScroller
+      doc={doc(totalPages)}
+      page={page}
+      onPageChange={setPage}
+      zoom="fit-width"
+      quality="crisp"
+    />
+  );
 }
 
 function mountedPages(container: HTMLElement): number[] {
@@ -147,15 +162,11 @@ describe("PageScroller", () => {
   });
 
   it("mounts the pages it scrolled to, and drops the ones it left", async () => {
-    const { container } = render(
-      <PageScroller
-        doc={doc(50)}
-        page={1}
-        onPageChange={() => {}}
-        zoom="fit-width"
-        quality="crisp"
-      />,
-    );
+    // Controlled, as the app has it: the scroller reports the page and is told
+    // it back. Pinning `page` while the reader scrolls elsewhere is not a state
+    // the app can be in, and the scroller would rightly drag the view back to
+    // the page it was still being told it was on.
+    const { container } = render(<Controlled totalPages={50} />);
     const scroller = container.querySelector(".pdf-scroller")!;
     await waitFor(() => expect(mountedPages(container).length).toBeGreaterThan(0));
 
