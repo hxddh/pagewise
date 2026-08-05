@@ -120,6 +120,24 @@ export function usePdfViewer({
     return true;
   }, []);
 
+  // Home and End go to the ends of the document, not to the top of the first
+  // or last page. While the preview flipped, "go to page 1" and "go to the
+  // start" were the same act; scrolling separated them, and `goToPage` does
+  // nothing at all when the page it is asked for is the page already current —
+  // so Home did nothing from halfway down page 1, and End did nothing from the
+  // top of the last page. The scroll container is what has ends now.
+  const scrollToEnd = useCallback(
+    (edge: "start" | "end") => {
+      const node = scrollerRef.current;
+      if (!node) {
+        goToPage(edge === "start" ? 1 : totalRef.current);
+        return;
+      }
+      node.scrollTo({ top: edge === "start" ? 0 : node.scrollHeight, behavior: "auto" });
+    },
+    [goToPage],
+  );
+
   useEffect(() => {
     registerPreviewActions({
       prevPage,
@@ -142,11 +160,11 @@ export function usePdfViewer({
           if (scrollByViewport(-1)) e.preventDefault();
           break;
         case "Home":
-          goToPage(1);
+          scrollToEnd("start");
           e.preventDefault();
           break;
         case "End":
-          goToPage(totalRef.current);
+          scrollToEnd("end");
           e.preventDefault();
           break;
         case "ArrowRight":
@@ -162,7 +180,7 @@ export function usePdfViewer({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doc.kind, goToPage, nextPage, prevPage, scrollByViewport]);
+  }, [doc.kind, nextPage, prevPage, scrollByViewport, scrollToEnd]);
 
   return {
     zoom,

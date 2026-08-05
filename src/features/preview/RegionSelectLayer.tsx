@@ -11,6 +11,17 @@ interface RegionSelectLayerProps {
 /** A drag smaller than this is a click, not a region. */
 const MIN_DRAG_PX = 8;
 
+/**
+ * A drag in progress, in page pixels — the page's own top-left, not the
+ * window's.
+ *
+ * Viewport coordinates were what this held while the preview showed one page
+ * at a time and that page could not move. On a scrolling surface the page
+ * moves under the pointer: pointer capture holds pointer events, but not the
+ * wheel, so a scroll mid-drag left the start corner in one frame of reference
+ * and the page box read at the end in another, offsetting the whole rectangle
+ * by however far the document had scrolled. Page pixels cannot drift.
+ */
 interface Band {
   x0: number;
   y0: number;
@@ -34,17 +45,27 @@ export function RegionSelectLayer({ active, onRegion }: RegionSelectLayerProps) 
 
   if (!active) return null;
 
+  const at = (e: { clientX: number; clientY: number; currentTarget: HTMLDivElement }) => {
+    const box = e.currentTarget.getBoundingClientRect();
+    return { x: e.clientX - box.left, y: e.clientY - box.top };
+  };
+
   const finish = (final: Band | null) => {
     setBand(null);
     const box = ref.current?.getBoundingClientRect();
     if (!final || !box) return;
-    const left = Math.min(final.x0, final.x1);
-    const top = Math.min(final.y0, final.y1);
-    const width = Math.abs(final.x1 - final.x0);
-    const height = Math.abs(final.y1 - final.y0);
+    // Pointer capture keeps the whole drag on the page it started on, so it can
+    // be dragged off that page's edge — onto the next page, or into the gutter.
+    // A region belongs to the page it was drawn on, so it stops at that page.
+    const left = clamp(Math.min(final.x0, final.x1), 0, box.width);
+    const right = clamp(Math.max(final.x0, final.x1), 0, box.width);
+    const top = clamp(Math.min(final.y0, final.y1), 0, box.height);
+    const bottom = clamp(Math.max(final.y0, final.y1), 0, box.height);
+    const width = right - left;
+    const height = bottom - top;
     if (width < MIN_DRAG_PX || height < MIN_DRAG_PX) return;
     onRegion(
-      { left, top, width, height },
+      { left: box.left + left, top: box.top + top, width, height },
       { left: box.left, top: box.top, width: box.width, height: box.height },
     );
   };
@@ -59,15 +80,18 @@ export function RegionSelectLayer({ active, onRegion }: RegionSelectLayerProps) 
         // without this the drag scrolls or drags an image instead.
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        setBand({ x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY });
+        const { x, y } = at(e);
+        setBand({ x0: x, y0: y, x1: x, y1: y });
       }}
       onPointerMove={(e) => {
         if (!band) return;
-        setBand({ ...band, x1: e.clientX, y1: e.clientY });
+        const { x, y } = at(e);
+        setBand({ ...band, x1: x, y1: y });
       }}
       onPointerUp={(e) => {
         if (!band) return;
-        finish({ ...band, x1: e.clientX, y1: e.clientY });
+        const { x, y } = at(e);
+        finish({ ...band, x1: x, y1: y });
       }}
       // A drag that leaves the window, or is taken over by something else, must
       // not leave a rubber band painted on the page forever.
@@ -77,8 +101,8 @@ export function RegionSelectLayer({ active, onRegion }: RegionSelectLayerProps) 
         <div
           className="pdf-region-band"
           style={{
-            left: Math.min(band.x0, band.x1) - (ref.current?.getBoundingClientRect().left ?? 0),
-            top: Math.min(band.y0, band.y1) - (ref.current?.getBoundingClientRect().top ?? 0),
+            left: Math.min(band.x0, band.x1),
+            top: Math.min(band.y0, band.y1),
             width: Math.abs(band.x1 - band.x0),
             height: Math.abs(band.y1 - band.y0),
           }}
@@ -86,4 +110,8 @@ export function RegionSelectLayer({ active, onRegion }: RegionSelectLayerProps) 
       )}
     </div>
   );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
