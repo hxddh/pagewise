@@ -113,9 +113,19 @@ export function useAskSelection<T extends HTMLElement>(
       raf = requestAnimationFrame(update);
     };
     document.addEventListener("selectionchange", onChange);
+    // Scrolling does not fire selectionchange, and these are viewport
+    // coordinates: while the preview flipped, a selection could not move once
+    // made, so computing its position once was computing it forever. On a
+    // scrolling surface the passage slides away and the buttons anchored to it
+    // stay pinned to the window. Scroll events do not bubble, so this listens
+    // in the capture phase to hear the preview's own container.
+    window.addEventListener("scroll", onChange, true);
+    window.addEventListener("resize", onChange);
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("selectionchange", onChange);
+      window.removeEventListener("scroll", onChange, true);
+      window.removeEventListener("resize", onChange);
     };
   }, [containerRef, enabled]);
 

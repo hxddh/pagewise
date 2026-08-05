@@ -1,7 +1,7 @@
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, MessageSquareQuote } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
-import { getMarks } from "../lib/mark-store";
+import { getMarks, type Mark } from "../lib/mark-store";
 
 interface MarkSidebarProps {
   path: string;
@@ -15,6 +15,8 @@ interface MarkSidebarProps {
   tabs: React.ReactNode;
   onClose: () => void;
   onSelect: (page: number, id: string) => void;
+  /** Put this mark into the composer. Absent when there is nothing to ask. */
+  onAsk?: (mark: Mark) => void;
 }
 
 /**
@@ -32,6 +34,7 @@ export const MarkSidebar = memo(function MarkSidebar({
   tabs,
   onClose,
   onSelect,
+  onAsk,
 }: MarkSidebarProps) {
   const { t } = useI18n();
   const [filter, setFilter] = useState("");
@@ -79,26 +82,41 @@ export const MarkSidebar = memo(function MarkSidebar({
       ) : (
         <nav className="outline-list">
           {marks.map((mark) => (
-            <button
-              key={mark.id}
-              type="button"
-              className={`outline-item mark-item ${
-                mark.id === selectedId
-                  ? "active"
-                  : mark.page === currentPage
-                    ? "mark-item-here"
-                    : ""
-              }`}
-              aria-current={mark.id === selectedId ? "true" : undefined}
-              title={mark.note || mark.text}
-              onClick={() => onSelect(mark.page, mark.id)}
-            >
-              <span className="outline-title">
-                <span className="mark-item-text">{mark.text || t("marks.noText")}</span>
-                {mark.note && <span className="mark-item-note">{mark.note}</span>}
-              </span>
-              <span className="outline-page">{mark.page}</span>
-            </button>
+            // A row rather than a bare button: marking a passage and then asking
+            // about it is the reason to mark it, and until now the only way was
+            // to find the page, find the passage and select it again.
+            <div key={mark.id} className="mark-row">
+              <button
+                type="button"
+                className={`outline-item mark-item ${
+                  mark.id === selectedId
+                    ? "active"
+                    : mark.page === currentPage
+                      ? "mark-item-here"
+                      : ""
+                }`}
+                aria-current={mark.id === selectedId ? "true" : undefined}
+                title={mark.note || mark.text}
+                onClick={() => onSelect(mark.page, mark.id)}
+              >
+                <span className="outline-title">
+                  <span className="mark-item-text">{mark.text || t("marks.noText")}</span>
+                  {mark.note && <span className="mark-item-note">{mark.note}</span>}
+                </span>
+                <span className="outline-page">{mark.page}</span>
+              </button>
+              {onAsk && (
+                <button
+                  type="button"
+                  className="mark-ask-btn"
+                  title={t("marks.ask")}
+                  aria-label={t("marks.ask")}
+                  onClick={() => onAsk(mark)}
+                >
+                  <MessageSquareQuote size={13} />
+                </button>
+              )}
+            </div>
           ))}
         </nav>
       )}

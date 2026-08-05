@@ -139,7 +139,10 @@
     "staleMark": "创建于此文件的较早版本，可能已经指错了地方。",
     "regionMode": "框选标记（拖出一个框，Esc 退出）",
     "filterPlaceholder": "过滤标记",
-    "noFilterMatch": "没有匹配的标记。"
+    "noFilterMatch": "没有匹配的标记。",
+    "ask": "就这条标记提问",
+    "askQuoted": "关于第 {page} 页的标记：“{text}”",
+    "askRegion": "关于我在第 {page} 页标出的内容"
   },
   "drop": {
     "title": "拖放以打开",

@@ -29,7 +29,6 @@ import "./styles/tokens.css";
 import "./styles/preview.css";
 import "./styles/settings.css";
 import "./App.css";
-import "./AppV3.css";
 
 const PreviewPane = lazy(() =>
   import("./features/preview/PreviewPane").then((m) => ({ default: m.PreviewPane })),
@@ -74,10 +73,14 @@ function AppContent() {
     setComposerDraft("");
   }, [doc?.path]);
 
+  // Put something from the document into the composer and show it. The caller
+  // decides what the text says — a quoted passage, or a sentence naming the
+  // page a mark is on — because only the caller knows which it has.
   const askAboutSelection = useCallback(
     (text: string) => {
-      const quote = `"${text}"`;
-      setComposerDraft((prev) => (prev.trim() ? `${prev.trim()} ${quote} ` : `${quote} `));
+      const insert = text.trim();
+      if (!insert) return;
+      setComposerDraft((prev) => (prev.trim() ? `${prev.trim()} ${insert} ` : `${insert} `));
       s.setAgentOpen(true);
     },
     [s],

@@ -4,6 +4,26 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [6.3.0] - 2026-08-05
+
+### Fixed
+
+- **Six CSS variables did not exist, and four of them were visible.** `var(--x)` with no fallback is silent: the declaration is dropped, so a colour quietly inherits and a background quietly goes transparent. In the light theme the **Mark** button on a selection was white text on a near-white surface — an empty rectangle. The note field on a mark and the edit box on a sent message had no background of their own. Hover and selected states in the outline and the sidebar tabs never brightened, which is what made them feel like they had not registered. The names were all from an earlier vocabulary (`--text-primary`, `--bg-primary`, `--bg`, `--radius-sm`); they now point at the tokens that exist, and `npm run check:css` fails the build on the next one.
+- **Marks written off the page before 6.2 still drew over the neighbouring page.** 6.2 stopped a region drag from running past the page edge, but only where marks are made — every mark already in a file kept its out-of-bounds rectangle. Rectangles are now clamped to their page when drawn, so old marks land on the page they belong to, and a page clips its own overlays.
+- **The buttons on a text selection stayed pinned to the window while the document scrolled.** Their position was measured once, and scrolling does not fire a selection event — so the passage slid away and the buttons did not follow. They now track the page. (The mark itself was always placed correctly; only the buttons drifted.)
+- **The second selection button was positioned by the pixel width of the first one's English label.** A hard-coded 74px offset meant every other language stacked the two buttons or left a gap. They are one laid-out row now.
+
+### Added
+
+- **Ask about a mark.** Marking a passage in order to ask about it is the reason to mark it, and the only way to do it was to find the page again, find the passage again and select it again. Each entry in the marks sidebar now has an action that puts it into the composer, with its page number — a region mark with no words says where instead of what.
+
+### Changed
+
+- **The design system is now the one the stylesheets use.** It existed in `tokens.css` and almost nothing referenced it: 193 rules set a font size in pixels and 13 used a token. Type is six steps, and the bottom of the scale is 11px — the 27 rules at 10px and 3 at 9px are gone, because this is a tool for reading. Corners are three steps and a pill, where ten different pixel values had accumulated. Icon glyphs sized in pixels are deliberately left off the type scale: they are pictures, not text.
+- **`AppV3.css` is gone**, merged into `App.css`. The name recorded which iteration of the shell it was, which stopped meaning anything once there was only one — and keeping it separate let the same selector be written twice with the winner decided by import order. Nine such collisions are resolved, including a toolbar button whose height was set in one file and its padding overridden from another, and a full copy of the light theme that had drifted from the real one.
+- **38 rules that styled nothing were removed** — leftovers from three generations of shell (an old chrome, an old citation block, a session selector). Class names that are built up at runtime were left alone.
+- **Motion respects `prefers-reduced-motion`.** Every transition here decorates something that is already correct without it, and the operating system already knows who does not want it.
+
 ## [6.2.0] - 2026-08-05
 
 ### Fixed

@@ -139,7 +139,10 @@
     "staleMark": "Made against an earlier version of this file, so it may sit in the wrong place now.",
     "regionMode": "Mark a region (drag a box; Esc to exit)",
     "filterPlaceholder": "Filter marks",
-    "noFilterMatch": "No mark matches that."
+    "noFilterMatch": "No mark matches that.",
+    "ask": "Ask about this mark",
+    "askQuoted": "About the mark on page {page}: \"{text}\"",
+    "askRegion": "About what I marked on page {page}"
   },
   "drop": {
     "title": "Drop to open",

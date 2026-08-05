@@ -84,6 +84,23 @@ describe("pdfRectToBox", () => {
     }
   });
 
+  it("keeps a mark written off the page on the page", () => {
+    // What a pre-6.2 region drag past the page's edge left in the file: a rect
+    // starting left of the page and running past its bottom. Unclamped it drew
+    // over the neighbouring page.
+    const box = pdfRectToBox({ x: -200, y: -300, width: 400, height: 1400 }, upright);
+    expect(box.left).toBe(0);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.left + box.width).toBeLessThanOrEqual(1);
+    expect(box.top + box.height).toBeLessThanOrEqual(1);
+  });
+
+  it("draws nothing for a rect that misses the page entirely", () => {
+    const box = pdfRectToBox({ x: 5000, y: 5000, width: 100, height: 100 }, upright);
+    expect(box.width).toBe(0);
+    expect(box.height).toBe(0);
+  });
+
   it("does not divide by a degenerate page", () => {
     const degenerate: PageGeometry = { ...upright, viewportWidth: 0, viewportHeight: 0 };
     const box = pdfRectToBox({ x: 1, y: 1, width: 1, height: 1 }, degenerate);

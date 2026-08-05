@@ -94,7 +94,6 @@ function PreviewPaneInner({
       <button
         type="button"
         className="ask-selection-btn"
-        style={{ left: askSel.x, top: askSel.y }}
         // Keep the selection alive through the click.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
@@ -111,7 +110,10 @@ function PreviewPaneInner({
               // a superseded result keeps a quote from the old page out of the
               // new one's composer.
               if (quoteRun.current !== run) return;
-              onAskAboutSelection(quote);
+              // The composer takes the text as given, so the quotation marks
+              // that make it read as a citation belong here, where we know this
+              // is a passage rather than a sentence about one.
+              onAskAboutSelection(`"${quote}"`);
             },
           );
         }}
@@ -125,7 +127,6 @@ function PreviewPaneInner({
       <button
         type="button"
         className="mark-selection-btn"
-        style={{ left: askSel.x, top: askSel.y }}
         // Keep the selection alive through the click.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
@@ -499,6 +500,22 @@ function PreviewPaneInner({
               onPageChange(target);
               setSelectedMarkId(id);
             }}
+            onAsk={
+              onAskAboutSelection
+                ? (mark) => {
+                    // The page number goes in the text because that is what the
+                    // assistant can act on: it turns "this mark" into a page it
+                    // can read. A region mark often has no words at all, so it
+                    // says where rather than what.
+                    const text = mark.text.trim();
+                    onAskAboutSelection(
+                      text
+                        ? t("marks.askQuoted", { page: mark.page, text })
+                        : t("marks.askRegion", { page: mark.page }),
+                    );
+                  }
+                : undefined
+            }
           />
         ) : showOutline ? (
           <OutlineSidebar
@@ -525,8 +542,15 @@ function PreviewPaneInner({
           {canvasBody}
         </div>
       </div>
-      {askButton}
-      {markButton}
+      {(askButton || markButton) && askSel && (
+        // One anchored row: the buttons sit next to each other because they are
+        // laid out, not because the second is nudged by the first's width in
+        // one particular language.
+        <div className="selection-actions" style={{ left: askSel.x, top: askSel.y }}>
+          {askButton}
+          {markButton}
+        </div>
+      )}
       {selectedMark && (
         <MarkNote
           path={doc.path}
