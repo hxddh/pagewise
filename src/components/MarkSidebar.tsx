@@ -2,6 +2,7 @@ import { ChevronLeft, MessageSquareQuote } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { getMarks, type Mark } from "../lib/mark-store";
+import { Button } from "./ui/Button";
 
 interface MarkSidebarProps {
   path: string;
@@ -56,15 +57,15 @@ export const MarkSidebar = memo(function MarkSidebar({
     <aside className="thumb-sidebar outline-sidebar" aria-label={t("preview.marks")}>
       <div className="thumb-sidebar-header">
         {tabs}
-        <button
-          type="button"
+        <Button variant="ghost" size="md"
+         
           className="toolbar-btn"
           onClick={onClose}
           title={t("preview.thumbnailsHide")}
           aria-label={t("preview.thumbnailsHide")}
         >
           <ChevronLeft size={14} />
-        </button>
+        </Button>
       </div>
       {stale && <p className="mark-stale-note">{t("marks.staleFile")}</p>}
       {(marks.length > 0 || filter) && (
@@ -106,15 +107,17 @@ export const MarkSidebar = memo(function MarkSidebar({
                 <span className="outline-page">{mark.page}</span>
               </button>
               {onAsk && (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
                   className="mark-ask-btn"
                   title={t("marks.ask")}
                   aria-label={t("marks.ask")}
                   onClick={() => onAsk(mark)}
                 >
                   <MessageSquareQuote size={13} />
-                </button>
+                </Button>
               )}
             </div>
           ))}

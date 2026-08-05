@@ -19,9 +19,11 @@ import {
 import { emitAgentProgress } from "./agent-progress";
 import { formatSearchPreview } from "./search-preview";
 import {
+  appendContextToLastUserMessage,
   buildViewContextInstructions,
   buildWholeDocumentInstructions,
 } from "./agent-view-context";
+import { compactRunMessages } from "./compact-run-messages";
 import { docCache } from "./doc-cache";
 import { resolveModel, resolveReasoning } from "./llm";
 import { hasWholeDocumentIntent } from "./page-intent";
@@ -93,6 +95,19 @@ const AGENT_STOP_WHEN = [stepCountIs(DEFAULT_MAX_AGENT_STEPS), stopMetaToolLoop]
  * not it matched a keyword.
  */
 const RUN_CHAR_BUDGET = 200_000;
+
+/**
+ * Ceiling on one reply. Generous — a synthesis over twenty pages is long — but
+ * a generation that runs away is otherwise unbounded in both cost and wait.
+ */
+const MAX_OUTPUT_TOKENS = 8_000;
+
+/**
+ * Reasoning effort for the steps that only fetch. Deliberation is billed output
+ * and "read page 14 next" does not need any; the step that has to turn twelve
+ * pages into an answer does, and gets the configured level back.
+ */
+const MECHANICAL_STEP_REASONING = "low" as const;
 
 const docToolContextSchema = z.object({
   defaultDocPath: z.string().nullable(),
@@ -269,6 +284,9 @@ const UNINDEXED_NOTE =
  * tool result larger than the whole run budget.
  */
 const MAX_OUTLINE_PAGE_STATS = 200;
+
+/** Preview length when previews are asked for. Enough to name a page's subject. */
+const OUTLINE_PREVIEW_CHARS = 60;
 
 /**
  * Read a page range, honouring every rule a page read has to honour.
@@ -503,31 +521,42 @@ function createDocumentTools(budget: ReadBudget) {
     document_outline: tool({
       description:
         "Document overview: the native section/bookmark tree (title → page) when " +
-        "the PDF has one, plus per-page character counts and short previews " +
-        `(first ${MAX_OUTLINE_PAGE_STATS} pages). Use it to jump to a section or ` +
-        "to plan chunked reads of a large document.",
+        "the PDF has one, plus per-page character counts. Use it to jump to a " +
+        "section or to plan chunked reads of a large document. Pass " +
+        'previews: true only when the titles and lengths are not enough to ' +
+        "tell the pages apart — previews cost roughly five times as much.",
       inputSchema: z.object({
         path: z
           .string()
           .optional()
           .describe("Loaded document path; defaults to the active document"),
+        previews: z
+          .boolean()
+          .optional()
+          .describe(
+            `Include a short text preview per page (first ${MAX_OUTLINE_PAGE_STATS} pages). Off by default.`,
+          ),
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
         () => ({ message: "Scanning document…", key: "agent.activityIndex" }),
         "tool",
         () => budget.gen,
-        async ({ path: inputPath }, options, runGen) => {
+        async ({ path: inputPath, previews = false }, options, runGen) => {
           const path = resolvePathInput(inputPath, options);
           const doc = requireLoadedDoc(path);
           if (budget.used >= budget.max) {
             return { budgetExceeded: true, note: BUDGET_NOTE };
           }
           const pages = docCache.getPages(path);
+          // Previews are the expensive half of this result: 200 pages of them
+          // is roughly 40,000 characters — ten thousand tokens for one tool
+          // call, which the loop then resends on every later step. The section
+          // tree and the per-page lengths are what planning actually needs.
           const allStats = pages.map((p) => ({
             page: p.page,
             chars: p.text.length,
-            preview: p.text.trim().slice(0, 160),
+            ...(previews ? { preview: p.text.trim().slice(0, OUTLINE_PREVIEW_CHARS) } : {}),
           }));
           const totalChars = allStats.reduce((sum, p) => sum + p.chars, 0);
           const unindexedPages = pages
@@ -1066,6 +1095,9 @@ export function createDocAgent() {
     gen: 0,
   };
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
+  // The reasoning effort this run was configured with. Intermediate steps drop
+  // below it (see prepareStep); the step that writes the answer gets it back.
+  let runReasoning: ReturnType<typeof resolveReasoning> = undefined;
   const tools = createDocumentTools(budget);
   const defaultRuntime = buildRuntimeContext(null);
 
@@ -1075,7 +1107,7 @@ export function createDocAgent() {
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
     stopWhen: AGENT_STOP_WHEN,
-    experimental_repairToolCall: repairDocumentToolCall,
+    repairToolCall: repairDocumentToolCall,
     experimental_refineToolInput: {
       [READ_PDF_RANGE_TOOL]: (input) => normalizeRangeInput(input),
     },
@@ -1087,12 +1119,26 @@ export function createDocAgent() {
     //      stopMetaToolLoop and the run would end on a tool call → "noReply".
     // Only sets toolChoice; never mutates messages, so tool-call/result pairing
     // is safe.
-    prepareStep: ({ stepNumber, steps }) => {
-      if (stepNumber >= runMaxSteps - 1) return { toolChoice: "none" };
-      if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
-        return { toolChoice: "none" };
+    prepareStep: ({ stepNumber, steps, messages }) => {
+      // Shorten the reads the model has already moved past. A tool loop resends
+      // every earlier result on every step, so without this a twenty-step run
+      // pays for the same pages up to twenty times. The most recent results are
+      // left whole — those are what this step is reasoning over.
+      const compacted = compactRunMessages(
+        messages as ReadonlyArray<{ role: string; content: unknown }> | undefined,
+      ) as typeof messages;
+      const carry = compacted !== messages ? { messages: compacted } : {};
+
+      // Reasoning is billed output, and most steps of a document run are
+      // mechanical — "read page 14" needs no deliberation. The step that has to
+      // put the answer together does, and that is the one with no tools left.
+      if (stepNumber >= runMaxSteps - 1) {
+        return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
-      return undefined;
+      if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
+        return { ...carry, toolChoice: "none", reasoning: runReasoning };
+      }
+      return { ...carry, reasoning: runReasoning ? MECHANICAL_STEP_REASONING : undefined };
     },
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
@@ -1118,13 +1164,22 @@ export function createDocAgent() {
       // Read at call time so a Settings change takes effect on the next
       // question without restarting the app.
       budget.maxScans = getAgentScanCap();
+      runReasoning = resolveReasoning(settings);
 
       return {
         ...rest,
+        // The volatile half of the prompt rides on the newest user message, so
+        // the system prompt — the first block every provider caches on — is
+        // byte-identical from turn to turn. See appendContextToLastUserMessage.
+        messages: appendContextToLastUserMessage(
+          rest.messages as ReadonlyArray<{ role: string; content: unknown }> | undefined,
+          viewHint,
+        ) as typeof rest.messages,
         stopWhen: [stepCountIs(runMaxSteps), stopMetaToolLoop],
         model: resolveModel(settings),
-        reasoning: resolveReasoning(settings),
-        instructions: SYSTEM_INSTRUCTIONS + viewHint,
+        reasoning: runReasoning,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+        instructions: SYSTEM_INSTRUCTIONS,
         runtimeContext: runtime,
         activeTools: resolveActiveTools(!!runtime.activeDocPath),
         toolsContext: {

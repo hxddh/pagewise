@@ -26,6 +26,7 @@ import { openableRecentFiles } from "./lib/recent-files";
 import { getMarks } from "./lib/mark-store";
 import { useMarkRevision } from "./features/preview/useMarks";
 import "./styles/tokens.css";
+import "./styles/ui.css";
 import "./styles/preview.css";
 import "./styles/settings.css";
 import "./App.css";

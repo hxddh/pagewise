@@ -3,6 +3,7 @@ import { memo, useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
 import { activeHeadingIndex } from "../lib/outline-nav";
 import type { DocHeading } from "../lib/types";
+import { Button } from "./ui/Button";
 
 interface OutlineSidebarProps {
   outline: DocHeading[];
@@ -49,15 +50,15 @@ export const OutlineSidebar = memo(function OutlineSidebar({
     <aside className="thumb-sidebar outline-sidebar" aria-label={t("preview.outline")}>
       <div className="thumb-sidebar-header">
         {tabs}
-        <button
-          type="button"
+        <Button variant="ghost" size="md"
+         
           className="toolbar-btn"
           onClick={onClose}
           title={t("preview.thumbnailsHide")}
           aria-label={t("preview.thumbnailsHide")}
         >
           <ChevronLeft size={14} />
-        </button>
+        </Button>
       </div>
       <nav className="outline-list">
         {outline.map((heading, i) => (

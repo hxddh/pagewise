@@ -4,6 +4,7 @@ import { useI18n } from "../i18n";
 import type { ZoomMode } from "../lib/zoom";
 import { IconChevronLeft, IconChevronRight } from "./Icon";
 import { ZoomStepper } from "./ZoomStepper";
+import { Button } from "./ui/Button";
 
 interface PreviewToolbarProps {
   filename: string;
@@ -61,8 +62,8 @@ function PageNav({
 
   return (
     <div className="toolbar-group toolbar-group-page">
-      <button
-        type="button"
+      <Button variant="ghost" size="md"
+       
         className="toolbar-btn"
         disabled={page <= 1}
         onClick={() => onPageChange(page - 1)}
@@ -70,7 +71,7 @@ function PageNav({
         aria-label={t("preview.previousPage")}
       >
         <IconChevronLeft size={14} />
-      </button>
+      </Button>
       {editing ? (
         <input
           ref={inputRef}
@@ -92,8 +93,8 @@ function PageNav({
           aria-label={t("preview.pageOf", { page, total: totalPages })}
         />
       ) : (
-        <button
-          type="button"
+        <Button variant="ghost" size="md"
+         
           className="toolbar-btn toolbar-page-label"
           onClick={() => setEditing(true)}
           title={t("preview.pageOf", { page, total: totalPages })}
@@ -102,10 +103,10 @@ function PageNav({
           <span className="toolbar-page-current">{page}</span>
           <span className="toolbar-page-sep">/</span>
           <span className="toolbar-page-total">{totalPages}</span>
-        </button>
+        </Button>
       )}
-      <button
-        type="button"
+      <Button variant="ghost" size="md"
+       
         className="toolbar-btn"
         disabled={page >= totalPages}
         onClick={() => onPageChange(page + 1)}
@@ -113,7 +114,7 @@ function PageNav({
         aria-label={t("preview.nextPage")}
       >
         <IconChevronRight size={14} />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -154,8 +155,8 @@ export function PreviewToolbar({
       <div className="toolbar-right">
         {totalPages > 1 && (
           <div className="toolbar-group">
-            <button
-              type="button"
+            <Button variant="ghost" size="md"
+             
               className={`toolbar-btn ${thumbsVisible ? "active" : ""}`}
               onClick={onToggleThumbs}
               title={thumbsVisible ? t("preview.thumbnailsHide") : t("preview.thumbnailsShow")}
@@ -163,13 +164,13 @@ export function PreviewToolbar({
               aria-pressed={thumbsVisible}
             >
               <LayoutGrid size={14} strokeWidth={1.75} />
-            </button>
+            </Button>
           </div>
         )}
         {onToggleRegionMode && (
           <div className="toolbar-group">
-            <button
-              type="button"
+            <Button variant="ghost" size="md"
+             
               className={`toolbar-btn ${regionMode ? "active" : ""}`}
               onClick={onToggleRegionMode}
               title={t("marks.regionMode")}
@@ -177,7 +178,7 @@ export function PreviewToolbar({
               aria-pressed={!!regionMode}
             >
               <SquareDashedMousePointer size={14} strokeWidth={1.75} />
-            </button>
+            </Button>
           </div>
         )}
         <ZoomStepper

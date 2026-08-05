@@ -10,6 +10,7 @@ import {
   popOverlayLayer,
   pushOverlayLayer,
 } from "../lib/overlay-state";
+import { Button } from "./ui/Button";
 
 interface RecentFilesDrawerProps {
   open: boolean;
@@ -79,19 +80,17 @@ function RecentFilesDrawerInner({
       >
         <header className="library-drawer-header">
           <h2>{t("sidebar.library")}</h2>
-          <button
-            type="button"
-            className="btn icon-btn"
+          <Button
+            variant="ghost" size="md" icon
             onClick={requestClose}
             aria-label={t("library.close")}
           >
             <X size={16} />
-          </button>
+          </Button>
         </header>
 
-        <button
-          type="button"
-          className="btn primary library-drawer-open"
+        <Button
+          variant="primary" size="md" className="library-drawer-open"
           onClick={() => {
             onClose();
             onOpenFile();
@@ -99,7 +98,7 @@ function RecentFilesDrawerInner({
           disabled={opening}
         >
           {opening ? t("sidebar.opening") : t("sidebar.openDocument")}
-        </button>
+        </Button>
 
         <div className="library-drawer-body document-library">
           <p className="library-section-label">{t("sidebar.recent")}</p>

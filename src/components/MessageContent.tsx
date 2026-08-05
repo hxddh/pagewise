@@ -11,6 +11,7 @@ import {
   toolStepFromPart,
 } from "../lib/tool-steps-summary";
 import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
+import { getPageWiseMetadata } from "../lib/message-metadata";
 import { Markdown } from "./Markdown";
 
 interface MessageContentProps {
@@ -80,6 +81,7 @@ function ToolStepsBlock({
   live?: boolean;
   settling?: boolean;
 }) {
+  const onJump = useContext(PageRefContext);
   const steps = parts.map(({ part }) => toolStepFromPart(part, t));
   const { aggregate, summary, details, anyRunning } = summarizeToolSteps(steps, t);
   const anyFailed = steps.some((s) => s.failed);
@@ -106,13 +108,30 @@ function ToolStepsBlock({
           />
           <span className="tool-fold-label">{summary}</span>
         </summary>
-        <ul className="tool-steps-list">
-          {details.map(({ label, count }, detailIndex) => (
-            <li key={`${label}-${detailIndex}`}>
-              {count > 1 ? t("agent.toolStepRepeat", { label, count }) : label}
-            </li>
-          ))}
-        </ul>
+        <ol className="tool-steps-list">
+          {details.map(({ label, count, page, failed }, detailIndex) => {
+            const text = count > 1 ? t("agent.toolStepRepeat", { label, count }) : label;
+            return (
+              <li key={`${label}-${detailIndex}`} className={failed ? "tool-step-failed" : ""}>
+                {/* A step that went to a page is a way back to that page. The
+                    "pages read" trail below has always been clickable; this
+                    list showed the same pages as dead text. */}
+                {page !== undefined && onJump ? (
+                  <button
+                    type="button"
+                    className="tool-step-link"
+                    onClick={() => onJump(page)}
+                    title={t("preview.pageTitle", { page })}
+                  >
+                    {text}
+                  </button>
+                ) : (
+                  <span>{text}</span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
       </details>
     </div>
   );
@@ -180,6 +199,8 @@ function MessageContentInner({
   const { t } = useI18n();
   const parts = messageParts(message);
   const sources = collectSources(parts);
+  // Steps finished so far this run; the one in flight is the next one.
+  const stepNumber = live ? (getPageWiseMetadata(message)?.stepUsage?.length ?? 0) + 1 : 0;
   const readPages = message.role === "assistant" && !live ? collectReadPages(parts) : [];
   const showReasoningAsAnswer = message.role === "assistant" && !hasAnswerText(parts);
   const segments = segmentMessageParts(parts);
@@ -263,6 +284,14 @@ function MessageContentInner({
             <span />
           </span>
           {activity}
+          {/* Which step it is on. A twenty-step run used to show one line that
+              changed wording occasionally, with no sense of how far along it
+              was or whether it was moving at all. */}
+          {stepNumber > 0 && (
+            <span className="agent-step-counter">
+              {t("agent.stepCounter", { step: stepNumber })}
+            </span>
+          )}
         </p>
       )}
       {showEmptyReply && (

@@ -28,6 +28,7 @@ import { clientRectToPageRect } from "./selection-quote";
 import { getPageGeometry } from "../../lib/pdf";
 import { displayUrl } from "../../lib/safe-link";
 import type { LoadedDocument } from "../../lib/types";
+import { Button } from "../../components/ui/Button";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
 import { OutlineSidebar } from "../../components/OutlineSidebar";
@@ -91,8 +92,9 @@ function PreviewPaneInner({
 
   const askButton =
     askSel && onAskAboutSelection ? (
-      <button
-        type="button"
+      <Button
+        variant="primary"
+        size="md"
         className="ask-selection-btn"
         // Keep the selection alive through the click.
         onMouseDown={(e) => e.preventDefault()}
@@ -119,13 +121,14 @@ function PreviewPaneInner({
         }}
       >
         {t("preview.askAboutSelection")}
-      </button>
+      </Button>
     ) : null;
 
   const markButton =
     askSel && doc.kind === "pdf" ? (
-      <button
-        type="button"
+      <Button
+        variant="secondary"
+        size="md"
         className="mark-selection-btn"
         // Keep the selection alive through the click.
         onMouseDown={(e) => e.preventDefault()}
@@ -162,7 +165,7 @@ function PreviewPaneInner({
         }}
       >
         {t("marks.markSelection")}
-      </button>
+      </Button>
     ) : null;
 
   // Leaving the mode has to be possible without finding the button again.
@@ -351,18 +354,14 @@ function PreviewPaneInner({
           <div className="preview-index-badge-row" aria-live="polite">
             <div className="preview-index-badge">{indexHint}</div>
             {showRetryOnVisionFailed && (
-              <button type="button" className="preview-index-retry-btn" onClick={retryIndex}>
+              <Button variant="secondary" size="sm" className="preview-index-retry-btn" onClick={retryIndex}>
                 {t("preview.retryIndex")}
-              </button>
+              </Button>
             )}
             {indexHintActionable && onOpenAiSettings && (
-              <button
-                type="button"
-                className="preview-index-retry-btn"
-                onClick={onOpenAiSettings}
-              >
+              <Button variant="secondary" size="sm" className="preview-index-retry-btn" onClick={onOpenAiSettings}>
                 {t("settings.title")}
-              </button>
+              </Button>
             )}
           </div>
         ) : (

@@ -1,4 +1,5 @@
 import { useI18n } from "../i18n";
+import { Button } from "./ui/Button";
 
 interface EmptyStateProps {
   hasApiKey: boolean;
@@ -25,9 +26,9 @@ export function EmptyState({
     return (
       <div className="empty-state empty-state-compact">
         <p className="empty-lead">{t("empty.agentLead")}</p>
-        <button type="button" className="link-btn" onClick={onConfigureApi}>
+        <Button variant="link" size="md" onClick={onConfigureApi}>
           {t("empty.configureInline")}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -36,9 +37,9 @@ export function EmptyState({
     return (
       <div className="empty-state empty-state-compact">
         <p className="empty-lead">{t("empty.agentToolsLead")}</p>
-        <button type="button" className="link-btn" onClick={onConfigureApi}>
+        <Button variant="link" size="md" onClick={onConfigureApi}>
           {t("empty.configureInline")}
-        </button>
+        </Button>
       </div>
     );
   }

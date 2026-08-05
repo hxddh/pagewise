@@ -57,25 +57,10 @@
 }
 
 .toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 28px;
   min-width: 28px;
   padding: 0 6px;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-sm);
+  gap: 4px;
   font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition:
-    background var(--transition-fast),
-    color var(--transition-fast),
-    box-shadow var(--transition-fast);
 }
 
 .toolbar-btn:hover:not(:disabled) {
@@ -219,14 +204,6 @@
 }
 
 .preview-index-retry-btn {
-  font: inherit;
-  font-size: var(--text-xs);
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-  color: var(--accent);
-  cursor: pointer;
   flex-shrink: 0;
 }
 

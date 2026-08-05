@@ -19,6 +19,12 @@ export interface ToolStepInfo {
   key: string;
   running: boolean;
   failed?: boolean;
+  /**
+   * The page this step went to, when it went to one. The step list used to be
+   * plain text while the "pages read" trail beside it was clickable — the same
+   * information, one of the two navigable.
+   */
+  page?: number;
 }
 
 function numArg(value: unknown): number | undefined {
@@ -62,7 +68,7 @@ export function toolStepLabel(
   toolName: string,
   input: unknown,
   t: TranslateFn,
-): { label: string; key: string; bucket: ToolStepBucket } {
+): { label: string; key: string; bucket: ToolStepBucket; page?: number } {
   const args = (input ?? {}) as Record<string, unknown>;
   const bucket = toolBucket(toolName);
 
@@ -73,7 +79,7 @@ export function toolStepLabel(
         page !== undefined
           ? t("agent.toolReadPage", { page })
           : t("agent.activityReadRange");
-      return { label, key: `read:${page ?? "?"}`, bucket };
+      return { label, key: `read:${page ?? "?"}`, bucket, page };
     }
     case READ_PDF_RANGE_TOOL: {
       const start = numArg(args.start);
@@ -82,7 +88,7 @@ export function toolStepLabel(
         start !== undefined && end !== undefined
           ? t("agent.toolReadRange", { start, end })
           : t("agent.activityReadRange");
-      return { label, key: `range:${start ?? "?"}-${end ?? "?"}`, bucket };
+      return { label, key: `range:${start ?? "?"}-${end ?? "?"}`, bucket, page: start };
     }
     case SEARCH_IN_DOCUMENT_TOOL: {
       const query = typeof args.query === "string" ? args.query : "";
@@ -102,7 +108,7 @@ export function toolStepFromPart(part: ToolPart, t: TranslateFn): ToolStepInfo {
   const isError = state === "output-error";
   const running = state !== "output-available" && state !== "output-error";
   if (isError) {
-    const { label, key, bucket } = toolStepLabel(
+    const { label, key, bucket, page } = toolStepLabel(
       toolName,
       (part as { input?: unknown }).input,
       t,
@@ -114,23 +120,26 @@ export function toolStepFromPart(part: ToolPart, t: TranslateFn): ToolStepInfo {
       key: `${key}:err`,
       running: false,
       failed: true,
+      ...(page !== undefined ? { page } : {}),
     };
   }
-  const { label, key, bucket } = running
+  const resolved = running
     ? {
         label: toolActivityLabel(toolName, t),
         key: `${toolName}:${(part as { toolCallId?: string }).toolCallId ?? "running"}`,
         bucket: toolBucket(toolName),
+        page: undefined as number | undefined,
       }
     : toolStepLabel(toolName, (part as { input?: unknown }).input, t);
-  return { toolName, bucket, label, key, running };
+  const { label, key, bucket, page } = resolved;
+  return { toolName, bucket, label, key, running, ...(page !== undefined ? { page } : {}) };
 }
 
 export interface ToolStepsSummary {
   /** Use compact fold when true (2+ steps). */
   aggregate: boolean;
   summary: string;
-  details: Array<{ label: string; count: number }>;
+  details: Array<{ label: string; count: number; page?: number; failed?: boolean }>;
   anyRunning: boolean;
 }
 
@@ -165,12 +174,22 @@ function completedSummary(steps: ToolStepInfo[], t: TranslateFn): string {
 }
 
 export function summarizeToolSteps(steps: ToolStepInfo[], t: TranslateFn): ToolStepsSummary {
-  const detailsMap = new Map<string, { label: string; count: number }>();
+  const detailsMap = new Map<
+    string,
+    { label: string; count: number; page?: number; failed?: boolean }
+  >();
 
   for (const step of steps) {
     const existing = detailsMap.get(step.key);
     if (existing) existing.count += 1;
-    else detailsMap.set(step.key, { label: step.label, count: 1 });
+    else {
+      detailsMap.set(step.key, {
+        label: step.label,
+        count: 1,
+        ...(step.page !== undefined ? { page: step.page } : {}),
+        ...(step.failed ? { failed: true } : {}),
+      });
+    }
   }
 
   const details = [...detailsMap.values()];

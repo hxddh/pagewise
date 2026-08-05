@@ -100,7 +100,12 @@ export function sanitizeDanglingToolParts(messages: UIMessage[]): UIMessage[] {
   return changed ? next : messages;
 }
 
-function compactToolOutput(
+/**
+ * The one-line stand-in for a bulky tool output. Shared with the in-run
+ * compactor so a page read reads the same whether it was shortened during the
+ * run or between turns.
+ */
+export function compactToolOutput(
   name: string,
   input: unknown,
   output: unknown,

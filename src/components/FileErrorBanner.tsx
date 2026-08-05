@@ -1,4 +1,5 @@
 import { useI18n } from "../i18n";
+import { Button } from "./ui/Button";
 
 interface FileErrorBannerProps {
   message: string;
@@ -11,9 +12,9 @@ export function FileErrorBanner({ message, onDismiss }: FileErrorBannerProps) {
   return (
     <div className="file-error-banner" role="alert">
       <span>{message}</span>
-      <button type="button" className="btn ghost file-error-dismiss" onClick={onDismiss} aria-label={t("common.dismiss")}>
+      <Button variant="ghost" size="md" icon className="file-error-dismiss" onClick={onDismiss} aria-label={t("common.dismiss")}>
         ×
-      </button>
+      </Button>
     </div>
   );
 }

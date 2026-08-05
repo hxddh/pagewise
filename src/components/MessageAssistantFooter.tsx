@@ -16,6 +16,7 @@ import {
   resolveAgentTokenTotals,
   type PageWiseUIMessage,
 } from "../lib/message-metadata";
+import { Button } from "./ui/Button";
 
 interface MessageAssistantFooterProps {
   message: PageWiseUIMessage;
@@ -123,26 +124,24 @@ function MessageAssistantFooterInner({
     <div className="message-assistant-footer">
       <div className="message-assistant-toolbar">
         <div className="message-assistant-actions" role="toolbar" aria-label={t("agent.messageActions")}>
-        <button
-          type="button"
-          className="icon-btn message-action-btn"
+        <Button
+          variant="ghost" size="sm" icon className="message-action-btn"
           onClick={() => void handleCopy()}
           disabled={!hasCopyable}
           title={copied ? t("agent.copied") : t("agent.copy")}
           aria-label={copied ? t("agent.copied") : t("agent.copy")}
         >
           <Copy size={14} />
-        </button>
+        </Button>
         {canRegenerate && onRegenerate && (
-          <button
-            type="button"
-            className="icon-btn message-action-btn"
+          <Button
+            variant="ghost" size="sm" icon className="message-action-btn"
             onClick={onRegenerate}
             title={t("agent.regenerate")}
             aria-label={t("agent.regenerate")}
           >
             <RotateCcw size={14} />
-          </button>
+          </Button>
         )}
         <button
           ref={statsBtnRef}
@@ -176,6 +175,15 @@ function MessageAssistantFooterInner({
               <dt>{t("agent.usageTotalOutput")}</dt>
               <dd>{formatTokenCount(metadata?.outputTokens)}</dd>
             </div>
+            {(metadata?.cachedInputTokens ?? 0) > 0 && (
+              // Shown because its absence was the problem: the prompt's cached
+              // prefix used to be thrown away on nearly every turn and nothing
+              // here could have told anyone.
+              <div className="usage-stats-row usage-stats-sub">
+                <dt title={t("agent.usageCachedHint")}>{t("agent.usageCached")}</dt>
+                <dd>{formatTokenCount(metadata?.cachedInputTokens)}</dd>
+              </div>
+            )}
             {(metadata?.indexInputTokens ?? 0) > 0 || (metadata?.indexOutputTokens ?? 0) > 0 ? (
               <>
                 <div className="usage-stats-row usage-stats-sub">

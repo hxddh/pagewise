@@ -18,6 +18,7 @@ import {
   popOverlayLayer,
   pushOverlayLayer,
 } from "../lib/overlay-state";
+import { Button } from "./ui/Button";
 
 interface SettingsDrawerProps {
   open: boolean;
@@ -185,14 +186,13 @@ function SettingsDrawerInner({
       >
         <header className="drawer-header">
           <h2>{t("settings.title")}</h2>
-          <button
-            type="button"
-            className="btn icon-btn"
+          <Button
+            variant="ghost" size="md" icon
             onClick={requestClose}
             aria-label={t("settings.close")}
           >
             <IconClose size={14} />
-          </button>
+          </Button>
         </header>
 
         <div className="settings-layout">
@@ -289,9 +289,8 @@ function SettingsDrawerInner({
                   {aiFooter.saveStatusLabel ?? t("settings.autoSaved")}
                 </span>
                 <div className="settings-footer-actions">
-                  <button
-                    type="button"
-                    className="settings-btn-secondary"
+                  <Button
+                    variant="secondary" size="lg"
                     onClick={aiFooter.onSetActive}
                     disabled={!aiFooter.canSetActive || aiFooter.settingActive}
                   >
@@ -300,15 +299,14 @@ function SettingsDrawerInner({
                       : aiFooter.previewIsActive
                         ? t("settings.currentlyActive")
                         : t("settings.setAsActive")}
-                  </button>
-                  <button
-                    type="button"
-                    className="settings-btn-primary"
+                  </Button>
+                  <Button
+                    variant="primary" size="lg"
                     onClick={aiFooter.onTest}
                     disabled={aiFooter.testing}
                   >
                     {aiFooter.testing ? t("settings.testing") : t("settings.testConnection")}
-                  </button>
+                  </Button>
                 </div>
               </footer>
             )}

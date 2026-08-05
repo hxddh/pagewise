@@ -33,6 +33,7 @@ import { IconCheck } from "../Icon";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import { ConnectionChip } from "./ConnectionChip";
 import { ModelSelect } from "./ModelSelect";
+import { Button } from "../ui/Button";
 
 interface AiProviderSettingsProps {
   onLlmSettingsSaved?: () => void;
@@ -687,14 +688,13 @@ export function AiProviderSettings({
               onBlur={() => void handleSave()}
               autoComplete="off"
             />
-            <button
-              type="button"
-              className="settings-icon-btn"
+            <Button
+              variant="ghost" size="lg" icon className="settings-icon-btn"
               onClick={() => setShowKey((s) => !s)}
               aria-label={showKey ? t("settings.hideKey") : t("settings.showKey")}
             >
               {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-            </button>
+            </Button>
           </div>
         </div>
       </section>

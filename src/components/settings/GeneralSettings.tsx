@@ -11,6 +11,7 @@ import {
 } from "../../lib/preferences";
 import { clearIndexCache, getIndexCacheStats, type IndexCacheStats } from "../../lib/index-store";
 import { setAgentScanCap, setAutoIndexCap } from "../../document/index-queue";
+import { Button } from "../ui/Button";
 
 interface GeneralSettingsProps {
   followAgentDefault: boolean;
@@ -241,14 +242,13 @@ export function GeneralSettings({
                     })}
             </span>
           </div>
-          <button
-            type="button"
-            className="btn ghost"
+          <Button
+            variant="ghost" size="md"
             disabled={clearingCache || !cacheStats || cacheStats.pages === 0}
             onClick={() => void onClearCache()}
           >
             {clearingCache ? t("settings.scanCacheClearing") : t("settings.scanCacheClear")}
-          </button>
+          </Button>
         </div>
       </section>
     </div>

@@ -5,6 +5,7 @@ import {
   popOverlayLayer,
   pushOverlayLayer,
 } from "../lib/overlay-state";
+import { Button } from "./ui/Button";
 
 interface ConfirmBarProps {
   message: string;
@@ -62,9 +63,9 @@ export function ConfirmBar({
     <div className="confirm-bar" role="alertdialog" aria-live="assertive">
       <p className="confirm-bar-message">{message}</p>
       <div className="confirm-bar-actions">
-        <button ref={cancelRef} type="button" className="btn ghost" onClick={onCancel}>
+        <Button ref={cancelRef} variant="ghost" size="md" onClick={onCancel}>
           {cancel}
-        </button>
+        </Button>
         <button
           ref={confirmRef}
           type="button"

@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import { LogoMark } from "./LogoMark";
 import { RecentFilesList } from "./RecentFilesList";
 import type { RecentFile } from "../lib/recent-files";
+import { Button } from "./ui/Button";
 
 interface WelcomeViewProps {
   recentFiles: RecentFile[];
@@ -37,14 +38,15 @@ function WelcomeViewInner({
         </div>
         <p className="welcome-subtitle">{t("welcome.subtitle")}</p>
 
-        <button
-          type="button"
-          className="btn primary welcome-open-btn"
+        <Button
+          variant="primary"
+          size="lg"
+          className="welcome-open-btn"
           onClick={onOpenFile}
           disabled={opening}
         >
           {opening ? t("sidebar.opening") : t("sidebar.openDocument")}
-        </button>
+        </Button>
         <p className="welcome-drop-hint">{t("preview.dropHintShort")}</p>
 
         {!canUseAgent && (
@@ -52,9 +54,9 @@ function WelcomeViewInner({
             {hasApiKey && !agentToolsSupported
               ? t("welcome.toolsHint")
               : t("welcome.apiHint")}{" "}
-            <button type="button" className="link-btn" onClick={onConfigureApi}>
+            <Button variant="link" size="md" onClick={onConfigureApi}>
               {t("empty.configureInline")}
-            </button>
+            </Button>
           </p>
         )}
 

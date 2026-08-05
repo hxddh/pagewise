@@ -88,6 +88,43 @@ function sanitizeForPrompt(value: string, max = 200): string {
   return chars.length > max ? `${chars.slice(0, max).join("")}…` : collapsed;
 }
 
+/**
+ * Attach the per-message context to the newest user message.
+ *
+ * It used to be appended to the system prompt. The system prompt is the first
+ * block of every request, and providers cache on an exact prefix — so a hint
+ * containing "the user is viewing page 47" invalidated the cached prefix of the
+ * entire conversation every time the reader was on a different page than last
+ * time, and every turn re-charged the whole history at full price.
+ *
+ * Carried on the last user message instead, everything before that message is
+ * byte-identical from one turn to the next, so the cache covers all of the
+ * history except the turn being asked. The hint is added at call time and is
+ * never stored, so it does not appear in the transcript.
+ */
+export function appendContextToLastUserMessage<
+  M extends { role: string; content: unknown },
+>(messages: readonly M[] | undefined, hint: string): M[] | readonly M[] | undefined {
+  if (!messages || messages.length === 0 || !hint.trim()) return messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (message.role !== "user") continue;
+    const next = [...messages];
+    if (typeof message.content === "string") {
+      next[i] = { ...message, content: `${message.content}${hint}` };
+    } else if (Array.isArray(message.content)) {
+      next[i] = {
+        ...message,
+        content: [...message.content, { type: "text", text: hint }],
+      };
+    } else {
+      return messages;
+    }
+    return next;
+  }
+  return messages;
+}
+
 export function buildViewContextInstructions(ctx: AgentMessageContext): string {
   const name = sanitizeForPrompt(ctx.docName);
   const path = sanitizeForPrompt(ctx.path, 400);
