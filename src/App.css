@@ -740,6 +740,15 @@ body {
   transition: opacity 0.15s ease;
 }
 
+/*
+ * Revealed by hovering the message, not the footer.
+ *
+ * The footer is a thin strip at the bottom of a reply and the actions sit at
+ * its right edge, so reaching them meant landing the pointer inside a band a
+ * few pixels tall — which reads as the buttons not working rather than as not
+ * having been found.
+ */
+.message.assistant:hover .message-assistant-actions,
 .message-assistant-footer:hover .message-assistant-actions,
 .message-assistant-footer:focus-within .message-assistant-actions {
   opacity: 1;
@@ -3166,6 +3175,7 @@ button.pages-read-chip:hover {
   opacity: 0.5;
 }
 
+.app.v3 .message.assistant:hover .message-assistant-actions,
 .app.v3 .message-assistant-footer:hover .message-assistant-actions,
 .app.v3 .message-assistant-footer:focus-within .message-assistant-actions {
   opacity: 1;
@@ -3569,4 +3579,26 @@ button.pages-read-chip:hover {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   opacity: 0.75;
+}
+
+/* A failed tool run should look failed. The class was applied from 6.x on and
+   never had a rule, so a run that errored looked like one that succeeded. */
+.tool-fold-wrap--error .tool-fold-summary {
+  color: var(--danger);
+}
+
+/* An error under the message editor, styled as one. */
+.message-edit-error {
+  margin: 4px 0 0;
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
+
+/* Raw provider metadata: readable as data, not as prose. */
+.usage-stats-provider-meta {
+  max-width: 260px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  word-break: break-all;
 }

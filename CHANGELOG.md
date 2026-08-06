@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.1.1] - 2026-08-06
+
+### Fixed
+
+- **Every dropdown in the app has been transparent since 6.0.0.** The usage panel opened as floating text over the conversation with nothing behind it — and so did the chat's overflow menu, the zoom presets and the model list. Removing the page-edge click targets in 6.0.0 merged their leftover selector onto the popover rule, leaving `.preview-canvas-wrap:hover .anchored-popover`: a popover only had a surface while the pointer happened to be inside the preview canvas. Four releases shipped that way.
+- **Copy and Regenerate were reachable only from a few pixels.** They appeared when the pointer entered the thin footer strip at the bottom-right of a reply, which reads as buttons that do not work rather than buttons that were not found. They now appear when the pointer is anywhere on the message.
+- **Copy could fail silently in some webviews.** `navigator.clipboard` needs a secure context and is not present everywhere a desktop build runs; when it is missing the call threw and the button looked like a no-op. There is a fallback now.
+- **A failed tool run looked like a successful one.** The class marking the failure was applied from 6.x onward and never had a rule. The error line under the message editor and the raw provider metadata in the usage panel had the same problem: markup with no styling behind it.
+
+### Added
+
+- **A guard for the declarations the app cannot lose.** jsdom has no layout engine, so component tests cannot see any of this — and every rule now asserted has already broken in a shipped release: the popover's surface, the scroller's height (6.0.0's unscrollable document), the page clipping its own overlays, the focus rings, and reduced motion. The assertions read the stylesheet as text, which is crude and is the point: they are what stands between a careless edit and a release where a whole surface is invisible.
+
 ## [7.1.0] - 2026-08-06
 
 ### Fixed

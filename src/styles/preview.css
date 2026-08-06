@@ -249,7 +249,17 @@
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-.preview-canvas-wrap:hover .anchored-popover {
+/*
+ * Every anchored popover in the app: the usage panel, the chat's overflow menu,
+ * the zoom presets, the model list.
+ *
+ * This rule was `.anchored-popover` until 6.0.0, where removing the page-edge
+ * click targets directly above it merged their leftover selector onto it. Since
+ * then a popover has had no background unless the pointer happened to be inside
+ * the preview canvas — so the usage panel opened as floating transparent text
+ * over the conversation, which is exactly what it looked like.
+ */
+.anchored-popover {
   min-width: 120px;
   padding: 4px;
   background: var(--bg-elevated);
