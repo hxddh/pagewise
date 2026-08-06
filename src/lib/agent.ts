@@ -47,7 +47,6 @@ import { isMetaToolOnlyLoop } from "./agent-loop-guards";
 import { coerceNumericToolInput, normalizeRangeInput } from "./agent-tool-repair";
 import {
   DOCUMENT_OUTLINE_TOOL,
-  DOCUMENT_TOOL_NAMES,
   READ_FIGURE_TOOL,
   READ_PDF_PAGE_TOOL,
   READ_PDF_RANGE_TOOL,
@@ -123,14 +122,17 @@ const MECHANICAL_STEP_REASONING = "low" as const;
  * where to read from the first handful; `maxResults` is there for the times it
  * genuinely wants the long list.
  */
-const DEFAULT_SEARCH_HITS = 12;
+export const DEFAULT_SEARCH_HITS = 12;
+
+/** Figure picked when the model doesn't say which: the largest on the page. */
+export const DEFAULT_FIGURE_INDEX = 1;
 
 const docToolContextSchema = z.object({
   defaultDocPath: z.string().nullable(),
 });
 
 /** Mutable per-run read budget shared between a run's tools and prepareCall. */
-interface ReadBudget {
+export interface ReadBudget {
   used: number;
   max: number;
   /** Vision calls this run has triggered by reading un-indexed pages. */
@@ -153,6 +155,37 @@ interface ReadBudget {
    * only costs. Keyed `path#page`.
    */
   delivered: Set<string>;
+}
+
+/**
+ * Has this run already handed the model the whole of this page?
+ *
+ * Kept next to the budget rather than inside a reader: 7.2 put the same logic
+ * in the range reader alone, and the single-page tool — which has its own path
+ * through readPageText — silently fell outside the guarantee it was written
+ * for. Two functions both readers call is harder to grow out of.
+ *
+ * Only whole deliveries count. A page cut short must stay continuable, or a
+ * long page becomes unreadable past its first slice.
+ */
+function alreadyDelivered(budget: ReadBudget, path: string, page: number): boolean {
+  return budget.delivered.has(`${path}#${page}`);
+}
+
+function markDelivered(budget: ReadBudget, path: string, page: number): void {
+  budget.delivered.add(`${path}#${page}`);
+}
+
+/** A fresh budget for one run. One definition, so a run and a test agree. */
+export function newReadBudget(): ReadBudget {
+  return {
+    used: 0,
+    max: RUN_CHAR_BUDGET,
+    scans: 0,
+    maxScans: DEFAULT_AGENT_SCAN_PAGES,
+    gen: 0,
+    delivered: new Set(),
+  };
 }
 
 /** Reject any model-supplied path that is not a currently-loaded document. */
@@ -233,6 +266,10 @@ const SCAN_LIMIT_NOTE =
  * text it replaces is a few messages above, and repeating it buys nothing.
  */
 const ALREADY_READ_NOTE = "[already returned in full earlier in this turn]";
+
+/** Said once, by the outline itself, instead of withdrawing the tool. */
+const ONCE_SURVEYED_NOTE =
+  "This structure is now in the conversation above; consult it there rather than surveying again.";
 
 const BUDGET_NOTE =
   "Read budget for this turn is reached; do not read more pages. Synthesize your answer " +
@@ -431,8 +468,7 @@ async function readPageRange(
           // Already handed over in this run: point at it instead of paying for
           // a second copy. Only whole, untruncated deliveries count, so a page
           // that was cut short can still be continued with an offset.
-          const key = `${path}#${page}`;
-          if (pageOffset === 0 && budget.delivered.has(key)) {
+          if (pageOffset === 0 && alreadyDelivered(budget, path, page)) {
             parts.push(`${header}${ALREADY_READ_NOTE}`);
             charCount += separator + header.length + ALREADY_READ_NOTE.length;
             lastPage = page;
@@ -442,7 +478,7 @@ async function readPageRange(
           parts.push(header + remainingText);
           charCount += separator + header.length + remainingText.length;
           chargeBudget(runGen, remainingText.length);
-          if (pageOffset === 0) budget.delivered.add(key);
+          if (pageOffset === 0) markDelivered(budget, path, page);
           lastPage = page;
         }
 
@@ -555,7 +591,7 @@ function withPageLinks(
   };
 }
 
-function createDocumentTools(budget: ReadBudget) {
+export function createDocumentTools(budget: ReadBudget) {
   // Charge chars to the run's budget — unless the charging tool belongs to an
   // earlier aborted run (stale generation), so it can't drain the new run.
   const chargeBudget = (runGen: number, chars: number): void => {
@@ -624,6 +660,11 @@ function createDocumentTools(budget: ReadBudget) {
             suggestedChunkSize: DEFAULT_RANGE_MAX_CHARS,
             needsChunking: totalChars > DEFAULT_RANGE_MAX_CHARS,
             pages: statsOmitted > 0 ? allStats.slice(0, MAX_OUTLINE_PAGE_STATS) : allStats,
+            // The tree is now in the transcript. Saying so here costs one line
+            // in the messages; the alternative — withdrawing the tool for the
+            // rest of the run — changes the tool block and throws away the
+            // cached prefix on every remaining step.
+            surveyNote: ONCE_SURVEYED_NOTE,
             ...(statsOmitted > 0
               ? {
                   pageStatsOmitted: statsOmitted,
@@ -737,6 +778,20 @@ function createDocumentTools(budget: ReadBudget) {
           const doc = requireLoadedDoc(path);
           assertPageInBounds(doc, page);
 
+          // Already handed over whole in this run. Answered before readPageText
+          // so the repeat costs neither the page's tokens nor — for a page with
+          // no text layer — a second billed vision call.
+          if (offset === 0 && alreadyDelivered(budget, path, page)) {
+            return {
+              page,
+              text: ALREADY_READ_NOTE,
+              truncated: false,
+              nextOffset: null,
+              charCount: 0,
+              alreadyRead: true,
+            };
+          }
+
           if (budget.used >= budget.max) {
             return {
               page,
@@ -800,6 +855,9 @@ function createDocumentTools(budget: ReadBudget) {
           const consumedEnd = from + slice.length;
           const truncated = consumedEnd < text.length;
           const limitedByBudget = truncated && budget.used >= budget.max;
+          // A whole page, read from the start: the next request for it is a
+          // repeat. A truncated read is deliberately not recorded.
+          if (offset === 0 && !truncated) markDelivered(budget, path, page);
 
           return {
             page,
@@ -819,7 +877,7 @@ function createDocumentTools(budget: ReadBudget) {
     read_pdf_range: tool({
       description:
         "Read text from a page range (inclusive, 1-based). " +
-        "For large documents use maxChars (default 6000) and continue when truncated=true: call again " +
+        `For large documents use maxChars (default ${DEFAULT_RANGE_MAX_CHARS}) and continue when truncated=true: call again ` +
         "with start=nextStart, and pass offset=nextOffset when it is non-null (the same page has more text). " +
         "truncated=false (with nextStart=null) means the range is fully read.",
       inputSchema: z.object({
@@ -961,7 +1019,7 @@ function createDocumentTools(budget: ReadBudget) {
           .int()
           .min(1)
           .optional()
-          .describe("Which figure on the page, largest first (default 1)"),
+          .describe(`Which figure on the page, largest first (default ${DEFAULT_FIGURE_INDEX})`),
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
@@ -972,7 +1030,7 @@ function createDocumentTools(budget: ReadBudget) {
         }),
         "index",
         () => budget.gen,
-        async ({ page, index = 1 }, options, runGen) => {
+        async ({ page, index = DEFAULT_FIGURE_INDEX }, options, runGen) => {
           const path = resolvePathInput(undefined, options);
           const doc = requireLoadedDoc(path);
           assertPageInBounds(doc, page);
@@ -1029,7 +1087,7 @@ function createDocumentTools(budget: ReadBudget) {
           .min(1)
           .max(200)
           .optional()
-          .describe("Max hits to return (default 50)"),
+          .describe(`Max hits to return (default ${DEFAULT_SEARCH_HITS})`),
       }),
       contextSchema: docToolContextSchema,
       execute: bindToolExecute(
@@ -1135,14 +1193,7 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
 }
 
 export function createDocAgent() {
-  const budget: ReadBudget = {
-    used: 0,
-    max: RUN_CHAR_BUDGET,
-    scans: 0,
-    maxScans: DEFAULT_AGENT_SCAN_PAGES,
-    gen: 0,
-    delivered: new Set(),
-  };
+  const budget = newReadBudget();
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
   // The reasoning effort this run was configured with. Intermediate steps drop
   // below it (see prepareStep); the step that writes the answer gets it back.
@@ -1194,23 +1245,21 @@ export function createDocAgent() {
       if (stepNumber >= runMaxSteps - 1) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
-      // The index is a way in, not a thing to consult repeatedly: once it has
-      // been read the tree is in the transcript, and offering the tool again
-      // costs its schema on every later step and invites a re-read.
-      const surveyed = steps.some((step) =>
-        step.toolCalls?.some((call) => call.toolName === DOCUMENT_OUTLINE_TOOL),
-      );
-      const activeTools = surveyed
-        ? (DOCUMENT_TOOL_NAMES.filter(
-            (n): n is DocumentToolName => n !== DOCUMENT_OUTLINE_TOOL,
-          ) as DocumentToolName[])
-        : undefined;
+      // 7.1 retired document_outline here, by dropping it from activeTools once
+      // it had been used. That changes the tool block — which sits ahead of the
+      // messages in the request — so the cached prefix (~1,400 tokens of system
+      // prompt and tool schemas) missed for the whole rest of the run. It saved
+      // one schema per step, about 150 tokens, and paid far more than that back
+      // on any run with more than a step or two left; the runs that consult the
+      // outline are the long ones. The tool set is now fixed for the run, and
+      // the "don't re-read the tree" nudge rides in the outline's own result,
+      // where it costs nothing to say and cannot invalidate the prefix. The
+      // meta-loop guard below still stops an actual repeat.
       if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
       return {
         ...carry,
-        ...(activeTools ? { activeTools } : {}),
         reasoning: runReasoning ? MECHANICAL_STEP_REASONING : undefined,
       };
     },

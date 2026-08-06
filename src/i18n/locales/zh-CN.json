@@ -450,7 +450,8 @@
     "recent": "最近使用",
     "firstOpenHint": "提示：输入关键词可筛选命令",
     "scanAllPages": "扫描所有未扫描页面",
-    "exportMarks": "导出标记"
+    "exportMarks": "导出标记",
+    "walkConversation": "上一条 / 下一条消息"
   },
   "toast": {
     "chatExported": "对话已导出",

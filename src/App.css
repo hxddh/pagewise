@@ -315,24 +315,6 @@ body {
   flex-shrink: 0;
 }
 
-.agent-dock-preview {
-  position: absolute;
-  right: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%);
-  max-width: 220px;
-  padding: var(--space-md) var(--space-md);
-  font-size: var(--text-xs);
-  line-height: 1.4;
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
-  pointer-events: none;
-  z-index: 10;
-}
-
 @keyframes pulse {
   50% { opacity: 0.4; }
 }
@@ -677,6 +659,16 @@ body {
 .message {
   font-size: var(--text-base);
   max-width: 100%;
+}
+
+/*
+ * Keyboard navigation (Alt+Up / Alt+Down) moves focus onto a whole turn. Only
+ * :focus-visible, so clicking a message never draws a ring around it.
+ */
+.message:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .message.user {
@@ -1360,18 +1352,6 @@ button.pages-read-chip:hover {
   color: var(--text-muted);
 }
 
-.loading-toast {
-  position: absolute;
-  bottom: 80px;
-  right: 16px;
-  font-size: var(--text-xs);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-}
-
 /* Buttons */
 
 /* Drawer */
@@ -1443,27 +1423,6 @@ button.pages-read-chip:hover {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
-}
-
-.provider-card {
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  border-radius: var(--radius);
-  padding: var(--space-md);
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  color: var(--text-secondary);
-}
-
-.provider-card:hover {
-  border-color: var(--text-muted);
-}
-
-.provider-card.active {
-  border-color: var(--accent);
-  background: var(--accent-muted);
-  color: var(--text);
 }
 
 .provider-name {
@@ -2250,27 +2209,10 @@ button.pages-read-chip:hover {
   background: var(--text-muted);
 }
 
-.zoom-menu-anchor {
-  position: relative;
-}
-
 .zoom-badge {
   font-size: var(--text-xs);
   margin-left: var(--space-2xs);
   color: var(--text-muted);
-}
-
-.zoom-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
-  min-width: 88px;
-  padding: var(--space-xs);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-elevated);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 .zoom-menu-item {

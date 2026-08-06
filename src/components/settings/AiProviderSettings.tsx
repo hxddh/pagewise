@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 
-/** Where a user gets an API key for each provider (absent = no key page). */
-const API_KEY_HELP_URL: Partial<Record<ProviderId, string>> = {
-  openai: "https://platform.openai.com/api-keys",
-  deepseek: "https://platform.deepseek.com/api_keys",
-  openrouter: "https://openrouter.ai/keys",
-};
 import { useI18n } from "../../i18n";
 import { useDebouncedSave, type SaveStatus } from "../../hooks/useDebouncedSave";
 import { useConnectionStatus } from "../../hooks/useConnectionStatus";
@@ -29,11 +21,11 @@ import {
   type ProviderId,
   type ProviderProfile,
 } from "../../lib/types";
-import { IconCheck } from "../Icon";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import { ConnectionChip } from "./ConnectionChip";
 import { ModelSelect } from "./ModelSelect";
-import { Button } from "../ui/Button";
+import { ProviderGrid } from "./ProviderGrid";
+import { ApiKeyField } from "./ApiKeyField";
 import { Input } from "../ui/Field";
 
 interface AiProviderSettingsProps {
@@ -57,8 +49,6 @@ export interface AiSettingsFooterState {
   onSetActive: () => void;
   onDiscard: () => Promise<void>;
 }
-
-const PRESET_IDS = Object.keys(PROVIDER_PRESETS) as (keyof typeof PROVIDER_PRESETS)[];
 
 function resolveDraftSettings(
   settings: LlmSettings,
@@ -88,7 +78,6 @@ export function AiProviderSettings({
   const [settings, setSettings] = useState<LlmSettings>(DEFAULT_SETTINGS);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [apiKeyTouched, setApiKeyTouched] = useState(false);
-  const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [settingActive, setSettingActive] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
@@ -611,33 +600,11 @@ export function AiProviderSettings({
       <section className="settings-card">
         <h4 className="settings-card-title">{t("settings.connectionSection")}</h4>
         <p className="settings-card-hint">{t("settings.providerHint")}</p>
-        <div className="provider-grid">
-          {PRESET_IDS.map((id) => {
-            const isPreview = previewProvider === id;
-            const isActive = activeProvider === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                className={`provider-cell ${isPreview ? "active" : ""} ${isActive ? "in-use" : ""}`}
-                onClick={() => onProviderChange(id)}
-                title={isActive ? t("settings.providerCurrentlyActive") : undefined}
-              >
-                <span className="provider-cell-label">{PROVIDER_PRESETS[id].label}</span>
-                {isPreview && <IconCheck size={14} />}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            className={`provider-cell provider-cell-wide ${previewProvider === "custom" ? "active" : ""} ${activeProvider === "custom" ? "in-use" : ""}`}
-            onClick={() => onProviderChange("custom")}
-            title={activeProvider === "custom" ? t("settings.providerCurrentlyActive") : undefined}
-          >
-            <span className="provider-cell-label">{t("settings.providerCustom")}</span>
-            {previewProvider === "custom" && <IconCheck size={14} />}
-          </button>
-        </div>
+        <ProviderGrid
+          preview={previewProvider}
+          active={activeProvider}
+          onSelect={onProviderChange}
+        />
         {preset && (
           <p className="provider-endpoint">
             {t("settings.endpoint")}{" "}
@@ -647,57 +614,24 @@ export function AiProviderSettings({
 
         <div className="settings-card-divider" />
 
-        <div className="settings-field">
-          <div className="settings-field-meta">
-            <span className="settings-field-label">{t("settings.apiKey")}</span>
-            {hasStoredKey && !apiKeyTouched && (
-              <span className="settings-field-badge">{t("settings.apiKeySaved")}</span>
-            )}
-            {API_KEY_HELP_URL[settings.provider] && (
-              <button
-                type="button"
-                className="settings-field-help-link"
-                onClick={() => void openUrl(API_KEY_HELP_URL[settings.provider]!)}
-              >
-                {t("settings.getApiKey")}
-              </button>
-            )}
-          </div>
-          <div className="settings-input-row">
-            <Input
-              className="settings-input"
-              type={showKey ? "text" : "password"}
-              value={apiKeyDraft}
-              onChange={(e) => {
-                setApiKeyDraft(e.target.value);
-                setApiKeyTouched(true);
-                setSettings((s) => {
-                  const next = { ...s, connectionVerified: false };
-                  profileCacheRef.current.set(next.provider, next);
-                  return next;
-                });
-                setTestError(null);
-                markDirty();
-              }}
-              placeholder={
-                settings.provider === "ollama"
-                  ? t("settings.apiKeyNotRequired")
-                  : hasStoredKey && !apiKeyTouched
-                    ? "••••••••"
-                    : t("settings.apiKeyPlaceholder")
-              }
-              onBlur={() => void handleSave()}
-              autoComplete="off"
-            />
-            <Button
-              variant="ghost" size="lg" icon className="settings-icon-btn"
-              onClick={() => setShowKey((s) => !s)}
-              aria-label={showKey ? t("settings.hideKey") : t("settings.showKey")}
-            >
-              {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-            </Button>
-          </div>
-        </div>
+        <ApiKeyField
+          provider={settings.provider}
+          value={apiKeyDraft}
+          touched={apiKeyTouched}
+          hasStoredKey={hasStoredKey}
+          onChange={(next) => {
+            setApiKeyDraft(next);
+            setApiKeyTouched(true);
+            setSettings((s) => {
+              const updated = { ...s, connectionVerified: false };
+              profileCacheRef.current.set(updated.provider, updated);
+              return updated;
+            });
+            setTestError(null);
+            markDirty();
+          }}
+          onCommit={() => void handleSave()}
+        />
       </section>
 
       {settings.provider === "custom" && (

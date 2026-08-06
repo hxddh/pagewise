@@ -450,7 +450,8 @@
     "recent": "Recent",
     "firstOpenHint": "Tip: type to filter commands",
     "scanAllPages": "Scan all unscanned pages",
-    "exportMarks": "Export marks"
+    "exportMarks": "Export marks",
+    "walkConversation": "Previous / next message"
   },
   "toast": {
     "chatExported": "Chat exported",
