@@ -267,7 +267,11 @@
     "followUpScan": "Scan the {count} unreadable pages",
     "followUpMarks": "How does this relate to what I marked?",
     "followUpWholeDoc": "Summarize the whole document",
-    "followUpLabel": "Next"
+    "followUpLabel": "Next",
+    "searchConversation": "Search this conversation",
+    "searchCount": "{index} of {total}",
+    "searchPrev": "Previous match",
+    "searchNext": "Next match"
   },
   "empty": {
     "lead": "Ask questions about your document",
@@ -451,7 +455,8 @@
     "firstOpenHint": "Tip: type to filter commands",
     "scanAllPages": "Scan all unscanned pages",
     "exportMarks": "Export marks",
-    "walkConversation": "Previous / next message"
+    "walkConversation": "Previous / next message",
+    "searchConversation": "Search this conversation"
   },
   "toast": {
     "chatExported": "Chat exported",

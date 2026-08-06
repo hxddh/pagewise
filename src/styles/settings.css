@@ -311,18 +311,6 @@
   color: var(--text-secondary);
 }
 
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.settings-field-label {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
 .settings-field-hint {
   margin: 0;
   font-size: var(--text-xs);

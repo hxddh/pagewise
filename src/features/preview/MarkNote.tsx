@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { MAX_NOTE_TEXT, removeMark, setMarkNote, type Mark } from "../../lib/mark-store";
+import { Button } from "../../components/ui/Button";
 import { TextArea } from "../../components/ui/Field";
 import { Panel } from "../../components/ui/Panel";
 
@@ -48,14 +49,16 @@ export function MarkNote({ path, mark, currentStamp, onClose }: MarkNoteProps) {
     <Panel tone="elevated" className="mark-note" role="dialog" aria-label={t("marks.noteDialog")}>
       <div className="mark-note-head">
         <span className="mark-note-page">{t("marks.onPage", { page: mark.page })}</span>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
+          icon
           className="mark-note-close"
           onClick={onClose}
           aria-label={t("common.close")}
         >
           ×
-        </button>
+        </Button>
       </div>
       {mark.text && <blockquote className="mark-note-quote">{mark.text}</blockquote>}
       {currentStamp && mark.stamp && mark.stamp !== currentStamp && (
@@ -79,8 +82,9 @@ export function MarkNote({ path, mark, currentStamp, onClose }: MarkNoteProps) {
         }}
       />
       <div className="mark-note-actions">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           className="mark-note-delete"
           onClick={() => {
             // The unmount save that follows finds no mark with this id and
@@ -90,7 +94,7 @@ export function MarkNote({ path, mark, currentStamp, onClose }: MarkNoteProps) {
           }}
         >
           {t("marks.delete")}
-        </button>
+        </Button>
       </div>
     </Panel>
   );

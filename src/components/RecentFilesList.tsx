@@ -2,6 +2,7 @@ import { memo } from "react";
 import { FileImage, FileText } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { RecentFile } from "../lib/recent-files";
+import { Button } from "./ui/Button";
 
 function formatOpenedAt(
   openedAt: number,
@@ -108,8 +109,10 @@ function RecentFilesListInner({
               </span>
             </button>
             {onRemove && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
+                icon
                 className="library-remove"
                 aria-label={t("library.remove")}
                 title={t("library.remove")}
@@ -119,7 +122,7 @@ function RecentFilesListInner({
                 }}
               >
                 ×
-              </button>
+              </Button>
             )}
           </li>
         );

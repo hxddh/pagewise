@@ -26,7 +26,8 @@ import { ConnectionChip } from "./ConnectionChip";
 import { ModelSelect } from "./ModelSelect";
 import { ProviderGrid } from "./ProviderGrid";
 import { ApiKeyField } from "./ApiKeyField";
-import { Input } from "../ui/Field";
+import { Button } from "../ui/Button";
+import { Field, Input } from "../ui/Field";
 
 interface AiProviderSettingsProps {
   onLlmSettingsSaved?: () => void;
@@ -574,14 +575,16 @@ export function AiProviderSettings({
       {migratedNotice && (
         <div className="settings-callout" role="note">
           <span>{t("settings.modelMigrated")}</span>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
             className="settings-callout-dismiss"
             onClick={() => setMigratedNotice(false)}
             aria-label={t("common.dismiss")}
           >
             ×
-          </button>
+          </Button>
         </div>
       )}
 
@@ -638,40 +641,46 @@ export function AiProviderSettings({
         <section className="settings-card">
           <h4 className="settings-card-title">{t("settings.modelsSection")}</h4>
           <p className="settings-card-hint">{t("settings.customModelsHint")}</p>
-          <label className="settings-field">
-            <span className="settings-field-label">{t("settings.baseUrl")}</span>
-            <Input
-              className="settings-input"
-              type="url"
-              value={settings.baseURL ?? ""}
-              onChange={(e) => patchSettings({ baseURL: e.target.value })}
-              placeholder="https://api.example.com"
-            />
-          </label>
-          <label className="settings-field">
-            <span className="settings-field-label">{t("settings.model")}</span>
-            <Input
-              className="settings-input"
-              type="text"
-              value={settings.model}
-              onChange={(e) => patchSettings({ model: e.target.value })}
-              placeholder="model-id"
-            />
-          </label>
-          <label className="settings-field">
-            <span className="settings-field-label">{t("settings.scanModel")}</span>
-            <p className="settings-field-hint">{t("settings.customScanModelHint")}</p>
-            <Input
-              className="settings-input"
-              type="text"
-              value={visionModel}
-              onChange={(e) => {
-                setVisionModel(e.target.value);
-                markDirty();
-              }}
-              placeholder={t("settings.scanModelOptionalPlaceholder")}
-            />
-          </label>
+          <Field label={t("settings.baseUrl")}>
+            {({ id }) => (
+              <Input
+                id={id}
+                className="settings-input"
+                type="url"
+                value={settings.baseURL ?? ""}
+                onChange={(e) => patchSettings({ baseURL: e.target.value })}
+                placeholder="https://api.example.com"
+              />
+            )}
+          </Field>
+          <Field label={t("settings.model")}>
+            {({ id }) => (
+              <Input
+                id={id}
+                className="settings-input"
+                type="text"
+                value={settings.model}
+                onChange={(e) => patchSettings({ model: e.target.value })}
+                placeholder="model-id"
+              />
+            )}
+          </Field>
+          <Field label={t("settings.scanModel")} hint={t("settings.customScanModelHint")}>
+            {({ id, "aria-describedby": describedBy }) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                className="settings-input"
+                type="text"
+                value={visionModel}
+                onChange={(e) => {
+                  setVisionModel(e.target.value);
+                  markDirty();
+                }}
+                placeholder={t("settings.scanModelOptionalPlaceholder")}
+              />
+            )}
+          </Field>
         </section>
       )}
 
@@ -707,20 +716,22 @@ export function AiProviderSettings({
             <>
               <div className="settings-card-divider" />
               <p className="settings-field-hint">{t("settings.scanUnavailableHint")}</p>
-              <label className="settings-field">
-                <span className="settings-field-label">{t("settings.scanModel")}</span>
-                <p className="settings-field-hint">{t("settings.scanModelOptionalHint")}</p>
-                <Input
-                  className="settings-input"
-                  type="text"
-                  value={visionModel}
-                  onChange={(e) => {
-                    setVisionModel(e.target.value);
-                    markDirty();
-                  }}
-                  placeholder={t("settings.scanModelOptionalPlaceholder")}
-                />
-              </label>
+              <Field label={t("settings.scanModel")} hint={t("settings.scanModelOptionalHint")}>
+                {({ id, "aria-describedby": describedBy }) => (
+                  <Input
+                    id={id}
+                    aria-describedby={describedBy}
+                    className="settings-input"
+                    type="text"
+                    value={visionModel}
+                    onChange={(e) => {
+                      setVisionModel(e.target.value);
+                      markDirty();
+                    }}
+                    placeholder={t("settings.scanModelOptionalPlaceholder")}
+                  />
+                )}
+              </Field>
             </>
           )}
         </section>

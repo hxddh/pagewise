@@ -3,7 +3,7 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useI18n } from "../../i18n";
 import { Button } from "../ui/Button";
-import { Input } from "../ui/Field";
+import { Field, Input } from "../ui/Field";
 import type { ProviderId } from "../../lib/types";
 
 /** Where a user gets an API key for each provider (absent = no key page). */
@@ -45,24 +45,31 @@ export function ApiKeyField({
   const helpUrl = API_KEY_HELP_URL[provider];
 
   return (
-    <div className="settings-field">
-      <div className="settings-field-meta">
-        <span className="settings-field-label">{t("settings.apiKey")}</span>
-        {hasStoredKey && !touched && (
-          <span className="settings-field-badge">{t("settings.apiKeySaved")}</span>
-        )}
-        {helpUrl && (
-          <button
-            type="button"
-            className="settings-field-help-link"
-            onClick={() => void openUrl(helpUrl)}
-          >
-            {t("settings.getApiKey")}
-          </button>
-        )}
-      </div>
+    <Field
+      label={
+        <span className="settings-field-meta">
+          {t("settings.apiKey")}
+          {hasStoredKey && !touched && (
+            <span className="settings-field-badge">{t("settings.apiKeySaved")}</span>
+          )}
+          {helpUrl && (
+            <Button
+              variant="link"
+              size="sm"
+              className="settings-field-help-link"
+              onClick={() => void openUrl(helpUrl)}
+            >
+              {t("settings.getApiKey")}
+            </Button>
+          )}
+        </span>
+      }
+    >
+      {({ id, "aria-describedby": describedBy }) => (
       <div className="settings-input-row">
         <Input
+          id={id}
+          aria-describedby={describedBy}
           className="settings-input"
           type={showKey ? "text" : "password"}
           value={value}
@@ -88,6 +95,7 @@ export function ApiKeyField({
           {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
         </Button>
       </div>
-    </div>
+      )}
+    </Field>
   );
 }

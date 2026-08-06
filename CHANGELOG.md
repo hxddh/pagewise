@@ -4,6 +4,30 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.4.0] - 2026-08-06
+
+### Fixed
+
+- **Three settings controls had no accessible name.** The API key box and both model pickers were a `<span>` of label text next to a control, with nothing connecting them — a screen reader announced the model picker as "gpt-4o", with no indication of what it selects. The primitive that fixes this was added two releases ago and then used nowhere; its own comment said it existed because "some had `htmlFor` and some did not", and that stayed true because nothing adopted it. Every field in the app now goes through it, including the one whose markup was moved in 7.3 with the defect intact.
+- **The document survey sent about 1,273 tokens of numbers nothing could act on.** Every call returned the character count of all 200 pages. What planning needs was already in the same result — the document's total length, whether it needs chunking, and which pages are unreadable, or carry figures, tables, links or your marks — and the readers handle chunking themselves. What replaces it is the handful of densest pages, which at least points somewhere; the full list is still one flag away.
+- **Five standing notes were resent with every tool result.** 7.2 moved one of them into the system prompt and left the rest: a ten-page read over pages with links and marks repeated the same two sentences ten times. They are now stated once, where they are sent once and land inside the cached prefix. The two notes that remain in results are the ones that genuinely vary — a quota reached, a page that changed under a read.
+
+### Added
+
+- **Search inside the conversation.** The find chord, while the assistant panel has focus, searches what you can actually see — not folded reasoning or tool machinery, which would send you to a turn where the word is nowhere on screen. Enter and Shift+Enter cycle the hits and wrap; the conversation walk added in 7.3 deliberately does not wrap, because stepping through hits is a loop you are cycling and walking a conversation is not.
+
+### Changed
+
+- **The agent file is 274 lines instead of 1,347.** The six tools and the reading layer they share moved to their own module, leaving the prompt and the loop configuration behind. That file was the largest in the repo and the one you had to open to change either how a tool reads or how the loop runs — and 7.3's duplicate-read bug happened inside it, between two readers two hundred lines apart.
+- **Tool results have a declared shape.** There was none: six tools assembled objects at thirty-one separate return sites, with nineteen kinds of field on one and one on another. Both problems fixed above lived in that gap, because nothing showed in one place what the tools actually put into the context. The type says that standing instructions do not belong in a result — which is the mistake it exists to make visible.
+- **Six more buttons went through the button primitive**, and the ones that should not are now written down beside it: backdrops have no chrome by design, menu rows are styled by the popover they sit in, and a page thumbnail or a recent-file card is content you click rather than a button.
+
+### Notes
+
+- Withdrawn from two earlier reviews: `resumeStream` does not apply to this product. It resumes a server-side stream after a client reconnect, and the agent runs in the renderer with no server and no stream store; the reload case was already handled. It was listed as an unused capability twice without anyone asking whether it fits this architecture.
+- A comment justifying the survey's preview flag claimed 200 previews cost about 40,000 characters and ten thousand tokens. Measured, it is 19,693 characters and about 4,900. The number is corrected in place — a figure used to argue for a design should be one that was measured.
+- Branching a conversation is deferred a third time. It is the only outstanding item that changes the shape of the stored conversation, from a chain to a tree, and it should not ride along with anything else.
+
 ## [7.3.0] - 2026-08-06
 
 ### Fixed
