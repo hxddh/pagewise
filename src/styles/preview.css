@@ -2,8 +2,8 @@
 
 .app.v3 .preview-toolbar-slim {
   height: 36px;
-  padding: 0 12px;
-  gap: 12px;
+  padding: 0 var(--space-lg);
+  gap: var(--space-lg);
   background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -30,7 +30,7 @@
 .toolbar-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-sm);
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -45,7 +45,7 @@
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  padding: 2px;
+  padding: var(--space-2xs);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--bg-base) 55%, transparent);
   border: 1px solid var(--border-subtle);
@@ -58,8 +58,8 @@
 
 .toolbar-btn {
   min-width: 28px;
-  padding: 0 6px;
-  gap: 4px;
+  padding: 0 var(--space-sm);
+  gap: var(--space-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -85,7 +85,7 @@
 
 .toolbar-page-label {
   min-width: 52px;
-  padding: 0 8px;
+  padding: 0 var(--space-md);
 }
 
 .toolbar-page-current {
@@ -99,13 +99,13 @@
 }
 
 .toolbar-page-sep {
-  margin: 0 2px;
+  margin: 0 var(--space-2xs);
 }
 
 .toolbar-page-input {
   width: 36px;
   height: 26px;
-  padding: 0 4px;
+  padding: 0 var(--space-xs);
   border: none;
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
@@ -118,7 +118,7 @@
 
 .toolbar-zoom-trigger {
   min-width: 64px;
-  padding: 0 8px 0 10px;
+  padding: 0 var(--space-md) 0 var(--space-md);
 }
 
 .toolbar-zoom-label {
@@ -137,14 +137,14 @@
 
 .zoom-menu-divider {
   height: 1px;
-  margin: 4px 6px;
+  margin: var(--space-xs) var(--space-sm);
   background: var(--border-subtle);
 }
 
 .zoom-menu-action {
   display: flex !important;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-md);
 }
 
 .preview-index-badge {
@@ -153,7 +153,7 @@
   bottom: 12px;
   z-index: 4;
   max-width: min(280px, calc(100% - 24px));
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-md);
   border-radius: var(--radius-pill);
   font-size: var(--text-xs);
   color: var(--text-secondary);
@@ -187,7 +187,7 @@
   z-index: 4;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-md);
   max-width: min(360px, calc(100% - 24px));
 }
 
@@ -225,7 +225,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: var(--space-md);
   font-size: var(--text-sm);
   color: var(--text-muted);
   background: color-mix(in srgb, var(--bg-canvas) 40%, transparent);
@@ -266,7 +266,7 @@
  */
 .anchored-popover {
   min-width: 120px;
-  padding: 4px;
+  padding: var(--space-xs);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -294,7 +294,7 @@
   font: inherit;
   font-size: var(--text-sm);
   text-align: left;
-  padding: 8px 10px;
+  padding: var(--space-md) var(--space-md);
   border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
@@ -381,16 +381,13 @@
   min-width: 24px;
 }
 
+/* Surface, border, radius and shadow come from <Panel tone="elevated">. */
 .global-confirm {
   position: fixed;
   bottom: 20px;
   right: 20px;
   z-index: 350;
   max-width: min(400px, calc(100vw - 40px));
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
   animation: confirm-in 0.18s ease;
 }
 
@@ -478,7 +475,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: var(--space-xl);
   color: var(--danger, #e5484d);
   font-size: var(--text-sm);
   text-align: center;

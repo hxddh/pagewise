@@ -26,6 +26,10 @@ import {
   hasSubstantialAnswerText,
 } from "../lib/messages-utils";
 import { Button } from "../components/ui/Button";
+import { followUpSuggestions } from "../lib/follow-ups";
+import { collectReadPages } from "../lib/read-pages";
+import { getMarks } from "../lib/mark-store";
+import { usableOutline } from "../lib/outline-nav";
 import { TextArea } from "../components/ui/Field";
 
 export interface ChatPanelHandle {
@@ -152,6 +156,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     [messages],
   );
   const showProgress = busy && !hasSubstantialAnswerText(inFlightAssistant);
+
+  const followUps = useMemo(() => {
+    if (busy || agentBusy || !activeDoc || activeDoc.kind !== "pdf") return [];
+    if (!lastAssistant || lastAssistant.id === inFlightAssistant?.id) return [];
+    return followUpSuggestions({
+      readPages: collectReadPages(lastAssistant.parts),
+      outline: usableOutline(activeDoc.outline, activeDoc.totalPages),
+      totalPages: activeDoc.totalPages,
+      unindexedCount: unscannedPages,
+      markCount: getMarks(activeDoc.path).length,
+      t,
+    });
+  }, [busy, agentBusy, activeDoc, lastAssistant, inFlightAssistant, unscannedPages, t]);
 
   const composerDraftRef = useRef(composerDraft);
   composerDraftRef.current = composerDraft;
@@ -509,6 +526,27 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 )}
               </div>
             ))}
+            {followUps.length > 0 && (
+              // Derived from what the run did — the section after what it read,
+              // the pages a search cannot reach, the passages the reader marked.
+              // No second generation was paid for to produce these.
+              <div className="follow-ups" aria-label={t("agent.followUpLabel")}>
+                {followUps.map((f) => (
+                  <Button
+                    key={f.kind}
+                    variant="secondary"
+                    size="sm"
+                    className="follow-up-chip"
+                    onClick={() => {
+                      onComposerDraftChange(f.text);
+                      composerRef.current?.focus();
+                    }}
+                  >
+                    {f.text}
+                  </Button>
+                ))}
+              </div>
+            )}
             {agentBusy && !inFlightAssistant && (
               <div className="message assistant message-in-progress" aria-live="polite">
                 <p className="agent-generating-line message-inline-progress">

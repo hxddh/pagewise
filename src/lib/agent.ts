@@ -143,6 +143,16 @@ interface ReadBudget {
    * next run's budget after the reset.
    */
   gen: number;
+  /**
+   * Pages whose text this run has already returned in full.
+   *
+   * The budget counted characters, not pages, so nothing stopped the same page
+   * being handed over twice — read a range, then read one page inside it, and
+   * the second copy went into the context and onto the bill. The text is still
+   * right there in the transcript, so the repeat carries no information; it
+   * only costs. Keyed `path#page`.
+   */
+  delivered: Set<string>;
 }
 
 /** Reject any model-supplied path that is not a currently-loaded document. */
@@ -218,6 +228,12 @@ const SCAN_LIMIT_NOTE =
   "user plainly that some pages are unscanned — they can scan the rest from the command " +
   "palette (\"Scan all unscanned pages\") or raise the limit in Settings.";
 
+/**
+ * Stands in for a page this run already returned in full. Short by design: the
+ * text it replaces is a few messages above, and repeating it buys nothing.
+ */
+const ALREADY_READ_NOTE = "[already returned in full earlier in this turn]";
+
 const BUDGET_NOTE =
   "Read budget for this turn is reached; do not read more pages. Synthesize your answer " +
   "from the pages already read, and tell the user clearly that your answer covers only " +
@@ -288,11 +304,12 @@ export function compressPageRanges(pages: number[]): string {
   return parts.join(", ");
 }
 
-const UNINDEXED_NOTE =
-  "These pages have little or no extracted text, so search_in_document cannot match them. " +
-  "Reading one with read_pdf_page scans it on demand, which costs a billed vision call and " +
-  "draws on a limited per-question allowance — read only the pages you actually need, and if " +
-  "the allowance runs out, say so rather than retrying.";
+/**
+ * The standing explanation moved into the system prompt, where it is sent once
+ * and lands inside the provider's cached prefix. Results carry the fact, not
+ * the paragraph: at roughly 66 tokens it was a tenth of a default search.
+ */
+const UNINDEXED_NOTE = "See the note on unindexed pages.";
 
 /**
  * Cap on per-page stat entries in a document_outline result. Each entry is
@@ -411,9 +428,21 @@ async function readPageRange(
             break;
           }
 
+          // Already handed over in this run: point at it instead of paying for
+          // a second copy. Only whole, untruncated deliveries count, so a page
+          // that was cut short can still be continued with an offset.
+          const key = `${path}#${page}`;
+          if (pageOffset === 0 && budget.delivered.has(key)) {
+            parts.push(`${header}${ALREADY_READ_NOTE}`);
+            charCount += separator + header.length + ALREADY_READ_NOTE.length;
+            lastPage = page;
+            continue;
+          }
+
           parts.push(header + remainingText);
           charCount += separator + header.length + remainingText.length;
           chargeBudget(runGen, remainingText.length);
+          if (pageOffset === 0) budget.delivered.add(key);
           lastPage = page;
         }
 
@@ -1067,7 +1096,9 @@ Rules:
 - When the user asks about a term or topic while viewing a page, read that page first — it is usually what they mean; read where an ambiguous term (e.g. an acronym) appears rather than guessing its meaning.
 - If a page doesn't fully answer, read adjacent pages or search again before replying; don't answer a document-spanning question from a single page.
 - When you state a fact from the document, cite its page (e.g. "page 5"); quote short key passages verbatim rather than paraphrasing.
-- If no document is loaded, ask the user to open a PDF.`;
+- If no document is loaded, ask the user to open a PDF.
+- Pages reported as unindexed have little or no extracted text, so search cannot match them. "No hits" is not evidence the content is absent; reading such a page scans it on demand, which costs a billed vision call from a limited per-question allowance — read only the pages you need, and say so plainly if the allowance runs out.
+- A page already returned in full during this turn comes back as a short marker instead of its text. The text is above; do not re-read it to see it again.`;
 
 /**
  * Repair a tool call whose arguments failed schema validation. Handles the most
@@ -1110,6 +1141,7 @@ export function createDocAgent() {
     scans: 0,
     maxScans: DEFAULT_AGENT_SCAN_PAGES,
     gen: 0,
+    delivered: new Set(),
   };
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
   // The reasoning effort this run was configured with. Intermediate steps drop
@@ -1186,6 +1218,7 @@ export function createDocAgent() {
       budget.used = 0;
       budget.scans = 0;
       budget.gen += 1;
+      budget.delivered.clear();
 
       const settings = await loadSettings();
       const runtime =

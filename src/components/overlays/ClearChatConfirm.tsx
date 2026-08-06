@@ -1,5 +1,6 @@
 import { ConfirmBar } from "../ConfirmBar";
 import { useOverlayLock } from "../../hooks/useOverlayLock";
+import { Panel } from "../ui/Panel";
 
 interface ClearChatConfirmProps {
   open: boolean;
@@ -19,7 +20,7 @@ export function ClearChatConfirm({
   useOverlayLock(open);
   if (!open) return null;
   return (
-    <div className="global-confirm">
+    <Panel tone="elevated" className="global-confirm">
       <ConfirmBar
         message={message}
         confirmLabel={confirmLabel}
@@ -27,6 +28,6 @@ export function ClearChatConfirm({
         onConfirm={onConfirm}
         onCancel={onCancel}
       />
-    </div>
+    </Panel>
   );
 }

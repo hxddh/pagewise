@@ -11,6 +11,7 @@ import {
   pushOverlayLayer,
 } from "../lib/overlay-state";
 import { Input } from "./ui/Field";
+import { Panel } from "./ui/Panel";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -120,7 +121,8 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
   return (
     <div className="palette-root" role="presentation">
       <button type="button" className="palette-backdrop" aria-label={t("settings.close")} onClick={onClose} />
-      <div
+      <Panel
+        tone="elevated"
         ref={panelRef}
         className="palette-panel"
         role="dialog"
@@ -182,7 +184,7 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
           <span>{t("commands.close")}</span>
           {showPaletteHint && <span className="palette-first-hint">{t("commands.firstOpenHint")}</span>}
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

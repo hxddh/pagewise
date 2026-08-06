@@ -262,7 +262,12 @@
     "planAnswer": "作答",
     "planLabel": "计划",
     "steer": "改问这个",
-    "placeholderSteer": "输入以改变这次回答的方向…"
+    "placeholderSteer": "输入以改变这次回答的方向…",
+    "followUpNextSection": "“{section}”讲了什么？",
+    "followUpScan": "扫描无法识别的 {count} 页",
+    "followUpMarks": "这和我标记的内容有什么关系？",
+    "followUpWholeDoc": "总结整份文档",
+    "followUpLabel": "接着问"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

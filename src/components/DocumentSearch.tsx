@@ -15,6 +15,7 @@ import {
 } from "../lib/overlay-state";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Field";
+import { Panel } from "./ui/Panel";
 
 interface DocumentSearchProps {
   doc: LoadedDocument;
@@ -133,7 +134,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
           ×
         </Button>
         {query.trim() && (
-          <div className="doc-search-results">
+          <Panel tone="elevated" className="doc-search-results">
             {searching ? (
               <p className="doc-search-empty" aria-live="polite">
                 {t("preview.searching")}
@@ -173,7 +174,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
                 </ul>
               </>
             )}
-          </div>
+          </Panel>
         )}
       </div>
     </div>
