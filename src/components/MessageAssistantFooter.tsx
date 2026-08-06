@@ -26,6 +26,34 @@ interface MessageAssistantFooterProps {
   onCopy?: () => void;
 }
 
+/**
+ * Put text on the clipboard, however this webview allows it.
+ *
+ * `navigator.clipboard` needs a secure context and is not present in every
+ * webview a desktop build runs in; when it is missing the async call throws and
+ * the button looks like it did nothing. The selection-based path is the older
+ * mechanism every engine still implements.
+ */
+async function writeToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  try {
+    area.select();
+    const ok = document.execCommand?.("copy");
+    if (!ok) throw new Error("clipboard unavailable");
+  } finally {
+    area.remove();
+  }
+}
+
 function extractCopyableText(message: UIMessage): string {
   const parts: string[] = [];
   for (const part of message.parts) {
@@ -95,7 +123,7 @@ function MessageAssistantFooterInner({
     const text = extractCopyableText(message);
     if (!text) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await writeToClipboard(text);
       setCopied(true);
       onCopy?.();
       if (copyTimerRef.current !== undefined) {
