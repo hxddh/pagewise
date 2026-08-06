@@ -10,6 +10,7 @@ import {
   popOverlayLayer,
   pushOverlayLayer,
 } from "../lib/overlay-state";
+import { Input } from "./ui/Field";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -126,7 +127,7 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
         aria-modal="true"
         aria-label={t("commands.title")}
       >
-        <input
+        <Input
           ref={inputRef}
           className="palette-input"
           value={query}

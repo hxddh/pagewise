@@ -14,6 +14,7 @@ import {
   pushOverlayLayer,
 } from "../lib/overlay-state";
 import { Button } from "./ui/Button";
+import { Input } from "./ui/Field";
 
 interface DocumentSearchProps {
   doc: LoadedDocument;
@@ -112,7 +113,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
         aria-modal="true"
         aria-label={t("preview.search")}
       >
-        <input
+        <Input
           className="doc-search-input"
           type="search"
           value={query}

@@ -46,7 +46,13 @@ import type { DocHeading } from "./types";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
 import { coerceNumericToolInput, normalizeRangeInput } from "./agent-tool-repair";
 import {
+  DOCUMENT_OUTLINE_TOOL,
+  DOCUMENT_TOOL_NAMES,
+  READ_FIGURE_TOOL,
+  READ_PDF_PAGE_TOOL,
   READ_PDF_RANGE_TOOL,
+  READ_SECTION_TOOL,
+  SEARCH_IN_DOCUMENT_TOOL,
   type DocumentToolName,
 } from "./document-tool-names";
 import { getAgentRunAbortSignal } from "./agent-abort";
@@ -108,6 +114,16 @@ const MAX_OUTPUT_TOKENS = 8_000;
  * pages into an answer does, and gets the configured level back.
  */
 const MECHANICAL_STEP_REASONING = "low" as const;
+
+/**
+ * Hits a search returns unless asked for more.
+ *
+ * Fifty hits at ~240 characters of surrounding text is ~13,000 characters —
+ * about 3,300 tokens for one call, which the loop then carries. A model picks
+ * where to read from the first handful; `maxResults` is there for the times it
+ * genuinely wants the long list.
+ */
+const DEFAULT_SEARCH_HITS = 12;
 
 const docToolContextSchema = z.object({
   defaultDocPath: z.string().nullable(),
@@ -974,7 +990,8 @@ function createDocumentTools(budget: ReadBudget) {
     search_in_document: tool({
       description:
         "Search for a keyword or phrase in the active document. Returns up to " +
-        "maxResults hits (page + snippet); raise maxResults if you need more than the default.",
+        `maxResults hits (page + snippet), ${DEFAULT_SEARCH_HITS} by default; ` +
+        "truncated=true means more exist — raise maxResults when you need the long list.",
       inputSchema: z.object({
         query: z.string().min(1),
         maxResults: z
@@ -990,7 +1007,7 @@ function createDocumentTools(budget: ReadBudget) {
         () => ({ message: "Searching document…", key: "agent.activitySearch" }),
         "search",
         () => budget.gen,
-        async ({ query, maxResults = 50 }, options, runGen) => {
+        async ({ query, maxResults = DEFAULT_SEARCH_HITS }, options, runGen) => {
           const path = resolvePathInput(undefined, options);
           requireLoadedDoc(path);
           if (budget.used >= budget.max) {
@@ -1107,6 +1124,16 @@ export function createDocAgent() {
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
     stopWhen: AGENT_STOP_WHEN,
+    // The order tools are offered in nudges which one gets picked, without
+    // spending prompt on saying so: locate, then read, then the survey.
+    toolOrder: [
+      SEARCH_IN_DOCUMENT_TOOL,
+      READ_PDF_PAGE_TOOL,
+      READ_PDF_RANGE_TOOL,
+      READ_SECTION_TOOL,
+      DOCUMENT_OUTLINE_TOOL,
+      READ_FIGURE_TOOL,
+    ],
     repairToolCall: repairDocumentToolCall,
     experimental_refineToolInput: {
       [READ_PDF_RANGE_TOOL]: (input) => normalizeRangeInput(input),
@@ -1135,10 +1162,25 @@ export function createDocAgent() {
       if (stepNumber >= runMaxSteps - 1) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
+      // The index is a way in, not a thing to consult repeatedly: once it has
+      // been read the tree is in the transcript, and offering the tool again
+      // costs its schema on every later step and invites a re-read.
+      const surveyed = steps.some((step) =>
+        step.toolCalls?.some((call) => call.toolName === DOCUMENT_OUTLINE_TOOL),
+      );
+      const activeTools = surveyed
+        ? (DOCUMENT_TOOL_NAMES.filter(
+            (n): n is DocumentToolName => n !== DOCUMENT_OUTLINE_TOOL,
+          ) as DocumentToolName[])
+        : undefined;
       if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
-      return { ...carry, reasoning: runReasoning ? MECHANICAL_STEP_REASONING : undefined };
+      return {
+        ...carry,
+        ...(activeTools ? { activeTools } : {}),
+        reasoning: runReasoning ? MECHANICAL_STEP_REASONING : undefined,
+      };
     },
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;

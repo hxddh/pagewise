@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "7.0.0",
+  "version": "7.1.0",
   "description": "Local desktop PDF agent — page-wise AI analysis",
   "license": "MIT",
   "type": "module",
@@ -30,8 +30,8 @@
     "ai": "^7.0.52",
     "lucide-react": "^1.28.0",
     "pdfjs-dist": "^6.2.108",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "zod": "^4.4.3"

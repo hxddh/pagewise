@@ -1,5 +1,6 @@
 import type { Context, ToolSet } from "@ai-sdk/provider-utils";
 import type { Agent } from "ai";
+import { prepareHistoryForModel } from "./history-window";
 import {
   convertToModelMessages,
   getToolName,
@@ -81,9 +82,14 @@ export class PagewiseChatTransport<
       this.onMessagesRepaired?.(validatedMessages);
     }
 
-    const modelMessages = await convertToModelMessages(validatedMessages, {
-      tools: this.agent.tools,
-    });
+    // Trimmed on the way out only: reasoning from earlier turns is billed
+    // output that would be re-charged as input on every later turn, and a long
+    // conversation otherwise grows until it hits the model's context limit.
+    // What is on screen and on disk is untouched.
+    const modelMessages = await convertToModelMessages(
+      prepareHistoryForModel(validatedMessages),
+      { tools: this.agent.tools },
+    );
 
     const model = await this.resolveModelLabel();
     const tracker = createUsageMetadataTracker(model);

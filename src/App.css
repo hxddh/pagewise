@@ -697,17 +697,7 @@ body {
 }
 
 .message-edit-input {
-  width: 100%;
   min-height: 72px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-base);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-base);
-  line-height: 1.45;
-  resize: vertical;
 }
 
 .message-edit-input:focus {
@@ -1342,25 +1332,7 @@ button.pages-read-chip:hover {
 }
 
 .composer textarea {
-  width: 100%;
-  resize: none;
-  overflow-y: auto;
-  min-height: 40px;
   max-height: 200px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px;
-  background: var(--bg-base);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-base);
-  line-height: 1.45;
-}
-
-.composer textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-muted);
 }
 
 .composer-footer {
@@ -1492,16 +1464,6 @@ button.pages-read-chip:hover {
   gap: 6px;
   font-size: var(--text-sm);
   color: var(--text-secondary);
-}
-
-.settings-form input {
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--bg-base);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-base);
 }
 
 .settings-form input:focus {
@@ -1641,46 +1603,6 @@ button.pages-read-chip:hover {
   margin-left: auto;
 }
 
-.page-jump {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.page-jump-input {
-  width: 40px;
-  padding: 4px 6px;
-  text-align: center;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-base);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-}
-
-.page-jump-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.page-jump-total {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.zoom-select {
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  border-radius: var(--radius);
-  padding: 4px 8px;
-  font: inherit;
-  font-size: var(--text-xs);
-}
-
 .thumb-sidebar {
   width: 128px;
   flex-shrink: 0;
@@ -1755,14 +1677,8 @@ button.pages-read-chip:hover {
 }
 
 .doc-search-input {
-  width: 160px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-base);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-sm);
+  flex: 1;
+  min-width: 0;
 }
 
 .doc-search-results {
@@ -2724,16 +2640,8 @@ button.pages-read-chip:hover {
 }
 
 .mark-note-input {
-  width: 100%;
   min-height: 64px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-base);
-  resize: vertical;
+  max-height: 40vh;
 }
 
 .mark-note-actions {
@@ -3547,7 +3455,6 @@ button.pages-read-chip:hover {
   flex-shrink: 0;
 }
 
-
 /* A step in the run is a way back to the page it read. */
 .tool-steps-list {
   margin: 0;
@@ -3595,4 +3502,71 @@ button.pages-read-chip:hover {
   color: var(--text-muted);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
+}
+
+/* The shape of a run, while it runs. */
+.run-plan {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.run-plan-phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.run-plan-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+.run-plan-phase--done {
+  color: var(--text-secondary);
+}
+
+.run-plan-phase--done .run-plan-dot {
+  background: var(--success);
+  opacity: 1;
+}
+
+.run-plan-phase--active {
+  color: var(--text);
+  background: var(--accent-muted);
+}
+
+.run-plan-phase--active .run-plan-dot {
+  background: var(--accent);
+  opacity: 1;
+  animation: run-plan-pulse 1.2s ease-in-out infinite;
+}
+
+.run-plan-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+@keyframes run-plan-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* How long a step took, beside what it did. */
+.tool-step-duration {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
 }

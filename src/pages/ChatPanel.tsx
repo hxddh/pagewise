@@ -26,6 +26,7 @@ import {
   hasSubstantialAnswerText,
 } from "../lib/messages-utils";
 import { Button } from "../components/ui/Button";
+import { TextArea } from "../components/ui/Field";
 
 export interface ChatPanelHandle {
   focusComposer: () => void;
@@ -55,6 +56,8 @@ interface ChatPanelProps {
   onComposerDraftChange: (value: string) => void;
   onConfigureApi: () => void;
   onStop: () => void;
+  /** Stop whatever is running and resolve once the stream is idle. */
+  waitForStreamIdle?: () => Promise<boolean>;
   onDismissError?: () => void;
   onJumpToPage?: (page: number) => void;
   onClearChat: () => void;
@@ -94,6 +97,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onComposerDraftChange,
     onConfigureApi,
     onStop,
+    waitForStreamIdle,
     onDismissError,
     onJumpToPage,
     onClearChat,
@@ -173,7 +177,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const submit = useCallback(async () => {
     const text = composerDraft.trim();
-    if (!text || interactionBusy) return;
+    if (!text) return;
+    // Sending during a run steers it rather than being refused. The old
+    // behaviour — a disabled composer and a Stop button — meant changing your
+    // mind cost you the run, and re-asking re-read pages you had already paid
+    // for. Page text stays in the local cache, so the new run picks those pages
+    // up for free; only the model call is replaced.
+    const steering = busy && !chatLoading && !!waitForStreamIdle;
+    if (interactionBusy && !steering) return;
     // Only a missing API key is a hard blocker. Tool-capability is a heuristic
     // guess (looksLikeToolModel misses grok/kimi/glm/llama-4/nova and other
     // tool-capable routes) — don't pre-block the send on it; let the provider
@@ -184,6 +195,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       return;
     }
     if (!activeDoc) return;
+    if (steering) {
+      const idle = await waitForStreamIdle();
+      if (!idle) return;
+    }
     stickToBottomRef.current = true;
     onComposerDraftChange("");
     const useWebSearch = webSearchAvailable && webForNext;
@@ -222,6 +237,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     }
   }, [
     composerDraft,
+    busy,
+    chatLoading,
+    waitForStreamIdle,
     interactionBusy,
     hasApiKey,
     agentToolsSupported,
@@ -306,10 +324,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               <PanelRightClose size={16} />
             </Button>
           )}
-          <button
+          <Button
             ref={moreBtnRef}
-            type="button"
-            className={`btn icon-btn ${menuOpen ? "active" : ""}`}
+            variant="ghost"
+            size="md"
+            icon
+            aria-pressed={menuOpen}
             onClick={() => setMenuOpen((o) => !o)}
             aria-label={t("agent.more")}
             title={messages.length === 0 ? t("agent.moreDisabledHint") : t("agent.more")}
@@ -317,7 +337,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             disabled={messages.length === 0}
           >
             <MoreHorizontal size={16} />
-          </button>
+          </Button>
           <AnchoredMenu
             open={menuOpen && messages.length > 0}
             onClose={() => setMenuOpen(false)}
@@ -443,7 +463,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       });
                     }}
                   >
-                    <textarea
+                    <TextArea
                       className="message-edit-input"
                       value={editDraft}
                       onChange={(e) => setEditDraft(e.target.value)}
@@ -568,21 +588,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       )}
 
       <form className="composer" onSubmit={handleSubmit}>
-        <textarea
+        <TextArea
           ref={composerRef}
           value={composerDraft}
           onChange={(e) => onComposerDraftChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={activeDoc ? t("agent.placeholder") : t("agent.placeholderNoDoc")}
+          placeholder={
+            busy
+              ? t("agent.placeholderSteer")
+              : activeDoc
+                ? t("agent.placeholder")
+                : t("agent.placeholderNoDoc")
+          }
           rows={1}
           disabled={loadingDoc}
         />
         <div className="composer-footer">
           <span className="composer-hint">{t("agent.hint")}</span>
           {webSearchAvailable && !!activeDoc && (
-            <button
-              type="button"
-              className={`btn icon-btn web-toggle ${webForNext ? "active" : ""}`}
+            <Button
+              variant="ghost"
+              size="md"
+              icon
+              className="web-toggle"
               onClick={() => {
                 webToggleSeqRef.current += 1;
                 setWebForNext((v) => !v);
@@ -592,11 +620,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               aria-label={webForNext ? t("agent.webSearchOn") : t("agent.webSearchOff")}
             >
               <Globe size={15} />
-            </button>
+            </Button>
           )}
-          {busy || agentBusy ? (
+          {(busy || agentBusy) && !composerDraft.trim() ? (
             <Button variant="secondary" size="md" onClick={onStop}>
               {t("agent.stop")}
+            </Button>
+          ) : busy && composerDraft.trim() ? (
+            // Typing during a run turns Stop into Steer: the same key, and the
+            // run it replaces keeps every page it already read.
+            <Button type="submit" variant="primary" size="md" disabled={loadingDoc || !activeDoc}>
+              {t("agent.steer")}
             </Button>
           ) : !!activeDoc && !hasApiKey ? (
             <Button

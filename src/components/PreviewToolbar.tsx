@@ -5,6 +5,7 @@ import type { ZoomMode } from "../lib/zoom";
 import { IconChevronLeft, IconChevronRight } from "./Icon";
 import { ZoomStepper } from "./ZoomStepper";
 import { Button } from "./ui/Button";
+import { Input } from "./ui/Field";
 
 interface PreviewToolbarProps {
   filename: string;
@@ -73,7 +74,7 @@ function PageNav({
         <IconChevronLeft size={14} />
       </Button>
       {editing ? (
-        <input
+        <Input
           ref={inputRef}
           className="toolbar-page-input"
           value={draft}

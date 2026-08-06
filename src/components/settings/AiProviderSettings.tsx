@@ -34,6 +34,7 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 import { ConnectionChip } from "./ConnectionChip";
 import { ModelSelect } from "./ModelSelect";
 import { Button } from "../ui/Button";
+import { Input } from "../ui/Field";
 
 interface AiProviderSettingsProps {
   onLlmSettingsSaved?: () => void;
@@ -663,7 +664,7 @@ export function AiProviderSettings({
             )}
           </div>
           <div className="settings-input-row">
-            <input
+            <Input
               className="settings-input"
               type={showKey ? "text" : "password"}
               value={apiKeyDraft}
@@ -705,7 +706,7 @@ export function AiProviderSettings({
           <p className="settings-card-hint">{t("settings.customModelsHint")}</p>
           <label className="settings-field">
             <span className="settings-field-label">{t("settings.baseUrl")}</span>
-            <input
+            <Input
               className="settings-input"
               type="url"
               value={settings.baseURL ?? ""}
@@ -715,7 +716,7 @@ export function AiProviderSettings({
           </label>
           <label className="settings-field">
             <span className="settings-field-label">{t("settings.model")}</span>
-            <input
+            <Input
               className="settings-input"
               type="text"
               value={settings.model}
@@ -726,7 +727,7 @@ export function AiProviderSettings({
           <label className="settings-field">
             <span className="settings-field-label">{t("settings.scanModel")}</span>
             <p className="settings-field-hint">{t("settings.customScanModelHint")}</p>
-            <input
+            <Input
               className="settings-input"
               type="text"
               value={visionModel}
@@ -775,7 +776,7 @@ export function AiProviderSettings({
               <label className="settings-field">
                 <span className="settings-field-label">{t("settings.scanModel")}</span>
                 <p className="settings-field-hint">{t("settings.scanModelOptionalHint")}</p>
-                <input
+                <Input
                   className="settings-input"
                   type="text"
                   value={visionModel}
