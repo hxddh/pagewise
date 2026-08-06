@@ -62,6 +62,7 @@ export function getShortcutRows(
       keys: "Alt\u2191 / Alt\u2193",
       description: t("commands.walkConversation"),
     },
+    { section: "agent", keys: `${mod}F`, description: t("commands.searchConversation") },
     { section: "view", keys: "Esc", description: t("commands.closeOverlay") },
   ];
 }

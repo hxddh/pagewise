@@ -267,7 +267,11 @@
     "followUpScan": "扫描无法识别的 {count} 页",
     "followUpMarks": "这和我标记的内容有什么关系？",
     "followUpWholeDoc": "总结整份文档",
-    "followUpLabel": "接着问"
+    "followUpLabel": "接着问",
+    "searchConversation": "在本次会话中搜索",
+    "searchCount": "第 {index} / 共 {total}",
+    "searchPrev": "上一个匹配",
+    "searchNext": "下一个匹配"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",
@@ -451,7 +455,8 @@
     "firstOpenHint": "提示：输入关键词可筛选命令",
     "scanAllPages": "扫描所有未扫描页面",
     "exportMarks": "导出标记",
-    "walkConversation": "上一条 / 下一条消息"
+    "walkConversation": "上一条 / 下一条消息",
+    "searchConversation": "在本次会话中搜索"
   },
   "toast": {
     "chatExported": "对话已导出",

@@ -42,13 +42,27 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
   return <textarea ref={ref} className={classes} {...rest} />;
 });
 
+export interface FieldControlProps {
+  id: string;
+  "aria-describedby"?: string;
+  /**
+   * For controls a `<label for>` cannot name.
+   *
+   * A `<label>` associates with form controls; a `<button>` takes its name from
+   * its own content instead, so a select-style trigger showing "gpt-4o" is
+   * announced as "gpt-4o" with no indication of what it selects. Such controls
+   * take `aria-labelledby` and ignore `id`.
+   */
+  "aria-labelledby": string;
+}
+
 export interface FieldProps {
   label: ReactNode;
   /** Explanation under the control. */
   hint?: ReactNode;
   /** Replaces the hint and marks the control invalid. */
   error?: ReactNode;
-  children: (props: { id: string; "aria-describedby"?: string }) => ReactNode;
+  children: (props: FieldControlProps) => ReactNode;
 }
 
 /**
@@ -56,16 +70,27 @@ export interface FieldProps {
  *
  * The label, the control and the note under it were assembled by hand at each
  * call site, which is why some had `htmlFor` and some did not.
+ *
+ * That was written when this was built and stayed true for two releases,
+ * because nothing adopted it: every settings field kept its hand-rolled
+ * `<span>` label, and three of them wrapped in a `<div>` rather than a
+ * `<label>`, so their controls had no accessible name at all. Adopting this is
+ * what fixed that — the primitive was never the hard part.
  */
 export function Field({ label, hint, error, children }: FieldProps) {
   const id = useId();
+  const labelId = `${id}-label`;
   const noteId = hint || error ? `${id}-note` : undefined;
   return (
     <div className={`ui-field${error ? " ui-field--error" : ""}`}>
-      <label className="ui-field-label" htmlFor={id}>
+      <label className="ui-field-label" id={labelId} htmlFor={id}>
         {label}
       </label>
-      {children({ id, ...(noteId ? { "aria-describedby": noteId } : {}) })}
+      {children({
+        id,
+        "aria-labelledby": labelId,
+        ...(noteId ? { "aria-describedby": noteId } : {}),
+      })}
       {(error || hint) && (
         <p className="ui-field-note" id={noteId}>
           {error ?? hint}

@@ -8,7 +8,7 @@ import {
   type ProviderId,
 } from "../../lib/types";
 import { isVisionModel, isToolModel } from "../../lib/model-capabilities";
-import { Input } from "../ui/Field";
+import { Field, Input } from "../ui/Field";
 
 interface ModelSelectProps {
   provider: Exclude<ProviderId, "custom">;
@@ -46,31 +46,40 @@ export function ModelSelect({
 
   if (!hasPresets) {
     return (
-      <div className="settings-field">
-        <span className="settings-field-label">{t(labelKey)}</span>
-        <p className="settings-field-hint">{t(hintKey)}</p>
-        <Input
-          className="settings-input"
-          type="text"
-          value={model}
-          onChange={(e) => onCustomChange(e.target.value)}
-          placeholder="model-id"
-        />
-      </div>
+      <Field label={t(labelKey)} hint={t(hintKey)}>
+        {({ id, "aria-describedby": describedBy }) => (
+          <Input
+            id={id}
+            aria-describedby={describedBy}
+            className="settings-input"
+            type="text"
+            value={model}
+            onChange={(e) => onCustomChange(e.target.value)}
+            placeholder="model-id"
+          />
+        )}
+      </Field>
     );
   }
 
   return (
-    <div className="settings-field">
-      <span className="settings-field-label">{t(labelKey)}</span>
-      <p className="settings-field-hint">{t(hintKey)}</p>
+    <Field label={t(labelKey)} hint={t(hintKey)}>
+      {({ "aria-labelledby": labelledBy, "aria-describedby": describedBy }) => (
+        <>
       <div ref={anchorRef} className="model-select-anchor">
+        {/*
+          A button takes its accessible name from its own content, so this
+          trigger announced only the model id — "gpt-4o", with no hint that it
+          is the agent model. aria-labelledby is how a button borrows a label.
+        */}
         <button
           type="button"
           className="settings-select-trigger"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-haspopup="listbox"
+          aria-labelledby={labelledBy}
+          aria-describedby={describedBy}
         >
           <span className="model-select-value">{model || t("settings.modelSelectPlaceholder")}</span>
           {isCustomValue ? (
@@ -157,6 +166,8 @@ export function ModelSelect({
       {purpose === "agent" && !customModel && inPreset && !vision && tools && (
         <p className="settings-field-hint">{t("settings.agentVisionFallbackHint")}</p>
       )}
-    </div>
+        </>
+      )}
+    </Field>
   );
 }

@@ -14,6 +14,7 @@ import { AnchoredMenu } from "../components/AnchoredMenu";
 import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
 import { MessageContent } from "../components/MessageContent";
 import { moveConversationFocus } from "../lib/conversation-nav";
+import { searchMessages, stepMatch } from "../lib/conversation-search";
 import { PageRefContext } from "../components/Markdown";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
@@ -27,6 +28,7 @@ import {
   hasSubstantialAnswerText,
 } from "../lib/messages-utils";
 import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Field";
 import { followUpSuggestions } from "../lib/follow-ups";
 import { collectReadPages } from "../lib/read-pages";
 import { getMarks } from "../lib/mark-store";
@@ -129,6 +131,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
   const stickToBottomRef = useRef(true);
 
   useEffect(() => {
@@ -195,8 +201,48 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
    * usually is. Focus moves to the message itself; the row is only
    * programmatically focusable, so Tab still goes straight to the composer.
    */
+  const searchMatches = useMemo(
+    () => (searchOpen ? searchMessages(messages, searchQuery) : []),
+    [searchOpen, messages, searchQuery],
+  );
+
+  useEffect(() => {
+    setMatchIndex(searchMatches.length > 0 ? searchMatches.length - 1 : 0);
+  }, [searchMatches]);
+
+  const focusMessage = useCallback((id: string) => {
+    const row = messagesRef.current?.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(id)}"]`,
+    );
+    if (!row) return;
+    row.focus();
+    row.scrollIntoView({ block: "center" });
+    stickToBottomRef.current = false;
+  }, []);
+
+  const gotoMatch = useCallback(
+    (direction: 1 | -1) => {
+      const next = stepMatch(searchMatches, matchIndex, direction);
+      if (next < 0) return;
+      setMatchIndex(next);
+      const hit = searchMatches[next];
+      if (hit) focusMessage(hit.id);
+    },
+    [searchMatches, matchIndex, focusMessage],
+  );
+
   const onConversationKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Cmd/Ctrl+F inside the conversation. The document has its own search on
+      // the same chord; this one only fires when the chat panel has focus, so
+      // the two never contend for it.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        e.stopPropagation();
+        setSearchOpen(true);
+        window.setTimeout(() => searchRef.current?.select(), 0);
+        return;
+      }
       if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
       const list = messagesRef.current;
       if (!list) return;
@@ -423,6 +469,71 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </AnchoredMenu>
         </div>
       </header>
+
+      {searchOpen && (
+        <div className="chat-search" role="search">
+          <Input
+            ref={searchRef}
+            size="sm"
+            className="chat-search-input"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t("agent.searchConversation")}
+            aria-label={t("agent.searchConversation")}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setSearchOpen(false);
+                setSearchQuery("");
+                return;
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                gotoMatch(e.shiftKey ? -1 : 1);
+              }
+            }}
+          />
+          <span className="chat-search-count" aria-live="polite">
+            {searchQuery.trim()
+              ? t("agent.searchCount", {
+                  index: searchMatches.length ? matchIndex + 1 : 0,
+                  total: searchMatches.length,
+                })
+              : ""}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            onClick={() => gotoMatch(-1)}
+            disabled={searchMatches.length === 0}
+            aria-label={t("agent.searchPrev")}
+          >
+            ↑
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            onClick={() => gotoMatch(1)}
+            disabled={searchMatches.length === 0}
+            aria-label={t("agent.searchNext")}
+          >
+            ↓
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            onClick={() => {
+              setSearchOpen(false);
+              setSearchQuery("");
+            }}
+            aria-label={t("common.close")}
+          >
+            <X size={14} />
+          </Button>
+        </div>
+      )}
 
       <div className="messages messages-panel" ref={messagesRef} onScroll={onMessagesScroll}>
         {chatLoading && (

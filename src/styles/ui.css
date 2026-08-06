@@ -180,14 +180,20 @@
 
 /* Field ------------------------------------------------------------------ */
 
+/*
+ * Values carried over from `.settings-field`, which is what every field in the
+ * app actually looked like while this primitive sat unused. Adopting it must
+ * not change the surface it is adopted into.
+ */
 .ui-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
 }
 
 .ui-field-label {
   font-size: var(--text-sm);
+  font-weight: 500;
   color: var(--text-secondary);
 }
 
@@ -195,6 +201,7 @@
   margin: 0;
   font-size: var(--text-xs);
   color: var(--text-muted);
+  line-height: 1.45;
 }
 
 .ui-field--error .ui-input {

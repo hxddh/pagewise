@@ -1,5 +1,6 @@
 import { useI18n } from "../i18n";
 import { useToast, type Toast } from "../hooks/useToast";
+import { Button } from "./ui/Button";
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const { t } = useI18n();
@@ -9,9 +10,16 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       role={toast.tone === "error" ? "alert" : "status"}
     >
       <span>{toast.message}</span>
-      <button type="button" className="toast-close" onClick={onDismiss} aria-label={t("toast.dismiss")}>
+      <Button
+        variant="ghost"
+        size="sm"
+        icon
+        className="toast-close"
+        onClick={onDismiss}
+        aria-label={t("toast.dismiss")}
+      >
         ×
-      </button>
+      </Button>
     </div>
   );
 }
