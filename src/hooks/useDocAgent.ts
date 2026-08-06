@@ -103,6 +103,10 @@ export function useDocAgent(chatId: string | null = null) {
   const chat = useChat<PageWiseUIMessage>({
     id: resolvedChatId,
     transport: transportRef.current,
+    // A stream delivers chunks faster than a screen can show them, and every
+    // chunk re-rendered the whole transcript — re-parsing the Markdown of every
+    // message. One update per frame is all a reader can see anyway.
+    experimental_throttle: 50,
     onError: (error) => {
       pendingSendErrorRef.current = error;
       if (import.meta.env.DEV) {

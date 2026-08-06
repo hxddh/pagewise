@@ -66,14 +66,15 @@ export function ConfirmBar({
         <Button ref={cancelRef} variant="ghost" size="md" onClick={onCancel}>
           {cancel}
         </Button>
-        <button
+        <Button
           ref={confirmRef}
-          type="button"
-          className={`btn ${danger ? "danger-btn" : "primary"}`}
+          variant="primary"
+          size="md"
+          className={danger ? "danger-btn" : ""}
           onClick={onConfirm}
         >
           {confirmLabel}
-        </button>
+        </Button>
       </div>
     </div>
   );

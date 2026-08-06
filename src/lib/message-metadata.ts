@@ -4,6 +4,8 @@ import { getIndexUsageSnapshot, resetIndexUsageTracker } from "./usage-tracker";
 /** Per agent-loop step usage (debug; persisted with chat sessions). */
 export interface StepUsageEntry {
   step: number;
+  /** Wall time this step took, in ms. "Stuck" and "reading a big file" look identical without it. */
+  durationMs?: number;
   inputTokens?: number;
   outputTokens?: number;
   /** Input tokens the provider served from its prompt cache, if it reports it. */
@@ -221,6 +223,9 @@ export function createUsageMetadataTracker(model: string): {
   // by real step index to keep exactly one entry per step (no double counting).
   let finishedSteps = 0;
 
+  // When the step before it ended, so each step's own duration can be measured.
+  let lastStepAt: number | undefined;
+
   const upsertStepEntry = (
     step: number,
     usage:
@@ -252,6 +257,7 @@ export function createUsageMetadataTracker(model: string): {
   return {
     reset: () => {
       firstTokenAt = undefined;
+      lastStepAt = undefined;
       stepUsage.length = 0;
       finishedSteps = 0;
       resetIndexUsageTracker();
@@ -261,11 +267,16 @@ export function createUsageMetadataTracker(model: string): {
         ?.map((call) => call.toolName)
         .filter((name): name is string => Boolean(name));
       upsertStepEntry(event.stepNumber, event.usage, toolNames);
+      const now = Date.now();
+      const entry = stepUsage.find((s) => s.step === event.stepNumber);
+      if (entry) entry.durationMs = Math.max(0, now - (lastStepAt ?? now));
+      lastStepAt = now;
     },
     messageMetadata: ({ part }) => {
       if (part.type === "start") {
         firstTokenAt = undefined;
-        return { startedAt: Date.now(), model };
+        lastStepAt = Date.now();
+        return { startedAt: lastStepAt, model };
       }
 
       if (

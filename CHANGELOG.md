@@ -4,6 +4,31 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.1.0] - 2026-08-06
+
+### Fixed
+
+- **Every question re-bought the previous questions' thinking.** Reasoning is produced as billed output, kept with the message so its fold can be opened — and then sent back as input on every later turn, because a stored reasoning part converts faithfully into reasoning content. Ten turns in, each question was paying for nine turns of old deliberation that the answers beneath it had already made unnecessary. Reasoning is now stripped on the way out; the fold on screen and the saved transcript are untouched. (This only ever affected people who turned thinking on — which is to say, people on the most expensive models.)
+- **A conversation had no ceiling, only growth.** Tool results were compacted between turns, but the questions and answers themselves accumulated until a long session hit the model's context limit, which arrives as a failure rather than a gradual degradation. Older turns now fold into a single line naming what they were about, assembled locally — paying a model to summarize a conversation in order to save money is not a saving.
+- **One search cost about 3,300 tokens by default.** Fifty hits, each with 240 characters of surrounding text. A model picks where to read from the first handful, so the default is twelve hits with 160 characters of context; `maxResults` is still there for when the long list is genuinely wanted, and `truncated` still says more exist.
+- **The whole transcript re-rendered on every streamed chunk**, re-parsing the Markdown of every message on the way. Updates are throttled to roughly one per frame, which is all a screen can show.
+
+### Added
+
+- **A plan, not just a step number.** A run over a document has a shape — survey, locate, read, answer — and 7.0's counter said how far along it was without ever saying through what. The four phases are now shown with the current one marked, derived from what the run has actually done rather than from a plan the model was asked to declare (which would be another billed generation, and one it is free to ignore).
+- **Sending during a run redirects it** instead of being refused. Changing your mind used to cost the whole run; now the pages it had already read stay in the local cache, so the replacement run picks them up for nothing and only the model call is repeated. The Stop button becomes Send instead as soon as there is something typed.
+- **Steps show how long they took.** "Stuck" and "reading something large" looked identical.
+- **A shared text input, and a shared panel.** Fifteen CSS rules each defined a full input box — border, radius, background, height, focus ring — for the composer, the settings fields, the page jump, the search box, the mark note. Every text input now comes from one component, with a `Field` that ties a label and its hint to the control for screen readers. Two remain outside it, and both are genuinely something else: a custom select trigger and a checkbox.
+
+### Changed
+
+- **The index tool retires once it has been used.** Its tree is in the transcript after the first call, so continuing to offer it costs its schema on every later step and invites a re-read. Tools are also offered in the order a document run reaches for them, which steers the choice without spending prompt on saying so.
+- React updated to 19.2.8. Every other dependency was already current.
+
+### Notes
+
+- **Scanning a page still does not ask first.** The SDK's tool-approval mechanism would fit — a vision scan is the one action here that costs money — but per-page prompting is unusable on a scanned document, and the per-question allowance already bounds it. Left as it is, deliberately.
+
 ## [7.0.0] - 2026-08-05
 
 ### Fixed

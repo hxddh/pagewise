@@ -255,7 +255,14 @@
     "activityReadSection": "Reading section “{{title}}”…",
     "usageCached": "Served from cache",
     "usageCachedHint": "Input tokens the provider charged at the cached rate.",
-    "stepCounter": "Step {step}"
+    "stepCounter": "Step {step}",
+    "planSurvey": "Survey",
+    "planLocate": "Locate",
+    "planRead": "Read",
+    "planAnswer": "Answer",
+    "planLabel": "Plan",
+    "steer": "Send instead",
+    "placeholderSteer": "Send to redirect this answer…"
   },
   "empty": {
     "lead": "Ask questions about your document",

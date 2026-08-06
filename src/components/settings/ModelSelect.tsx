@@ -8,6 +8,7 @@ import {
   type ProviderId,
 } from "../../lib/types";
 import { isVisionModel, isToolModel } from "../../lib/model-capabilities";
+import { Input } from "../ui/Field";
 
 interface ModelSelectProps {
   provider: Exclude<ProviderId, "custom">;
@@ -48,7 +49,7 @@ export function ModelSelect({
       <div className="settings-field">
         <span className="settings-field-label">{t(labelKey)}</span>
         <p className="settings-field-hint">{t(hintKey)}</p>
-        <input
+        <Input
           className="settings-input"
           type="text"
           value={model}
@@ -138,7 +139,7 @@ export function ModelSelect({
         </AnchoredMenu>
       </div>
       {customModel && (
-        <input
+        <Input
           className="settings-input model-select-custom-input"
           type="text"
           value={model}

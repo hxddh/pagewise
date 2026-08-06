@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { MAX_NOTE_TEXT, removeMark, setMarkNote, type Mark } from "../../lib/mark-store";
+import { TextArea } from "../../components/ui/Field";
 
 interface MarkNoteProps {
   path: string;
@@ -62,7 +63,7 @@ export function MarkNote({ path, mark, currentStamp, onClose }: MarkNoteProps) {
         // what is currently there.
         <p className="mark-note-stale">{t("marks.staleMark")}</p>
       )}
-      <textarea
+      <TextArea
         ref={textareaRef}
         className="mark-note-input"
         value={note}

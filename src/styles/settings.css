@@ -336,19 +336,6 @@
 
 .settings-input {
   width: 100%;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-base);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-base);
-  transition: border-color var(--transition-fast);
-}
-
-.settings-input:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
 
 .settings-input-row {

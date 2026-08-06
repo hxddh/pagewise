@@ -255,7 +255,14 @@
     "activityReadSection": "正在读取「{{title}}」…",
     "usageCached": "缓存命中",
     "usageCachedHint": "按缓存价计费的输入 token。",
-    "stepCounter": "第 {step} 步"
+    "stepCounter": "第 {step} 步",
+    "planSurvey": "通览",
+    "planLocate": "定位",
+    "planRead": "精读",
+    "planAnswer": "作答",
+    "planLabel": "计划",
+    "steer": "改问这个",
+    "placeholderSteer": "输入以改变这次回答的方向…"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

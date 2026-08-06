@@ -143,17 +143,20 @@ function MessageAssistantFooterInner({
             <RotateCcw size={14} />
           </Button>
         )}
-        <button
+        <Button
           ref={statsBtnRef}
-          type="button"
-          className={`icon-btn message-action-btn${statsOpen ? " active" : ""}`}
+          variant="ghost"
+          size="sm"
+          icon
+          className="message-action-btn"
+          aria-pressed={statsOpen}
           onClick={() => setStatsOpen((o) => !o)}
           title={t("agent.usageStats")}
           aria-label={t("agent.usageStats")}
           aria-expanded={statsOpen}
         >
           <Gauge size={14} />
-        </button>
+        </Button>
         </div>
       </div>
 

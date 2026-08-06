@@ -10,7 +10,12 @@ export interface SearchHit {
 
 // Wider context so a single search hit is often enough to answer a lookup
 // without a follow-up read, and so a table/figure cell reads as a real match.
-function snippetAround(text: string, index: number, matchLen: number, radius = 120): string {
+/**
+ * Context around a hit. Wide enough to judge whether the page is the right one,
+ * not so wide that fifty hits become a chapter — the caller sends every one of
+ * these to a model and pays for it.
+ */
+function snippetAround(text: string, index: number, matchLen: number, radius = 80): string {
   const start = Math.max(0, index - radius);
   const end = Math.min(text.length, index + matchLen + radius);
   const chunk = text.slice(start, end).replace(/\s+/g, " ").trim();

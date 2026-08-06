@@ -287,6 +287,7 @@ function AppContent() {
                   onComposerDraftChange={setComposerDraft}
                   onConfigureApi={overlays.openSettings}
                   onStop={agent.stop}
+                  waitForStreamIdle={agent.waitForStreamIdle}
                   onDismissError={agent.clearError}
                   onJumpToPage={s.setPreviewPage}
                   onClearChat={overlays.openClearConfirm}

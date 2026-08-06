@@ -3,6 +3,7 @@ import { memo, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { getMarks, type Mark } from "../lib/mark-store";
 import { Button } from "./ui/Button";
+import { Input } from "./ui/Field";
 
 interface MarkSidebarProps {
   path: string;
@@ -69,7 +70,7 @@ export const MarkSidebar = memo(function MarkSidebar({
       </div>
       {stale && <p className="mark-stale-note">{t("marks.staleFile")}</p>}
       {(marks.length > 0 || filter) && (
-        <input
+        <Input
           type="search"
           className="mark-filter"
           value={filter}

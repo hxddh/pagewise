@@ -12,6 +12,7 @@ import {
 } from "../lib/tool-steps-summary";
 import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
 import { getPageWiseMetadata } from "../lib/message-metadata";
+import { runPlan, type PlanPhase } from "../lib/run-plan";
 import { Markdown } from "./Markdown";
 
 interface MessageContentProps {
@@ -70,20 +71,31 @@ function hasAnswerStream(parts: UIMessage["parts"], minChars = 8): boolean {
   });
 }
 
+/** "1.4s" — short enough to sit at the end of a line. */
+function formatDuration(ms: number | undefined): string | null {
+  if (ms == null || ms < 250) return null;
+  return ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
+}
+
 function ToolStepsBlock({
   parts,
   t,
   live = false,
   settling = false,
+  durations = [],
 }: {
   parts: Array<{ part: Parameters<typeof toolStepFromPart>[0]; index: number }>;
   t: (key: string, vars?: Record<string, string | number>) => string;
   live?: boolean;
   settling?: boolean;
+  /** Per-step wall time, in the order the steps ran. */
+  durations?: Array<number | undefined>;
 }) {
   const onJump = useContext(PageRefContext);
   const steps = parts.map(({ part }) => toolStepFromPart(part, t));
   const { aggregate, summary, details, anyRunning } = summarizeToolSteps(steps, t);
+  const totalMs = durations.reduce<number>((sum, ms) => sum + (ms ?? 0), 0);
+  const totalLabel = formatDuration(totalMs);
   const anyFailed = steps.some((s) => s.failed);
   const useFold = aggregate || live;
 
@@ -107,6 +119,8 @@ function ToolStepsBlock({
             aria-hidden
           />
           <span className="tool-fold-label">{summary}</span>
+          {/* Without this, "stuck" and "reading something large" look the same. */}
+          {totalLabel && <span className="tool-step-duration">{totalLabel}</span>}
         </summary>
         <ol className="tool-steps-list">
           {details.map(({ label, count, page, failed }, detailIndex) => {
@@ -134,6 +148,34 @@ function ToolStepsBlock({
         </ol>
       </details>
     </div>
+  );
+}
+
+const PLAN_LABEL: Record<PlanPhase["id"], string> = {
+  survey: "agent.planSurvey",
+  locate: "agent.planLocate",
+  read: "agent.planRead",
+  answer: "agent.planAnswer",
+};
+
+/**
+ * The shape of the run, while it runs.
+ *
+ * "Step 7" says how far, never through what — halfway or nearly done looked
+ * identical, and so did progress and going in circles.
+ */
+function RunPlanStrip({ phases }: { phases: PlanPhase[] }) {
+  const { t } = useI18n();
+  return (
+    <ol className="run-plan" aria-label={t("agent.planLabel")}>
+      {phases.map((phase) => (
+        <li key={phase.id} className={`run-plan-phase run-plan-phase--${phase.state}`}>
+          <span className="run-plan-dot" aria-hidden />
+          <span className="run-plan-name">{t(PLAN_LABEL[phase.id])}</span>
+          {phase.steps > 1 && <span className="run-plan-count">{phase.steps}</span>}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -201,6 +243,16 @@ function MessageContentInner({
   const sources = collectSources(parts);
   // Steps finished so far this run; the one in flight is the next one.
   const stepNumber = live ? (getPageWiseMetadata(message)?.stepUsage?.length ?? 0) + 1 : 0;
+  const stepDurations = (getPageWiseMetadata(message)?.stepUsage ?? []).map((s) => s.durationMs);
+  const plan = live
+    ? runPlan({
+        buckets: parts
+          .filter((p) => isToolUIPart(p))
+          .map((p) => toolStepFromPart(p as Parameters<typeof toolStepFromPart>[0], t).bucket),
+        running: true,
+        answering: hasAnswerStream(parts),
+      })
+    : null;
   const readPages = message.role === "assistant" && !live ? collectReadPages(parts) : [];
   const showReasoningAsAnswer = message.role === "assistant" && !hasAnswerText(parts);
   const segments = segmentMessageParts(parts);
@@ -216,6 +268,7 @@ function MessageContentInner({
           t={t}
           live={live}
           settling={settling}
+          durations={stepDurations}
         />
       );
     }
@@ -276,6 +329,7 @@ function MessageContentInner({
   return (
     <div className={`message-parts${settling ? " message-parts--settling" : ""}`}>
       {body}
+      {live && plan && <RunPlanStrip phases={plan} />}
       {live && activity && !hasAnswerStream(parts) && (
         <p className="agent-generating-line message-inline-progress" aria-live="polite">
           <span className="typing-dots" aria-hidden>

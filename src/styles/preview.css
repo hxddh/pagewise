@@ -104,16 +104,6 @@
 
 .toolbar-page-input {
   width: 36px;
-  height: 26px;
-  padding: 0 4px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-sm);
-  text-align: center;
-  font-variant-numeric: tabular-nums;
 }
 
 .toolbar-page-input:focus {

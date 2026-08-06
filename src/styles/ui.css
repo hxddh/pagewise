@@ -123,3 +123,109 @@
 .ui-btn--link:hover:not(:disabled) {
   color: var(--accent-hover);
 }
+
+/* Inputs ----------------------------------------------------------------- */
+
+.ui-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-base);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.ui-input::placeholder {
+  color: var(--text-muted);
+}
+
+.ui-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: transparent;
+}
+
+.ui-input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ui-input--sm {
+  height: 26px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.ui-input--md {
+  height: 32px;
+  padding: 0 var(--space-3);
+}
+
+.ui-input--numeric {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-textarea {
+  height: auto;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+/* Field ------------------------------------------------------------------ */
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ui-field-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.ui-field-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.ui-field--error .ui-input {
+  border-color: var(--danger);
+}
+
+.ui-field--error .ui-field-note {
+  color: var(--danger);
+}
+
+/* Panels ----------------------------------------------------------------- */
+
+.ui-panel {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+}
+
+.ui-panel--padded {
+  padding: var(--space-3);
+}
+
+.ui-panel--surface {
+  background: var(--bg-surface);
+}
+
+.ui-panel--elevated {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+.ui-panel--inset {
+  background: var(--bg-base);
+}
