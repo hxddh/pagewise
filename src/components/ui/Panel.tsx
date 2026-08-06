@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode, Ref } from "react";
 
 export type PanelTone = "surface" | "elevated" | "inset";
 
@@ -6,6 +6,11 @@ export interface PanelProps extends HTMLAttributes<HTMLDivElement> {
   tone?: PanelTone;
   /** Adds the standard inner padding. Off for panels that lay out their own. */
   padded?: boolean;
+  /**
+   * Several panels are measured or focused by their owner (the command palette
+   * positions itself, popovers restore focus), so the node has to be reachable.
+   */
+  ref?: Ref<HTMLDivElement>;
   children?: ReactNode;
 }
 

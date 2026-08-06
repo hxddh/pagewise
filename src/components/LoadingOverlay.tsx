@@ -1,5 +1,6 @@
 import { useI18n } from "../i18n";
 import type { LoadProgress } from "../lib/load-progress";
+import { Panel } from "./ui/Panel";
 
 interface LoadingOverlayProps {
   visible: boolean;
@@ -16,7 +17,7 @@ export function LoadingOverlay({ visible, progress }: LoadingOverlayProps) {
 
   return (
     <div className="loading-overlay" role="dialog" aria-modal="true" aria-busy="true" aria-label={message}>
-      <div className="loading-card">
+      <Panel tone="elevated" className="loading-card">
         <p className="loading-message">{message}</p>
         <div className="loading-bar-track">
           <div
@@ -25,7 +26,7 @@ export function LoadingOverlay({ visible, progress }: LoadingOverlayProps) {
           />
         </div>
         <span className="loading-percent">{Math.round(progress.percent)}%</span>
-      </div>
+      </Panel>
     </div>
   );
 }

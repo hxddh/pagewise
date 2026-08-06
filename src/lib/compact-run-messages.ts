@@ -21,8 +21,19 @@ import { compactToolOutput, COMPACTED_SUFFIX } from "./prune-chat-history";
  * removed, so tool-call/tool-result pairing is untouched.
  */
 
-/** Results left at full size — what the current step is reasoning over. */
-export const KEEP_RECENT_TOOL_RESULTS = 4;
+/**
+ * How much recent tool output is left at full size.
+ *
+ * This used to be a count of four results, which treated a six-page range and
+ * a half-page read as equally expensive — four full pages is 24,000 characters
+ * carried on every remaining step. A budget measures what it actually costs.
+ * Sized to hold two full-length page reads and their envelopes, so an ordinary
+ * two-step read is never shortened while it is still being reasoned over.
+ */
+export const KEEP_RECENT_CHARS = 16_000;
+
+/** Always keep at least this many, however large they are. */
+export const KEEP_RECENT_MIN = 1;
 
 interface ToolCallPart {
   type: string;
@@ -63,9 +74,18 @@ function alreadyCompacted(value: unknown): boolean {
   return typeof value === "string" && value.endsWith(COMPACTED_SUFFIX);
 }
 
+function sizeOf(value: unknown): number {
+  if (typeof value === "string") return value.length;
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function compactRunMessages<M extends ModelMessageLike>(
   messages: readonly M[] | undefined,
-  keepRecent: number = KEEP_RECENT_TOOL_RESULTS,
+  keepChars: number = KEEP_RECENT_CHARS,
 ): readonly M[] | M[] {
   if (!messages || messages.length === 0) return messages ?? [];
 
@@ -93,7 +113,21 @@ export function compactRunMessages<M extends ModelMessageLike>(
     });
   });
 
-  const cutoff = sites.length - Math.max(0, keepRecent);
+  // Walk back from the newest result, keeping whole results until the budget
+  // is spent. The newest is always kept, however large it is.
+  let kept = 0;
+  let keptChars = 0;
+  for (let i = sites.length - 1; i >= 0; i--) {
+    const site = sites[i]!;
+    const message = messages[site.message]!;
+    const part = Array.isArray(message.content) ? message.content[site.part] : undefined;
+    const chars = sizeOf(outputValue((part as ToolCallPart | undefined)?.output));
+    if (kept >= KEEP_RECENT_MIN && keptChars + chars > keepChars) break;
+    kept += 1;
+    keptChars += chars;
+  }
+
+  const cutoff = sites.length - kept;
   if (cutoff <= 0) return messages;
 
   const byMessage = new Map<number, number[]>();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactRunMessages, KEEP_RECENT_TOOL_RESULTS } from "./compact-run-messages";
+import { compactRunMessages, KEEP_RECENT_CHARS } from "./compact-run-messages";
 
 type Msg = { role: string; content: unknown };
 
@@ -41,6 +41,19 @@ function outputs(messages: readonly Msg[]): unknown[] {
 }
 
 describe("compactRunMessages", () => {
+  it("keeps the newest result whole however large it is", () => {
+    const messages: Msg[] = [
+      { role: "user", content: "q" },
+      ...read("big", 1, 40_000),
+      ...read("bigger", 2, 40_000),
+    ];
+    const values = outputs(compactRunMessages(messages) as Msg[]);
+    // One result larger than the whole budget still goes through intact —
+    // dropping what the model is reasoning over right now would be worse than
+    // the tokens it costs.
+    expect(typeof values[1]).toBe("object");
+  });
+
   it("leaves a short run untouched — the model is still using those results", () => {
     const messages: Msg[] = [
       { role: "user", content: "what does it say" },
@@ -62,16 +75,14 @@ describe("compactRunMessages", () => {
     // the payload is bounded by how many results are kept, not by how many
     // pages the run has read.
     expect(before).toBeGreaterThan(60_000);
-    expect(size).toBeLessThan((KEEP_RECENT_TOOL_RESULTS + 1) * 6_000);
+    // Bounded by the keep budget, not by how many pages the run has read.
+    expect(size).toBeLessThan(KEEP_RECENT_CHARS + 6_000);
     // The newest results survive at full length.
     const values = outputs(after as Msg[]);
     expect(values).toHaveLength(10);
-    for (const value of values.slice(-KEEP_RECENT_TOOL_RESULTS)) {
-      expect(typeof value).toBe("object");
-    }
-    for (const value of values.slice(0, -KEEP_RECENT_TOOL_RESULTS)) {
-      expect(String(value)).toMatch(/^\[Read page \d+, 6000 chars/);
-    }
+    // The newest survive whole; the oldest are summaries.
+    expect(typeof values[values.length - 1]).toBe("object");
+    expect(String(values[0])).toMatch(/^\[Read page \d+, 6000 chars/);
   });
 
   it("keeps every tool call paired with a result", () => {

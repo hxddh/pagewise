@@ -262,7 +262,12 @@
     "planAnswer": "Answer",
     "planLabel": "Plan",
     "steer": "Send instead",
-    "placeholderSteer": "Send to redirect this answer…"
+    "placeholderSteer": "Send to redirect this answer…",
+    "followUpNextSection": "What does “{section}” say?",
+    "followUpScan": "Scan the {count} unreadable pages",
+    "followUpMarks": "How does this relate to what I marked?",
+    "followUpWholeDoc": "Summarize the whole document",
+    "followUpLabel": "Next"
   },
   "empty": {
     "lead": "Ask questions about your document",

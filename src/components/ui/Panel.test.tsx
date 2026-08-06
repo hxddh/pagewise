@@ -21,6 +21,20 @@ describe("Panel", () => {
     expect(container.firstElementChild!.classList.contains("ui-panel--padded")).toBe(true);
   });
 
+  it("hands the node back, so a caller can position or focus it", () => {
+    let node: HTMLDivElement | null = null;
+    render(
+      <Panel
+        ref={(el) => {
+          node = el;
+        }}
+      >
+        x
+      </Panel>,
+    );
+    expect(node).toBeInstanceOf(HTMLDivElement);
+  });
+
   it("passes through the attributes a div would take", () => {
     const { container } = render(
       <Panel role="dialog" aria-label="settings" className="settings-card">

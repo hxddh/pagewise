@@ -4,6 +4,28 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.2.0] - 2026-08-06
+
+### Fixed
+
+- **The same page could be bought twice in one answer.** The read budget counted characters but never recorded *which pages had already been returned*, so `read_pdf_range(10, 20)` followed by `read_pdf_page(14)` put page 14's full text into the context a second time and billed for it — and the duplicate was usually recent enough to survive in-run compaction untouched. A repeat now comes back as one line pointing at the copy already above it. The model loses nothing: the text is still in the conversation.
+- **The in-run keep window had a floor of 24,000 characters per step.** It kept the four most recent tool results regardless of size, which treated a six-page range and a half-page read as equally expensive. It now keeps recent results up to a character budget, so an ordinary two-step read is never shortened while it is still being reasoned over and a run of large reads no longer carries four full pages on every remaining step.
+- **Every tool result carried a paragraph of standing instructions.** The note about unindexed pages was 265 characters attached to two kinds of result — about a tenth of a default search's tokens, resent on every call, saying the same thing each time. The standing prose is now in the system prompt, where it is sent once and sits inside the cached prefix; results keep only the short part that actually varies.
+
+### Added
+
+- **Two or three things worth asking next, at the end of an answer.** Derived from what the run did — the section after the pages it read, the pages no search can reach, the passages you marked — not from a model. Every other agent that offers follow-ups pays for a second generation to invent three lines of text, and the last two versions were spent removing exactly that kind of cost. The document already knows what comes next, and asking it costs nothing.
+
+### Changed
+
+- **Spacing is on a scale.** 413 declarations used twenty different pixel values — 6px was more common than 12px, 10px more common than 16px — none of them chosen, each written next to the thing it padded. Seven named steps now cover it, and 388 declarations moved onto them; what is left is hairlines and a few deliberate layout offsets. This is the one change in this release that alters visual density, and it wants checking on a real screen.
+- **The panel primitive is actually used.** 7.1 added `Panel` and then changed no call sites — its real usage count across the app was zero, while 79 CSS rules each defined a surface for themselves. The loading card, the search results, the confirm prompt, the mark note and the command palette now take their background, border and radius from one of three tones, and their own rules keep only what is local to where they sit.
+
+### Notes
+
+- Two candidates were deliberately not converted. The drop target is a dashed accent box and the settings callout is a warning-tinted strip: neither is a plain surface, and forcing the primitive onto them would have meant a tone fighting the panel's own colors. `.anchored-popover` was also left alone — it is already one shared definition covering five popovers, with a mutation-checked test guarding the transparency regression that shipped in 6.0.0, and moving its surface into JSX would have moved that guarantee out of where the test can see it.
+- The review that produced this release proposed generating the follow-up suggestions with the SDK's structured-output support. That was not done: it would have restructured the answer stream to buy three lines of text that can be derived for free.
+
 ## [7.1.2] - 2026-08-06
 
 ### Fixed

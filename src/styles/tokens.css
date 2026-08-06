@@ -31,10 +31,21 @@
   --drawer-w: 280px;
   --topbar-h: 40px;
   --chat-w: 360px;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
+  /*
+   * Spacing. Seven steps, where 413 declarations used twenty different pixel
+   * values — 6px was more common than 12px, 10px than 16px. Nothing chose
+   * those; each was written next to the thing it padded.
+   *
+   * Named rather than numbered: the old `--space-1..4` meant 4/8/12/16, and
+   * renumbering would have silently changed every rule already using them.
+   */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 6px;
+  --space-md: 8px;
+  --space-lg: 12px;
+  --space-xl: 16px;
+  --space-2xl: 24px;
   /*
    * Type. Six steps, where the stylesheets used eleven — including 27 rules at
    * 10px and three at 9px. This is a tool for reading; text below 11px is not

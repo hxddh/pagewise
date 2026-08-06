@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { MAX_NOTE_TEXT, removeMark, setMarkNote, type Mark } from "../../lib/mark-store";
 import { TextArea } from "../../components/ui/Field";
+import { Panel } from "../../components/ui/Panel";
 
 interface MarkNoteProps {
   path: string;
@@ -44,7 +45,7 @@ export function MarkNote({ path, mark, currentStamp, onClose }: MarkNoteProps) {
   }, [mark.id]);
 
   return (
-    <div className="mark-note" role="dialog" aria-label={t("marks.noteDialog")}>
+    <Panel tone="elevated" className="mark-note" role="dialog" aria-label={t("marks.noteDialog")}>
       <div className="mark-note-head">
         <span className="mark-note-page">{t("marks.onPage", { page: mark.page })}</span>
         <button
@@ -91,6 +92,6 @@ export function MarkNote({ path, mark, currentStamp, onClose }: MarkNoteProps) {
           {t("marks.delete")}
         </button>
       </div>
-    </div>
+    </Panel>
   );
 }

@@ -58,4 +58,18 @@ describe("declarations the app cannot lose", () => {
     const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
     expect(css).toContain("prefers-reduced-motion");
   });
+
+  /**
+   * The panels below stopped declaring their own background when they adopted
+   * <Panel tone="elevated">, so their surface now comes from one rule. That is
+   * the improvement, and it is also a new way to lose every one of them at once
+   * — which is exactly how 6.0.0 lost the popovers. This pins the rule they all
+   * depend on.
+   */
+  it("the elevated tone every converted panel now depends on defines a surface", () => {
+    const tone = rule("ui.css", ".ui-panel--elevated");
+    expect(tone).toContain("background:");
+    expect(tone).toContain("border-color:");
+    expect(rule("ui.css", ".ui-panel")).toContain("border:");
+  });
 });
