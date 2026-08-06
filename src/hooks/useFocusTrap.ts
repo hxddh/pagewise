@@ -19,7 +19,10 @@ export function useFocusTrap(active: boolean, containerRef: RefObject<HTMLElemen
         (el) => el.offsetParent !== null && el.getClientRects().length > 0,
       );
 
-    window.setTimeout(() => {
+    // Deferred so the overlay's children exist, and cancelled on the way out:
+    // an overlay opened and closed within the same tick would otherwise pull
+    // focus back to an element that is no longer on screen.
+    const focusFirst = window.setTimeout(() => {
       const first = focusables()[0];
       first?.focus();
     }, 0);
@@ -41,6 +44,7 @@ export function useFocusTrap(active: boolean, containerRef: RefObject<HTMLElemen
 
     root.addEventListener("keydown", onKeyDown);
     return () => {
+      window.clearTimeout(focusFirst);
       root.removeEventListener("keydown", onKeyDown);
       previouslyFocused?.focus?.();
     };

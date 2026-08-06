@@ -104,6 +104,11 @@
 
 .toolbar-page-input {
   width: 36px;
+  height: 26px;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
 }
 
 .toolbar-page-input:focus {

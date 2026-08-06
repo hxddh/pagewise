@@ -96,3 +96,28 @@ describe("prepareHistoryForModel", () => {
     );
   });
 });
+
+describe("stripReasoningParts on a reply that was only thinking", () => {
+  it("drops the message rather than sending an empty one", () => {
+    // A run stopped while the model was still reasoning leaves an assistant
+    // turn with nothing but a reasoning part. Providers reject an empty
+    // message, and the send path's empty-message guard runs before this.
+    const messages = [
+      user("q1"),
+      { id: "a", role: "assistant", parts: [{ type: "reasoning", text: "half a thought" }] },
+      user("q2"),
+    ] as UIMessage[];
+
+    const out = stripReasoningParts(messages);
+    expect(out).toHaveLength(2);
+    expect(out.every((m) => m.parts.length > 0)).toBe(true);
+    expect(out.map((m) => m.role)).toEqual(["user", "user"]);
+  });
+
+  it("keeps a reply that had reasoning and an answer", () => {
+    const messages = [user("q"), assistant("the answer", "thinking")] as UIMessage[];
+    const out = stripReasoningParts(messages);
+    expect(out).toHaveLength(2);
+    expect(out[1]!.parts).toHaveLength(1);
+  });
+});
