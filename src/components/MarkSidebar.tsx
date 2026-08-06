@@ -72,6 +72,7 @@ export const MarkSidebar = memo(function MarkSidebar({
       {(marks.length > 0 || filter) && (
         <Input
           type="search"
+          size="sm"
           className="mark-filter"
           value={filter}
           placeholder={t("marks.filterPlaceholder")}

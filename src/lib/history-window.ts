@@ -35,13 +35,25 @@ function turnBoundaries(messages: UIMessage[]): number[] {
 
 export function stripReasoningParts<M extends UIMessage>(messages: M[]): M[] {
   let changed = false;
-  const next = messages.map((message) => {
-    if (message.role !== "assistant") return message;
+  const next: M[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      next.push(message);
+      continue;
+    }
     const parts = message.parts.filter((part) => part.type !== "reasoning");
-    if (parts.length === message.parts.length) return message;
+    if (parts.length === message.parts.length) {
+      next.push(message);
+      continue;
+    }
     changed = true;
-    return { ...message, parts } as M;
-  });
+    // A reply that was only reasoning — a run stopped while it was still
+    // thinking — becomes an empty message once the reasoning goes. Providers
+    // reject those, and the send path's empty-message guard already ran before
+    // this point, so the message has to go with it.
+    if (parts.length === 0) continue;
+    next.push({ ...message, parts } as M);
+  }
   return changed ? next : messages;
 }
 

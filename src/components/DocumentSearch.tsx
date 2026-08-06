@@ -114,6 +114,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
         aria-label={t("preview.search")}
       >
         <Input
+          size="sm"
           className="doc-search-input"
           type="search"
           value={query}

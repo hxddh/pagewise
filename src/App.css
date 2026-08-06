@@ -1341,6 +1341,9 @@ button.pages-read-chip:hover {
 }
 
 .composer textarea {
+  /* Height is driven by the draft's own length; a resize grip fights it. */
+  resize: none;
+  overflow-y: auto;
   max-height: 200px;
 }
 
@@ -2001,6 +2004,8 @@ button.pages-read-chip:hover {
 }
 
 .palette-input {
+  /* Tall by design — the height step would clip this padding. */
+  height: auto;
   width: 100%;
   padding: 14px 16px;
   border: none;
@@ -2646,6 +2651,11 @@ button.pages-read-chip:hover {
 
 .mark-stale-note {
   padding: 8px 12px;
+}
+
+.mark-filter {
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
 }
 
 .mark-note-input {

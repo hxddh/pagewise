@@ -76,6 +76,8 @@ function PageNav({
       {editing ? (
         <Input
           ref={inputRef}
+          size="sm"
+          numeric
           className="toolbar-page-input"
           value={draft}
           onChange={(e) => setDraft(e.target.value.replace(/\D/g, ""))}

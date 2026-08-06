@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.1.2] - 2026-08-06
+
+### Fixed
+
+- **Four controls came out of 7.1's shared-input work looking wrong.** The page box in the preview toolbar became a 32px bordered field inside a 36px toolbar, having lost the short, borderless, centred, tabular-figures look it needs there. The composer lost `resize: none`, so a drag handle appeared on a box whose height is already driven by the draft. The command palette's search field was forced to a fixed height its own padding overflows. The marks filter ended up with no rule at all, flush against both edges of the sidebar. Each is now the shared control plus only what is local to where it sits.
+- **A reply that was only thinking became an empty message.** 7.1 strips reasoning from what is sent, and a run stopped mid-thought leaves an assistant turn with nothing else in it — so stripping produced a message with no content, which providers reject. The send path's empty-message guard runs earlier, so it could not catch this. Those turns are now dropped along with their reasoning.
+- **A dialog opened and closed within one tick pulled focus back afterwards.** The focus trap deferred focusing the first control by a tick and never cancelled it, so the timer fired against an overlay that was already gone.
+
+### Notes
+
+- Two other timer and listener sweeps came up clean and were deliberately left alone: `yield-to-ui` clears the fallback it races, and the mark and index stores register `beforeunload`/`pagehide` handlers for the life of the process on purpose.
+
 ## [7.1.1] - 2026-08-06
 
 ### Fixed
