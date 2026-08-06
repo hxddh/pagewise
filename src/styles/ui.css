@@ -207,6 +207,50 @@
 
 /* Panels ----------------------------------------------------------------- */
 
+/*
+ * What is a panel, and what only looks like one.
+ *
+ * 7.2 converted the obvious cases and left 33 rules still declaring their own
+ * background and radius, which reads like unfinished work. It mostly isn't.
+ * Going through them one at a time, almost none should become a <Panel>:
+ *
+ *   controls        .ui-input, .toolbar-page-input, .settings-select-trigger,
+ *                   .settings-pill-group, .settings-row-toggle checkbox,
+ *                   .loading-bar-track, .thumb-canvas
+ *                   — an input or a track, not a surface. They belong to the
+ *                     Button/Input family and are already converged there.
+ *
+ *   card-shaped     .thumb-item, .welcome-recent-card, .provider-cell
+ *   buttons         — these are <button> elements. Panel renders a div, so
+ *                     converting them would cost the semantics and the keyboard
+ *                     behaviour to gain a background.
+ *
+ *   <details>       .tool-fold — same reason: a disclosure element, not a div.
+ *
+ *   text marks      .markdown code / pre, .tool-debug pre, .provider-endpoint
+ *                   code, the three kbd rules — type-level, sized in ch and em.
+ *
+ *   chips           .tool-chip, .pages-read-chip, .chip, .empty-example-chip,
+ *                   .agent-step-counter, .run-plan-phase — inline tokens; their
+ *                   background is a state colour, not a surface.
+ *
+ *   a bubble        .message.user — a speech bubble reads as a bubble, not a
+ *                   card; giving it the panel border makes it a card.
+ *
+ *   deliberate      .anchored-popover — one shared definition covering five
+ *                   popovers, with a mutation-checked test guarding the
+ *                   transparency regression that shipped in 6.0.0. Moving its
+ *                   surface into JSX moves that guarantee out of the test's
+ *                   sight. See scripts/critical-css.test.mjs.
+ *
+ * Five rules in that list turned out to be dead — .agent-dock-preview,
+ * .loading-toast, .provider-card, .zoom-menu, .zoom-menu-anchor had no call
+ * site left anywhere — and were removed rather than converted.
+ *
+ * The point of writing this down is that the next person does not have to make
+ * these calls again, and does not read the count as a to-do list.
+ */
+
 .ui-panel {
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-subtle);

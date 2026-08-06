@@ -4,6 +4,31 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.3.0] - 2026-08-06
+
+### Fixed
+
+- **7.2's "the same page is never bought twice" was not true of the tool that reads pages.** The ledger of pages already handed over lived entirely inside the range reader, so `read_pdf_page` — the most-called of the six tools — neither consulted nor updated it. Of the four orderings, only range-then-range was actually deduplicated; the example the change was written for, a range read followed by a single page inside it, was one of the three that still paid twice. The ledger now sits beside the budget where both readers reach it, and a repeat is answered before the page is fetched, so it costs neither the tokens nor — on a page with no text layer — a second billed vision call. A page cut short is still continuable.
+- **Withdrawing the outline tool mid-run cost more than it saved.** 7.1 dropped `document_outline` from the active tools once it had been used, to avoid carrying its schema. But the tool block sits ahead of the messages in the request and prompt caching matches on an exact prefix, so changing it threw away roughly 1,400 tokens of cached prefix on every remaining step to save about 150. The tool set is now fixed for the run, and the "the tree is already above you" nudge rides in the outline's own result, where it cannot invalidate anything. The usage panel's cached-token figures show the difference.
+- **The search tool documented a default it had not used since 7.1.** Its `maxResults` still said "default 50" after the default became 12 — a false statement in the prompt, which is what the model reads when deciding whether to pass the parameter at all. Every stated default is now interpolated from the constant it describes, and a test fails if one is ever written out by hand again.
+
+### Added
+
+- **Alt+Up and Alt+Down walk the conversation.** The command palette covered every global action while the conversation itself could only be moved through with the mouse — which is worst exactly where it matters, twenty turns into a long document session. Focus moves a whole turn at a time, does not wrap at either end, and stops the view from snapping back to the newest message once you have left it.
+- **Tests for the per-page deduplication, which shipped in 7.2 with none.** That absence is why the gap above survived a release: nothing asked whether the guarantee still held through a different tool. The new tests ask it per pair of tools rather than per implementation.
+
+### Changed
+
+- **Dependencies brought up to date** — seven patch releases including the AI SDK. The three major upgrades available (TypeScript 7, Vite 8, the React plugin) are each their own piece of work and are deliberately not riding along with product changes.
+- **The panel convergence is finished, mostly by deciding not to convert things.** Of the 33 rules still declaring their own surface, almost none should be panels: some are inputs and tracks, three are card-shaped `<button>`s that would lose their semantics as a div, one is a `<details>`, and the rest are chips, code, kbd and a speech bubble. That reasoning is now written down beside the primitive so the count does not read as a to-do list. Five rules turned out to have no call site left at all and were removed.
+- **The settings panel gave up its provider grid and its API key field** — 814 lines to 748, with the key-visibility toggle moving into the field that owns it.
+
+### Notes
+
+- One finding from this release's own review was withdrawn on a second look: clickable page citations were reported missing and are in fact fully implemented and tested, in files the first check did not open. That mistake and the deduplication gap above are the same error in opposite directions — concluding from one place that something holds everywhere.
+- Splitting the settings panel is only partly done. What remains large there is state, not markup: the two async actions touch fifteen pieces of it, and hoisting them would trade a hundred lines for a parameter list nobody could read.
+- `scripts/find-dead-css.mjs` reports 75 further class names with no use in the app. It reports rather than deletes on purpose — the first pass flagged rules that are assembled at runtime, and one that pdf.js writes into the DOM itself. Working through them is its own round.
+
 ## [7.2.0] - 2026-08-06
 
 ### Fixed

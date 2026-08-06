@@ -13,6 +13,7 @@ import { useI18n } from "../i18n";
 import { AnchoredMenu } from "../components/AnchoredMenu";
 import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
 import { MessageContent } from "../components/MessageContent";
+import { moveConversationFocus } from "../lib/conversation-nav";
 import { PageRefContext } from "../components/Markdown";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
@@ -185,6 +186,30 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
   }, [messages, status, activity]);
 
+  /**
+   * Alt+Up / Alt+Down walk the conversation.
+   *
+   * The bare arrow keys belong to the composer — they move the caret — so this
+   * takes a modifier, and it sits on the panel root rather than the message
+   * list so it works while the composer has focus, which is where the caret
+   * usually is. Focus moves to the message itself; the row is only
+   * programmatically focusable, so Tab still goes straight to the composer.
+   */
+  const onConversationKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+      const list = messagesRef.current;
+      if (!list) return;
+      const moved = moveConversationFocus(list, e.key === "ArrowUp" ? "prev" : "next");
+      if (!moved) return;
+      e.preventDefault();
+      // Moving to an older message means the reader has left the tail; don't
+      // yank them back to the bottom on the next streamed chunk.
+      stickToBottomRef.current = false;
+    },
+    [],
+  );
+
   const onMessagesScroll = useCallback(() => {
     const el = messagesRef.current;
     if (!el) return;
@@ -325,7 +350,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   return (
     <PageRefContext.Provider value={onJumpToPage ?? null}>
-    <div className="chat-panel">
+    <div className="chat-panel" onKeyDown={onConversationKeyDown}>
       <header className="panel-header">
         <div className="panel-header-main">
           <h2>{t("agent.title")}</h2>
@@ -422,7 +447,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         ) : (
           <>
             {messages.map((m) => (
-              <div key={m.id} className={`message ${m.role}`}>
+              <div
+                key={m.id}
+                data-message-id={m.id}
+                // Programmatically focusable only: keyboard navigation moves
+                // focus here, but Tab must not walk every turn of a long
+                // conversation on the way to the composer.
+                tabIndex={-1}
+                className={`message ${m.role}`}
+              >
                 {m.role === "assistant" ? (
                   <>
                     <MessageContent

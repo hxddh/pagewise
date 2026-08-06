@@ -57,6 +57,11 @@ export function getShortcutRows(
       description: `${t("commands.prevPage")} / ${t("commands.nextPage")}`,
     },
     { section: "agent", keys: `${mod}\\`, description: t("commands.showAgent") },
+    {
+      section: "agent",
+      keys: "Alt\u2191 / Alt\u2193",
+      description: t("commands.walkConversation"),
+    },
     { section: "view", keys: "Esc", description: t("commands.closeOverlay") },
   ];
 }
