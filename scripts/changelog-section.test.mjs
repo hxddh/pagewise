@@ -64,7 +64,58 @@ describe("changelogSection", () => {
     const section = changelogSection(real, version);
     expect(section, `no CHANGELOG section for VERSION ${version}`).toBeTruthy();
   });
+
+  it("gives no version two subsections of the same name", () => {
+    // What a dropped version heading looks like, and the only trace it leaves.
+    //
+    // Adding a release by hand means writing `## [new]` above the previous
+    // entry — and 7.5.3 was added by replacing the line `## [7.5.2] - ...`
+    // instead of inserting above it. Nothing complained: the CHANGELOG still
+    // parsed, the file still read top to bottom, and the release script still
+    // found a section for the current version. It just found 7.5.2's entry
+    // inside it, and published both under one version's notes.
+    //
+    // The signature is a version section carrying `### Fixed` twice, because
+    // consecutive releases tend to use the same subsection headings. That is
+    // cheap to check and does not fire on anything legitimate — a version has
+    // no reason to open Fixed, close it, and open it again.
+    const real = readCurrentChangelog();
+    for (const version of listChangelogVersions(real)) {
+      const headings = (changelogSection(real, version) ?? "")
+        .split("\n")
+        .filter((line) => /^###\s/.test(line));
+      const seen = new Set();
+      for (const heading of headings) {
+        expect(
+          seen.has(heading),
+          `${version} has "${heading}" twice — a version heading was probably overwritten`,
+        ).toBe(false);
+        seen.add(heading);
+      }
+    }
+  });
+
+  it("lists versions newest first", () => {
+    // The other half of the same mistake: an entry inserted in the wrong place.
+    const versions = listChangelogVersions(readCurrentChangelog()).map((v) =>
+      v.split(".").map(Number),
+    );
+    for (let i = 1; i < versions.length; i++) {
+      expect(compareVersions(versions[i - 1], versions[i])).toBeGreaterThan(0);
+    }
+  });
 });
+
+function listChangelogVersions(markdown) {
+  return [...markdown.matchAll(/^##\s+\[(\d+\.\d+\.\d+)\]/gm)].map((m) => m[1]);
+}
+
+function compareVersions(a, b) {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
 
 function readCurrentChangelog() {
   return fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
