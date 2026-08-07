@@ -353,6 +353,46 @@ export async function forgetIndexedDoc(path: string): Promise<void> {
   });
 }
 
+/**
+ * Drop just the named pages of one document's cached index.
+ *
+ * A re-index does not re-scan the whole document — it clears and rescans a
+ * bounded window, so that the text it throws away is text it will pay to
+ * replace. `forgetIndexedDoc` was called alongside it anyway, which deleted the
+ * persisted copy of *every* page, including the ones outside the window that
+ * keep their text and are never re-scanned. Those pages then had nothing on
+ * disk: they looked fine for the rest of the session, and were billed again the
+ * next time the document was opened.
+ *
+ * Pages outside `pages` are left exactly as they are. If nothing is left, the
+ * document goes with them.
+ */
+export async function forgetIndexedPages(path: string, pages: number[]): Promise<void> {
+  if (pages.length === 0) return;
+  const drop = new Set(pages);
+  const buffered = pending.get(path);
+  if (buffered) {
+    for (const page of drop) buffered.pages.delete(page);
+    if (buffered.pages.size === 0) pending.delete(path);
+  }
+  await withStoreLock(async () => {
+    try {
+      const docs = await readDocs();
+      const doc = docs.find((d) => d.path === path);
+      if (!doc) return;
+      const kept = doc.pages.filter((p) => !drop.has(p.page));
+      if (kept.length === doc.pages.length) return;
+      const next =
+        kept.length === 0
+          ? docs.filter((d) => d.path !== path)
+          : docs.map((d) => (d.path === path ? { ...d, pages: kept } : d));
+      await writeDocs(next);
+    } catch {
+      // Best-effort.
+    }
+  });
+}
+
 /** Test seam — resets module state between cases. */
 export function __resetIndexStoreForTests(): void {
   if (flushTimer !== null) {
