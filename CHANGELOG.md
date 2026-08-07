@@ -4,6 +4,23 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.5.0] - 2026-08-07
+
+### Fixed
+
+- **A page that was not re-sent still re-sent its marks and links.** 7.3 stopped the same page's text being handed over twice in a turn; the attachments beside that text never learned about it. The range reader gathered marks and links across everything it was asked for, not what it actually returned, so a repeat read came back as eleven one-line markers followed by every mark on all eleven pages. Attachments now belong to the pages a result carried.
+- **A marked passage was sent twice in the same result.** A mark's text is, by its own definition, words from the page being read — and on this path it was carried whole, up to 500 characters of it, next to the page text it came from. The document survey had worked this out long ago and kept a 120-character snippet; the read path never got the same treatment. It does now. Your own note is never truncated: unlike the passage, it exists nowhere else.
+
+### Changed
+
+- **One file per tool.** 7.4 moved the six document tools out of the agent file and into a single 1,106-line one, which shrank the agent and left the pile intact. The reason that mattered rather than merely looked untidy is the bug above: the two readers sat two hundred lines apart and disagreed about what a page ships. The reading layer they share is now one module, attachment assembly is another that both call, and each tool is its own file of 73–168 lines.
+- **Conversation search and keyboard navigation moved out of the chat panel** into one hook and a small component — they always shared a focus mechanism. The panel had grown to 839 lines and become the largest component in the app, because two consecutive releases each had a good reason not to split it while adding something to it.
+- **Dependencies brought up to date** — four patch releases including the AI SDK. TypeScript 7, Vite 8 and the React plugin remain their own rounds.
+
+### Notes
+
+- Conversation branching will not be built. It was deferred four rounds running, which is a decision nobody had stated, so: in a document reader the need to keep an old answer and start a second branch is far weaker than in a coding agent, and the cost is turning a conversation from a chain into a tree along with its migration and its UI. Editing and resending covers the case that actually comes up — the previous question was aimed wrong. It will not appear in future reviews.
+
 ## [7.4.0] - 2026-08-06
 
 ### Fixed
