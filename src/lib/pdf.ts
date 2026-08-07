@@ -12,6 +12,7 @@ import type { DocumentModel, PdfRect, RegionText, TextItemRect } from "./types";
 import { raceWithAbort, throwIfAborted } from "./abort-utils";
 import { ensureProviderCompatibleImage } from "./image-transcode";
 import { isTauriRuntime } from "./runtime";
+import { insertionIndex, type RenderPriority } from "./render-queue-order";
 
 const MAX_CACHE_BYTES = 128 * 1024 * 1024;
 const RASTER_TEXT_THRESHOLD = 48;
@@ -75,7 +76,7 @@ function bumpFileReadGeneration(): void {
 // "low", it is NOT purged by page navigation/zoom/resize, so a thumbnail render
 // that is in-flight during a page turn still completes instead of silently
 // cancelling and leaving the thumbnail permanently blank.
-type RenderPriority = "high" | "low" | "thumb";
+
 type RenderIntent = "display" | "print";
 
 interface QueueItem {
@@ -197,6 +198,29 @@ export function isRasterHeavyPage(textLength: number): boolean {
   return textLength < RASTER_TEXT_THRESHOLD;
 }
 
+/**
+ * Split a page-cache key back into its parts.
+ *
+ * From the right: the last four fields have a known shape, the path does not.
+ * Exported for the test that pins this — a pipe in a filename is legal on Linux
+ * and macOS, and parsing from the left made every lookup for such a document
+ * miss.
+ */
+export function parsePageCacheKey(
+  key: string,
+): { path: string; page: string; scaleKey: string; quality: string; dpr: string } | null {
+  const parts = key.split("|");
+  if (parts.length < 5) return null;
+  const [page, scaleKey, quality, dpr] = parts.slice(-4);
+  return {
+    path: parts.slice(0, -4).join("|"),
+    page: page!,
+    scaleKey: scaleKey!,
+    quality: quality!,
+    dpr: dpr!,
+  };
+}
+
 function findCachedPageKey(
   path: string,
   page: number,
@@ -208,13 +232,21 @@ function findCachedPageKey(
   let bestRank = -1;
 
   for (const key of pageCache.keys()) {
-    const parts = key.split("|");
-    if (parts.length < 5) continue;
-    if (parts[0] !== path || parts[1] !== String(page) || parts[2] !== scaleKey) continue;
-    const q = parts[3] as PreviewQuality;
+    // Parsed from the right. A cache key is `path|page|scale|quality|dpr`, and
+    // a path may itself contain a pipe — on Linux and macOS that is a legal
+    // filename character. Splitting from the left shifted every field along,
+    // so `parts[0]` was a fragment of the path, no comparison ever matched,
+    // and a document with a pipe in its name re-rendered every page on every
+    // scroll with the cache sitting right there.
+    const parsed = parsePageCacheKey(key);
+    if (!parsed) continue;
+    if (parsed.path !== path || parsed.page !== String(page) || parsed.scaleKey !== scaleKey) {
+      continue;
+    }
+    const q = parsed.quality as PreviewQuality;
     // Honor the outputScale part: a cached bitmap was rendered for a specific
     // device pixel ratio, so a DPR change must not reuse a stale-DPR bitmap.
-    if (parts[4] !== String(getOutputScale(q))) continue;
+    if (parsed.dpr !== String(getOutputScale(q))) continue;
     const rank = QUALITY_RANK[q] ?? 0;
     if (rank >= minRank && rank > bestRank) {
       bestRank = rank;
@@ -297,15 +329,12 @@ function enqueueRender(priority: RenderPriority, run: () => Promise<void>): Prom
       },
     };
 
-    if (priority === "high") {
-      purgeLowPriorityQueue();
-      // Insert ahead of any lower-priority ("low"/"thumb") work.
-      const idx = renderQueue.findIndex((q) => q.priority !== "high");
-      if (idx >= 0) renderQueue.splice(idx, 0, item);
-      else renderQueue.unshift(item);
-    } else {
-      renderQueue.push(item);
-    }
+    if (priority === "high") purgeLowPriorityQueue();
+    // Ordering lives in ./render-queue-order, where it can be asserted without
+    // a PDF: the two branches this replaced disagreed about where a new high
+    // request goes, and which one you got depended on whether a thumbnail
+    // happened to be queued.
+    renderQueue.splice(insertionIndex(renderQueue, priority), 0, item);
 
     void drainQueue();
   });

@@ -2695,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "pagewise"
-version = "7.5.0"
+version = "7.5.1"
 dependencies = [
  "keyring",
  "pdf-inspector",

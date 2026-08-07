@@ -4,6 +4,13 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.5.1] - 2026-08-07
+
+### Fixed
+
+- **The page you scrolled to could render after the pages you scrolled past.** A high-priority render was inserted ahead of the first background item in the queue — which puts it *behind* every high-priority render already waiting — unless the queue happened to contain no background work at all, in which case it went to the front instead. Two orderings for the same request, chosen by something unrelated to it, and the slower one is the ordinary case: thumbnails are queued whenever the sidebar is open. The newest visible page now goes first either way.
+- **A document with a pipe in its filename re-rendered every page, every scroll.** The preview cache keys a bitmap as `path|page|scale|quality|dpr` and read it back by splitting on the separator from the left — so a pipe inside the path shifted every field along and no lookup ever matched, while the bitmaps sat in the cache untouched. It reads from the right now: the four trailing fields have a known shape, the path does not. (A pipe is a legal filename character on Linux and macOS.)
+
 ## [7.5.0] - 2026-08-07
 
 ### Fixed
