@@ -10,6 +10,8 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 - **Looking at a figure painted the whole page at up to four times the pixels it meant to.** Rendering a crop hands pdf.js a scale, and pdf.js multiplies that scale by the display's pixel ratio — so a caller wanting a specific pixel count has to divide the ratio back out. Sending a *page* to the vision model has done that since 3.4.0. Sending a *figure*, written later, never did: on a retina display the crop came out at twice its intended long edge, and the 4096px ceiling that stops a small figure from demanding an enormous page render was quietly 8192px. That ceiling is the limit that binds most of the time — on a letter page any figure under about 300pt is capped by it — so the usual outcome was a page painted at four times the area to cut one figure out of, around 350MB of canvas for a 24pt logo, and a JPEG several times larger than the vision provider will even keep. Both limits are now honoured whatever display you are on.
 
+## [7.5.2] - 2026-08-07
+
 ### Fixed
 
 - **Changing your vision model billed a scan for every text page in the document.** Switching it re-indexes, and re-indexing cleared the text of every page it was given — which is every page, including the ones whose words came out of the PDF's own text layer. That text is free and re-extracted on each open; wiping it made those pages look unindexed, and a page with no usable text is exactly what gets sent to vision. On a two-hundred-page text document, changing one setting meant paying to look at pages that were never scanned in the first place. Only vision-produced text is cleared now, so the pages that had a text layer keep it and the indexer skips them before it reaches a billed call.
@@ -577,6 +579,8 @@ Hardening pass from three fresh review angles (the v3.5.12 diff, a Rust↔IPC co
 
 - Chat: deleted the never-populated structured-citations footer component (dead since v3.0.0); inline clickable citations replace it.
 
+## [3.5.5] - 2026-07-12
+
 ### Fixed
 
 - Chat: after pressing Send there's now immediate feedback — the thinking indicator and a working **Stop** button appear during the send/capture phase, instead of the panel looking frozen until streaming begins. Stop now also aborts a send that hasn't started streaming yet.
@@ -984,11 +988,6 @@ Hardening pass from three fresh review angles (the v3.5.12 diff, a Rust↔IPC co
 - Agent: structured citation extraction skips `reasoning` (provider compatibility)
 - Agent: citation extraction ignores stale callbacks after thread/doc switch
 - Agent: `read_pdf_range` rejects inverted ranges and out-of-range start pages
-
-## [0.2.33] - 2026-07-05
-
-### Fixed
-
 - Agent: force read tools before synthesis/meta-loop guards (search→read flow)
 - Agent: detect `budgetExceeded` inside AI SDK JSON tool-result envelopes
 - Agent: do not reset read offset when page text shrinks after re-index
@@ -1235,6 +1234,7 @@ Hardening pass from three fresh review angles (the v3.5.12 diff, a Rust↔IPC co
 
 - Assistant footer: remove inline usage summary and per-step breakdown; full stats remain in the usage popover only
 
+## [0.2.15] - 2026-07-04
 
 ### Fixed
 
@@ -1267,6 +1267,7 @@ Hardening pass from three fresh review angles (the v3.5.12 diff, a Rust↔IPC co
 - Agent: force `read_pdf_*` after search; block repeat list/index calls; cap steps at 14
 - Agent: lower aggressive compaction threshold (20k cumulative step input tokens)
 
+## [0.2.13] - 2026-07-04
 
 ### Fixed
 
