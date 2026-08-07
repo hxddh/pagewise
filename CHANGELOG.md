@@ -4,7 +4,11 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
-## [7.5.2] - 2026-08-07
+## [7.5.3] - 2026-08-07
+
+### Fixed
+
+- **Looking at a figure painted the whole page at up to four times the pixels it meant to.** Rendering a crop hands pdf.js a scale, and pdf.js multiplies that scale by the display's pixel ratio — so a caller wanting a specific pixel count has to divide the ratio back out. Sending a *page* to the vision model has done that since 3.4.0. Sending a *figure*, written later, never did: on a retina display the crop came out at twice its intended long edge, and the 4096px ceiling that stops a small figure from demanding an enormous page render was quietly 8192px. That ceiling is the limit that binds most of the time — on a letter page any figure under about 300pt is capped by it — so the usual outcome was a page painted at four times the area to cut one figure out of, around 350MB of canvas for a 24pt logo, and a JPEG several times larger than the vision provider will even keep. Both limits are now honoured whatever display you are on.
 
 ### Fixed
 

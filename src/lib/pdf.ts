@@ -992,7 +992,34 @@ export async function renderPageToJpegBytes(
  * A small figure would otherwise demand an enormous page render to reach the
  * target resolution — a 20pt logo at 1568px means painting the page at 78×.
  */
-const MAX_CROP_PAGE_EDGE = 4096;
+export const MAX_CROP_PAGE_EDGE = 4096;
+
+/**
+ * Scale to hand to {@link paintPage} for a region crop, so the crop lands at
+ * `maxEdge` pixels on its long edge and the page beneath it stays under
+ * {@link MAX_CROP_PAGE_EDGE} — both regardless of display DPR.
+ *
+ * The same divide {@link visionRenderScale} does, and for the same reason:
+ * paintPage multiplies the scale it is given by `getOutputScale`, so a caller
+ * that wants a specific pixel count has to divide that multiplier back out.
+ * This function was written after that one and did not, so on a retina display
+ * a figure crop came out at twice its intended edge — four times the pixels,
+ * for an image the vision provider downscales to `maxEdge` on arrival anyway —
+ * and the ceiling meant to stop a 24pt logo from demanding an enormous page
+ * render was quietly 8192px instead of 4096.
+ */
+export function regionRenderScale(
+  regionEdge: number,
+  pageEdge: number,
+  maxEdge: number,
+  outputScale: number,
+): number {
+  const targetScale = Math.min(
+    maxEdge / regionEdge,
+    MAX_CROP_PAGE_EDGE / Math.max(pageEdge, 1),
+  );
+  return outputScale > 0 ? targetScale / outputScale : targetScale;
+}
 
 /**
  * Render just one region of a page as JPEG bytes.
@@ -1019,11 +1046,16 @@ export async function renderRegionToJpegBytes(
   const regionEdge = Math.max(rect.width, rect.height);
   if (regionEdge <= 0) throw new Error("Figure has no area to render");
   const pageEdge = Math.max(base.width, base.height);
-  const scale = Math.min(
-    maxEdge / regionEdge,
-    MAX_CROP_PAGE_EDGE / Math.max(pageEdge, 1),
+  const scale = regionRenderScale(
+    regionEdge,
+    pageEdge,
+    maxEdge,
+    getOutputScale("performance"),
   );
 
+  // `scale` is pre-divided by the output scale, so this viewport is in CSS
+  // units while the canvas paintPage produces is in device pixels. `pixelRatio`
+  // below carries the crop rectangle across that gap.
   const viewport = page.getViewport({ scale });
   const [ax, ay] = viewport.convertToViewportPoint(rect.x, rect.y);
   const [bx, by] = viewport.convertToViewportPoint(
