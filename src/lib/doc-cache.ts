@@ -1,4 +1,4 @@
-import { pickBetterPageText, MIN_INDEX_CHARS } from "./page-text-merge";
+import { pickBetterPageText } from "./page-text-merge";
 import type { LoadedDocument, PageText } from "./types";
 import { searchDocumentPages } from "./document-search";
 import { clearDocumentIndexState } from "./index-events";
@@ -82,8 +82,20 @@ class DocCache {
   }
 
   /**
-   * Clear indexed page text so vision reindex can rerun.
-   * When `pages` is omitted, clears every page with ≥ MIN_INDEX_CHARS.
+   * Clear text a vision call produced, so a re-index can produce it again.
+   *
+   * Only vision text. A re-index runs because the reader changed their vision
+   * model, and that has nothing to say about a page whose words came out of the
+   * PDF's own text layer — which is also free, re-extracted on every open.
+   * Clearing those made them look unindexed, and a page with no usable text is
+   * exactly what the indexer sends to vision, so changing the model billed a
+   * scan for every text page in the document.
+   *
+   * `source` is what tells the two apart; documents written before it existed
+   * have none, and are treated as native so nothing free is thrown away on a
+   * guess.
+   *
+   * When `pages` is omitted, every vision-indexed page is cleared.
    */
   invalidateIndexedPageText(path: string, pages?: number[]): void {
     const doc = this.docs.get(path);
@@ -92,7 +104,8 @@ class DocCache {
     let changed = false;
     const nextPages = doc.pages.map((p) => {
       if (pageSet && !pageSet.has(p.page)) return p;
-      if (!pageSet && p.text.trim().length < MIN_INDEX_CHARS) return p;
+      if (p.source !== "vision") return p;
+
       if (p.text.trim().length === 0) return p;
       changed = true;
       return { page: p.page, text: "", source: undefined };

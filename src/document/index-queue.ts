@@ -418,6 +418,11 @@ export function reindexDocument(path: string): void {
   // The persisted copy describes the text being discarded — drop it too, or the
   // next open would restore exactly what the user asked to re-scan.
   void forgetIndexedDoc(path);
+  // Only the vision-indexed pages are actually cleared; a page whose words came
+  // from the PDF's own text layer keeps them. Scheduling every page is still
+  // correct — indexPage returns early for any page that still has usable text,
+  // before it reaches the vision call — so the ones that kept their text cost
+  // nothing but a queue slot.
   docCache.invalidateIndexedPageText(path, pages);
   scheduleIndex(fresh, { pages });
 }

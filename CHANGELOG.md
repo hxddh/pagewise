@@ -4,6 +4,12 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.5.2] - 2026-08-07
+
+### Fixed
+
+- **Changing your vision model billed a scan for every text page in the document.** Switching it re-indexes, and re-indexing cleared the text of every page it was given — which is every page, including the ones whose words came out of the PDF's own text layer. That text is free and re-extracted on each open; wiping it made those pages look unindexed, and a page with no usable text is exactly what gets sent to vision. On a two-hundred-page text document, changing one setting meant paying to look at pages that were never scanned in the first place. Only vision-produced text is cleared now, so the pages that had a text layer keep it and the indexer skips them before it reaches a billed call.
+
 ## [7.5.1] - 2026-08-07
 
 ### Fixed
