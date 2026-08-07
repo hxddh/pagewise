@@ -389,8 +389,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const reindexDoc = useCallback(() => {
     const path = documentRef.current?.path;
     if (!path) return;
-    reindexDocument(path);
-    showToast(t("toast.reindexStarted"), "default");
+    const pages = reindexDocument(path);
+    // The budget governs how many pages a re-index rescans, and it can be zero.
+    // The message used to name a hardcoded 50 either way, so it was wrong for
+    // anyone who had changed the setting and a flat untruth for anyone who had
+    // turned it off.
+    if (pages === 0) {
+      showToast(t("toast.reindexNothingToDo"), "default");
+      return;
+    }
+    showToast(t("toast.reindexStarted", { pages }), "default");
   }, [showToast, t]);
 
   // Clamp preview jumps: models cite printed/hallucinated page numbers, and an

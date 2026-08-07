@@ -83,7 +83,7 @@ vi.mock("../lib/index-events", () => ({
 
 vi.mock("../lib/index-store", () => ({
   rememberIndexedPage: vi.fn(),
-  forgetIndexedDoc: vi.fn(async () => {}),
+  forgetIndexedPages: vi.fn(async () => {}),
 }));
 
 vi.mock("../lib/usage-tracker", () => ({
@@ -94,6 +94,7 @@ vi.mock("../lib/usage-tracker", () => ({
 
 import { docCache } from "../lib/doc-cache";
 import { renderPageToJpegBytes } from "../lib/pdf";
+import { forgetIndexedPages } from "../lib/index-store";
 import {
   cancelIndex,
   DEFAULT_AGENT_SCAN_PAGES,
@@ -191,6 +192,55 @@ describe("reindexDocument (H3 — bounded invalidate)", () => {
     expect(rescanned).toEqual([...clearedPages].sort((a, b) => a - b));
     // Pages 51..60 were never touched.
     expect(Math.max(...clearedPages)).toBe(DEFAULT_AUTO_INDEX_PAGES);
+  });
+
+  it("forgets the persisted copy of exactly the pages it rescans", async () => {
+    // The other half of H3, which H3 did not close. The in-memory clear was
+    // bounded to the rescan window; the persisted drop was not — it deleted the
+    // whole document. Pages outside the window keep their text this session and
+    // then have nothing on disk, so they are re-scanned and re-billed on the
+    // next open: 150 paid pages of a 200-page scan, thrown away by changing a
+    // setting.
+    const path = uniquePath();
+    seed(path, DEFAULT_AUTO_INDEX_PAGES + 10);
+
+    const scheduled = reindexDocument(path);
+    expect(scheduled).toBe(DEFAULT_AUTO_INDEX_PAGES);
+
+    const forget = forgetIndexedPages as unknown as { mock: { calls: unknown[][] } };
+    expect(forget.mock.calls.length).toBe(1);
+    expect(forget.mock.calls[0]![0]).toBe(path);
+    const forgotten = forget.mock.calls[0]![1] as number[];
+
+    const invalidate = docCache.invalidateIndexedPageText as unknown as {
+      mock: { calls: unknown[][] };
+    };
+    const cleared = invalidate.mock.calls[0]![1] as number[];
+    expect([...forgotten].sort((a, b) => a - b)).toEqual([...cleared].sort((a, b) => a - b));
+    expect(Math.max(...forgotten)).toBe(DEFAULT_AUTO_INDEX_PAGES);
+  });
+
+  it("schedules nothing, and says so, when the sweep budget is zero", async () => {
+    // With scanning turned off a re-index has no window to work in, and has
+    // always correctly done nothing. It returned void, so the caller could not
+    // tell, and announced "Reindexing (vision rescan for up to 50 pages)…" —
+    // naming a number that was neither the budget nor what happened.
+    setAutoIndexCap(0);
+    const path = uniquePath();
+    seed(path, 10);
+
+    expect(reindexDocument(path)).toBe(0);
+
+    const forget = forgetIndexedPages as unknown as { mock: { calls: unknown[][] } };
+    expect(forget.mock.calls.length).toBe(0);
+    expect(
+      (docCache.invalidateIndexedPageText as unknown as { mock: { calls: unknown[][] } })
+        .mock.calls.length,
+    ).toBe(0);
+  });
+
+  it("returns zero for a document that is not loaded", () => {
+    expect(reindexDocument("/mock/not-open.pdf")).toBe(0);
   });
 });
 

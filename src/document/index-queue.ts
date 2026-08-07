@@ -9,7 +9,7 @@ import { loadVisionSettings } from "../lib/settings";
 import { assertApiKeyForAgent, formatLlmError } from "../lib/llm";
 import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { emitPageIndex } from "../lib/index-events";
-import { forgetIndexedDoc, rememberIndexedPage } from "../lib/index-store";
+import { forgetIndexedPages, rememberIndexedPage } from "../lib/index-store";
 import { recordVisionCall } from "../lib/usage-tracker";
 import type { LoadedDocument } from "../lib/types";
 
@@ -410,14 +410,25 @@ export function cancelIndex(path: string): void {
   nextGeneration(path);
 }
 
-export function reindexDocument(path: string): void {
+/**
+ * Re-scan this document's vision pages, returning how many pages were scheduled.
+ *
+ * The window is bounded by the automatic sweep budget on purpose: a re-index
+ * only throws away text it will pay to replace. The count comes back so the
+ * caller can say what actually happened — with the budget set to 0 this
+ * schedules nothing at all, and reporting "re-indexing…" would be a lie.
+ */
+export function reindexDocument(path: string): number {
   const fresh = docCache.get(path);
-  if (!fresh) return;
+  if (!fresh) return 0;
   const pages = sweepPages(fresh, { allPages: true });
-  if (pages.length === 0) return;
-  // The persisted copy describes the text being discarded — drop it too, or the
-  // next open would restore exactly what the user asked to re-scan.
-  void forgetIndexedDoc(path);
+  if (pages.length === 0) return 0;
+  // The persisted copy of the pages being discarded goes with them, or the next
+  // open would restore exactly what the user asked to re-scan. Only those pages:
+  // dropping the whole document threw away the persisted text of every page
+  // outside the window — pages that keep their text and are never re-scanned, so
+  // nothing looked wrong until the next open re-billed them.
+  void forgetIndexedPages(path, pages);
   // Only the vision-indexed pages are actually cleared; a page whose words came
   // from the PDF's own text layer keeps them. Scheduling every page is still
   // correct — indexPage returns early for any page that still has usable text,
@@ -425,6 +436,7 @@ export function reindexDocument(path: string): void {
   // nothing but a queue slot.
   docCache.invalidateIndexedPageText(path, pages);
   scheduleIndex(fresh, { pages });
+  return pages.length;
 }
 
 /**

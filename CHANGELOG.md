@@ -4,6 +4,13 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.5.4] - 2026-08-07
+
+### Fixed
+
+- **Re-indexing threw away paid-for pages it was never going to re-scan.** A re-index rescans a bounded window — 50 pages by default — precisely so the text it discards is text it will pay to replace. But alongside that it deleted the saved index for the *whole* document. The pages outside the window keep their text for the rest of the session, so nothing looks wrong; they simply have nothing left on disk, and get scanned and billed again the next time you open the file. On a 200-page scan you had already indexed, changing your vision model quietly discarded 150 pages of work you had paid for. Only the pages actually being re-scanned are forgotten now.
+- **The re-index message named a number that was not true.** It always said "up to 50 pages", whatever the page-scanning budget was set to — and said it even when the budget was zero and nothing was being re-scanned at all. It now reports the real count, and says plainly when there is nothing to do.
+
 ## [7.5.3] - 2026-08-07
 
 ### Fixed
