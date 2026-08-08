@@ -126,9 +126,40 @@ describe("shouldFollowAgentToPage", () => {
     ).toBe(false);
   });
 
-  it("does not follow when explicit page numbers were requested", () => {
+  it("does not follow to a page the reader did not ask about", () => {
     expect(
       shouldFollowAgentToPage(3, { userText: "第5页", viewingPage: 1 }),
+    ).toBe(false);
+  });
+
+  it("follows to the page the reader named", () => {
+    // The whole point of follow-agent, and it did not happen: naming a page
+    // switched following off entirely rather than narrowing it to that page, so
+    // asking about page 5 and watching the agent read page 5 left the preview
+    // parked on page 1.
+    expect(
+      shouldFollowAgentToPage(5, { userText: "第5页讲了什么", viewingPage: 1 }),
+    ).toBe(true);
+    expect(
+      shouldFollowAgentToPage(5, { userText: "what does page 5 say?", viewingPage: 1 }),
+    ).toBe(true);
+  });
+
+  it("follows anywhere inside a named range", () => {
+    const ctx = { userText: "第3到5页讲了什么", viewingPage: 1 };
+    expect([3, 4, 5].map((p) => shouldFollowAgentToPage(p, ctx))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(shouldFollowAgentToPage(6, ctx)).toBe(false);
+  });
+
+  it("still refuses a named page when the ask is whole-document", () => {
+    // Order matters: "总结全文，特别是第5页" is a survey. Whole-document intent
+    // is checked first and keeps the preview still.
+    expect(
+      shouldFollowAgentToPage(5, { userText: "总结全文，特别是第5页", viewingPage: 1 }),
     ).toBe(false);
   });
 

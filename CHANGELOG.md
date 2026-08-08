@@ -4,6 +4,12 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.5.6] - 2026-08-08
+
+### Fixed
+
+- **Asking about a page, with follow-agent on, did not go to that page.** Naming a page in your question switched following off entirely instead of narrowing it to the page you named — so "第5页讲了什么" had the assistant read page 5 while the preview stayed parked wherever it was. The guard exists so the preview does not wander to pages you did not ask about, and it still does that; it now lets through the one page it was most clearly meant to allow. A named range follows anywhere inside it. A question that is about the whole document still keeps the preview still.
+
 ## [7.5.5] - 2026-08-07
 
 ### Fixed

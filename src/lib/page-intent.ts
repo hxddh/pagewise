@@ -140,8 +140,18 @@ export function shouldFollowAgentToPage(
     return readPage === viewingPage;
   }
 
-  if (extractExplicitPageNumbers(userText).length > 0) {
-    return false;
+  // Naming pages narrows what to follow to those pages — it does not switch
+  // following off. This returned a flat `false`, so asking "第5页讲了什么" and
+  // watching the agent read page 5 left the preview parked wherever it was:
+  // the one case where following is least ambiguous was the one case it refused.
+  // Same shape as the current-page branch above, which had it right.
+  //
+  // A range wider than MAX_RANGE_SPAN is not enumerated, so only its endpoints
+  // are here. That is the intended reading: an ask spanning hundreds of pages is
+  // a survey, and chasing the preview through it is not what the reader wants.
+  const explicit = extractExplicitPageNumbers(userText);
+  if (explicit.length > 0) {
+    return explicit.includes(readPage);
   }
 
   return readPage === viewingPage;
