@@ -14,6 +14,7 @@ import { AnchoredMenu } from "../components/AnchoredMenu";
 import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
 import { MessageContent } from "../components/MessageContent";
 import { useConversationKeys } from "../hooks/useConversationKeys";
+import { reclaimUndeliveredNotes } from "../lib/agent-steer";
 import { ConversationSearchBar } from "../components/ConversationSearchBar";
 import { PageRefContext } from "../components/Markdown";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
@@ -64,6 +65,8 @@ interface ChatPanelProps {
   onStop: () => void;
   /** Stop whatever is running and resolve once the stream is idle. */
   waitForStreamIdle?: () => Promise<boolean>;
+  /** Hand a correction to the run already going. False when it will not take one. */
+  steerRun?: (text: string) => boolean;
   onDismissError?: () => void;
   onJumpToPage?: (page: number) => void;
   onClearChat: () => void;
@@ -104,6 +107,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onConfigureApi,
     onStop,
     waitForStreamIdle,
+    steerRun,
     onDismissError,
     onJumpToPage,
     onClearChat,
@@ -188,6 +192,22 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }, [messages, status, activity]);
 
   /**
+   * A correction that arrived too late goes back in the composer.
+   *
+   * A run can finish before the step that would have carried the note — the
+   * reader typed while the last of the answer was already being written. The
+   * alternative is to drop words they typed, so this hands them back the way a
+   * failed send hands back its text, and they can send it as a question.
+   */
+  useEffect(() => {
+    if (busy) return;
+    const undelivered = reclaimUndeliveredNotes();
+    if (undelivered.length === 0) return;
+    if (composerDraftRef.current.trim()) return; // they have already typed something newer
+    onComposerDraftChange(undelivered.join("\n"));
+  }, [busy, onComposerDraftChange]);
+
+  /**
    * Alt+Up / Alt+Down walk the conversation.
    *
    * The bare arrow keys belong to the composer — they move the caret — so this
@@ -208,13 +228,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const submit = useCallback(async () => {
     const text = composerDraft.trim();
     if (!text) return;
-    // Sending during a run steers it rather than being refused. The old
-    // behaviour — a disabled composer and a Stop button — meant changing your
-    // mind cost you the run, and re-asking re-read pages you had already paid
-    // for. Page text stays in the local cache, so the new run picks those pages
-    // up for free; only the model call is replaced.
+    // Sending during a run steers it rather than being refused. Until 7.6 that
+    // meant stopping the run and starting another — better than the disabled
+    // composer it replaced, but its cost was understated by its own comment:
+    // page text is free to re-read from the local cache, and is billed again as
+    // tokens the moment it re-enters a fresh context. So the correction now goes
+    // to the run that is already going, as a message its next step reads.
+    //
+    // The restart path survives for the cases injection cannot serve: no run to
+    // inject into, or a run whose remaining steps have run out (below).
     const steering = busy && !chatLoading && !!waitForStreamIdle;
     if (interactionBusy && !steering) return;
+    if (steering && !hasApiKey) {
+      onConfigureApi();
+      return;
+    }
+    if (steering && activeDoc && steerRun) {
+      // steerRun both queues the note for the loop and records it on the user
+      // turn that started the run — see useDocAgent. Queueing without recording
+      // would clear the composer, change the answer, and leave no trace of why.
+      if (steerRun(text)) {
+        onComposerDraftChange("");
+        stickToBottomRef.current = true;
+        // Undelivered notes come back to the composer when the run settles —
+        // see the effect below. Nothing else to do here: the run keeps going.
+        return;
+      }
+      // The run has taken all the corrections it will (MAX_STEER_NOTES), so fall
+      // through to the restart path rather than dropping what was typed.
+    }
     // Only a missing API key is a hard blocker. Tool-capability is a heuristic
     // guess (looksLikeToolModel misses grok/kimi/glm/llama-4/nova and other
     // tool-capable routes) — don't pre-block the send on it; let the provider
@@ -270,6 +312,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     busy,
     chatLoading,
     waitForStreamIdle,
+    steerRun,
     interactionBusy,
     hasApiKey,
     agentToolsSupported,

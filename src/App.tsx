@@ -300,6 +300,7 @@ function AppContent() {
                   onConfigureApi={overlays.openSettings}
                   onStop={agent.stop}
                   waitForStreamIdle={agent.waitForStreamIdle}
+                  steerRun={agent.steerRun}
                   onDismissError={agent.clearError}
                   onJumpToPage={s.setPreviewPage}
                   onClearChat={overlays.openClearConfirm}

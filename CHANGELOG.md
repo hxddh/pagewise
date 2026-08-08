@@ -4,6 +4,28 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.6.0] - 2026-08-08
+
+### Added
+
+- **A correction typed while the agent is working now reaches the run that is working.** Sending mid-run already redirected the answer, but it did so by stopping the run and starting another — and every page the first run had read went back into a fresh context and was billed again. The note is now handed to the loop as a message its next step reads, so nothing is stopped and nothing is re-read. It also lands on the question you asked, so the transcript records what you said and why the answer changed; a correction that arrives after the run has finished comes back to the composer instead of disappearing.
+
+### Changed
+
+- **The 3,590-line stylesheet is now thirteen numbered parts.** It had two section comments in it, and rules near the end existed only to override rules a thousand lines earlier, so which declaration applied was decided by source order. The parts are cut to preserve that order exactly — building before and after produces a byte-identical stylesheet — and a check fails if the order ever drifts, because moving a part changes what the app looks like.
+- **116 rules and four animations with nothing behind them are gone**, left over from the v3 shell replacing the sidebar, the recent-files list and the onboarding steps. The stylesheet the app downloads is 17% smaller. The tool that finds them was wrong in both directions before this — it called a rule live because a source file happened to be *named* after it, and called pdf.js's own class dead — so the count it reported could not be trusted; it reads markup now.
+- Unreachable rules, orphaned animations, a reordered cascade and a value a design token already names each fail the test suite now, rather than being tidied by hand every few releases and growing back.
+
+### Fixed
+
+- **The drop overlay and the loading overlay stayed near-black in light theme.** Both had the dark theme's background colour written out as a literal, so dropping a file or opening a document in light mode covered the window in a scrim that matched nothing on screen.
+- **A highlight and its own border could disagree.** The highlighter yellow was written out four times with four different blend amounts; it is one colour with a name now.
+
+### Notes
+
+- The evaluation for this release reported "95 hardcoded sizes" in the stylesheet. The real number was **one**. The measurement counted `margin: 0`, `border-radius: 50%`, values already using tokens, and every text-relative size in the Markdown styles — so the conclusion drawn from it, that the type and spacing scale were only locally observed, was wrong. Coverage was already near complete. The corrected measurement is a script in the repository, and it documents why the old number was off by about ninety-five to one.
+- Two items the evaluation listed as measurements were not done: both need a real model call against a real document, which this repository cannot make on its own. What *is* established is that nothing in the app has ever asked a provider to cache anything explicitly, so on any route that requires an explicit request, prompt caching is off rather than merely missing. Deciding whether that matters takes one long conversation and a glance at the usage panel.
+
 ## [7.5.6] - 2026-08-08
 
 ### Fixed

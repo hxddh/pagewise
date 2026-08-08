@@ -24,6 +24,7 @@ import {
 import { loadSettings } from "../lib/settings";
 import { useI18n } from "../i18n";
 import { waitForStreamIdle } from "../lib/agent-stream-idle";
+import { steerCurrentRun } from "../lib/agent-steer";
 
 export interface SendDocumentMessageOptions {
   text: string;
@@ -348,6 +349,41 @@ export function useDocAgent(chatId: string | null = null) {
     [chat.setMessages],
   );
 
+  /**
+   * Hand a correction to the run that is already going.
+   *
+   * Two things have to happen and they are easy to separate by mistake: the note
+   * goes into the loop's next step (agent-steer), and it goes into the
+   * transcript. Without the second the reader watches their words vanish — the
+   * composer clears, the answer changes, and there is no record of why. It lands
+   * as another text part on the user turn that started the run, so it survives a
+   * reload and reads as what it was: the reader saying two things about one
+   * question.
+   *
+   * Returns false when the run would not take it, so the caller can fall back.
+   */
+  const steerRun = useCallback(
+    (text: string): boolean => {
+      const queued = steerCurrentRun(text);
+      if (!queued) return false;
+      chat.setMessages((prev) => {
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i]?.role !== "user") continue;
+          const target = prev[i]!;
+          const next = [...prev];
+          next[i] = {
+            ...target,
+            parts: [...target.parts, { type: "text", text: queued }],
+          } as typeof target;
+          return next;
+        }
+        return prev;
+      });
+      return true;
+    },
+    [chat.setMessages],
+  );
+
   const runAgentSend = useCallback(
     async (
       opts: SendDocumentMessageOptions,
@@ -571,6 +607,7 @@ export function useDocAgent(chatId: string | null = null) {
       error: activeError,
       errorMessage,
       stop: stopAll,
+      steerRun,
       setMessages: chat.setMessages,
       clearError: chat.clearError,
       clearChat,

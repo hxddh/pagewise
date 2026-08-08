@@ -16,6 +16,7 @@ import {
   buildWholeDocumentInstructions,
 } from "./agent-view-context";
 import { compactRunMessages } from "./compact-run-messages";
+import { beginSteerRun, withSteerMessage } from "./agent-steer";
 import { resolveModel, resolveReasoning } from "./llm";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
@@ -195,7 +196,14 @@ export function createDocAgent() {
       const compacted = compactRunMessages(
         messages as ReadonlyArray<{ role: string; content: unknown }> | undefined,
       ) as typeof messages;
-      const carry = compacted !== messages ? { messages: compacted } : {};
+
+      // A correction the reader typed while this run was working. Appended at
+      // the very end, after the last tool result, so every tool call still sits
+      // next to its own result — the pairing the provider validates. Sending
+      // during a run used to stop it and start another, which put every page it
+      // had read back into a fresh context at full price.
+      const withSteer = withSteerMessage(compacted ?? [], budget.gen) as typeof messages;
+      const carry = withSteer !== messages ? { messages: withSteer } : {};
 
       // Reasoning is billed output, and most steps of a document run are
       // mechanical — "read page 14" needs no deliberation. The step that has to
@@ -226,6 +234,11 @@ export function createDocAgent() {
       budget.scans = 0;
       budget.gen += 1;
       budget.delivered.clear();
+      // A correction typed as the previous run was ending belongs to that run.
+      // Carrying it into this one would put words in the reader's mouth: they
+      // were correcting an answer they have since received, and this question
+      // came with its own.
+      beginSteerRun(budget.gen);
 
       const settings = await loadSettings();
       const runtime =
