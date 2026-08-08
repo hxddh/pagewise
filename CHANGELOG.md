@@ -4,6 +4,13 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.5.5] - 2026-08-07
+
+### Fixed
+
+- **Long conversations got more expensive at the point they were supposed to get cheaper.** Past twelve exchanges, the older ones are folded into a single note so the conversation stops growing. That note goes at the very front of what is sent — inside the part every provider caches — and it named the number of folded exchanges and quoted them, so its text changed on every single turn from the thirteenth onwards. A changed first line means nothing after it can be read from the cache, so each question re-bought all twelve kept exchanges at full price, which is something the unwindowed conversation it replaced never did. The fold now moves in steps of four turns instead of one, so the front of the prompt stays identical between moves and one turn in four pays for the change rather than every turn.
+- **The note that replaced the old exchanges grew as fast as they did.** It quoted every folded question, up to 60 characters each — several thousand characters a hundred turns in, in a line whose entire purpose is to be smaller than what it replaces. It now quotes the six most recent and counts the rest, so it stays about the same size whether it stands in for ten exchanges or two hundred.
+
 ## [7.5.4] - 2026-08-07
 
 ### Fixed
