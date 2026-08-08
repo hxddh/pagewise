@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -69,6 +69,27 @@ describe("CSS hygiene", () => {
     expect(output.trim(), output).toBe(
       "No CSS literal has a token that could replace it.",
     );
+  });
+
+  it("reads the snapshot whatever line endings it arrives with", () => {
+    // This broke the 7.6.0 Windows release build. Git checks the snapshot out
+    // with CRLF on a Windows runner, and splitting it on "\n" alone left a
+    // trailing "\r" on every stored line — so every line differed from the live
+    // one by an invisible character, and the failure printed `was: X` / `now: X`
+    // identically for each, saying nothing. Linux and macOS passed, so the
+    // release published with four assets instead of six.
+    const snapshot = join(ROOT, "scripts/css-order.snapshot");
+    const original = readFileSync(snapshot);
+    try {
+      writeFileSync(snapshot, original.toString("utf8").replace(/\n/g, "\r\n"));
+      expect(() =>
+        execFileSync(process.execPath, [join(ROOT, "scripts/check-css-order.mjs")], {
+          encoding: "utf8",
+        }),
+      ).not.toThrow();
+    } finally {
+      writeFileSync(snapshot, original);
+    }
   });
 
   it("keeps the cascade in the order the snapshot records", () => {
