@@ -1,0 +1,179 @@
+/* ==========================================================================
+   The page itself: canvas, frame, pdf.js text layer, raster hint.
+
+   Part 3 of 13, cut from a single 3,590-line App.css. The parts are
+   imported in this numbered order and MUST stay in it: rules later in the
+   sequence deliberately override earlier ones, so moving a part changes what
+   the app looks like. `npm run check:css-order` fails if that order drifts.
+   ========================================================================== */
+
+/* Preview */
+
+.preview-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.preview-filename {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-vision-hint {
+  margin-top: var(--space-md);
+}
+
+.preview-canvas-wrap {
+  flex: 1;
+  /* The scroller inside owns scrolling now; two nested scroll containers
+     would fight over the wheel. An image document still needs this one. */
+  overflow: hidden;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-xs);
+  position: relative;
+  min-height: 0;
+  background: var(--bg-canvas, var(--bg-base));
+}
+
+.preview-canvas-wrap.image-wrap {
+  align-items: center;
+  overflow: auto;
+}
+
+.preview-canvas,
+.preview-image {
+  border: none;
+  border-radius: 0;
+}
+
+.preview-canvas {
+  max-width: none;
+  max-height: none;
+  image-rendering: auto;
+  display: block;
+}
+
+.preview-page-frame {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.pdf-text-layer:not(.pdf-text-layer-active) {
+  pointer-events: none;
+  user-select: none;
+  visibility: hidden;
+}
+
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  opacity: 1;
+  /* Allow text selection over the rendered page */
+  pointer-events: auto;
+  user-select: text;
+  /* pdf.js v6 TextLayer CSS contract (ported from web/pdf_viewer.css):
+     the layer positions spans via custom properties — --total-scale-factor is
+     set on the container by renderTextLayer, --min-font-size inline by pdf.js,
+     and the rules below turn --font-height/--scale-x/--rotate into geometry. */
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+}
+
+.pdf-text-layer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0 0;
+  pointer-events: auto;
+  cursor: text;
+  user-select: text;
+}
+
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-text-layer .markedContent {
+  display: contents;
+}
+
+/* Match the span layer to a page's intrinsic rotation (ported from pdf.js
+   web/pdf_viewer.css) — the canvas is painted rotated, so the text layer must
+   rotate too or selection highlights land in the wrong place. */
+.pdf-text-layer[data-main-rotation="90"] {
+  transform: rotate(90deg) translateY(-100%);
+}
+.pdf-text-layer[data-main-rotation="180"] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+.pdf-text-layer[data-main-rotation="270"] {
+  transform: rotate(270deg) translateX(-100%);
+}
+
+.pdf-text-layer ::selection {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.preview-raster-hint {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--text-xs);
+  /* Always sits on a dark scrim, so keep the text light in both themes */
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: var(--radius);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: calc(100vh - 80px);
+  object-fit: contain;
+  border: none;
+  border-radius: 0;
+}
+
+.panel-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 120px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}

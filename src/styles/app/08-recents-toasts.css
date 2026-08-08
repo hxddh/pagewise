@@ -1,0 +1,118 @@
+/* ==========================================================================
+   Recent files, the loading overlay, toasts.
+
+   Part 8 of 13, cut from a single 3,590-line App.css. The parts are
+   imported in this numbered order and MUST stay in it: rules later in the
+   sequence deliberately override earlier ones, so moving a part changes what
+   the app looks like. `npm run check:css-order` fails if that order drifts.
+   ========================================================================== */
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-loading);
+  background: color-mix(in srgb, var(--bg-base) 55%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Surface, border, radius and shadow come from <Panel tone="elevated">. */
+.loading-card {
+  width: min(320px, 90vw);
+  padding: var(--space-xl) 18px;
+}
+
+.loading-message {
+  margin: 0 0 var(--space-md);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+}
+
+.loading-bar-track {
+  height: 4px;
+  background: var(--bg-base);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.loading-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  transition: width 0.25s ease;
+}
+
+.loading-percent {
+  display: block;
+  margin-top: var(--space-md);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.toast-viewport {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  align-items: flex-end;
+  pointer-events: none;
+  max-width: min(360px, calc(100vw - 32px));
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 9px var(--space-lg);
+  background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  animation: toastIn 0.2s ease;
+}
+
+.toast-success {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border-subtle));
+}
+
+.toast-error {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border-subtle));
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.toast-error {
+  color: var(--danger);
+}
+
+.toast-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--text-md);
+  padding: 0 var(--space-2xs);
+  line-height: 1;
+}
+
+/* Light theme tokens live in tokens.css — one source, not two. */
+
+[data-theme="light"] .toast {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* Sidebar actions */

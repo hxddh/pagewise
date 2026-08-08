@@ -13,11 +13,12 @@
     "test": "vitest run",
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:css": "node scripts/check-css-tokens.mjs",
+    "check:css-order": "node scripts/check-css-order.mjs",
     "version:sync": "node scripts/sync-version.mjs",
     "icons:sync-svg": "node scripts/generate-app-icon.mjs",
     "icons:generate": "npm run icons:sync-svg && tauri icon app-icon.svg -o src-tauri/icons",
     "verify:bundle-version": "node scripts/verify-bundle-version.mjs",
-    "prebuild": "npm run prepare:pdfjs && npm run check:secrets && npm run check:css",
+    "prebuild": "npm run prepare:pdfjs && npm run check:secrets && npm run check:css && npm run check:css-order",
     "tauri": "tauri"
   },
   "dependencies": {

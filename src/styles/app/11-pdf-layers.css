@@ -1,0 +1,290 @@
+/* ==========================================================================
+   Layers drawn over the page: search highlights, links, marks, regions.
+
+   Part 11 of 13, cut from a single 3,590-line App.css. The parts are
+   imported in this numbered order and MUST stay in it: rules later in the
+   sequence deliberately override earlier ones, so moving a part changes what
+   the app looks like. `npm run check:css-order` fails if that order drifts.
+   ========================================================================== */
+
+/* Search hit markers. Sized as fractions of the page, so they follow zoom. */
+.search-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.search-highlight {
+  position: absolute;
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: search-highlight-in 0.2s ease;
+}
+
+@keyframes search-highlight-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Clickable regions for the links a PDF already contains. */
+.pdf-link-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-link {
+  position: absolute;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pdf-link:hover,
+.pdf-link:focus-visible {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* --- Marks: what the reader left on the document ------------------------- */
+
+.pdf-mark-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-mark {
+  position: absolute;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pdf-mark-text {
+  /* Multiply keeps the words readable through the wash rather than dimming
+     them, which is the whole point of highlighting them. */
+  mix-blend-mode: multiply;
+  background: color-mix(in srgb, var(--mark-highlight) 55%, transparent);
+}
+
+/* A region encloses a figure, a chart, a scanned page. A wash over it would
+   hide exactly what the reader boxed it to see, so it is drawn as an edge. */
+.pdf-mark-region {
+  background: transparent;
+  border: 2px solid color-mix(in srgb, var(--mark-highlight-strong) 90%, transparent);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.pdf-mark-text.pdf-mark-noted {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.pdf-mark-region.pdf-mark-noted {
+  border-color: var(--accent);
+}
+
+.pdf-mark-text:hover,
+.pdf-mark-text:focus-visible,
+.pdf-mark-text.pdf-mark-selected {
+  background: color-mix(in srgb, var(--mark-highlight) 78%, transparent);
+}
+
+.pdf-mark-region:hover,
+.pdf-mark-region:focus-visible,
+.pdf-mark-region.pdf-mark-selected {
+  border-width: 3px;
+  border-color: var(--accent);
+}
+
+:root[data-theme="dark"] .pdf-mark-text {
+  /* The page is rendered light in both themes, so the wash does not invert. */
+  mix-blend-mode: multiply;
+}
+
+.mark-selection-btn {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.mark-selection-btn:hover {
+  filter: brightness(1.12);
+}
+
+/* Surface, border, radius and shadow come from <Panel tone="elevated">. */
+.mark-note {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: min(420px, calc(100% - 32px));
+  padding: var(--space-lg);
+}
+
+.mark-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.mark-note-page {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.mark-note-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mark-note-quote {
+  margin: 0 0 var(--space-md);
+  padding-left: var(--space-md);
+  border-left: 2px solid color-mix(in srgb, var(--mark-highlight) 70%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  max-height: 6.5em;
+  overflow-y: auto;
+}
+
+.mark-note-stale,
+.mark-stale-note {
+  margin: 0 0 var(--space-md);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.mark-stale-note {
+  padding: var(--space-md) var(--space-lg);
+}
+
+.mark-filter {
+  width: calc(100% - 24px);
+  margin: 0 var(--space-lg) var(--space-md);
+}
+
+.mark-note-input {
+  min-height: 64px;
+  max-height: 40vh;
+}
+
+.mark-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-md);
+}
+
+.mark-note-delete {
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+/*
+ * A mark row: the entry itself, and the action that asks about it.
+ *
+ * Marking a passage in order to ask about it is the reason to mark it, and the
+ * only route used to be: find the page again, find the passage again, select it
+ * again.
+ */
+.mark-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.mark-row .outline-item {
+  min-width: 0;
+}
+
+/* Placement and reveal only; the button itself is the shared primitive. */
+.mark-ask-btn {
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+/* Shown on hover, and always once focused by keyboard. */
+.mark-row:hover .mark-ask-btn,
+.mark-ask-btn:focus-visible {
+  opacity: 1;
+}
+
+.mark-ask-btn:hover {
+  color: var(--text);
+}
+
+.mark-item .outline-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.mark-item-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mark-item-note {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mark-item-here .outline-page {
+  color: var(--accent);
+}
+
+.pdf-region-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: crosshair;
+  /* Only mounted while the mode is on, so this never shadows the text layer. */
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.pdf-region-band {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+}
+
+/*
+ * Motion is decoration here — every transition in this app is a fade or a
+ * slide over something that is already correct without it. Some people get
+ * motion sick from exactly that, and the operating system already knows.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

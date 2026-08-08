@@ -1,0 +1,123 @@
+/* ==========================================================================
+   Settings drawer, the settings form's own rules, drop overlay, error lines.
+
+   Part 6 of 13, cut from a single 3,590-line App.css. The parts are
+   imported in this numbered order and MUST stay in it: rules later in the
+   sequence deliberately override earlier ones, so moving a part changes what
+   the app looks like. `npm run check:css-order` fails if that order drifts.
+   ========================================================================== */
+
+/* Drawer */
+
+.drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-settings-drawer);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.drawer-panel {
+  position: relative;
+  width: min(400px, 92vw);
+  height: 100%;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.drawer-header h2 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+/* Settings */
+
+/* Overlay & errors */
+
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-drop);
+  background: color-mix(in srgb, var(--bg-base) 80%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drop-overlay-inner {
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 40px 48px;
+  text-align: center;
+  background: var(--accent-muted);
+}
+
+.drop-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 500;
+}
+
+.drop-hint {
+  margin: var(--space-md) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.error-line {
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+
+.chat-error {
+  margin: var(--space-md) var(--space-lg) 0;
+}
+
+/* Same layout as the error line, but this is an offer, not a failure. */
+.chat-scan-hint {
+  color: var(--text-muted);
+}
+
+.chat-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.chat-error-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-error-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
