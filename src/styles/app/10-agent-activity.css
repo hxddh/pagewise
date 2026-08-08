@@ -1,0 +1,141 @@
+/* ==========================================================================
+   Agent progress lines, sidebar tabs, outline list.
+
+   Part 10 of 13, cut from a single 3,590-line App.css. The parts are
+   imported in this numbered order and MUST stay in it: rules later in the
+   sequence deliberately override earlier ones, so moving a part changes what
+   the app looks like. `npm run check:css-order` fails if that order drifts.
+   ========================================================================== */
+
+.agent-generating-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin: var(--space-md) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.agent-generating-line .typing-dots span {
+  width: 4px;
+  height: 4px;
+}
+
+.message-inline-progress {
+  margin: var(--space-sm) 0 0;
+}
+
+.message-in-progress {
+  padding: var(--space-xs) 0 var(--space-md);
+}
+
+.message-parts--settling {
+  opacity: 0.92;
+  transition: opacity 0.25s ease;
+}
+
+.tool-fold-wrap--settling {
+  opacity: 0.85;
+  transition: opacity 0.25s ease;
+}
+
+.message.assistant {
+  background: transparent;
+  border: none;
+  padding: var(--space-md) 0;
+}
+
+.message.user {
+  background: var(--bg-elevated);
+  border: none;
+  border-radius: var(--radius);
+  padding: var(--space-md) var(--space-lg);
+  margin-left: var(--space-lg);
+}
+
+.empty-state-compact .empty-lead {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.empty-hint {
+  margin: var(--space-sm) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Sidebar tabs: pages / outline, shown only when the document has headings. */
+.sidebar-tabs {
+  display: flex;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.sidebar-tab {
+  padding: var(--space-2xs) var(--space-sm);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.sidebar-tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.sidebar-tab.active {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.outline-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-xs) 0;
+}
+
+.outline-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.outline-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.outline-item.active {
+  color: var(--text);
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.outline-item.level-2 {
+  padding-left: 18px;
+}
+
+.outline-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outline-page {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}

@@ -18,6 +18,14 @@
   --warning: #f0b429;
   --danger: #e5484d;
   /*
+   * The highlighter. Not a UI colour — it is the wash a reader leaves over
+   * words, so it stays yellow in both themes the way a real highlighter does.
+   * It was written out four times as #ffd54a / #ffb300 with four different
+   * mix percentages, which is how a mark and its border came to disagree.
+   */
+  --mark-highlight: #ffd54a;
+  --mark-highlight-strong: #ffb300;
+  /*
    * Corners. Three steps and a pill, where there used to be ten different
    * pixel values: 1, 2, 3, 4, 5, 6, 8, 10, 12 and 999. Nothing chose those —
    * they accumulated, and the result is a surface where nothing quite matches

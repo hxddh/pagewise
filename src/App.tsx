@@ -29,7 +29,19 @@ import "./styles/tokens.css";
 import "./styles/ui.css";
 import "./styles/preview.css";
 import "./styles/settings.css";
-import "./App.css";
+import "./styles/app/01-base.css";
+import "./styles/app/02-shell-layout.css";
+import "./styles/app/03-preview-pane.css";
+import "./styles/app/04-chat.css";
+import "./styles/app/05-chat-empty-composer.css";
+import "./styles/app/06-drawer-overlay.css";
+import "./styles/app/07-preview-chrome.css";
+import "./styles/app/08-recents-toasts.css";
+import "./styles/app/09-palette-status.css";
+import "./styles/app/10-agent-activity.css";
+import "./styles/app/11-pdf-layers.css";
+import "./styles/app/12-shell-rail.css";
+import "./styles/app/13-chat-late.css";
 
 const PreviewPane = lazy(() =>
   import("./features/preview/PreviewPane").then((m) => ({ default: m.PreviewPane })),
@@ -288,6 +300,7 @@ function AppContent() {
                   onConfigureApi={overlays.openSettings}
                   onStop={agent.stop}
                   waitForStreamIdle={agent.waitForStreamIdle}
+                  steerRun={agent.steerRun}
                   onDismissError={agent.clearError}
                   onJumpToPage={s.setPreviewPage}
                   onClearChat={overlays.openClearConfirm}

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -55,7 +55,14 @@ describe("declarations the app cannot lose", () => {
   });
 
   it("motion can be turned off", () => {
-    const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+    // App.css became src/styles/app/*.css in 7.6. The reduced-motion block can
+    // live in any of the parts, so this asks the whole sheet rather than one
+    // file — the guarantee is "the app honours the setting", not "one file does".
+    const dir = new URL("../src/styles/app/", import.meta.url);
+    const css = readdirSync(dir)
+      .filter((f) => f.endsWith(".css"))
+      .map((f) => readFileSync(new URL(f, dir), "utf8"))
+      .join("\n");
     expect(css).toContain("prefers-reduced-motion");
   });
 

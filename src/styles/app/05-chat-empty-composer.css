@@ -1,0 +1,67 @@
+/* ==========================================================================
+   Empty state, example chips, and the composer.
+
+   Part 5 of 13, cut from a single 3,590-line App.css. The parts are
+   imported in this numbered order and MUST stay in it: rules later in the
+   sequence deliberately override earlier ones, so moving a part changes what
+   the app looks like. `npm run check:css-order` fails if that order drifts.
+   ========================================================================== */
+
+/* Empty state */
+
+.empty-state {
+  padding: var(--space-md) var(--space-xs);
+}
+
+.empty-lead {
+  margin: 0 0 var(--space-md);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.settings-field-help-link {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-field-help-link:hover {
+  text-decoration: underline;
+}
+
+/* Composer */
+
+.composer {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.composer textarea {
+  /* Height is driven by the draft's own length; a resize grip fights it. */
+  resize: none;
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-md);
+  gap: var(--space-md);
+}
+
+.composer-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Buttons */

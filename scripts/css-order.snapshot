@@ -1,0 +1,418 @@
+# 01-base.css
+:root
+*
+body
+#root
+# 02-shell-layout.css
+.app
+.panel-header-main
+.panel-header-main h2
+.doc-name
+.doc-meta
+.chat-column
+.resize-handle
+.resize-handle:hover
+.agent-dock
+.agent-dock:hover
+.agent-dock-icon
+.agent-dock-pulse
+.agent-dock-badge
+.agent-dock-label
+.agent-dock-expand
+.agent-dock:hover .agent-dock-expand
+@keyframes pulse
+  50%
+# 03-preview-pane.css
+.preview-panel
+.preview-filename
+.settings-vision-hint
+.preview-canvas-wrap
+.preview-canvas-wrap.image-wrap
+.preview-canvas, .preview-image
+.preview-canvas
+.preview-page-frame
+.pdf-text-layer:not(.pdf-text-layer-active)
+.pdf-text-layer
+.pdf-text-layer :is(span, br)
+.pdf-text-layer > :not(.markedContent), .pdf-text-layer .markedContent span:not(.markedContent)
+.pdf-text-layer .markedContent
+.pdf-text-layer[data-main-rotation="90"]
+.pdf-text-layer[data-main-rotation="180"]
+.pdf-text-layer[data-main-rotation="270"]
+.pdf-text-layer ::selection
+.preview-raster-hint
+.preview-image
+.panel-loading
+# 04-chat.css
+.chat-panel
+.panel-header
+.panel-header h2
+.sr-only
+.header-actions
+.messages
+.chat-search
+.chat-search-input
+.chat-search-count
+.message
+.message:focus-visible
+.message.user
+.message-edit-form
+.message-edit-input
+.message-edit-input:focus
+.message-edit-actions
+.message.assistant
+.message-assistant-footer
+.message-assistant-toolbar
+.message-assistant-actions
+.message.assistant:hover .message-assistant-actions, .message-assistant-footer:hover .message-assistant-actions, .message-assistant-footer:focus-within .message-assistant-actions
+.message-action-btn
+.message-action-btn:hover:not(:disabled)
+.message-action-btn.active
+.usage-stats-popover
+.usage-stats-popover .usage-stats-panel
+.usage-stats-list
+.usage-stats-row
+.usage-stats-row dt
+.usage-stats-row dd
+.usage-stats-row.usage-stats-sub dt
+.usage-stats-row.usage-stats-sub dd
+.usage-stats-row.usage-stats-section dt
+.usage-stats-footnote
+.usage-stats-model
+.message-parts
+.message-body
+.message-empty-reply
+.message-sources
+.message-sources-label
+.message-sources ol
+.message-sources li
+.tool-chip
+.tool-chip-dot
+.markdown
+.markdown p
+.markdown p:last-child
+.markdown h1, .markdown h2, .markdown h3
+.markdown ul, .markdown ol
+.markdown code
+.markdown pre
+.markdown pre code
+.markdown blockquote
+.markdown-stream-tail
+.selection-actions
+.selection-actions button
+.ask-selection-btn
+.ask-selection-btn:hover
+.web-toggle
+.web-toggle.active
+.pages-read-trail
+.pages-read-label
+.pages-read-chip
+button.pages-read-chip:hover
+.pages-read-more
+.page-ref-link
+.page-ref-link:hover
+.markdown-stream-caret
+@keyframes markdown-caret-blink
+  50%
+.tool-fold-wrap
+.tool-fold
+.tool-fold-summary
+.tool-fold-summary::-webkit-details-marker
+.tool-dot
+.tool-dot.running
+.tool-dot.done
+.tool-dot.error
+.tool-fold-label
+.tool-fold-state
+.tool-steps-list
+.tool-steps-list li + li
+.tool-debug
+.tool-debug pre
+.tool-label
+.reasoning-block
+.reasoning-block pre
+# 05-chat-empty-composer.css
+.empty-state
+.empty-lead
+.settings-field-help-link
+.settings-field-help-link:hover
+.composer
+.composer textarea
+.composer-footer
+.composer-hint
+# 06-drawer-overlay.css
+.drawer-root
+.drawer-backdrop
+.drawer-panel
+@keyframes slideIn
+  from
+  to
+.drawer-header
+.drawer-header h2
+.drop-overlay
+.drop-overlay-inner
+.drop-title
+.drop-hint
+.error-line
+.chat-error
+.chat-scan-hint
+.chat-error
+.chat-error-text
+.chat-error-actions
+# 07-preview-chrome.css
+.preview-with-thumbs
+.preview-main
+.preview-toolbar
+.preview-toolbar.image-toolbar
+.preview-toolbar-center
+.thumb-sidebar
+.thumb-sidebar-header
+.thumb-list
+.thumb-item
+.thumb-item:hover
+.thumb-item.active
+.thumb-canvas
+.thumb-label
+.doc-search
+.doc-search-input
+.doc-search-results
+.doc-search-empty, .doc-search-count
+.doc-search-results ul
+.doc-search-hit
+.doc-search-hit:hover
+.hit-page
+.hit-snippet
+# 08-recents-toasts.css
+.loading-overlay
+.loading-card
+.loading-message
+.loading-bar-track
+.loading-bar-fill
+.loading-percent
+.toast-viewport
+.toast
+.toast-success
+.toast-error
+@keyframes toastIn
+  from
+  to
+.toast-error
+.toast-close
+[data-theme="light"] .toast
+# 09-palette-status.css
+.palette-root
+.palette-backdrop
+[data-theme="light"] .palette-backdrop
+.palette-panel
+[data-theme="light"] .palette-panel
+.palette-input
+.palette-list
+.palette-section-label
+.palette-item
+.palette-item:hover, .palette-item.active
+.palette-item kbd
+.palette-empty
+.palette-footer
+.palette-first-hint
+.empty-state-compact
+.empty-state-compact .empty-lead
+.library-remove
+.library-list li:hover .library-remove, .library-list li:focus-within .library-remove
+.zoom-menu-item
+.zoom-menu-item:hover, .zoom-menu-item.active
+.doc-search-overlay
+.doc-search-backdrop
+.preview-panel
+.doc-search-panel .doc-search-input
+.doc-search-panel .doc-search-results
+# 10-agent-activity.css
+.agent-generating-line
+.agent-generating-line .typing-dots span
+.message-inline-progress
+.message-in-progress
+.message-parts--settling
+.tool-fold-wrap--settling
+.message.assistant
+.message.user
+.empty-state-compact .empty-lead
+.empty-hint
+.sidebar-tabs
+.sidebar-tab
+.sidebar-tab:hover
+.sidebar-tab.active
+.outline-list
+.outline-item
+.outline-item:hover
+.outline-item.active
+.outline-item.level-2
+.outline-title
+.outline-page
+# 11-pdf-layers.css
+.search-highlight-layer
+.search-highlight
+@keyframes search-highlight-in
+  from
+  to
+.pdf-link-layer
+.pdf-link
+.pdf-link:hover, .pdf-link:focus-visible
+.pdf-mark-layer
+.pdf-mark
+.pdf-mark-text
+.pdf-mark-region
+.pdf-mark-text.pdf-mark-noted
+.pdf-mark-region.pdf-mark-noted
+.pdf-mark-text:hover, .pdf-mark-text:focus-visible, .pdf-mark-text.pdf-mark-selected
+.pdf-mark-region:hover, .pdf-mark-region:focus-visible, .pdf-mark-region.pdf-mark-selected
+:root[data-theme="dark"] .pdf-mark-text
+.mark-selection-btn
+.mark-selection-btn:hover
+.mark-note
+.mark-note-head
+.mark-note-page
+.mark-note-close
+.mark-note-quote
+.mark-note-stale, .mark-stale-note
+.mark-stale-note
+.mark-filter
+.mark-note-input
+.mark-note-actions
+.mark-note-delete
+.mark-row
+.mark-row .outline-item
+.mark-ask-btn
+.mark-row:hover .mark-ask-btn, .mark-ask-btn:focus-visible
+.mark-ask-btn:hover
+.mark-item .outline-title
+.mark-item-text
+.mark-item-note
+.mark-item-here .outline-page
+.pdf-region-layer
+.pdf-region-band
+@media (prefers-reduced-motion: reduce)
+  *, *::before, *::after
+# 12-shell-rail.css
+.app.v3
+.app-rail
+.app-rail-brand
+.app-rail-logo
+.app-rail-actions
+.rail-btn
+.rail-btn:active:not(:disabled)
+.rail-btn:hover
+.rail-btn.active
+.rail-btn-accent
+.rail-btn-label
+.rail-btn-bottom
+.rail-btn-bottom svg:last-child
+.library-drawer-root
+.library-drawer-backdrop
+.library-drawer
+@keyframes drawer-in
+  from
+  to
+.library-drawer-header
+.library-drawer-header h2
+.library-drawer-open
+.library-drawer-body
+.document-library
+.library-section-label
+.library-list
+.library-list li
+.library-list li.active .library-item
+.library-item
+.library-item:hover
+.library-item-history
+.library-name
+.library-meta
+.library-empty
+.library-remove:hover
+.v3-main
+.v3-workspace
+.v3-workspace.agent-hidden .preview-panel
+.v3-workspace .preview-panel
+.v3-workspace .chat-column
+.welcome-view
+.welcome-inner
+.welcome-brand
+.welcome-logo
+.welcome-title
+.welcome-subtitle
+.welcome-open-btn
+.welcome-drop-hint
+.welcome-api-hint
+.welcome-recents
+.welcome-recents-label
+.welcome-recent-grid
+.welcome-recent-card
+.welcome-recent-card:hover
+.welcome-recent-icon
+.welcome-recent-name
+.app.v3 .message.user
+.app.v3 .message.assistant
+.app.v3 .messages
+.app.v3 .message-assistant-actions
+.app.v3 .message.assistant:hover .message-assistant-actions, .app.v3 .message-assistant-footer:hover .message-assistant-actions, .app.v3 .message-assistant-footer:focus-within .message-assistant-actions
+.app.v3 .message-action-btn
+.app.v3 .message-action-btn:hover:not(:disabled)
+.app.v3 .agent-generating-line
+.app.v3 .chat-panel
+.app.v3 .panel-header
+.app.v3 .panel-header h2
+.app.v3 .messages
+.app.v3 .message.user
+.app.v3 .message.assistant .message-body
+.app.v3 .composer
+.app.v3 .composer textarea
+.app.v3 .composer-footer
+.app.v3 .composer-hint
+# 13-chat-late.css
+.empty-state-minimal
+.empty-state-minimal .empty-lead
+.empty-state-minimal .empty-hint
+.empty-examples
+.empty-example-chip
+.empty-example-chip:hover
+.chat-loading
+.chat-loading .preview-loading-spinner
+.messages-panel
+.chat-loading-overlay
+.welcome-app-name
+.typing-dots
+.typing-dots span
+.typing-dots span:nth-child(2)
+.typing-dots span:nth-child(3)
+@keyframes typing-bounce
+  0%, 80%, 100%
+  40%
+.chat-column-hidden
+.file-error-banner
+.file-error-dismiss
+.confirm-bar
+.confirm-bar-message
+.confirm-bar-actions
+.tool-steps-list
+.tool-steps-list li
+.tool-steps-list li.tool-step-failed
+.tool-step-link
+.tool-step-link:hover
+.tool-step-link:focus-visible
+.agent-step-counter
+.run-plan
+.run-plan-phase
+.run-plan-dot
+.run-plan-phase--done
+.run-plan-phase--done .run-plan-dot
+.run-plan-phase--active
+.run-plan-phase--active .run-plan-dot
+.run-plan-count
+@keyframes run-plan-pulse
+  0%, 100%
+  50%
+.tool-step-duration
+.tool-fold-wrap--error .tool-fold-summary
+.message-edit-error
+.usage-stats-provider-meta
+.follow-ups
+.follow-up-chip
+.follow-up-chip:hover:not(:disabled)

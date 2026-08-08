@@ -1,0 +1,180 @@
+/* ==========================================================================
+   Around the page: toolbar, thumbnail sidebar, in-document search.
+
+   Part 7 of 13, cut from a single 3,590-line App.css. The parts are
+   imported in this numbered order and MUST stay in it: rules later in the
+   sequence deliberately override earlier ones, so moving a part changes what
+   the app looks like. `npm run check:css-order` fails if that order drifts.
+   ========================================================================== */
+
+/* Phase B: thumbnails, toolbar, search, recent, loading, toast */
+
+.preview-with-thumbs {
+  flex-direction: row;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.preview-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border-subtle);
+  min-height: 40px;
+}
+
+.preview-toolbar.image-toolbar {
+  justify-content: space-between;
+}
+
+/* Positioned by preview.css; this is only what is inside it. */
+.preview-toolbar-center {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.thumb-sidebar {
+  width: 128px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+}
+
+.thumb-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.thumb-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md) var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.thumb-item {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  padding: var(--space-xs);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.thumb-item:hover {
+  border-color: var(--border);
+}
+
+.thumb-item.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-muted);
+}
+
+.thumb-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+}
+
+.thumb-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.doc-search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Surface, border, radius and shadow come from <Panel tone="elevated">. */
+.doc-search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 280px;
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 50;
+  padding: var(--space-sm);
+}
+
+.doc-search-empty,
+.doc-search-count {
+  margin: var(--space-xs) var(--space-sm);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.doc-search-results ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.doc-search-hit {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.doc-search-hit:hover {
+  background: var(--bg-hover);
+}
+
+.hit-page {
+  font-size: var(--text-xs);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.hit-snippet {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
