@@ -105,7 +105,11 @@ if (update || !existsSync(SNAPSHOT)) {
   process.exit(0);
 }
 
-const stored = readFileSync(SNAPSHOT, "utf8").trimEnd().split("\n");
+// Split on either line ending. Git hands this file to a Windows runner with
+// CRLF, and splitting on "\n" alone left a trailing "\r" on every stored line —
+// so every line differed from the live one by an invisible character and the
+// Windows release build failed while printing `was: X` / `now: X` for each.
+const stored = readFileSync(SNAPSHOT, "utf8").trimEnd().split(/\r?\n/);
 
 if (stored.length === live.length && stored.every((l, i) => l === live[i])) {
   console.log(
@@ -120,9 +124,13 @@ const max = Math.max(stored.length, live.length);
 let shown = 0;
 for (let i = 0; i < max && shown < 40; i++) {
   if (stored[i] === live[i]) continue;
+  // JSON-quoted, so a difference that is only whitespace or a stray carriage
+  // return is visible. Printing them bare made the CRLF failure above read as
+  // `was: X` / `now: X` on every line, which said nothing at all.
+  const show = (value) => (value === undefined ? "(end of file)" : JSON.stringify(value));
   console.error(`  line ${i + 1}`);
-  console.error(`    was: ${stored[i] ?? "(end of file)"}`);
-  console.error(`    now: ${live[i] ?? "(end of file)"}`);
+  console.error(`    was: ${show(stored[i])}`);
+  console.error(`    now: ${show(live[i])}`);
   shown += 1;
 }
 if (shown === 40) console.error("  … more differences follow");

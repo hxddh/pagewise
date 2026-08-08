@@ -1,0 +1,6 @@
+# The CSS order snapshot is compared line by line against a sequence computed at
+# run time, so it must arrive with the same line endings everywhere. Without this
+# a Windows runner checks it out with CRLF, every stored line ends in a stray
+# carriage return, and the check fails on a difference nobody can see — which is
+# how the 7.6.0 Windows release build broke.
+scripts/css-order.snapshot text eol=lf
