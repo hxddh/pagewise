@@ -4,16 +4,17 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * The two CSS sweeps of 7.6, kept as invariants instead of as a one-off tidy.
+ * Surface hygiene kept as invariants instead of as one-off tidying.
  *
- * Both were done by hand once before and both grew back, because nothing failed
- * when they did: 116 unreachable rules had accumulated since the v3 shell
- * replaced the sidebar, the library list and the onboarding steps, and four
- * `@keyframes` had outlived every animation that referenced them. A cleanup
- * nobody can regress is a cleanup that happens once.
+ * Every one of these was done by hand once and grew back, because nothing failed
+ * when it did: 116 unreachable rules had accumulated since the v3 shell replaced
+ * the sidebar, the library list and the onboarding steps; four `@keyframes` had
+ * outlived every animation that referenced them; and 6.3's argument about which
+ * buttons should stay hand-written lived in one comment about a set nobody
+ * recorded. A cleanup nobody can regress is a cleanup that happens once.
  *
- * These run in the normal test suite, so a rule with no markup behind it fails
- * on the commit that orphans it rather than a year later.
+ * These run in the normal test suite, so a rule with no markup behind it — or a
+ * `<button>` with no reason behind it — fails on the commit that adds it.
  */
 
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -90,6 +91,20 @@ describe("CSS hygiene", () => {
     } finally {
       writeFileSync(snapshot, original);
     }
+  });
+
+  it("gives a reason for every hand-written <button>", () => {
+    // 6.3 argued that a few elements should stay raw — a card loses its meaning
+    // as a control, a tab is not a button, an inline affordance inside a
+    // sentence has no box. The argument was right and lived in one comment,
+    // about a set nobody recorded, so it could not tell an exception from
+    // something nobody had got round to. Each site now says which it is.
+    const output = execFileSync(
+      process.execPath,
+      [join(ROOT, "scripts/check-raw-buttons.mjs")],
+      { encoding: "utf8" },
+    );
+    expect(output).toContain("Raw-button check passed");
   });
 
   it("keeps the cascade in the order the snapshot records", () => {

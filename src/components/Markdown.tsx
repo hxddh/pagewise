@@ -14,6 +14,7 @@ function PageRefLink({ page, children }: { page: number; children: ReactNode }) 
   const onJump = useContext(PageRefContext);
   if (!onJump || !Number.isFinite(page)) return <>{children}</>;
   return (
+    // raw-button: an inline affordance inside a sentence — it has to read as text, not as a control
     <button type="button" className="page-ref-link" onClick={() => onJump(page)}>
       {children}
     </button>

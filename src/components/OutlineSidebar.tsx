@@ -62,6 +62,7 @@ export const OutlineSidebar = memo(function OutlineSidebar({
       </div>
       <nav className="outline-list">
         {outline.map((heading, i) => (
+          // raw-button: a list row indented by heading level, with its own active state
           <button
             key={`${heading.page}-${i}-${heading.title}`}
             ref={i === active ? activeRef : undefined}

@@ -32,6 +32,7 @@ export function ProviderGrid({ preview, active, onSelect }: ProviderGridProps) {
     const isPreview = preview === id;
     const isActive = active === id;
     return (
+      // raw-button: a grid cell showing a provider; the grid is the control, not each cell
       <button
         key={id}
         type="button"

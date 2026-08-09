@@ -171,6 +171,7 @@ function SettingsDrawerInner({
 
   return (
     <div className="drawer-root" role="presentation">
+      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
       <button
         type="button"
         className="drawer-backdrop"
@@ -200,6 +201,7 @@ function SettingsDrawerInner({
             {TABS.map((id, index) => {
               const Icon = TAB_ICONS[id];
               return (
+                // raw-button: role="tab" in a tablist — a tab is not a button and must not be styled as one
                 <button
                   key={id}
                   ref={(el) => {

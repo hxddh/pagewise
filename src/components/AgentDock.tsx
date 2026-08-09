@@ -13,6 +13,7 @@ export function AgentDock({ onExpand, busy, messageCount = 0 }: AgentDockProps) 
     messageCount > 0 ? t("agent.messageCount", { count: messageCount }) : undefined;
 
   return (
+    // raw-button: a dock, not a control — an icon, a badge and a label stacked in their own layout
     <button
       type="button"
       className="agent-dock"

@@ -201,6 +201,14 @@ export function useDocAgent(chatId: string | null = null) {
     setSendPhase(false);
     setHistorySettling(false);
     pendingSendContextRef.current = null;
+    // The same clear `resetForDocumentSwitch` does. It was only there, so the
+    // guarantee — document A's "send the page screenshot" and "use web search"
+    // must not apply to document B's Regenerate — held because every caller
+    // remembered to call it. A conversation id changing by any other route
+    // would have carried the options across. Clearing here as well makes it a
+    // property of the hook rather than of its callers; both paths are
+    // idempotent.
+    lastSendOptionsRef.current = null;
     clearAgentRunAbortSignal();
     chat.stop();
   }, [resolvedChatId, chat.stop]);

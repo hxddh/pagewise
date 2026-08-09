@@ -131,6 +131,7 @@ function ToolStepsBlock({
                     "pages read" trail below has always been clickable; this
                     list showed the same pages as dead text. */}
                 {page !== undefined && onJump ? (
+                  // raw-button: an inline affordance inside a step line — text with a target, not a control
                   <button
                     type="button"
                     className="tool-step-link"
@@ -209,6 +210,7 @@ function PagesReadTrail({ pages }: { pages: number[] }) {
       <span className="pages-read-label">{t("agent.pagesRead")}</span>
       {shown.map((p) =>
         onJump ? (
+          // raw-button: an inline page chip in a running trail; a control's padding would break the line
           <button
             key={p}
             type="button"

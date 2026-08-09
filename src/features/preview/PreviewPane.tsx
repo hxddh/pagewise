@@ -441,6 +441,7 @@ function PreviewPaneInner({
   const staleMarks = marksAreStale(doc.path, doc.stamp ?? "");
   const sidebarTabs = (
     <div className="sidebar-tabs" role="tablist">
+      {/* raw-button: role="tab" in a tablist — a tab is not a button and must not be styled as one */}
       <button
         type="button"
         role="tab"
@@ -450,6 +451,7 @@ function PreviewPaneInner({
       >
         {t("preview.pages")}
       </button>
+      {/* raw-button: role="tab" in the same tablist; it has to match the tab beside it */}
       <button
         type="button"
         role="tab"
@@ -463,6 +465,7 @@ function PreviewPaneInner({
       >
         {t("preview.outline")}
       </button>
+      {/* raw-button: role="tab" in the same tablist; it has to match the tabs beside it */}
       <button
         type="button"
         role="tab"
