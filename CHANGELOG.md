@@ -4,6 +4,23 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.7.0] - 2026-08-09
+
+### Fixed
+
+- **A document's "send the page screenshot" and "use web search" choices could outlive the document.** They are remembered so that retrying a question re-runs it the same way, and they were cleared on the one path that closes a document — which held only because every caller remembered to call it. Any other route to a new conversation carried the previous document's choices into it. Clearing is now part of the conversation changing, not of the caller being careful.
+
+### Changed
+
+- **The parts of the app that hold every message, and every API key, now have tests.** The hook every question passes through — send, edit, retry, mid-run correction, the optimistic message and its removal on failure — had none, and neither did the settings panel. Between them that is 1,400 lines of the app's most stateful code. Fourteen tests now hold the hook's promises and six hold the settings panel's, and each was checked by breaking the thing it guards and confirming it fails.
+- **Every hand-written `<button>` in the app now says why it is not the shared one.** A release two versions ago replaced twenty-one button styles with a single component and argued that a handful of elements should stay as they were — a card is not a control, a tab is not a button, a link inside a sentence has no box around it. That argument was right and was written down once, about a set nobody listed, so nothing could tell an argued exception from something no one had got to. All 33 are now labelled with the reason, and a new one without a reason fails the build.
+- The key-fingerprinting used to notice when you change an API key is now tested directly, including that neither the fingerprint nor the snapshot it goes into ever contains the key.
+
+### Notes
+
+- The evaluation for this release said the settings layer was thinly tested, counting it as one 2,000-line block. Its logic half was not: `settings.ts` had 38 tests covering migration, keychain fallback and the store's edges, and `llm.ts` had 12. The untested half was the interface, and the thinnest layer in the app was somewhere else entirely — the hooks. The same evaluation also listed a file that does not exist; the check behind it looked for a test and never asked whether there was anything to test.
+- One thing 7.6 shipped is still unverified against a real provider: a correction typed mid-answer is delivered as a message appended after the last tool result, and that shape has only ever been checked in unit tests. Interrupting an answer once will settle it — the fallback to the old behaviour is already there if a provider objects.
+
 ## [7.6.0] - 2026-08-08
 
 ### Added

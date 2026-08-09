@@ -98,6 +98,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
 
   return (
     <div className="doc-search-overlay" role="presentation">
+      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
       <button
         type="button"
         className="doc-search-backdrop"
@@ -155,6 +156,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
                 <ul>
                   {hits.map((hit, i) => (
                     <li key={`${hit.page}-${hit.index}-${i}`}>
+                      {/* raw-button: a result row — page number above, snippet below, in its own layout */}
                       <button
                         type="button"
                         className="doc-search-hit"

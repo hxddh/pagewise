@@ -120,6 +120,7 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
 
   return (
     <div className="palette-root" role="presentation">
+      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
       <button type="button" className="palette-backdrop" aria-label={t("settings.close")} onClick={onClose} />
       <Panel
         tone="elevated"
@@ -157,6 +158,7 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
                     const idx = listItems.indexOf(cmd);
                     const isActive = idx === activeIndex;
                     return (
+                      // raw-button: role="option" in a listbox — an option is not a button, and Button would say it was
                       <button
                         key={cmd.id}
                         ref={isActive ? activeItemRef : undefined}

@@ -69,6 +69,7 @@ export function EmptyState({
           ]
             .filter((e): e is string => !!e)
             .map((example) => (
+              // raw-button: a text chip that reads as a suggestion, not as a control with a height
               <button
                 key={example}
                 type="button"

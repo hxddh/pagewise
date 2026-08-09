@@ -55,6 +55,7 @@ function RecentFilesListInner({
           {items.map((file) => {
             const Icon = file.kind === "image" ? FileImage : FileText;
             return (
+              // raw-button: a card — icon, name and meta in their own layout; Button would flatten it
               <button
                 key={file.path}
                 type="button"
@@ -88,6 +89,7 @@ function RecentFilesListInner({
         const Icon = file.kind === "image" ? FileImage : FileText;
         return (
           <li key={file.path} className={active ? "active" : undefined}>
+            {/* raw-button: a list row carrying name, meta and a remove action */}
             <button
               type="button"
               className="library-item library-item-history"

@@ -65,6 +65,7 @@ function RecentFilesDrawerInner({
 
   return (
     <div className="library-drawer-root" role="presentation">
+      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
       <button
         type="button"
         className="library-drawer-backdrop"

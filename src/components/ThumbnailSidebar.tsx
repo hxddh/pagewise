@@ -68,6 +68,7 @@ const ThumbnailItem = memo(function ThumbnailItem({
   }, [visible, path, page]);
 
   return (
+    // raw-button: a page thumbnail: a canvas and a label, sized by the page it shows
     <button
       ref={rootRef}
       type="button"

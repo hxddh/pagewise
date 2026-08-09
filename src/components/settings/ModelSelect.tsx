@@ -72,6 +72,7 @@ export function ModelSelect({
           trigger announced only the model id — "gpt-4o", with no hint that it
           is the agent model. aria-labelledby is how a button borrows a label.
         */}
+        {/* raw-button: a listbox trigger — it looks like the Input beside it, not like a button */}
         <button
           type="button"
           className="settings-select-trigger"
@@ -108,6 +109,7 @@ export function ModelSelect({
           role="listbox"
         >
           {presetModels.map((m) => (
+            // raw-button: role="option" in a listbox — an option is not a button
             <button
               key={m}
               type="button"
@@ -133,6 +135,7 @@ export function ModelSelect({
             </button>
           ))}
           <div className="model-select-divider" role="separator" />
+          {/* raw-button: role="option" in the same listbox; it has to match the rows above it */}
           <button
             type="button"
             role="option"

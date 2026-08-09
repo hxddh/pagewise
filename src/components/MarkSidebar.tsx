@@ -89,6 +89,7 @@ export const MarkSidebar = memo(function MarkSidebar({
             // about it is the reason to mark it, and until now the only way was
             // to find the page, find the passage and select it again.
             <div key={mark.id} className="mark-row">
+              {/* raw-button: a list row carrying page, quote and note; Button would flatten it */}
               <button
                 type="button"
                 className={`outline-item mark-item ${

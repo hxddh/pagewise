@@ -417,6 +417,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             anchorRef={moreBtnRef}
             className="anchored-popover"
           >
+            {/* raw-button: role="menuitem" in the overflow menu — a menu row, not a button */}
             <button
               type="button"
               role="menuitem"
@@ -428,6 +429,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             >
               {t("agent.exportChat")}
             </button>
+            {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}
             <button
               type="button"
               role="menuitem"
@@ -439,6 +441,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             >
               {t("agent.exportSummary")}
             </button>
+            {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}
             <button
               type="button"
               role="menuitem"

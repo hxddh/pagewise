@@ -37,6 +37,7 @@ function PillRow<T extends string>({
       <span className="settings-pill-row-label">{label}</span>
       <div className="settings-pill-group" role="group" aria-label={label}>
         {options.map((opt) => (
+          // raw-button: a segment of a segmented control; the group is the control, not each pill
           <button
             key={opt.id}
             type="button"

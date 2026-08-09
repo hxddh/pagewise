@@ -62,6 +62,7 @@ export function MarkLayer({ path, page, revision, selectedId, onSelect }: MarkLa
     <div className="pdf-mark-layer">
       {placed.map(({ mark, boxes }) =>
         boxes.map((box, i) => (
+          // raw-button: a hit area positioned over the page at the mark's own PDF coordinates
           <button
             key={`${mark.id}-${i}`}
             type="button"

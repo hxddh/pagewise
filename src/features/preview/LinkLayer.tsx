@@ -75,6 +75,7 @@ export function LinkLayer({ path, page, links, onActivate }: LinkLayerProps) {
   return (
     <div className="pdf-link-layer">
       {placed.map((link, i) => (
+        // raw-button: a hit area positioned over the page at the link's own PDF coordinates
         <button
           key={`${link.url}-${i}`}
           type="button"

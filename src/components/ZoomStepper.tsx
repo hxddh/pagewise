@@ -59,6 +59,7 @@ export function ZoomStepper({
         align="end"
       >
         {ZOOM_PRESETS.map((z) => (
+          // raw-button: role="menuitemradio" — a menu item with a checked state, not a button
           <button
             key={z.labelKey}
             type="button"
@@ -74,6 +75,7 @@ export function ZoomStepper({
           </button>
         ))}
         <div className="zoom-menu-divider" role="separator" />
+        {/* raw-button: role="menuitem" inside the same menu; it has to match the rows above it */}
         <button
           type="button"
           role="menuitem"
@@ -87,6 +89,7 @@ export function ZoomStepper({
           <Minus size={12} aria-hidden />
           {t("preview.zoomOut")}
         </button>
+        {/* raw-button: role="menuitem" inside the same menu; it has to match the rows above it */}
         <button
           type="button"
           role="menuitem"
