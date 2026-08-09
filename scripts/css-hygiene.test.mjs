@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -17,7 +18,12 @@ import { describe, expect, it } from "vitest";
  * `<button>` with no reason behind it — fails on the commit that adds it.
  */
 
-const ROOT = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not `.pathname`: on Windows a file: URL's pathname is
+// "/D:/a/repo/src", and handing that leading slash to fs resolves to
+// "D:\\D:\\a\\repo\\src". That doubled drive letter failed the 7.7.0 Windows
+// release build, and it is the second Windows-only break from a check added
+// on Linux and never run anywhere else.
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DIRS = ["src/styles/app", "src/styles"];
 
 function stylesheets() {
@@ -105,6 +111,28 @@ describe("CSS hygiene", () => {
       { encoding: "utf8" },
     );
     expect(output).toContain("Raw-button check passed");
+  });
+
+  it("resolves its own directory in a way that works on Windows", () => {
+    // Twice in two releases a check I added broke the Windows release build and
+    // nothing else, because I only ever ran it here. 7.6.0 was a CRLF snapshot;
+    // 7.7.0 was `new URL(…, import.meta.url).pathname`, which yields
+    // "/D:/a/repo/src" on Windows and resolves to "D:\\D:\\a\\repo\\src".
+    //
+    // The real fix is not another careful reading — it is this: the idiom cannot
+    // be used at all. A script that needs a path from its own URL has to go
+    // through fileURLToPath.
+    const offenders = [];
+    for (const file of readdirSync(join(ROOT, "scripts"))) {
+      if (!file.endsWith(".mjs")) continue;
+      const source = readFileSync(join(ROOT, "scripts", file), "utf8");
+      const live = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+      if (/import\.meta\.url\s*\)\s*\.pathname/.test(live)) offenders.push(file);
+    }
+    expect(
+      offenders,
+      "use fileURLToPath(new URL(..., import.meta.url)) — .pathname breaks on Windows",
+    ).toEqual([]);
   });
 
   it("keeps the cascade in the order the snapshot records", () => {
