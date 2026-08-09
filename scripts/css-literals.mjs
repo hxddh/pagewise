@@ -19,7 +19,7 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // fileURLToPath, not `.pathname`: on Windows a file: URL's pathname is
 // "/D:/a/repo/src", and handing that leading slash to fs resolves to
@@ -77,7 +77,13 @@ export function findLiterals(css) {
   return out;
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop())) {
+// pathToFileURL, the same test changelog-section.mjs uses. Splitting argv[1] on
+// "/" and comparing the last segment is a guess that is simply false on Windows,
+// where argv[1] is "D:\\a\\repo\\scripts\\css-literals.mjs" and has no "/" to
+// split on — so `.pop()` returns the whole path, the comparison fails, and the
+// script exits having printed nothing at all. Silent success is the worst
+// possible failure for a check.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let total = 0;
   for (const dir of DIRS) {
     for (const file of readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(".css"))) {

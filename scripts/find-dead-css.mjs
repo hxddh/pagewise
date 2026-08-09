@@ -23,7 +23,7 @@
  * Usage: node scripts/find-dead-css.mjs
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // fileURLToPath, not `.pathname`: on Windows a file: URL's pathname is
@@ -130,7 +130,10 @@ for (const f of files.filter((f) => extname(f) === ".css")) {
   // scanner that reads them reports them as defined and then as dead.
   const css = readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   for (const m of css.matchAll(/(^|[\s,>+~(])\.([A-Za-z][\w-]*)/gm)) {
-    if (!defined.has(m[2])) defined.set(m[2], f.slice(SRC.length + 1));
+    // Forward slashes on every platform, so the report reads the same way
+    // wherever it runs. Display only here, unlike check-raw-buttons.mjs, where
+    // the same slice was compared against a hand-written path and lost.
+    if (!defined.has(m[2])) defined.set(m[2], f.slice(SRC.length + 1).split(sep).join("/"));
   }
 }
 

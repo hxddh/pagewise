@@ -35,6 +35,50 @@ jobs:
       - name: Verify version sync
         run: node scripts/sync-version.mjs && git diff --exit-code VERSION package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
 
+  # The checks that guard the build, run on Windows.
+  #
+  # Three releases in a row published four assets instead of six because a check
+  # added here and only ever run on Linux failed on the Windows runner and
+  # nowhere else: 7.6.0 on a CRLF snapshot, 7.7.0 on `new URL(…).pathname`, and
+  # 7.7.0's re-run on `path.sep` in a lookup keyed by "components/ui/Button.tsx".
+  # Each was fixed by reading the next script more carefully, which caught none
+  # of the following two. The mechanism is running them where they break.
+  #
+  # Deliberately not the whole suite and not the Rust build — this is the
+  # `prebuild` chain plus the tests that shell out to it, which is where every
+  # one of those three lived. Keeping it that narrow is what makes it fast
+  # enough to sit on every pull request.
+  windows-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Secret scan
+        run: npm run check:secrets
+
+      - name: CSS token check
+        run: npm run check:css
+
+      - name: CSS cascade order check
+        run: npm run check:css-order
+
+      - name: Raw-button check
+        run: npm run check:buttons
+
+      # The suite's own path-and-line-ending invariants — css-hygiene.test.mjs
+      # runs each of the scripts above as a subprocess and reads their output,
+      # so it is the one place a script that silently prints nothing is caught.
+      - name: Hygiene invariants
+        run: npx vitest run scripts/css-hygiene.test.mjs
+
   rust:
     runs-on: ubuntu-latest
     steps:
