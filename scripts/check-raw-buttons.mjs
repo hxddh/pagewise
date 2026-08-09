@@ -21,8 +21,14 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SRC = new URL("../src", import.meta.url).pathname;
+// fileURLToPath, not `.pathname`: on Windows a file: URL's pathname is
+// "/D:/a/repo/src", and handing that leading slash to fs resolves to
+// "D:\\D:\\a\\repo\\src". That doubled drive letter failed the 7.7.0 Windows
+// release build, and it is the second Windows-only break from a check added
+// on Linux and never run anywhere else.
+const SRC = fileURLToPath(new URL("../src", import.meta.url));
 
 /**
  * Files exempt from the rule, with the reason.
