@@ -20,7 +20,7 @@
  * Usage: node scripts/check-raw-buttons.mjs
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // fileURLToPath, not `.pathname`: on Windows a file: URL's pathname is
@@ -43,6 +43,20 @@ const EXEMPT = new Map([
 
 /** How many lines above a `<button>` the reason may sit. */
 const LOOKBACK = 4;
+
+/**
+ * A path relative to src/, written with forward slashes on every platform.
+ *
+ * The EXEMPT keys above are written the way the repository writes paths, and
+ * `path.sep` is "\\" on Windows — so `components\\ui\\Button.tsx` missed every
+ * one of them, the primitives lost their exemption, and the `<button>` mentions
+ * inside their own doc comments were reported as unexplained. That broke the
+ * 7.7.0 Windows release build, the third Windows-only failure in three releases
+ * from a check that had only ever run on Linux. Hence the CI job that now runs
+ * these on Windows too — a comparison against a hand-written path has to be
+ * done in one spelling, and being careful is not a mechanism for that.
+ */
+const relative = (file) => file.slice(SRC.length + 1).split(sep).join("/");
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
@@ -72,7 +86,7 @@ let explained = 0;
 let exempt = 0;
 
 for (const file of walk(SRC)) {
-  const rel = file.slice(SRC.length + 1);
+  const rel = relative(file);
   const source = readFileSync(file, "utf8");
   const count = (source.match(/<button\b/g) ?? []).length;
   if (count === 0) continue;
