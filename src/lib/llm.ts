@@ -3,6 +3,7 @@ import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { APICallError, generateText, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import { getAgentRunAbortSignal } from "./agent-abort";
+import { CONNECTION_TEST_TIMEOUT_MS } from "./agent-timeouts";
 import { isToolModel, isVisionModel } from "./model-capabilities";
 import { generateVisionText } from "./vision-api";
 import {
@@ -437,6 +438,10 @@ export async function testVisionConnection(
       settings,
       "If you can see an image, reply with exactly OK.",
       VISION_PROBE_JPEG,
+      // The only generateVisionText call site with no deadline of its own. The
+      // two background ones bound themselves at 60s; this one ran unbounded, so
+      // a wrong base URL left the button spinning until the reader gave up.
+      { signal: AbortSignal.timeout(CONNECTION_TEST_TIMEOUT_MS) },
     );
   } catch (e) {
     throw new Error(formatLlmError(e, t, "scan"));
@@ -463,6 +468,8 @@ export async function testConnection(
         }),
       },
       prompt: "Call the ping tool once, then reply OK.",
+      // A health check that has not answered in thirty seconds has answered.
+      timeout: CONNECTION_TEST_TIMEOUT_MS,
     });
     return text.trim();
   } catch (e) {

@@ -4,6 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [7.8.0] - 2026-08-11
+
+### Fixed
+
+- **A model that stopped answering used to leave the app waiting forever.** If a provider accepted the connection and then went quiet — a dropped socket, a wrong base URL, a proxy that never replies — the answer stayed mid-stream with no end and no error. Nothing told you it had died, because from the outside a hung connection and a model thinking hard look the same. There are now deadlines: ninety seconds to start answering, forty-five between one piece of the answer and the next, and thirty seconds for the two "Test connection" buttons in Settings, which previously could spin until you gave up on them.
+
+### Changed
+
+- **The tool descriptions that make up the cached part of every request are now held in place by a test.** They are the first thing sent and the first thing a provider caches, so editing a word of one — a normal, harmless-looking change — quietly costs everyone with a warm cache a full re-read of it on their next question. Nothing said so anywhere. A change to any of the six now fails the build and says what moved, so it becomes a decision rather than an accident.
+- Kept current with the SDK and the PDF library: `ai`, the React and OpenAI adapters, the icon set, and the Rust side including the PDF parser.
+
+### Notes
+
+- The deadlines above are set to catch a connection that is dead, not one that is slow, because firing early is the worse mistake: it kills a run that was working and you pay for the whole context again on the retry. The first draft had a ceiling on a whole run that was lower than the longest run the app itself permits — a test comparing the two numbers is what caught it, not the arithmetic that produced them.
+- Two of the vision paths already had deadlines and did not need these. It was the paths nobody had thought about that had none, which is the usual shape of this.
+
 ## [7.7.0] - 2026-08-09
 
 ### Fixed

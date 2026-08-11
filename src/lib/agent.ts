@@ -15,6 +15,7 @@ import {
   buildViewContextInstructions,
   buildWholeDocumentInstructions,
 } from "./agent-view-context";
+import { AGENT_TIMEOUT } from "./agent-timeouts";
 import { compactRunMessages } from "./compact-run-messages";
 import { beginSteerRun, withSteerMessage } from "./agent-steer";
 import { resolveModel, resolveReasoning } from "./llm";
@@ -166,6 +167,10 @@ export function createDocAgent() {
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
     stopWhen: AGENT_STOP_WHEN,
+    // A provider that accepts the connection and then goes quiet used to leave
+    // the run streaming with no end and no error. See agent-timeouts.ts for why
+    // each number is as generous as it is.
+    timeout: AGENT_TIMEOUT,
     // The order tools are offered in nudges which one gets picked, without
     // spending prompt on saying so: locate, then read, then the survey.
     toolOrder: [
