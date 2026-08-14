@@ -31,12 +31,12 @@
 
 .message-parts--settling {
   opacity: 0.92;
-  transition: opacity 0.25s ease;
+  transition: opacity var(--transition-slow);
 }
 
 .tool-fold-wrap--settling {
   opacity: 0.85;
-  transition: opacity 0.25s ease;
+  transition: opacity var(--transition-slow);
 }
 
 .message.assistant {

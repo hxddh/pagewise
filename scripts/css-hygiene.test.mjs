@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -133,6 +133,47 @@ describe("CSS hygiene", () => {
       offenders,
       "use fileURLToPath(new URL(..., import.meta.url)) — .pathname breaks on Windows",
     ).toEqual([]);
+  });
+
+  it("draws every elevation and every timing from the scale", () => {
+    // 8.0 found twelve hand-written drop shadows across eleven distinct values,
+    // while `--shadow-md` sat defined-and-unused at a twelfth geometry; and two
+    // animations declared at two speeds each — `popover-in` at 0.14s and 0.16s,
+    // `pulse` at 1s and 1.2s. Both are the shape spacing, type and radius had
+    // before they were scaled, and both drift the same way: nobody chooses the
+    // second value, it just gets written next to the thing it decorates.
+    //
+    // Rings and insets are not elevation — `0 0 0 1px` is a border drawn with a
+    // shadow, and an inset accent is a marker. Neither belongs on a scale of
+    // how far a surface floats, the same way `em` is not a spacing step.
+    //
+    // A genuinely off-scale timing is allowed, but it has to say so: mark it
+    // `motion-exception:` with the reason, like a hand-written <button>.
+    const offenders = [];
+    for (const file of stylesheets()) {
+      if (file.endsWith("tokens.css")) continue;
+      const lines = readFileSync(file, "utf8").split("\n");
+      const rel = file.slice(ROOT.length).split(sep).join("/");
+      lines.forEach((line, i) => {
+        const shadow = /box-shadow:\s*([^;]+);/.exec(line);
+        if (
+          shadow &&
+          !/var\(--shadow/.test(shadow[1]) &&
+          !/inset/.test(shadow[1]) &&
+          !/^0 0 0 1px/.test(shadow[1].trim())
+        ) {
+          offenders.push(`${rel}:${i + 1}  ${line.trim()}`);
+        }
+        const timing = /(?:transition|animation):\s*([^;]+);/.exec(line);
+        if (timing && /\d+m?s/.test(timing[1]) && !/var\(--/.test(timing[1])) {
+          const reason = lines.slice(Math.max(0, i - 4), i).join("\n");
+          if (!/motion-exception:\s*\S/.test(reason)) {
+            offenders.push(`${rel}:${i + 1}  ${line.trim()}`);
+          }
+        }
+      });
+    }
+    expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
   it("keeps the cascade in the order the snapshot records", () => {

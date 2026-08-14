@@ -33,8 +33,15 @@ function WelcomeViewInner({
       <div className="welcome-inner">
         <div className="welcome-brand">
           <LogoMark size={40} className="welcome-logo" />
+          {/*
+            No app name under the title. `welcome.title` is already "Welcome to
+            PageWise" / "欢迎使用 PageWise", so printing app.name beneath it put
+            the product's name on screen twice, one line apart, in both locales.
+            Reading this file it looks like a title and a brand mark; on screen
+            it reads as a mistake — which is why it survived until the app was
+            photographed rather than read.
+          */}
           <h1 className="welcome-title">{t("welcome.title")}</h1>
-          <p className="welcome-app-name">{t("app.name")}</p>
         </div>
         <p className="welcome-subtitle">{t("welcome.subtitle")}</p>
 

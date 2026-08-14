@@ -69,8 +69,51 @@
   --text-md: 14px;
   --text-lg: 15px;
   --text-display: 28px;
+  /*
+   * Motion. Three durations and one pulse period, where the stylesheets had
+   * `--transition-fast` plus five hand-written timings — and, twice, the same
+   * animation at two different speeds:
+   *
+   *   popover-in   0.14s  (anchored popover)   /  0.16s  (selection popover)
+   *   pulse        1.2s   (rail badge)          /  1s     (chat indicator)
+   *
+   * Nobody chose either pair. They are the `--mark-highlight` problem again —
+   * one thing written out in two places, drifting until the two disagree — and
+   * the drift is visible: two popovers in the same app open at different rates.
+   *
+   * `--transition-fast` keeps its name and value; the two longer steps are for
+   * things that fade rather than snap.
+   */
   --transition-fast: 120ms ease;
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --transition: 160ms ease;
+  --transition-slow: 250ms ease;
+  --pulse-period: 1.2s;
+  /*
+   * Elevation. Three steps, where twelve hand-written drop shadows had
+   * accumulated across eleven distinct values — `0 1px 3px` at 0.06, `0 1px 4px`
+   * at 0.1 and at 0.18, `0 2px 8px` at 0.28, `0 8px 24px` at 0.08/0.25,
+   * `0 8px 28px` at 0.22, `0 16px 48px` at 0.12/0.35. Meanwhile `--shadow-md`
+   * existed the whole time, at a fourth geometry nothing used, and was
+   * referenced exactly once in the entire app.
+   *
+   * The steps are what a surface is doing, not how big the blur is: resting on
+   * the page, raised above it, or floating over everything.
+   *
+   * Being theme-aware is the point, not a bonus. Three of those twelve rules
+   * existed only to restate the same shadow for the light theme, and they are
+   * gone — a token that switches with the theme makes the override unnecessary
+   * rather than shorter.
+   */
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.35);
+  /*
+   * The one shadow that is not on the scale: a drawer casts sideways, not down.
+   * Named rather than left raw so it is an argued exception and not something
+   * nobody got round to — the same reason every hand-written `<button>` carries
+   * a reason.
+   */
+  --shadow-edge: 8px 0 24px rgba(0, 0, 0, 0.2);
 
   /* z-index scale — keep overlay ordering coherent across the app */
   --z-doc-search: 30;
@@ -109,5 +152,8 @@
   --success: #1a7f4e;
   --warning: #9a6700;
   --danger: #c0292e;
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.12);
+  --shadow-edge: 8px 0 24px rgba(0, 0, 0, 0.08);
 }

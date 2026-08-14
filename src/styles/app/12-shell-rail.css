@@ -131,9 +131,9 @@
   flex-direction: column;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
-  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-edge);
   pointer-events: auto;
-  animation: drawer-in 160ms ease;
+  animation: drawer-in var(--transition);
 }
 
 @keyframes drawer-in {

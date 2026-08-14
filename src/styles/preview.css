@@ -162,7 +162,7 @@
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   pointer-events: none;
-  animation: badge-in 0.2s ease;
+  animation: badge-in var(--transition);
 }
 
 .preview-index-badge-row {
@@ -208,6 +208,8 @@
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
+  /* motion-exception: a spinner's rotation period is not a UI transition —
+     it sets the perceived speed of the thing itself, like a clock hand. */
   animation: spin 0.7s linear infinite;
 }
 
@@ -241,8 +243,8 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-  animation: popover-in 0.14s ease;
+  box-shadow: var(--shadow-md);
+  animation: popover-in var(--transition);
 }
 
 @keyframes popover-in {
@@ -298,11 +300,7 @@
 .app.v3 .preview-page-frame {
   background: #fff;
   border-radius: 1px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-}
-
-[data-theme="light"] .app.v3 .preview-page-frame {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-sm);
 }
 
 
@@ -320,7 +318,7 @@
   right: 20px;
   z-index: 350;
   max-width: min(400px, calc(100vw - 40px));
-  animation: confirm-in 0.18s ease;
+  animation: confirm-in var(--transition);
 }
 
 .global-confirm .confirm-bar {
@@ -347,9 +345,9 @@
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-lg);
   pointer-events: auto;
-  animation: popover-in 0.16s ease;
+  animation: popover-in var(--transition);
 }
 
 /* --- The document as one scrolling surface ------------------------------- */
@@ -378,7 +376,7 @@
   left: 50%;
   transform: translateX(-50%);
   background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-sm);
   /* A page contains its own overlays. Marks are clamped to the page before
      they are drawn, but a page that clips is what makes "over the neighbouring
      page" impossible rather than merely unlikely. The note popover is rendered

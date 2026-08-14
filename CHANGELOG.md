@@ -4,6 +4,27 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.0.0] - 2026-08-12
+
+### Added
+
+- **The app can be looked at.** Until now every review of how PageWise looks was done by reading its code — the one that tried to open it in a browser got a blank page and said so in its first paragraph. That is why "the interface is rough" kept being raised and never resolved: nobody could see it. `npm run ui:shots` now opens the real app in a browser against a faked desktop shell and photographs the screens you actually use. It touches no application code and ships nothing.
+
+### Fixed
+
+- **The welcome screen said the product's name twice**, one line under the other, in both languages — the title already contains it. Visible in a screenshot in a second; invisible in the code, which is where everyone had been looking.
+- **Two buttons for one action.** With a document open and no AI configured, the top of the chat panel offered a "Configure in Settings" link while the bottom offered a "Configure AI" button. The explanation stays; the duplicate control is gone. Where there is no document — and so no button at the bottom — the link remains, because there it is the only way through.
+- **Links stopped looking like unstyled web pages.** The inline links on the welcome and empty screens were permanently underlined, which on a dark interface reads as a page nobody styled. They underline on hover and on keyboard focus now.
+
+### Changed
+
+- **Depth and motion are on a scale, like spacing and type already were.** Twelve drop shadows had been written out by hand across eleven different values, while the one shadow that had a name was used once in the whole app; two animations had been given two different speeds each, so the same kind of popover opened at two rates depending on which one you opened. Both are now three steps, both follow the light and dark themes on their own — which deleted three rules that existed only to restate a shadow for the light theme — and a new value off the scale fails the build unless it says why.
+
+### Notes
+
+- The browser the harness uses is not the one the app ships in, so it settles layout, wording, empty space and duplication — not pixels, colour or font metrics. Every defect above is in the first category. It is also not a screenshot-comparison gate: pixel baselines across machines are flaky enough to get waved through, and a check that gets waved through is worse than none. What holds these fixes is ordinary tests asserting what is on screen.
+- The first thing the new depth-and-motion check did was find two animations the search that motivated it had missed, because their names had capital letters in them.
+
 ## [7.8.0] - 2026-08-11
 
 ### Fixed
