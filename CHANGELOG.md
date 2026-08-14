@@ -4,6 +4,17 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.0.1] - 2026-08-14
+
+### Changed
+
+- **The screenshot harness now covers the screen you actually spend time in** — a question, the assistant reading a page, the answer streaming in, the pages-read footer. The provider is faked at the network edge rather than inside the app, so the tool loop, the streaming text and the citation rendering are all the real code. Nothing about the app changed; this is what makes the next round of interface work possible to check.
+- The harness's fake document now matches the file it opens. It claimed three pages for a one-page fixture, which made the preview report "Invalid page request" — the app telling the truth about a lie it had been told, and the second time the harness invented a defect that was not there.
+
+### Notes
+
+- Looking at the answering screen this way turned up nothing to fix. Two things that looked wrong were the harness's own fault, and a third — the faint action icons under each answer — is deliberate: they sit at half strength and come up to full on hover. Recorded because a round that finds nothing is worth the same as one that finds something, provided it actually looked.
+
 ## [8.0.0] - 2026-08-12
 
 ### Added

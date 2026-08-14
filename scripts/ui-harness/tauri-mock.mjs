@@ -34,8 +34,25 @@
  * Do not assert a colour or a font metric from it.
  */
 
+/**
+ * Pages in the fixture the harness opens.
+ *
+ * It has to match, and it is not a detail. The mock reports the page count and
+ * page text while pdf.js renders the real file, so a mock that claims more
+ * pages than the PDF has produces "Invalid page request." on the canvas the
+ * moment anything navigates past the end — which looks exactly like a
+ * rendering bug and is the app reporting the truth about a lie it was told.
+ *
+ * That is the second false finding this harness produced. The first was page
+ * text too short for `isRasterHeavyPage`, which raised the "Image-based PDF"
+ * hint. Both come from the same mistake: fake data that is not internally
+ * consistent with the real file underneath it. Anything surprising in a
+ * screenshot gets checked against the fixture before it gets called a defect.
+ */
+export const FIXTURE_PAGE_COUNT = 1;
+
 /** The document the mock shell reports. Long enough page text to matter. */
-export function sampleDocument(pageCount = 3) {
+export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
   return {
     page_count: pageCount,
     title: "Sample document",
