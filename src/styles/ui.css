@@ -116,12 +116,23 @@
   background: none;
   border: none;
   color: var(--accent);
-  text-decoration: underline;
+  /*
+   * Underlined on hover and focus, not at rest. A permanently underlined
+   * accent-coloured string reads as an unstyled browser link, and both places
+   * this variant appears — the welcome screen and the chat empty state — are
+   * first-impression surfaces where that is what it looked like.
+   *
+   * Focus keeps the underline because a focus ring alone is not enough to tell
+   * a keyboard user which of several controls is a link.
+   */
+  text-decoration: none;
   text-underline-offset: 2px;
 }
 
-.ui-btn--link:hover:not(:disabled) {
+.ui-btn--link:hover:not(:disabled),
+.ui-btn--link:focus-visible:not(:disabled) {
   color: var(--accent-hover);
+  text-decoration: underline;
 }
 
 /* Inputs ----------------------------------------------------------------- */

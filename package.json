@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "7.8.0",
+  "version": "8.0.0",
   "description": "Local desktop PDF agent — page-wise AI analysis",
   "license": "MIT",
   "type": "module",
@@ -20,7 +20,8 @@
     "icons:generate": "npm run icons:sync-svg && tauri icon app-icon.svg -o src-tauri/icons",
     "verify:bundle-version": "node scripts/verify-bundle-version.mjs",
     "prebuild": "npm run prepare:pdfjs && npm run check:secrets && npm run check:css && npm run check:css-order && npm run check:buttons",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "ui:shots": "node scripts/ui-shots.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.37",
@@ -46,6 +47,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "jsdom": "^30.0.1",
+    "playwright": "^1.62.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "^4.1.9"

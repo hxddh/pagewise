@@ -160,7 +160,7 @@
   gap: var(--space-xs);
   margin-left: auto;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--transition-fast);
 }
 
 /*
@@ -409,7 +409,7 @@
   font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-md);
   white-space: nowrap;
 }
 
@@ -497,6 +497,9 @@ button.pages-read-chip:hover {
   margin-left: var(--space-2xs);
   vertical-align: text-bottom;
   background: var(--accent);
+  /* motion-exception: a text caret blinks at the rate the OS blinks carets.
+     Putting it on the app's own scale would make it disagree with every other
+     text field on the machine. */
   animation: markdown-caret-blink 1s step-end infinite;
 }
 
@@ -543,7 +546,7 @@ button.pages-read-chip:hover {
 
 .tool-dot.running {
   background: var(--warning);
-  animation: pulse 1s ease infinite;
+  animation: pulse var(--pulse-period) ease infinite;
 }
 
 .tool-dot.done {

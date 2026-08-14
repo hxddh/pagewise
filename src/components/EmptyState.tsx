@@ -26,9 +26,19 @@ export function EmptyState({
     return (
       <div className="empty-state empty-state-compact">
         <p className="empty-lead">{t("empty.agentLead")}</p>
-        <Button variant="link" size="md" onClick={onConfigureApi}>
-          {t("empty.configureInline")}
-        </Button>
+        {/*
+          With a document open the composer's own button becomes "Configure AI"
+          (ChatPanel), so a link here put two controls for one action on screen
+          at once — an explanation at the top of the panel and a primary button
+          at the bottom of it. The message is worth keeping either way; the
+          second control is not. Without a document the composer has no such
+          button, so this is the only way through and it stays.
+        */}
+        {!hasDocument && (
+          <Button variant="link" size="md" onClick={onConfigureApi}>
+            {t("empty.configureInline")}
+          </Button>
+        )}
       </div>
     );
   }

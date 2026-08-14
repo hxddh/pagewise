@@ -198,13 +198,11 @@ button.pages-read-chip:hover
   to
 .toast-error
 .toast-close
-[data-theme="light"] .toast
 # 09-palette-status.css
 .palette-root
 .palette-backdrop
 [data-theme="light"] .palette-backdrop
 .palette-panel
-[data-theme="light"] .palette-panel
 .palette-input
 .palette-list
 .palette-section-label
@@ -377,7 +375,6 @@ button.pages-read-chip:hover
 .chat-loading .preview-loading-spinner
 .messages-panel
 .chat-loading-overlay
-.welcome-app-name
 .typing-dots
 .typing-dots span
 .typing-dots span:nth-child(2)

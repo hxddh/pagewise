@@ -87,7 +87,7 @@
 }
 
 .settings-pane {
-  animation: settings-pane-in 0.16s ease;
+  animation: settings-pane-in var(--transition);
 }
 
 @keyframes settings-pane-in {
@@ -772,7 +772,7 @@
     var(--bg-hover) 100%
   );
   background-size: 200% 100%;
-  animation: settings-shimmer 1.2s ease-in-out infinite;
+  animation: settings-shimmer var(--pulse-period) ease-in-out infinite;
 }
 
 .settings-skeleton-line {

@@ -62,7 +62,7 @@
   flex-shrink: 0;
   cursor: col-resize;
   background: transparent;
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
 }
 
 .resize-handle:hover {
@@ -112,7 +112,7 @@
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
-  animation: pulse 1.2s ease infinite;
+  animation: pulse var(--pulse-period) ease infinite;
 }
 
 .agent-dock-badge {

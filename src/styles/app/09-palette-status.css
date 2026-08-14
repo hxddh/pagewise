@@ -41,12 +41,8 @@
   max-height: min(70vh, 560px);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
-}
-
-[data-theme="light"] .palette-panel {
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12);
 }
 
 .palette-input {

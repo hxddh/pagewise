@@ -40,7 +40,7 @@
   height: 100%;
   background: var(--accent);
   border-radius: var(--radius-pill);
-  transition: width 0.25s ease;
+  transition: width var(--transition-slow);
 }
 
 .loading-percent {
@@ -78,8 +78,8 @@
   border-radius: var(--radius-lg);
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
-  animation: toastIn 0.2s ease;
+  box-shadow: var(--shadow-md);
+  animation: toastIn var(--transition);
 }
 
 .toast-success {
@@ -110,9 +110,5 @@
 }
 
 /* Light theme tokens live in tokens.css — one source, not two. */
-
-[data-theme="light"] .toast {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-}
 
 /* Sidebar actions */

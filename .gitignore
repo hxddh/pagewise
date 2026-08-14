@@ -40,3 +40,4 @@ src-tauri/target
 
 # Generated in CI from CHANGELOG.md for the release body
 release-notes.md
+docs/ui-shots/

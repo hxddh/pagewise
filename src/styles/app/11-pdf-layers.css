@@ -19,7 +19,7 @@
   background: color-mix(in srgb, var(--accent) 32%, transparent);
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
-  animation: search-highlight-in 0.2s ease;
+  animation: search-highlight-in var(--transition);
 }
 
 @keyframes search-highlight-in {
