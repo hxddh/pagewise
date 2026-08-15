@@ -242,7 +242,6 @@ button.pages-read-chip:hover
 .outline-item
 .outline-item:hover
 .outline-item.active
-.outline-item.level-2
 .outline-title
 .outline-page
 # 11-pdf-layers.css

@@ -1,5 +1,5 @@
 import { createContext, memo, useContext, useMemo, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { isSafeLink, schemeOf } from "../lib/safe-link";
@@ -35,6 +35,26 @@ interface MarkdownProps {
 const SAFE_IMG_SCHEMES = ["asset:", "data:"];
 
 const remarkPlugins = [remarkGfm, remarkPageRefs];
+
+/**
+ * Let the page-citation scheme survive react-markdown's URL sanitizer.
+ *
+ * `defaultUrlTransform` returns "" for any protocol outside its allowlist
+ * (http, https, mailto, tel, …), and `pagewise-page:` is not on it. So every
+ * link `remarkPageRefs` produced arrived at SafeAnchor with an empty href,
+ * missed the scheme branch, failed `isSafeLink`, and rendered as a bare
+ * <span> — "See page 2" stayed as plain text in every answer the assistant
+ * ever gave, and clicking a citation to jump the preview did nothing.
+ *
+ * Nothing failed loudly. remarkPageRefs' own tests pass: they assert the mdast
+ * transform, which was always correct. The loss happened one layer below them,
+ * between the plugin and the anchor renderer.
+ *
+ * Everything else still goes through the sanitizer unchanged — this widens the
+ * allowlist by exactly one internal scheme that never leaves the app.
+ */
+const urlTransform = (url: string) =>
+  url.startsWith(PAGE_REF_SCHEME) ? url : defaultUrlTransform(url);
 const markdownComponents = {
   a: SafeAnchor,
   img: SafeImg,
@@ -135,7 +155,7 @@ export function splitStreamingMarkdown(text: string): { stable: string; tail: st
 const ParsedMarkdown = memo(function ParsedMarkdown({ text }: { text: string }) {
   if (!text) return null;
   return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>
+    <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents} urlTransform={urlTransform}>
       {text}
     </ReactMarkdown>
   );
@@ -153,7 +173,7 @@ const tailComponents = {
 const ParsedTail = memo(function ParsedTail({ text }: { text: string }) {
   if (!text) return null;
   return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={tailComponents}>
+    <ReactMarkdown remarkPlugins={remarkPlugins} components={tailComponents} urlTransform={urlTransform}>
       {text}
     </ReactMarkdown>
   );

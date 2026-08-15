@@ -111,6 +111,21 @@
   gap: var(--space-sm);
   width: 100%;
   padding: var(--space-sm) var(--space-md);
+  /*
+   * One step per heading level, set by OutlineSidebar from the level itself.
+   *
+   * This was a single `.outline-item.level-2 { padding-left: 18px }`, so every
+   * heading at level 3 or deeper matched no rule and inherited level 1's
+   * padding — measured at 64px for levels 1, 3, 4 and 5 alike, which made a
+   * three-level outline read as flat. A PDF outline nests as deep as its
+   * author liked, so the indent comes from a custom property rather than a
+   * rule per level; OutlineSidebar caps the depth.
+   *
+   * Declared here as well as set per row, so the value has one definition in
+   * the stylesheet rather than depending on a fallback that no rule owns.
+   */
+  --outline-depth: 0;
+  padding-left: calc(var(--space-md) + var(--outline-depth) * var(--space-lg));
   text-align: left;
   font-size: var(--text-xs);
   color: var(--text-secondary);
@@ -130,9 +145,6 @@
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.outline-item.level-2 {
-  padding-left: 18px;
-}
 
 .outline-title {
   flex: 1;
