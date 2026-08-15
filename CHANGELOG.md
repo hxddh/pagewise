@@ -4,6 +4,17 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.0.3] - 2026-08-15
+
+### Changed
+
+- **Vite 7 → 8.** The bundler underneath changed, and building the app went from about eight seconds to under two — roughly four times faster, measured three runs each way. What ships is the same code; only the tool that assembles it changed.
+
+### Notes
+
+- The new bundler accepts only one of the two ways of describing how the app is split into files, so that description was rewritten in the other form. The result was checked rather than assumed: the same pieces, and the total within three kilobytes of before.
+- In development only, the new bundler prints one warning about an option the React plugin passes it. The app builds and runs correctly; the plugin's own next major version is expected to stop passing it, which is the next upgrade in this sequence and will be checked against that expectation.
+
 ## [8.0.2] - 2026-08-15
 
 ### Changed

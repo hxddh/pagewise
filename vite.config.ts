@@ -15,10 +15,22 @@ export default defineConfig(async () => ({
     minify: "esbuild",
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom"],
-          ai: ["ai", "@ai-sdk/react", "@ai-sdk/openai"],
-          markdown: ["react-markdown", "remark-gfm"],
+        // Rolldown (Vite 8) takes only the function form. The object form used
+        // to say "these packages and whatever they exclusively pull in"; a
+        // function sees one module id at a time, so the transitive tail has to
+        // be named. react-markdown's tail is the awkward one — micromark,
+        // mdast, hast, unist, vfile and friends are all its dependencies and
+        // belong with it rather than in the catch-all.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return "vendor";
+          if (/node_modules\/(ai|@ai-sdk)\//.test(id)) return "ai";
+          if (
+            /node_modules\/(react-markdown|remark-|rehype-|micromark|mdast|hast|unist|vfile|character-entities|decode-named-character-reference|property-information|space-separated-tokens|comma-separated-tokens|html-url-attributes|zwitch|longest-streak|ccount|markdown-table|escape-string-regexp|bail|trough|unified|is-plain-obj|devlop|estree|style-to-js|style-to-object|inline-style-parser)/.test(id)
+          ) {
+            return "markdown";
+          }
+          return undefined;
         },
       },
     },
