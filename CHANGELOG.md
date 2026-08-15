@@ -4,6 +4,24 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.6] - 2026-08-15
+
+### Fixed
+
+- **In a small window, the buttons above the page drew on top of each other.** The page number and its arrows are centred in that bar, and they were centred by being lifted out of the layout — so the bar arranged the filename and the tool buttons as though they were not there. At a wide window nothing showed. At the smallest window PageWise allows, the middle group covered both neighbours, and clicking "Mark a region" or the thumbnails button pressed a page arrow instead. Neither could be reached at all.
+- **The third tab above the page thumbnails was still being cut off.** 8.1.4 and 8.1.5 shipped with it: widening the sidebar in 8.1.3 gave the room to the sidebar, but the tab strip shares its row with another control and never received it. The strip had 119 pixels for 124 of tabs, at every window size — which is why making the window bigger never showed it either.
+- **The filename no longer shows as a single stray letter.** At the narrowest window with the page thumbnails open there is no room for it, and what was drawn was the first character of the name — which reads as a fault rather than as truncation. It is now left out, and only in that one case.
+
+### Changed
+
+- **The page sidebar no longer has its own close arrow.** The button beside the toolbar's page-number controls already opens and closes that panel, is present whenever the panel can exist, and is the only one of the two that can bring it back. Removing the duplicate is what gave the tab strip its room; widening the sidebar instead was measured and would have pushed the toolbar back into the overlap fixed above.
+
+### Notes
+
+- All three were found at 900×600 — the smallest window this app permits, and a size nothing had ever been looked at in. Every screenshot before this release was taken at 1440×900.
+- The first repair for the toolbar was wrong in an instructive way: it centred the middle group correctly and squeezed the right-hand column to 78 pixels for 168 pixels of buttons, which pushed the same two buttons out the other side. Same defect, one layer deeper.
+- 8.1.3's check has been corrected rather than removed. It asserted a width on the sidebar, and passed for two releases while the tab it was written for was still cut off — a proxy for the thing that matters is not the thing that matters.
+
 ## [8.1.5] - 2026-08-15
 
 ### Fixed

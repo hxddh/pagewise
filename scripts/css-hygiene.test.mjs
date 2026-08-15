@@ -229,11 +229,17 @@ describe("CSS hygiene", () => {
     // simply overflowed, which is the same shape as 8.1.0's search results and
     // just as invisible to a DOM test.
     //
-    // Held as a width floor rather than a computed layout, because jsdom has no
-    // layout engine and the real geometry was measured once with the harness.
-    // The floor is above the width that merely fits: that measurement is
-    // Chromium's, and the app ships on three other engines whose font metrics
-    // differ.
+    // This floor did NOT fix that, and this check passed for two releases while
+    // the tab was still cut off. The width was asserted on the sidebar, but the
+    // strip is not the sidebar's only child: it shares the header row with a
+    // control, and `min-width: 0` let it be squeezed to 119px while its content
+    // needed 136 — the same numbers at 1440px as at 900px, so widening the
+    // window never revealed it either. A proxy for the thing that matters is
+    // not the thing that matters. What holds it now is the check below.
+    //
+    // The floor still earns its place: it is what keeps the thumbnails legible.
+    // Held as a width rather than a computed layout because jsdom has no layout
+    // engine and the geometry was measured with the harness.
     const css = readFileSync(join(ROOT, "src/styles/app/07-preview-chrome.css"), "utf8");
     const width = /\.thumb-sidebar\s*\{[^}]*?width:\s*(\d+)px/s.exec(
       css.replace(/\/\*[\s\S]*?\*\//g, ""),
@@ -318,6 +324,72 @@ describe("CSS hygiene", () => {
       src.slice(open, close),
       "the banner already says this; a toast saying it again covers the banner's Dismiss",
     ).not.toMatch(/\bshowToast\s*\(/);
+  });
+
+  it("leaves the sidebar tab strip alone in its header row", () => {
+    // The strip fits its 143px allocation with 19px to spare — but only because
+    // nothing else is in that row. It used to share it with a chevron that hid
+    // the sidebar, 24px of a header that had 143, and the strip was squeezed to
+    // 119 against 136 of tabs.
+    //
+    // That chevron was a duplicate: PreviewToolbar renders the same control
+    // with the same `preview.thumbnailsHide` label whenever `totalPages > 1`,
+    // which is exactly when a sidebar can exist — and being a toggle, it is
+    // also the only one that can bring the panel back.
+    //
+    // Widening the sidebar instead was measured and rejected: at a 900px window
+    // the preview toolbar has 319px for 314px of controls, so taking 40 more
+    // for the sidebar puts that bar back into overlap. The two fixes pull
+    // against each other and the room has to come from inside the header.
+    for (const file of [
+      "src/components/ThumbnailSidebar.tsx",
+      "src/components/OutlineSidebar.tsx",
+      "src/components/MarkSidebar.tsx",
+    ]) {
+      expect(
+        readFileSync(join(ROOT, file), "utf8"),
+        `${file} puts a second control in the row the tab strip needs; the toolbar already has this one`,
+      ).not.toContain("preview.thumbnailsHide");
+    }
+  });
+
+  it("lays the preview toolbar out in three columns that cannot overlap", () => {
+    // The page controls were `position: absolute; left: 50%` — out of flow, so
+    // the row placed the filename and the tool buttons as though the middle
+    // group were not there, and it drew over both. At 900px, this app's own
+    // minWidth, the three groups measured 228-361, 318-434 and 373-523: a click
+    // at the centre of "Mark a region" landed on a page button.
+    //
+    // The first repair gave both sides `flex: 1 1 0`, which centred the middle
+    // group correctly and squeezed the right column to 78px for 168px of
+    // buttons — with `justify-content: flex-end` that overflows the *start*
+    // edge, so the same two buttons were unreachable one layer further in.
+    // Both halves are needed: sides that flex equally to keep the middle
+    // centred, and a right column pinned to its content so it cannot be
+    // squeezed into the middle.
+    const css = readFileSync(join(ROOT, "src/styles/preview.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const rule = (selector) => {
+      const start = css.indexOf(`${selector} {`);
+      expect(start, `${selector} not found`).toBeGreaterThan(-1);
+      return css.slice(start, css.indexOf("}", start));
+    };
+
+    expect(
+      rule(".preview-toolbar-center"),
+      "out of flow, this group is free to draw on top of the two beside it",
+    ).not.toMatch(/position:\s*absolute/);
+    for (const side of [".toolbar-left", ".toolbar-right"]) {
+      expect(rule(side), `${side} must share the slack so the middle stays centred`).toMatch(
+        /flex:\s*1\s+1\s+0/,
+      );
+    }
+    expect(
+      rule(".toolbar-right"),
+      "without this the buttons overflow leftward over the page controls",
+    ).toMatch(/min-width:\s*max-content/);
   });
 
   it("keeps the cascade in the order the snapshot records", () => {

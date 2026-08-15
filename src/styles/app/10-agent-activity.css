@@ -72,7 +72,15 @@
 }
 
 .sidebar-tab {
-  padding: var(--space-2xs) var(--space-sm);
+  /*
+   * --space-xs, not --space-sm: 12px back across the three tabs. On its own
+   * this was tried in 8.1.3 and reverted, because it moved the strip from 200
+   * to 188 against an edge at 184 and a fix that is still 4px short is not a
+   * fix. With the header's competing control gone the strip needs 124 of 143,
+   * and this is what turns "fits exactly" into room to spare — the measurement
+   * is Chromium's, and the app ships on three other engines.
+   */
+  padding: var(--space-2xs) var(--space-xs);
   font-size: var(--text-xs);
   color: var(--text-secondary);
   background: transparent;

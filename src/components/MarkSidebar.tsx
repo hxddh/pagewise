@@ -1,4 +1,4 @@
-import { ChevronLeft, MessageSquareQuote } from "lucide-react";
+import { MessageSquareQuote } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { getMarks, type Mark } from "../lib/mark-store";
@@ -15,7 +15,6 @@ interface MarkSidebarProps {
   stale: boolean;
   /** Rendered in the header so the sidebars switch in place. */
   tabs: React.ReactNode;
-  onClose: () => void;
   onSelect: (page: number, id: string) => void;
   /** Put this mark into the composer. Absent when there is nothing to ask. */
   onAsk?: (mark: Mark) => void;
@@ -34,7 +33,6 @@ export const MarkSidebar = memo(function MarkSidebar({
   selectedId,
   stale,
   tabs,
-  onClose,
   onSelect,
   onAsk,
 }: MarkSidebarProps) {
@@ -58,15 +56,6 @@ export const MarkSidebar = memo(function MarkSidebar({
     <aside className="thumb-sidebar outline-sidebar" aria-label={t("preview.marks")}>
       <div className="thumb-sidebar-header">
         {tabs}
-        <Button variant="ghost" size="md"
-         
-          className="toolbar-btn"
-          onClick={onClose}
-          title={t("preview.thumbnailsHide")}
-          aria-label={t("preview.thumbnailsHide")}
-        >
-          <ChevronLeft size={14} />
-        </Button>
       </div>
       {stale && <p className="mark-stale-note">{t("marks.staleFile")}</p>}
       {(marks.length > 0 || filter) && (

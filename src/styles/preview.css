@@ -14,31 +14,89 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  /*
+   * So the filename can answer to the width of this bar rather than the width
+   * of the window. They are not the same question: at a 900px window the bar is
+   * 479px with the page sidebar closed and 319px with it open, and only the
+   * second is short of room. A window-width media query would hide the filename
+   * in both.
+   *
+   * inline-size containment, not paint — the zoom menu still opens past the
+   * bottom edge of this bar.
+   */
+  container-type: inline-size;
+  container-name: preview-toolbar;
+}
+
+/*
+ * Below this the page controls and the tool buttons take the whole bar and the
+ * filename column is left with 5px — not an ellipsis but the first letter of
+ * the name, a lone "t" where a filename should be, which reads as a fault
+ * rather than as truncation. Measured: the column is 158px at the next
+ * configuration up, so nothing near the threshold is being cut fine.
+ */
+@container preview-toolbar (max-width: 360px) {
+  .preview-filename {
+    display: none;
+  }
 }
 
 .app.v3 .preview-main {
   overflow: hidden;
 }
 
+/*
+ * Three columns that cannot climb over each other.
+ *
+ * The page controls used to be `position: absolute; left: 50%` — taken out of
+ * flow, so the row laid the filename and the tool buttons out as if the middle
+ * group did not exist, and the middle group was free to draw on top of both.
+ * At 1440px there is slack and nothing shows. At 900px, which is this app's own
+ * minWidth, the bar is 319px and the three groups measured 228-361, 318-434 and
+ * 373-523: the middle overlapped the left by 43px and the right by 61px, and a
+ * click at the centre of "Mark a region" or "Hide thumbnails" landed on a page
+ * button instead. Both controls were simply unreachable.
+ *
+ * Equal flexible sides keep the middle group centred — when the filename grows
+ * it is the left column that shrinks, so both sides stay the same width — and
+ * being in flow, it now pushes rather than overlaps.
+ */
 .toolbar-left {
   display: flex;
   align-items: center;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 0;
 }
 
 .toolbar-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-sm);
-  margin-left: auto;
+  flex: 1 1 0;
+  /*
+   * Never narrower than the buttons inside it. `flex: 1 1 0` alone squeezed
+   * this column to 78px at 900px while its content needed 168, and with
+   * `justify-content: flex-end` the excess overflows the *start* edge — so the
+   * zoom, mark and thumbnail buttons drew 90px to the left, straight over the
+   * page controls. That was the first repair for this bar and it moved the
+   * overlap rather than removing it: same two buttons unclickable, one layer
+   * further in.
+   *
+   * Pinned here, the left column absorbs all the shrinking instead (its
+   * filename ellipsizes), and the middle group slides left rather than being
+   * climbed over.
+   */
+  min-width: max-content;
+}
+
+/* The buttons keep their size; only the space around them gives. */
+.toolbar-right > * {
   flex-shrink: 0;
 }
 
 .preview-toolbar-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  flex: 0 0 auto;
 }
 
 .toolbar-group {
