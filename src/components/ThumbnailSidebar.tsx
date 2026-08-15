@@ -4,7 +4,32 @@ import { useI18n } from "../i18n";
 import { renderThumbnail } from "../lib/pdf";
 import { Button } from "./ui/Button";
 
-const THUMB_ROW_HEIGHT = 112;
+/**
+ * The pitch of one thumbnail row: the button plus the gap below it.
+ *
+ * Every windowing calculation in this file measures with it — how many rows fit,
+ * which row is first, how tall the spacer above the window is, where to scroll
+ * so the current page is revealed — so it has to be the distance from one row's
+ * top to the next one's, not the height of the button alone.
+ *
+ * It was 112, the button height, while the list also applied an 8px gap. So the
+ * true pitch was 120 and every one of those calculations was off by 8px per
+ * row, drifting further the longer the document. Splitting the constant in two
+ * makes the arithmetic mean what it says.
+ *
+ * The button height itself is what a portrait page needs: a 612x792 page drawn
+ * at the sidebar's ~134px content width is ~173px tall, and the row also holds
+ * the page number and its padding. At 112 the contents needed 144 and overflowed
+ * — with `overflow: visible` the page number landed on top of the next
+ * thumbnail, so every page but the last had its number covered.
+ *
+ * A wider page than portrait shrinks to fit rather than growing the row; see
+ * `.thumb-canvas`. A fixed pitch and a content-determined height cannot both
+ * win, and the pitch is what the virtualization depends on.
+ */
+const THUMB_GAP = 8;
+const THUMB_BUTTON_HEIGHT = 192;
+const THUMB_ROW_HEIGHT = THUMB_BUTTON_HEIGHT + THUMB_GAP;
 const OVERSCAN = 4;
 
 interface ThumbnailSidebarProps {
@@ -77,7 +102,7 @@ const ThumbnailItem = memo(function ThumbnailItem({
       title={pageLabel}
       aria-label={pageLabel}
       aria-current={active ? "page" : undefined}
-      style={{ height: THUMB_ROW_HEIGHT }}
+      style={{ height: THUMB_BUTTON_HEIGHT }}
     >
       <canvas ref={canvasRef} className="thumb-canvas" />
       <span className="thumb-label">{page}</span>

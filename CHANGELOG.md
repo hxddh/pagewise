@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.4] - 2026-08-15
+
+### Fixed
+
+- **Page numbers under the thumbnails were covered by the thumbnail below them.** Only the last page's number was ever visible. They were all there, in the right colour — each one was simply drawn past the bottom of its own row, where the next row starts.
+- **The thumbnails are bigger.** The row they sit in was too short for a portrait page, which is what caused the numbers to spill; sizing it properly gives the page itself more room, which is the whole point of a thumbnail.
+- **Scrolling a long document's thumbnails no longer drifts.** The list only draws the rows near the window and works out where they go by measuring one row — but it measured the button without the space beneath it, so the arithmetic was eight pixels short per row and further out the further you scrolled.
+
+### Notes
+
+- A page wider than portrait now shrinks to fit its row rather than making every row taller, keeping its proportions as it does. A row height that changes with the page and a list that measures every row the same cannot both be right, and the list's arithmetic depends on the measurement.
+- The first fix tried here made the numbers visible by shrinking the page instead — correct by every number, and visibly worse: the thumbnail became a sliver. It was thrown away rather than shipped. Screenshots are the only reason that was noticed.
+
 ## [8.1.3] - 2026-08-15
 
 ### Fixed

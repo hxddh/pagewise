@@ -245,6 +245,38 @@ describe("CSS hygiene", () => {
     ).toBeGreaterThanOrEqual(160);
   });
 
+  it("keeps the thumbnail row pitch and the list gap agreeing", () => {
+    // ThumbnailSidebar windows its list: how many rows fit, which row is first,
+    // the spacer above the window and the scroll that reveals the current page
+    // are all measured in THUMB_ROW_HEIGHT. That has to be the distance from one
+    // row's top to the next — the button plus the gap under it.
+    //
+    // It was the button height alone (112) while the list also applied an 8px
+    // gap, so the real pitch was 120 and every one of those sums was off by 8px
+    // per row, drifting further down a long document. The two numbers live in
+    // different files and nothing made them agree.
+    const tsx = readFileSync(join(ROOT, "src/components/ThumbnailSidebar.tsx"), "utf8");
+    const css = readFileSync(join(ROOT, "src/styles/app/07-preview-chrome.css"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+
+    const gap = Number(/const THUMB_GAP = (\d+)/.exec(tsx)?.[1]);
+    const button = Number(/const THUMB_BUTTON_HEIGHT = (\d+)/.exec(tsx)?.[1]);
+    expect(Number.isFinite(gap) && Number.isFinite(button), "constants not found").toBe(true);
+
+    expect(
+      tsx,
+      "THUMB_ROW_HEIGHT must be the pitch — button + gap — not the button alone",
+    ).toContain("const THUMB_ROW_HEIGHT = THUMB_BUTTON_HEIGHT + THUMB_GAP;");
+
+    const listGap = /\.thumb-list\s*\{[^}]*?gap:\s*var\(--space-([a-z0-9]+)\)/s.exec(css);
+    expect(listGap, ".thumb-list gap not found").toBeTruthy();
+    const SPACING = { "2xs": 2, xs: 4, sm: 6, md: 8, lg: 12, xl: 16, "2xl": 24 };
+    expect(
+      SPACING[listGap[1]],
+      `.thumb-list draws a ${SPACING[listGap[1]]}px gap but the pitch assumes ${gap}px`,
+    ).toBe(gap);
+  });
+
   it("keeps the cascade in the order the snapshot records", () => {
     // Splitting App.css into 13 parts is only safe while they concatenate in the
     // original order — later rules deliberately override earlier ones. This is
