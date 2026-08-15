@@ -74,7 +74,19 @@ mod tests {
     /// there, which is the shape of a headless Linux runner. A keychain that
     /// exists and misbehaves must still fail the test.
     fn keychain_unavailable(err: &str) -> bool {
-        err.contains("org.freedesktop.secrets")
+        // Two wordings, because keyring 4 reports this differently. 3.x failed
+        // when the Secret Service D-Bus name could not be reached and said so.
+        // 4.x registers a platform store lazily, and if that registration fails
+        // — which is what "no Secret Service here" now looks like — every call
+        // reports "No default store has been set" instead, naming nothing about
+        // keychains at all.
+        //
+        // Matching only the old wording turned "no keychain on this machine"
+        // into a hard test failure on the keyring 4 upgrade. Nothing outside
+        // this test reads the text: settings.ts treats any keychain error as
+        // unavailable and falls back to its own mirror, which is why the change
+        // is confined to here.
+        err.contains("org.freedesktop.secrets") || err.contains("No default store")
     }
 
     #[test]

@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.0.4] - 2026-08-15
+
+### Changed
+
+- **The library that stores your API key in the system keychain, 3 → 4.** Where the key lives and how it is read are unchanged: macOS Keychain, Windows Credential Manager, Secret Service on Linux.
+
+### Notes
+
+- Version 4 is a different library wearing the same name; what is used here is its compatibility layer, which keeps the previous interface exactly. Its authors suggest applications eventually move to the new one directly, which is a larger change and not this one.
+- On Linux the underlying Secret Service client changed. It talks to the same keychain, and these calls already run off the main thread, so nothing about the app's behaviour depends on which one it is.
+- On a machine with no keychain at all, the message the library produces changed wording. Nothing in the app reads that text — a keychain failure of any kind already falls back to the local store — but a test did, and it had to be taught the new phrasing.
+
 ## [8.0.3] - 2026-08-15
 
 ### Added
