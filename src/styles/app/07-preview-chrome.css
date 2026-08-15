@@ -47,7 +47,26 @@
 }
 
 .thumb-sidebar {
-  width: 128px;
+  /*
+   * 148px, not 128px, because the tab strip above the thumbnails did not fit:
+   * "Pages", "Outline" and "Marks" plus their padding needed 124px of the 112px
+   * the old width left, so the third tab ran past the edge and was cut to
+   * "Mar". Measured — the buttons were never clipped internally
+   * (scrollWidth === width); the strip simply overflowed its container.
+   *
+   * Narrowing the tabs instead only recovered part of it, and the label type is
+   * already at the bottom of the scale, which tokens.css calls a floor rather
+   * than a size to opt below — this is a tool for reading. Wrapping to a second
+   * row reads as a mistake. So the sidebar gets the width instead; the
+   * thumbnails inside are ~100px and unaffected.
+   *
+   * 160 rather than the 148 that just fits: the measurement comes from the
+   * screenshot harness, which runs Chromium, while the app ships on WebKitGTK,
+   * WebView2 and WKWebView. Font metrics differ between them, and this file's
+   * own harness notes say not to assert type measurements from it — so the
+   * margin is deliberate rather than the tightest number that passed here.
+   */
+  width: 160px;
   flex-shrink: 0;
   border-right: 1px solid var(--border-subtle);
   display: flex;
