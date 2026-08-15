@@ -569,6 +569,7 @@ export function AiProviderSettings({
           apiKeyTouched={apiKeyTouched}
           apiKeyDraft={apiKeyDraft}
           dirty={dirty}
+          testFailed={testError != null}
         />
       </div>
 

@@ -277,6 +277,49 @@ describe("CSS hygiene", () => {
     ).toBe(gap);
   });
 
+  it("reports a failed document open through one surface, not two", () => {
+    // `.file-error-banner` is fixed at top:12/right:12 and `.toast-viewport` at
+    // top:16/right:16 — the same corner, by construction. So a failure reported
+    // through both draws the same sentence twice, four pixels apart, and the
+    // toast's close button lands on the banner's Dismiss: measured with the
+    // screenshot harness, `elementFromPoint` at the centre of the banner's
+    // button (1387, 21, 28x28) returned `.toast-close`. The banner could not be
+    // dismissed until the toast expired on its own.
+    //
+    // The banner is the surface that stays. A document that would not open is a
+    // state the reader is left sitting in, not an event that went past.
+    //
+    // Asserted as source text for the same reason as its neighbours: jsdom has
+    // no layout engine, and the overlap is geometry.
+    const css = (rel) =>
+      readFileSync(join(ROOT, "src/styles", rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rule = (text, selector) => {
+      const start = text.indexOf(`${selector} {`);
+      expect(start, `${selector} not found`).toBeGreaterThan(-1);
+      return text.slice(start, text.indexOf("}", start));
+    };
+    for (const [file, selector] of [
+      ["app/13-chat-late.css", ".file-error-banner"],
+      ["app/08-recents-toasts.css", ".toast-viewport"],
+    ]) {
+      const decl = rule(css(file), selector);
+      expect(decl, `${selector} is why the two collide`).toContain("position: fixed");
+      expect(decl).toMatch(/top:\s*\d+px/);
+      expect(decl).toMatch(/right:\s*\d+px/);
+    }
+
+    const src = readFileSync(join(ROOT, "src/session/SessionProvider.tsx"), "utf8");
+    const at = src.indexOf("setFileError(msg)");
+    expect(at, "the document-load failure path moved").toBeGreaterThan(-1);
+    const open = src.lastIndexOf("catch (", at);
+    const close = src.indexOf("} finally {", at);
+    expect(open > -1 && close > at, "could not bound the catch block").toBe(true);
+    expect(
+      src.slice(open, close),
+      "the banner already says this; a toast saying it again covers the banner's Dismiss",
+    ).not.toMatch(/\bshowToast\s*\(/);
+  });
+
   it("keeps the cascade in the order the snapshot records", () => {
     // Splitting App.css into 13 parts is only safe while they concatenate in the
     // original order — later rules deliberately override earlier ones. This is

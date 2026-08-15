@@ -18,9 +18,22 @@ function formatOpenedAt(
   return t("library.daysAgo", { n: days });
 }
 
+/**
+ * Where the file lives — the folder, never the file.
+ *
+ * This used to end with the path's last segment, which for a file path is the
+ * filename the row already prints on the line above it. In the drawer's 229px
+ * column that pushed the meta line onto two lines for an ordinary paper and
+ * three for a long export — rows 52px and 64px tall against 40px, and every one
+ * of those extra lines carried a name the reader could already read.
+ *
+ * Nothing is lost by dropping it: the row's `title` is the full path.
+ */
 function pathSummary(path: string): string {
-  const parts = path.split(/[/\\]/);
-  if (parts.length <= 2) return path;
+  const dir = path.replace(/[/\\][^/\\]*$/, "");
+  if (!dir) return path;
+  const parts = dir.split(/[/\\]/);
+  if (parts.length <= 2) return dir;
   return `…/${parts.slice(-2).join("/")}`;
 }
 

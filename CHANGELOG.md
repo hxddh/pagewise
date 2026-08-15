@@ -4,6 +4,20 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.5] - 2026-08-15
+
+### Fixed
+
+- **A document that would not open said so twice, and the second copy blocked the first.** The failure was reported both as a banner across the top of the window and as a toast in the same corner, four pixels apart — and the toast's close button landed exactly on the banner's Dismiss, so the banner could not be closed until the toast expired on its own. The banner stays; a document that would not open is a state you are left in, not an event that went past.
+- **Every row in the Library repeated the filename it had just printed.** The second line showed when the file was opened and where it came from, but "where it came from" ended with the file's own name — so an ordinary paper wrapped onto two lines and a long export onto three, and none of that height carried anything new. The line now says the folder.
+- **The AI Provider panel could report a bad key and call the connection verified at the same time.** A green "In use · verified" badge sat directly above a red "Invalid API key" banner. The badge now says "Connection failed" while that error is on screen.
+
+### Notes
+
+- All three were found by photographing the app rather than reading it — the error screens and the Library drawer were the last surfaces the screenshot harness had never opened. Each is held by a test in the normal suite, and each of those tests was checked to fail when its fix is reverted.
+- The connection panel's failure is still reported twice, once in the panel and once as a toast, and that is deliberate: its banner sits inside a scrolling panel, so a reader who scrolled down to reach the Test connection button could otherwise get no answer at all. The load failure's banner is fixed to the window and has no such problem.
+- A failed connection test does not un-verify the provider. That flag gates the assistant, and a single dropped request should not lock a reader out of chat.
+
 ## [8.1.4] - 2026-08-15
 
 ### Fixed
