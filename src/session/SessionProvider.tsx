@@ -335,8 +335,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           raw === "errors.unsupportedFile" || raw.startsWith("errors.")
             ? t(raw)
             : raw || t("load.failed");
+        // The banner only, not a toast as well. Both surfaces are fixed to the
+        // top-right corner — `.file-error-banner` at top:12/right:12, the toast
+        // viewport at top:16/right:16 — so reporting one failure through both
+        // drew the same sentence twice, and the toast's own close button landed
+        // exactly on top of the banner's Dismiss (measured: elementFromPoint at
+        // the banner button's centre returned `.toast-close`). The banner was
+        // literally not dismissable until the toast expired.
+        //
+        // The banner is the surface that survives: a load failure is a state the
+        // reader is left in, not an event that passed.
         setFileError(msg);
-        showToast(msg, "error");
         setPhase(prev ? "ready" : "empty");
         setChatLoading(false);
         chatHydrateRef.current = null;

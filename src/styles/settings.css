@@ -166,6 +166,12 @@
   border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
 }
 
+.connection-chip-failed {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
 .connection-chip-preview {
   color: var(--accent);
   background: var(--accent-muted);
