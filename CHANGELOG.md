@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.1] - 2026-08-15
+
+### Changed
+
+- **The screenshot script now also photographs in-document search**, the surface whose results were being drawn off the bottom of the window until the previous release. A check that never opens the screen it was written for is a check in name only.
+
+### Notes
+
+- An automatic detector for that whole class of fault — content that exists, is styled correctly, and is drawn where nobody can see it — was written this round and **not shipped**. It failed to catch the bug it was written for, three times, for three different reasons; the last version could scroll an unrelated pane until the lost content came into view and then called it reachable. A check that reports "all clean" is worth nothing until it has been shown to fail on a real instance, and this one never did.
+
 ## [8.1.0] - 2026-08-15
 
 ### Fixed
