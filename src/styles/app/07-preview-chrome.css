@@ -118,8 +118,23 @@
 }
 
 .thumb-canvas {
+  /*
+   * Natural size when it fits the row, shrink-to-fit when it does not.
+   *
+   * `height: auto` alone made the canvas as tall as the page's aspect demanded,
+   * which overflowed a fixed-height row and pushed the page number onto the next
+   * thumbnail. The row is sized for a portrait page (see THUMB_BUTTON_HEIGHT);
+   * anything squarer or wider than that shrinks here instead of growing the row,
+   * because the row pitch is what the windowed list measures with.
+   *
+   * `object-fit: contain` keeps the page's proportions while it shrinks — a
+   * thumbnail whose aspect is wrong is not a thumbnail of that page.
+   */
   width: 100%;
   height: auto;
+  min-height: 0;
+  flex-shrink: 1;
+  object-fit: contain;
   display: block;
   border-radius: var(--radius-sm);
   background: var(--bg-base);
