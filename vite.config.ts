@@ -36,6 +36,21 @@ export default defineConfig(async () => ({
     },
   },
 
+  /*
+   * Console calls are stripped from production builds.
+   *
+   * Vite 8 warns on every dev start that this is ignored, because the React
+   * plugin sets oxc options and oxc wins over esbuild. The warning is accurate
+   * about dev and misleading about build: `vite build` sets NODE_ENV, the array
+   * below is populated, and the calls really are removed. The dev warning
+   * prints `drop: []` precisely because in dev the array is empty.
+   *
+   * I read that warning as proof the option had never worked and deleted it.
+   * Five console.error calls immediately appeared in the vendor chunk. What
+   * caught it was scripts/check-bundle.mjs, written minutes earlier on that
+   * same mistaken premise — the check failed the change that created it, which
+   * is the only reason this line is still here.
+   */
   esbuild: {
     drop: process.env.NODE_ENV === "production" ? ["console", "debugger"] : [],
   },
