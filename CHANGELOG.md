@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.0.3] - 2026-08-15
+
+### Added
+
+- **A check that no debugging output reaches the shipped app.** It runs after every build. Console messages were already being removed, but only because a setting said so, and settings stop being true quietly — this one had, in a way nobody would have noticed until it was in someone's browser console.
+
+### Changed
+
+- **Vite 7 → 8, and the React plugin 4 → 6.** Building the app went from about eight seconds to under two — roughly four times faster, measured three runs each way. What ships is the same code; only the tools that assemble it changed.
+
+### Notes
+
+- These were meant to be two separate releases, one upgrade each, so that anything that broke could be blamed on one thing. They could not be separated: the older React plugin refuses to install alongside the newer Vite, so the halfway state does not exist. The rule gave way to the fact.
+- The new bundler accepts only one of the two ways of describing how the app is split into files, so that description was rewritten in the other form. Checked rather than assumed: the same pieces, total within three kilobytes of before.
+
 ## [8.0.2] - 2026-08-15
 
 ### Changed
