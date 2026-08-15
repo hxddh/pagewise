@@ -339,6 +339,21 @@
 
 .doc-search-panel {
   position: relative;
+  /*
+   * A row: the query field, then the close button.
+   *
+   * It was `display: block`, so the button wrapped onto a line of its own under
+   * the field — a bare ✕ floating in the panel. The giveaway had been sitting in
+   * 09-palette-status.css the whole time: `.doc-search-panel .doc-search-input`
+   * sets `flex: 1`, which does nothing at all unless the parent is a flex
+   * container. Someone wrote the child half and not the parent half.
+   *
+   * Only visible once the panel stopped stretching to full height — before that
+   * the whole surface was 852px tall and the stray button was lost in it.
+   */
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
   width: min(480px, calc(100vw - 48px));
   background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
   backdrop-filter: blur(16px);

@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.0] - 2026-08-15
+
+### Fixed
+
+- **Searching inside a document showed you nothing.** It found the matches — the count, the page numbers, the surrounding text were all built correctly — and then drew them just past the bottom edge of the window, where you could not see them. The panel had also grown to the full height of the window, so the frosted surface it sits on covered the document you were searching.
+- **The close button in that panel sat on a line of its own**, a bare ✕ under the search box, instead of beside it.
+
+### Notes
+
+- One default did all of that: the panel is laid out as a flex item and nothing said how tall it should be, so it took the whole window. The results are positioned relative to it, which put them 858 pixels below the top of the screen.
+- Nothing was broken enough to fail a test. Every element existed, with the right text and normal contrast — the only thing wrong was where it landed, which is why this survived until the app could be photographed. The second one was invisible even then, until the first was fixed.
+
 ## [8.0.4] - 2026-08-15
 
 ### Changed

@@ -191,6 +191,21 @@
   z-index: var(--z-doc-search);
   display: flex;
   justify-content: center;
+  /*
+   * Without this the panel stretched to the overlay's full height — flex
+   * defaults to `align-items: stretch`, and the overlay is `inset: 0`.
+   *
+   * That did two things at once. The panel is a translucent blurred surface, so
+   * an 852px-tall one covered the document it was searching; and
+   * `.doc-search-results` is positioned `top: calc(100% + 6px)` against it, so
+   * "just below the search box" became 858px below the top of the window. In a
+   * 900px window the results rendered at y=905 — correct, complete, and off the
+   * bottom edge.
+   *
+   * Nothing failed: the DOM had the matches, the snippets and the page numbers,
+   * with normal contrast. Only a screenshot showed it.
+   */
+  align-items: flex-start;
   padding-top: 48px;
   pointer-events: none;
 }
