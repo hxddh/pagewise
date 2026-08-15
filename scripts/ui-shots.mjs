@@ -112,9 +112,19 @@ await page.getByRole("button", { name: /open document/i }).first().click();
 await page.waitForTimeout(4000);
 await shoot(page, "02-document");
 
+// Search before settings: 8.1.0's bug lived here, and a guard that never opens
+// the surface it was written for is a guard in name only.
+await page.keyboard.press("Control+f");
+await page.waitForTimeout(500);
+await page.keyboard.type("lorem");
+await page.waitForTimeout(1000);
+await shoot(page, "03-search");
+await page.keyboard.press("Escape");
+await page.waitForTimeout(400);
+
 await page.keyboard.press("Control+,");
 await page.waitForTimeout(1200);
-await shoot(page, "03-settings");
+await shoot(page, "04-settings");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(600);
 
@@ -139,13 +149,14 @@ await composer.click();
 await composer.fill("What does this page say?");
 await page.keyboard.press("Enter");
 await page.waitForTimeout(1200);
-await shoot(page, "04-answering");
+await shoot(page, "05-answering");
 await page.waitForTimeout(4000);
-await shoot(page, "05-answered");
+await shoot(page, "06-answered");
 
 await browser.close();
 
 console.log(`\n${shots.length} shots in docs/ui-shots/`);
+
 if (problems.length > 0) {
   // Loud, but not a failure: a console error here may be the harness rather
   // than the app, and a script that exits non-zero for its own mock would stop
