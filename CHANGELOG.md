@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.8] - 2026-08-15
+
+### Fixed
+
+- **Page references in answers were not clickable, and never had been.** When the assistant wrote "see page 2", that was meant to be a link that jumps the preview to page 2. It was being rendered as plain text instead: the markdown renderer's link sanitiser does not recognise PageWise's own internal link scheme and blanked it out, so every citation in every answer lost its destination on the way to the screen. They work now.
+- **The document outline was flat below the second heading level.** Sub-sections indented once and then stopped, so a sub-sub-section sat at exactly the same place as a chapter title and the outline showed nothing about how the document nests — which is the one thing an outline is for. Each level now steps in, up to five deep, after which the indent would cost more in title than it gives back in structure.
+
+### Notes
+
+- Nothing failed loudly in either case. The page-reference machinery has its own tests and they all passed: they check the step that finds the reference, which was always correct, and the loss happened one layer below them. It took opening a real conversation and counting the links on screen — zero, where there should have been sixteen.
+- The outline's indentation was a single style rule covering level 2 and nothing beyond it. It has been replaced by one that follows the level itself, so a document nested deeper than its author expected still reads correctly.
+- Also looked at and found sound: the marks list with real marks in it, at both window sizes; and a four-turn conversation with tool steps, streamed prose and the pages-read trail.
+
 ## [8.1.7] - 2026-08-15
 
 ### Fixed
