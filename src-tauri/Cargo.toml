@@ -1,6 +1,6 @@
 [package]
 name = "pagewise"
-version = "8.0.3"
+version = "8.0.4"
 description = "Local desktop PDF agent — page-wise AI analysis"
 authors = ["hxddh"]
 edition = "2021"
@@ -26,7 +26,23 @@ serde_json = "1"
 pdf-inspector = "0.1"
 tauri-plugin-dialog = "2.7.1"
 tauri-plugin-store = "2.4.3"
-keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# keyring 4 is a different crate. Its own docs say an application that wants to
+# control which credential stores it uses "should not be linking to this library
+# at all" — it should link keyring-core plus the specific stores it wants. What
+# is used here instead is 4.x's `v1` compatibility shim, which keeps the 3.x
+# `Entry` API exactly as the code in secrets.rs already calls it.
+#
+# So the feature list is `v1` and nothing else. Naming backends here would be
+# theatre: the shim hard-codes its own choice per platform (apple-native on
+# macOS, windows-native on Windows, zbus-secret-service elsewhere), and the
+# first attempt at this upgrade listed `dbus-secret-service-keyring-store`,
+# which compiled an entire second Secret Service backend that nothing called.
+#
+# One real behaviour change, on Linux: 3.x used `sync-secret-service`, the
+# blocking backend; the shim uses the zbus one. Both talk to the same Secret
+# Service, and these calls already run inside `spawn_blocking`, so nothing about
+# this code's threading changes.
+keyring = { version = "4.1.6", default-features = false, features = ["v1"] }
 
 [profile.release]
 lto = true
