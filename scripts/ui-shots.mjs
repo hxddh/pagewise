@@ -35,6 +35,36 @@ const FIXTURE = join(ROOT, "src-tauri/tests/fixtures/text-simple.pdf");
 // an explicit path when it is set and fall back to Playwright's own lookup.
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined;
 
+/** One SSE chunk in the shape the OpenAI-compatible providers stream. */
+const chunk = (delta, finish = null) =>
+  `data: ${JSON.stringify({
+    id: "harness",
+    object: "chat.completion.chunk",
+    created: 1,
+    model: "harness",
+    choices: [{ index: 0, delta, finish_reason: finish }],
+  })}\n\n`;
+
+const TOOL_CALL_STREAM =
+  chunk({
+    role: "assistant",
+    tool_calls: [
+      { index: 0, id: "t1", type: "function", function: { name: "read_pdf_page", arguments: "" } },
+    ],
+  }) +
+  chunk({ tool_calls: [{ index: 0, function: { arguments: '{"page":1}' } }] }) +
+  chunk({}, "tool_calls") +
+  "data: [DONE]\n\n";
+
+const ANSWER_STREAM =
+  chunk({ role: "assistant", content: "" }) +
+  "On page 1, the text is the standard Lorem ipsum specimen used for typesetting — it carries no argument of its own."
+    .split(" ")
+    .map((w) => chunk({ content: `${w} ` }))
+    .join("") +
+  chunk({}, "stop") +
+  "data: [DONE]\n\n";
+
 const shots = [];
 
 async function shoot(page, name) {
@@ -56,9 +86,18 @@ page.on("console", (m) => {
 
 await page.addInitScript(installTauriMock, {
   pdfB64: readFileSync(FIXTURE).toString("base64"),
-  doc: sampleDocument(3),
-  apiKey: "",
-  settings: {},
+  doc: sampleDocument(),
+  // A configured provider, so the composer is live rather than showing the
+  // "Configure AI" state the other shots exercise.
+  apiKey: "sk-harness",
+  settings: {
+    llm: {
+      provider: "openai",
+      model: "gpt-4o",
+      connectionVerified: true,
+      apiKeys: { openai: "sk-harness" },
+    },
+  },
 });
 await page.addInitScript((p) => {
   window.__HARNESS_OPEN_PATH__ = p;
@@ -76,6 +115,33 @@ await shoot(page, "02-document");
 await page.keyboard.press("Control+,");
 await page.waitForTimeout(1200);
 await shoot(page, "03-settings");
+await page.keyboard.press("Escape");
+await page.waitForTimeout(600);
+
+// A real answer, on the screen where the reader spends their time: a tool step,
+// streamed prose, the pages-read footer. The provider is faked at the network
+// edge rather than in the app, so everything from the transport inward — the
+// tool loop, the streaming markdown split, the citation rendering — is the real
+// code path.
+await page.unroute("**/chat/completions").catch(() => {});
+let turn = 0;
+await page.route("**/chat/completions", async (route) => {
+  turn += 1;
+  await route.fulfill({
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+    body: turn === 1 ? TOOL_CALL_STREAM : ANSWER_STREAM,
+  });
+});
+
+const composer = page.getByPlaceholder(/ask about this document/i);
+await composer.click();
+await composer.fill("What does this page say?");
+await page.keyboard.press("Enter");
+await page.waitForTimeout(1200);
+await shoot(page, "04-answering");
+await page.waitForTimeout(4000);
+await shoot(page, "05-answered");
 
 await browser.close();
 
