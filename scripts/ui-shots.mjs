@@ -29,7 +29,7 @@ import { installTauriMock, sampleDocument } from "./ui-harness/tauri-mock.mjs";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = join(ROOT, "docs/ui-shots");
 const URL_BASE = process.env.PAGEWISE_DEV_URL ?? "http://localhost:1420/";
-const FIXTURE = join(ROOT, "src-tauri/tests/fixtures/text-simple.pdf");
+const FIXTURE = join(ROOT, "src-tauri/tests/fixtures/text-pages.pdf");
 
 // The container ships a browser and tells Playwright not to fetch one; honour
 // an explicit path when it is set and fall back to Playwright's own lookup.
@@ -112,19 +112,29 @@ await page.getByRole("button", { name: /open document/i }).first().click();
 await page.waitForTimeout(4000);
 await shoot(page, "02-document");
 
+// The page/outline/marks sidebar. It only exists for a multi-page document —
+// PreviewToolbar hides the control behind `totalPages > 1` — which is why the
+// harness needed a three-page fixture before this screen could be photographed
+// at all.
+await page.getByRole("button", { name: /thumbnails/i }).first().click();
+await page.waitForTimeout(1500);
+await shoot(page, "03-sidebar");
+await page.getByRole("button", { name: /thumbnails/i }).first().click();
+await page.waitForTimeout(600);
+
 // Search before settings: 8.1.0's bug lived here, and a guard that never opens
 // the surface it was written for is a guard in name only.
 await page.keyboard.press("Control+f");
 await page.waitForTimeout(500);
 await page.keyboard.type("lorem");
 await page.waitForTimeout(1000);
-await shoot(page, "03-search");
+await shoot(page, "04-search");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(400);
 
 await page.keyboard.press("Control+,");
 await page.waitForTimeout(1200);
-await shoot(page, "04-settings");
+await shoot(page, "05-settings");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(600);
 
@@ -149,9 +159,9 @@ await composer.click();
 await composer.fill("What does this page say?");
 await page.keyboard.press("Enter");
 await page.waitForTimeout(1200);
-await shoot(page, "05-answering");
+await shoot(page, "06-answering");
 await page.waitForTimeout(4000);
-await shoot(page, "06-answered");
+await shoot(page, "07-answered");
 
 await browser.close();
 

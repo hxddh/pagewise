@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.2] - 2026-08-15
+
+### Changed
+
+- **The screenshot script can now reach the page/outline/marks sidebar.** It could not before, for a reason that took a while to see: that sidebar is deliberately hidden for a document with only one page, and the only sample file the script had was one page long. So the control genuinely did not exist to open, and its absence looked for a moment like a missing button. A three-page sample file was written for the purpose.
+
+### Notes
+
+- With the sidebar finally on screen, its tab strip turns out to be wider than the sidebar itself — "Marks", the third tab, runs 49 pixels past the edge and is cut off mid-word. Measured, not eyeballed. It is not fixed here; this release is the part that makes it visible, and the fix wants a round with room to check it.
+
 ## [8.1.1] - 2026-08-15
 
 ### Changed

@@ -48,8 +48,15 @@
  * hint. Both come from the same mistake: fake data that is not internally
  * consistent with the real file underneath it. Anything surprising in a
  * screenshot gets checked against the fixture before it gets called a defect.
+ *
+ * The fixture is `text-pages.pdf`, three pages, generated for this harness
+ * rather than borrowed from the Rust tests. The one-page fixture used before it
+ * made the thumbnail, outline and marks sidebar impossible to photograph:
+ * PreviewToolbar hides that whole control behind `totalPages > 1`, correctly,
+ * so the sidebar simply did not exist to open. It nearly got reported as a
+ * missing button — the fifth false finding this harness would have produced.
  */
-export const FIXTURE_PAGE_COUNT = 1;
+export const FIXTURE_PAGE_COUNT = 3;
 
 /** The document the mock shell reports. Long enough page text to matter. */
 export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
