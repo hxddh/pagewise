@@ -497,7 +497,6 @@ function PreviewPaneInner({
             selectedId={selectedMarkId}
             stale={staleMarks}
             tabs={sidebarTabs}
-            onClose={() => setThumbsVisible(false)}
             onSelect={(target, id) => {
               onPageChange(target);
               setSelectedMarkId(id);
@@ -524,7 +523,6 @@ function PreviewPaneInner({
             outline={outline}
             currentPage={page}
             tabs={sidebarTabs}
-            onClose={() => setThumbsVisible(false)}
             onPageSelect={onPageChange}
           />
         ) : (
@@ -533,7 +531,6 @@ function PreviewPaneInner({
             totalPages={doc.totalPages}
             currentPage={page}
             tabs={sidebarTabs}
-            onToggle={() => setThumbsVisible(false)}
             onPageSelect={onPageChange}
           />
         ))}

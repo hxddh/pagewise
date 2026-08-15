@@ -41,7 +41,6 @@ function renderSidebar(onAsk?: (mark: Mark) => void) {
       selectedId={null}
       stale={false}
       tabs={null}
-      onClose={() => {}}
       onSelect={() => {}}
       onAsk={onAsk}
     />,

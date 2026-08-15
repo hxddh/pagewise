@@ -1,8 +1,6 @@
-import { ChevronLeft } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { renderThumbnail } from "../lib/pdf";
-import { Button } from "./ui/Button";
 
 /**
  * The pitch of one thumbnail row: the button plus the gap below it.
@@ -38,7 +36,6 @@ interface ThumbnailSidebarProps {
   currentPage: number;
   /** Replaces the header label so the sidebars can switch in place. */
   tabs?: React.ReactNode;
-  onToggle: () => void;
   onPageSelect: (page: number) => void;
 }
 
@@ -115,7 +112,6 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   totalPages,
   currentPage,
   tabs,
-  onToggle,
   onPageSelect,
 }: ThumbnailSidebarProps) {
   const { t } = useI18n();
@@ -171,15 +167,6 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
     <aside className="thumb-sidebar" aria-label={t("preview.pages")}>
       <div className="thumb-sidebar-header">
         {tabs ?? <span>{t("preview.pages")}</span>}
-        <Button variant="ghost" size="md"
-         
-          className="toolbar-btn"
-          onClick={onToggle}
-          title={t("preview.thumbnailsHide")}
-          aria-label={t("preview.thumbnailsHide")}
-        >
-          <ChevronLeft size={14} />
-        </Button>
       </div>
       <div
         className="thumb-list"
