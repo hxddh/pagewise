@@ -176,6 +176,52 @@ describe("CSS hygiene", () => {
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
+  it("keeps the in-document search panel from stretching over the document", () => {
+    // Both of these shipped, and nothing in the suite could have caught them:
+    // the DOM was correct throughout. Search found its matches and built the
+    // count, page numbers and snippets with ordinary contrast. What was wrong
+    // was where they landed, which only a screenshot showed.
+    //
+    //   1. `.doc-search-overlay` is `display: flex` with `inset: 0` and no
+    //      `align-items`, so the default `stretch` made the panel as tall as the
+    //      window — 852px. `.doc-search-results` sits `top: calc(100% + 6px)`
+    //      against that panel, so in a 900px window the results rendered at
+    //      y=905: complete, and off the bottom edge. The panel is a translucent
+    //      blurred surface, so at full height it also covered the document it
+    //      was searching.
+    //
+    //   2. With that fixed, the close button turned out to be wrapping onto its
+    //      own line, because `.doc-search-panel` was `display: block`. The
+    //      evidence had been in the stylesheet all along: that panel's input is
+    //      given `flex: 1`, which is inert unless the parent is a flex box.
+    //      Someone wrote the child half and not the parent half.
+    //
+    // Asserted against stylesheet text, like every other check in this file,
+    // because jsdom has no layout engine. The geometry itself was verified once
+    // with the screenshot harness: panel 852px -> 30px, results y=905 -> y=109.
+    const body = (css, selector) => {
+      const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+      const start = stripped.indexOf(`${selector} {`);
+      expect(start, `${selector} not found`).toBeGreaterThan(-1);
+      return stripped.slice(start, stripped.indexOf("}", start));
+    };
+    const read = (rel) => readFileSync(join(ROOT, "src/styles", rel), "utf8");
+
+    const overlay = body(read("app/09-palette-status.css"), ".doc-search-overlay");
+    expect(overlay).toContain("display: flex");
+    expect(
+      overlay,
+      "flex defaults to align-items: stretch, which made the panel as tall as " +
+        "the window and pushed the results off the bottom of it",
+    ).toMatch(/align-items:\s*(flex-)?start/);
+
+    expect(
+      body(read("preview.css"), ".doc-search-panel"),
+      "the close button wrapped onto its own line; the input's `flex: 1` does " +
+        "nothing unless this is a flex container",
+    ).toContain("display: flex");
+  });
+
   it("keeps the cascade in the order the snapshot records", () => {
     // Splitting App.css into 13 parts is only safe while they concatenate in the
     // original order — later rules deliberately override earlier ones. This is
