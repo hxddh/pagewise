@@ -222,6 +222,29 @@ describe("CSS hygiene", () => {
     ).toContain("display: flex");
   });
 
+  it("gives the page sidebar room for its own tab strip", () => {
+    // "Pages | Outline | Marks" needed 124px of the 112px a 128px sidebar left
+    // them, so the third tab ran past the edge and rendered as "Mar". The
+    // buttons were never clipped internally (scrollWidth === width) — the strip
+    // simply overflowed, which is the same shape as 8.1.0's search results and
+    // just as invisible to a DOM test.
+    //
+    // Held as a width floor rather than a computed layout, because jsdom has no
+    // layout engine and the real geometry was measured once with the harness.
+    // The floor is above the width that merely fits: that measurement is
+    // Chromium's, and the app ships on three other engines whose font metrics
+    // differ.
+    const css = readFileSync(join(ROOT, "src/styles/app/07-preview-chrome.css"), "utf8");
+    const width = /\.thumb-sidebar\s*\{[^}]*?width:\s*(\d+)px/s.exec(
+      css.replace(/\/\*[\s\S]*?\*\//g, ""),
+    );
+    expect(width, ".thumb-sidebar width not found").toBeTruthy();
+    expect(
+      Number(width[1]),
+      "three tab labels plus padding need more than this; at 128px the last one was cut off",
+    ).toBeGreaterThanOrEqual(160);
+  });
+
   it("keeps the cascade in the order the snapshot records", () => {
     // Splitting App.css into 13 parts is only safe while they concatenate in the
     // original order — later rules deliberately override earlier ones. This is

@@ -4,6 +4,17 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.3] - 2026-08-15
+
+### Fixed
+
+- **The third tab above the page thumbnails was cut off mid-word.** "Pages", "Outline" and "Marks" needed more room than the sidebar gave them, so "Marks" ran past the edge and read as "Mar". The sidebar is a little wider now.
+
+### Notes
+
+- Narrowing the tabs instead recovered only part of the gap, and their type is already at the bottom of the scale — which is a floor in a tool meant for reading, not a size to go below. Letting the strip wrap onto a second line would have looked like a mistake. So the sidebar got the width; the thumbnails in it are unaffected.
+- The width is set above the point where the labels merely fit. The measurement comes from the screenshot harness, which runs a different browser engine from the ones the app ships in, and type is exactly the thing that differs between them.
+
 ## [8.1.2] - 2026-08-15
 
 ### Changed
