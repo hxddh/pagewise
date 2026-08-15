@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.0.2] - 2026-08-15
+
+### Changed
+
+- **TypeScript 5.8 → 7.** Checking the whole codebase for type errors went from about 6.9 seconds to about 1.6 — a little over four times faster, measured three runs each way on the same machine. Nothing in the app changed and nothing needed changing: the new compiler reported zero errors on the existing source, first try.
+
+### Notes
+
+- The compiler only checks types here; the bundler does the actual translation and never consults it (`noEmit` is set). So a compiler change cannot alter what ships, which is why this is a patch release despite being a major version of the toolchain.
+
 ## [8.0.1] - 2026-08-14
 
 ### Changed

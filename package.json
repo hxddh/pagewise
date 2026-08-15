@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "8.0.1",
+  "version": "8.0.2",
   "description": "Local desktop PDF agent — page-wise AI analysis",
   "license": "MIT",
   "type": "module",
@@ -48,7 +48,7 @@
     "@vitejs/plugin-react": "^4.6.0",
     "jsdom": "^30.0.1",
     "playwright": "^1.62.1",
-    "typescript": "~5.8.3",
+    "typescript": "^7.0.2",
     "vite": "^7.0.4",
     "vitest": "^4.1.9"
   }
