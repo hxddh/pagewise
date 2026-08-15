@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [8.1.7] - 2026-08-15
+
+### Fixed
+
+- **A wide assistant panel could push two of the toolbar's buttons off the document and under the panel itself.** The panel can be dragged between 360 and 480 pixels, and that ceiling took no account of the window it was in. In the smallest window PageWise allows, a 480-pixel panel leaves the toolbar 199 pixels for 302 pixels of controls, so "Mark a region" and the zoom control were drawn past its edge, behind the assistant's own header, where neither could be clicked. How wide the panel may be now depends on the window, and it is re-checked when the window is resized.
+
+### Notes
+
+- This is not only a drag away. The panel's width is remembered, so sizing it on a large display and later opening a small window brought the same layout back — that restore is the case the limit mostly exists for.
+- The limit only applies where it must: from a 1100-pixel window upward the full 480 is still available, unchanged. Checked at 900, 1000, 1100, 1200 and 1440 with the page thumbnails open, which is the tightest the document side ever gets.
+- The panel now also reports the width it will actually accept to screen readers, rather than always claiming 480.
+
 ## [8.1.6] - 2026-08-15
 
 ### Fixed
