@@ -4,6 +4,22 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.0.0] - 2026-08-16
+
+### Added
+
+- **The assistant can write down what it worked out.** Until now all six of its tools only read, so every question started from nothing: it would read page 12, answer, and read page 12 again from scratch six questions later. It can now record a finding — a claim, and the pages it came from — and correct one when later reading contradicts it. The old wording is kept beside the correction, with the reason.
+- **One record for the document, written by both of you.** Your marks and the assistant's findings now appear in a single list under the same tab, in page order. They are never the same colour and each finding says whose it is in words: what came off the page and what was worked out about it must stay tellable apart.
+- **Every finding shows the pages it came from, and you can strike one out.** A struck finding stays on screen so you can undo it, and is never told to the assistant again. A claim with no pages is refused outright rather than stored.
+
+### Notes
+
+- This is the first half of a change described in `docs/reviews/2026-08-15-pagewise-v9.0-design.md`. The record is written and shown here; **9.1** is where it starts replacing re-read pages in what the assistant is sent, which is where the saving is.
+- **It costs something now and saves later.** Two new tools add about 203 tokens to the description block sent with every question — a byte-proportional estimate against the 736 previously measured, not a token count, because there is no way to measure tokens properly here. That cost is paid on every question from today; the saving arrives in 9.1 and only for documents whose pages get revisited. Both tool descriptions are deliberately the shortest in the set for this reason.
+- The findings live in their own file rather than joining `marks.json`. Adding them there would have meant changing that file's version, and the mark loader discards data whose version it does not recognise — every existing reader's marks would have been thrown away on first launch.
+- A finding is anchored to page numbers, not to a rectangle like a mark. The assistant reads page text and has no coordinates; pinning a claim to a rectangle it never chose would be an invented anchor, which is worse than a coarse honest one.
+- Findings written before the file changed are kept and flagged rather than discarded, exactly as marks are.
+
 ## [8.1.8] - 2026-08-15
 
 ### Fixed

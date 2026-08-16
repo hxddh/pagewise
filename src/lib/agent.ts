@@ -32,6 +32,8 @@ import {
   READ_PDF_RANGE_TOOL,
   READ_SECTION_TOOL,
   SEARCH_IN_DOCUMENT_TOOL,
+  NOTE_FINDING_TOOL,
+  REVISE_FINDING_TOOL,
   type DocumentToolName,
 } from "./document-tool-names";
 import {
@@ -149,6 +151,8 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
     search_in_document: docCtx,
     read_figure: docCtx,
     read_section: docCtx,
+    note_finding: docCtx,
+    revise_finding: docCtx,
   };
 }
 
@@ -180,6 +184,10 @@ export function createDocAgent() {
       READ_SECTION_TOOL,
       DOCUMENT_OUTLINE_TOOL,
       READ_FIGURE_TOOL,
+      // The writers last: reading comes before recording, and the order is a
+      // free nudge that costs no prompt to say.
+      NOTE_FINDING_TOOL,
+      REVISE_FINDING_TOOL,
     ],
     repairToolCall: repairDocumentToolCall,
     experimental_refineToolInput: {

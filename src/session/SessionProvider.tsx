@@ -17,6 +17,7 @@ import {
 } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
 import { flushMarkStore, forgetMarks, loadMarks } from "../lib/mark-store";
+import { flushFindingStore, forgetFindings, loadFindings } from "../lib/finding-store";
 import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { addRecentFile, getRecentFiles, removeRecentFile, removeRecentFiles, type RecentFile } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
@@ -307,6 +308,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // Marks are the reader's own work, so the stored copy stays; only the
           // in-memory copy for the document being closed goes.
           void flushMarkStore().then(() => forgetMarks(prevPath));
+          void flushFindingStore().then(() => forgetFindings(prevPath));
         }
 
         const doc = commitLoadedDocument(staged);
@@ -315,6 +317,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // Marks are drawn synchronously from memory, so they load with the
         // document rather than on first paint.
         await loadMarks(doc.path);
+        // The assistant's half of the same record. Loaded here rather than
+        // lazily, for the reason the marks are: the sidebar draws it from
+        // memory and must never await disk mid-render.
+        await loadFindings(doc.path);
         chatHydrateRef.current = { path: doc.path, messages };
         setDocument(docCache.get(doc.path) ?? doc);
         setPreviewPage(1);

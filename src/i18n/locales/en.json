@@ -142,7 +142,13 @@
     "noFilterMatch": "No mark matches that.",
     "ask": "Ask about this mark",
     "askQuoted": "About the mark on page {page}: \"{text}\"",
-    "askRegion": "About what I marked on page {page}"
+    "askRegion": "About what I marked on page {page}",
+    "agentFinding": "Assistant",
+    "strike": "Strike out",
+    "unstrike": "Restore",
+    "struck": "Struck out",
+    "replaced": "Replaced",
+    "findingPages": "Pages {{pages}}"
   },
   "drop": {
     "title": "Drop to open",
@@ -271,7 +277,9 @@
     "searchConversation": "Search this conversation",
     "searchCount": "{index} of {total}",
     "searchPrev": "Previous match",
-    "searchNext": "Next match"
+    "searchNext": "Next match",
+    "activityNoteFinding": "Noting a finding…",
+    "activityReviseFinding": "Revising a finding…"
   },
   "empty": {
     "lead": "Ask questions about your document",

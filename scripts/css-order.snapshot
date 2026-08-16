@@ -284,6 +284,13 @@ button.pages-read-chip:hover
 .mark-item-text
 .mark-item-note
 .mark-item-here .outline-page
+.mark-row .mark-item
+.finding-item
+.finding-byline
+.finding-claim
+.finding-row-inactive .finding-claim
+.finding-row-inactive
+.finding-state
 .pdf-region-layer
 .pdf-region-band
 @media (prefers-reduced-motion: reduce)

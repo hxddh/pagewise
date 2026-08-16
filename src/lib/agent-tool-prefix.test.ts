@@ -44,6 +44,23 @@ const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
   read_pdf_range: "TPzE6nqoYaLTzghpOJbN3V0cLUIzvp7ylyRH98enf1c",
   read_section: "LhN3IP2pTRh09c35zhg3ieDGZBX2dAncguJkApacZYs",
   search_in_document: "QTyUOwi1RfJ0tnrjjE3A82806M6iRRzVsHH2L9gQQ7c",
+  // 9.0's two writers. Added deliberately, and they are not free: measured by
+  // description + resolved input schema + name, they are 1,298 characters
+  // against the six readers' 4,698 — 27.6%, or about +203 tokens on the 736
+  // measured for the readers, taking the whole prefix from ~1,269 to ~1,472.
+  //
+  // That is a byte-proportional estimate, not a token count: there is no
+  // tokenizer in this environment and two earlier token estimates in this
+  // project were wrong precisely because they were asserted without one.
+  //
+  // The trade is deliberately lopsided in the wrong direction at 9.0: this cost
+  // is paid on every request by every reader, while the saving it enables only
+  // lands in 9.1, and only for documents whose pages get revisited. It is why
+  // both descriptions are the shortest in this file, and why the acceptance
+  // test for 9.1 is behavioural — the second run must not re-read the first
+  // run's pages — rather than a token comparison nothing here can make.
+  note_finding: "eCOw21O69qyDM683f9LNL0fFh3QHWl7Mp8_53qAecKs",
+  revise_finding: "QsRNl_RnoJld7QwR1nqlR_8Z_PBMk4TCP7ZQGouG93o",
 };
 
 describe("prompt cache prefix", () => {
