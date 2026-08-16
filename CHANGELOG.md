@@ -4,6 +4,23 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.1.0] - 2026-08-16
+
+### Fixed
+
+- **Everything PageWise told the assistant about your current situation was being thrown away.** Which document is open, how many pages it has, which page you are looking at, and the instructions for a whole-document question — all of it was assembled correctly on every question and then discarded before the request was sent, because it was attached to a field the assistant framework no longer uses. It has been silently doing this for as long as the code has existed. Asking about "this page" was working by luck, from the wording of your question alone.
+
+### Added
+
+- **What was established earlier now comes into the next question.** The findings the assistant recorded in 9.0 are sent with your next question, so it does not have to read the same pages again to work out what it already knew. Claims you struck out, and ones the assistant itself corrected, are never sent.
+
+### Notes
+
+- The record is capped at about 2,000 characters per question — roughly a third of what reading one page costs, which is the trade this exists to make. When there is more, the most recent entries are kept and the question says how many were left out.
+- It is attached to your question rather than to the assistant's standing instructions, deliberately. The instructions are what providers cache first, and a record that grew each turn would throw that cache away on every question — turning the saving into a permanent loss.
+- The record does not stop the assistant reading. It says what is already known and asks it not to re-read pages purely to re-derive that; the pages are still one step away when a question actually needs the text.
+- The discarded-context bug was found by dumping the request the provider actually receives. The function that builds the hint had eight passing tests and all of them were right — it was the name of the field the result was assigned to that was wrong, one layer above where those tests stop. That field name is now pinned by a test of its own.
+
 ## [9.0.0] - 2026-08-16
 
 ### Added
