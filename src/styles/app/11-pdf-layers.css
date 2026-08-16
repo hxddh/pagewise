@@ -256,6 +256,69 @@
   color: var(--accent);
 }
 
+/*
+ * The assistant's half of the record.
+ *
+ * Never the reader's colour, and never only a colour: a byline says whose it
+ * is in words, because a record that blurs what came off the page with what was
+ * worked out about it is worse than no record at all.
+ *
+ * The two hues are the ones each author already owns. `--mark-highlight-strong`
+ * is the reader's hand — the wash they leave over words, yellow in both themes
+ * because a real highlighter is. `--accent` is the app's own voice. No new
+ * token was invented for this: the first draft used `--info`, which does not
+ * exist, and the fallback would have hidden that from everything except
+ * check-css-tokens.
+ */
+.mark-row .mark-item {
+  box-shadow: inset 2px 0 0 var(--mark-highlight-strong);
+}
+
+.finding-item {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/*
+ * One word. The first draft read "The assistant established this", which is
+ * what it means but not what fits: measured in the 160px sidebar it rendered as
+ * "The assistant esta…" on every row — a label that has to be truncated is a
+ * label that failed. The rule down the left edge and the icon carry the rest.
+ */
+.finding-byline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--accent);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+}
+
+.finding-claim {
+  /* The claim wraps; a mark's snippet does not. A truncated claim is a
+     different claim, and the reader is being asked to judge this one. */
+  white-space: normal;
+  overflow: visible;
+}
+
+/*
+ * Struck by the reader, or replaced by a later finding. Dimmed and ruled
+ * through, never removed: the reader has to see what they struck in order to
+ * undo it, and a revision that hid what it overturned would leave no trace of
+ * the assistant having been wrong.
+ */
+.finding-row-inactive .finding-claim {
+  text-decoration: line-through;
+}
+
+.finding-row-inactive {
+  opacity: 0.55;
+}
+
+.finding-state {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
 .pdf-region-layer {
   position: absolute;
   inset: 0;

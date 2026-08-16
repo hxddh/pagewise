@@ -142,7 +142,13 @@
     "noFilterMatch": "没有匹配的标记。",
     "ask": "就这条标记提问",
     "askQuoted": "关于第 {page} 页的标记：“{text}”",
-    "askRegion": "关于我在第 {page} 页标出的内容"
+    "askRegion": "关于我在第 {page} 页标出的内容",
+    "agentFinding": "助手",
+    "strike": "划掉",
+    "unstrike": "恢复",
+    "struck": "已划掉",
+    "replaced": "已被修正",
+    "findingPages": "第 {{pages}} 页"
   },
   "drop": {
     "title": "拖放以打开",
@@ -271,7 +277,9 @@
     "searchConversation": "在本次会话中搜索",
     "searchCount": "第 {index} / 共 {total}",
     "searchPrev": "上一个匹配",
-    "searchNext": "下一个匹配"
+    "searchNext": "下一个匹配",
+    "activityNoteFinding": "记下一条发现…",
+    "activityReviseFinding": "修正一条发现…"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",
