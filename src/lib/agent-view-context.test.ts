@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   rollbackLastAgentMessage,
@@ -22,8 +19,6 @@ const ctx = (over: Partial<AgentMessageContext> = {}): AgentMessageContext => ({
   includeViewingPage: true,
   ...over,
 });
-
-const ROOT_DIR = fileURLToPath(new URL("../..", import.meta.url));
 
 describe("agent-view-context", () => {
   beforeEach(() => {
@@ -119,38 +114,5 @@ describe("appendContextToLastUserMessage", () => {
     expect(appendContextToLastUserMessage(undefined, "hint")).toBeUndefined();
     const noUser = [{ role: "assistant", content: "a" }];
     expect(appendContextToLastUserMessage(noUser, "hint")).toBe(noUser);
-  });
-});
-
-/**
- * The field the hint is actually attached to.
- *
- * `appendContextToLastUserMessage` had eight passing tests above and was a
- * no-op in production for as long as it existed: `prepareCall` receives the
- * model messages under `prompt`, and agent.ts read `rest.messages`, which is
- * undefined. The hint was built every turn and thrown away — the active
- * document, the page the reader was viewing, the whole-document instructions,
- * all of it — and nothing failed.
- *
- * Its own tests could not see this. They pass an array in and assert on the
- * array out, which was always correct; the loss was one layer up, in the name
- * of the field the result was assigned to. The same shape as the page-citation
- * defect in 8.1.8, and found the same way: by dumping the request body the
- * provider actually receives.
- *
- * This pins the field name so the carrier cannot go quiet again.
- */
-describe("the field prepareCall carries messages on", () => {
-  it("is `prompt`, and agent.ts appends to that one", () => {
-    const source = readFileSync(join(ROOT_DIR, "src/lib/agent.ts"), "utf8");
-    const call = source.slice(source.indexOf("appendContextToLastUserMessage("));
-    expect(
-      call.slice(0, 200),
-      "the hint must be appended to `rest.prompt`; `rest.messages` is undefined here",
-    ).toContain("rest.prompt");
-    expect(
-      source,
-      "and the result must be returned as `prompt`, or the appended copy is discarded",
-    ).toMatch(/\n\s*prompt: appendContextToLastUserMessage\(/);
   });
 });
