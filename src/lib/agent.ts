@@ -16,6 +16,7 @@ import {
   buildWholeDocumentInstructions,
 } from "./agent-view-context";
 import { AGENT_TIMEOUT } from "./agent-timeouts";
+import { buildRecordInstructions } from "./agent-record-context";
 import { compactRunMessages } from "./compact-run-messages";
 import { beginSteerRun, withSteerMessage } from "./agent-steer";
 import { resolveModel, resolveReasoning } from "./llm";
@@ -267,6 +268,10 @@ export function createDocAgent() {
       if (viewCtx && hasWholeDocumentIntent(viewCtx.userText)) {
         viewHint += buildWholeDocumentInstructions(viewCtx);
       }
+      // What earlier questions already established, so this one does not have to
+      // re-derive it. Appended to the user message with the rest of the volatile
+      // context — never to the system prompt, which is what providers cache.
+      viewHint += buildRecordInstructions(runtime.activeDocPath);
       runMaxSteps = resolveRunMaxSteps(viewCtx?.totalPages ?? 0);
       budget.max = RUN_CHAR_BUDGET;
       // Read at call time so a Settings change takes effect on the next
@@ -279,10 +284,17 @@ export function createDocAgent() {
         // The volatile half of the prompt rides on the newest user message, so
         // the system prompt — the first block every provider caches on — is
         // byte-identical from turn to turn. See appendContextToLastUserMessage.
-        messages: appendContextToLastUserMessage(
-          rest.messages as ReadonlyArray<{ role: string; content: unknown }> | undefined,
+        // `prompt`, not `messages`. prepareCall receives the model messages under
+        // `prompt`; `rest.messages` is undefined, so appending to it built the
+        // hint and threw it away. That was silent for as long as this code has
+        // existed — the view context ("Active document…", "the user is viewing
+        // page N") and the whole-document instructions were all being discarded
+        // with it, and nothing failed. Found by dumping the request body the
+        // provider actually receives, which is the only place it shows.
+        prompt: appendContextToLastUserMessage(
+          rest.prompt as ReadonlyArray<{ role: string; content: unknown }> | undefined,
           viewHint,
-        ) as typeof rest.messages,
+        ) as typeof rest.prompt,
         stopWhen: [stepCountIs(runMaxSteps), stopMetaToolLoop],
         model: resolveModel(settings),
         reasoning: runReasoning,

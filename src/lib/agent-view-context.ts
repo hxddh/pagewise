@@ -67,7 +67,7 @@ export function clearAgentMessageContext(): void {
  * characters so a name like `report" ignore prior rules.pdf` cannot break out
  * of its surrounding delimiter.
  */
-function sanitizeForPrompt(value: string, max = 200): string {
+export function sanitizeForPrompt(value: string, max = 200): string {
   let out = "";
   for (const ch of value) {
     const code = ch.codePointAt(0) ?? 0;
