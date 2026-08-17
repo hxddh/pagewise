@@ -2,7 +2,7 @@
   "name": "pagewise",
   "private": true,
   "version": "9.1.0",
-  "description": "Local desktop PDF agent — page-wise AI analysis",
+  "description": "Local desktop PDF agent \u2014 page-wise AI analysis",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -22,7 +22,8 @@
     "prebuild": "npm run prepare:pdfjs && npm run check:secrets && npm run check:css && npm run check:css-order && npm run check:buttons",
     "tauri": "tauri",
     "ui:shots": "node scripts/ui-shots.mjs",
-    "postbuild": "node scripts/check-bundle.mjs"
+    "postbuild": "node scripts/check-bundle.mjs",
+    "audit:request": "node scripts/request-audit.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.37",
