@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.2.1] - 2026-08-18
+
+### Fixed
+
+- **The assistant was writing its answers at its lowest thinking setting.** Reading a page needs no deliberation, so PageWise turns thinking down for those steps and back up for the step that puts the answer together. It never turned it back up: the restore was keyed to the step limit — twenty steps — and a run ends when the assistant decides it has read enough, usually after three or four. So the cheap setting covered the whole run including the answer, and the full setting was spent only when a run was being cut off at the limit, which is the least useful moment there is. Measured on a real request: a four-step run sent the lowest setting four times while the run was configured for the middle one.
+
+### Notes
+
+- Which step writes the answer cannot be known in advance — the decision is the assistant's, and the setting has to be chosen before the step runs. So the rule is now the other way round: only steps with nothing read yet are treated as mechanical, and every step after the first page is read gets the full setting, because any of them might be the one that answers.
+- **This costs more than it saves on long runs.** A twenty-step run now spends nineteen steps at the full setting instead of one. That was chosen deliberately: the answer is the thing you actually receive, and how much a cheap setting costs it cannot be measured without a live model — so the choice went to the answer rather than to a number nobody can check.
+- Thinking stays off entirely when you have it switched off, or when the model does not support it. This changes nothing in that case.
+
 ## [9.2.0] - 2026-08-18
 
 ### Changed

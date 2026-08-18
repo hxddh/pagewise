@@ -101,6 +101,37 @@ const MAX_OUTPUT_TOKENS = 8_000;
  */
 const MECHANICAL_STEP_REASONING = "low" as const;
 
+/**
+ * The reasoning effort for a step that still has tools available.
+ *
+ * `prepareStep` runs BEFORE the step, so it cannot know whether the model is
+ * about to call a tool or write the answer. The previous rule restored full
+ * effort only at `stepNumber >= runMaxSteps - 1` — the step ceiling — and its
+ * comment claimed that was "the step that writes the answer". It is not: a run
+ * ends when the model decides it has enough, which in practice is step 3 or 4
+ * of a permitted 20. Measured against a real request: a four-step run sent
+ * `reasoning_effort: "low"` on all four, the answering one included, while the
+ * run was configured for `medium`. Full effort was being spent only when the
+ * run was being cut off, which is the least useful moment there is.
+ *
+ * Since which step answers is unknowable in advance, this bets the other way:
+ * only the steps with nothing to reason over yet are mechanical. "Go find
+ * something" is; every step after the first tool result might be the answer.
+ *
+ * THE COST IS REAL. A twenty-step run now spends nineteen steps at full effort
+ * instead of one, so most of the saving this was written for is given back. The
+ * trade was made deliberately — an answer written at low effort is the thing
+ * the reader actually receives, and it cannot be measured from here without a
+ * live model, so the choice went to quality over a number nobody can check.
+ */
+export function stepReasoning<R>(
+  runReasoning: R | undefined,
+  hasMaterial: boolean,
+): R | typeof MECHANICAL_STEP_REASONING | undefined {
+  if (!runReasoning) return undefined;
+  return hasMaterial ? runReasoning : MECHANICAL_STEP_REASONING;
+}
+
 
 
 
@@ -160,8 +191,9 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
 export function createDocAgent() {
   const budget = newReadBudget();
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
-  // The reasoning effort this run was configured with. Intermediate steps drop
-  // below it (see prepareStep); the step that writes the answer gets it back.
+  // The reasoning effort this run was configured with. Steps that have nothing
+  // to reason over yet drop below it (see `stepReasoning`); every step after
+  // the first tool result keeps it, because any of them might be the answer.
   let runReasoning: ReturnType<typeof resolveReasoning> = undefined;
   const tools = createDocumentTools(budget);
   const defaultRuntime = buildRuntimeContext(null);
@@ -238,10 +270,9 @@ export function createDocAgent() {
       if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
-      return {
-        ...carry,
-        reasoning: runReasoning ? MECHANICAL_STEP_REASONING : undefined,
-      };
+      // Anything already read is material this step could answer from.
+      const hasMaterial = steps.some((step) => step.toolCalls.length > 0);
+      return { ...carry, reasoning: stepReasoning(runReasoning, hasMaterial) };
     },
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
