@@ -17,6 +17,8 @@ import { useConversationKeys } from "../hooks/useConversationKeys";
 import { reclaimUndeliveredNotes } from "../lib/agent-steer";
 import { ConversationSearchBar } from "../components/ConversationSearchBar";
 import { PageRefContext } from "../components/Markdown";
+import { RecordPanel } from "../components/RecordPanel";
+import { addFinding, findingsAreStale, subscribeFindings } from "../lib/finding-store";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
@@ -120,6 +122,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   ref,
 ) {
   const { t } = useI18n();
+  // Which half of the assistant column is showing. The transcript is the
+  // default: asking is still the primary action, and the record is what the
+  // asking leaves behind.
+  const [panelTab, setPanelTab] = useState<"chat" | "record">("chat");
+  // The record is drawn from the store's memory copy, so this only says when to
+  // look again — the same shape as useMarkRevision, kept local because the
+  // assistant column is the only thing that reads it.
+  const [recordRevision, setRecordRevision] = useState(0);
+  useEffect(() => {
+    setRecordRevision((n) => n + 1);
+    return subscribeFindings(() => setRecordRevision((n) => n + 1));
+  }, [activeDoc?.path]);
   const [menuOpen, setMenuOpen] = useState(false);
   // Path of the document whose scan offer was dismissed. Keyed by path so
   // dismissing it for one document doesn't hide it for the next.
@@ -381,10 +395,30 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   return (
     <PageRefContext.Provider value={onJumpToPage ?? null}>
-    <div className="chat-panel" onKeyDown={convKeys.onKeyDown}>
+    <section className="chat-panel" aria-label={t("agent.title")} onKeyDown={convKeys.onKeyDown}>
       <header className="panel-header">
         <div className="panel-header-main">
-          <h2>{t("agent.title")}</h2>
+          {/*
+            The tabs stand where the title stood. At 360px — the column's
+            minimum — a title plus two tabs plus the action buttons does not
+            fit, and the panel is identified by `aria-label` on the region
+            instead, which costs no width at all.
+          */}
+          <div className="sidebar-tabs panel-tabs" role="tablist">
+            {(["chat", "record"] as const).map((tab) => (
+              /* raw-button: role="tab" in a tablist — a tab is not a button and must not be styled as one */
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={panelTab === tab}
+                className={`sidebar-tab ${panelTab === tab ? "active" : ""}`}
+                onClick={() => setPanelTab(tab)}
+              >
+                {t(tab === "chat" ? "record.tabChat" : "record.tabRecord")}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="header-actions">
           {onCollapse && (
@@ -460,6 +494,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
       {convKeys.searchOpen && <ConversationSearchBar keys={convKeys} />}
 
+      {panelTab === "record" ? (
+        <RecordPanel
+          path={activeDoc?.path ?? ""}
+          revision={recordRevision}
+          currentPage={previewPage}
+          stale={activeDoc ? findingsAreStale(activeDoc.path, activeDoc.stamp ?? "") : false}
+          onJumpToPage={(page) => onJumpToPage?.(page)}
+        />
+      ) : (
       <div className="messages messages-panel" ref={messagesRef} onScroll={onMessagesScroll}>
         {chatLoading && (
           <div className="chat-loading chat-loading-overlay" aria-live="polite">
@@ -507,6 +550,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                     />
                     <MessageAssistantFooter
                       message={m as PageWiseUIMessage}
+                      onKeep={
+                        activeDoc
+                          ? (claim, pages) => {
+                              // The reader's own entry in the same record. Marked
+                              // as theirs — a record that cannot tell what the
+                              // assistant inferred from what the reader chose to
+                              // keep is the failure this whole thing avoids.
+                              addFinding(activeDoc.path, {
+                                pages,
+                                claim,
+                                stamp: activeDoc.stamp ?? "",
+                                author: "reader",
+                              });
+                              // No toast: `useToast` would make every consumer
+                              // of this panel need a ToastProvider, which is a
+                              // hard dependency for one confirmation. The Keep
+                              // button disables itself and relabels to "Kept to
+                              // the record", which is feedback where the action
+                              // happened, and the Record tab is in the header
+                              // the whole time.
+                            }
+                          : undefined
+                      }
                       live={busy && m.id === inFlightAssistant?.id}
                       canRegenerate={
                         !busy &&
@@ -631,6 +697,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </>
         )}
       </div>
+      )}
 
       {/*
         The agent can already tell that pages are unscanned (its tools report it)
@@ -758,7 +825,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           )}
         </div>
       </form>
-    </div>
+    </section>
     </PageRefContext.Provider>
   );
 });

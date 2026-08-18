@@ -526,5 +526,19 @@
     "deleteChatConfirm": "Delete this saved chat? This cannot be undone.",
     "deleteChatConfirmAction": "Delete chat",
     "close": "Close library"
+  },
+  "record": {
+    "tabChat": "Chat",
+    "tabRecord": "Record",
+    "empty": "Nothing established yet.",
+    "emptyHint": "As the assistant works things out, what it establishes is kept here — with the pages it came from.",
+    "filterPlaceholder": "Filter the record",
+    "noMatch": "Nothing matches.",
+    "thisPage": "Page {{page}}",
+    "byAssistant": "Assistant",
+    "byReader": "You",
+    "staleFile": "Some entries were written against an earlier version of this file.",
+    "keep": "Keep this",
+    "kept": "Kept to the record"
   }
 }

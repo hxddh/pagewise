@@ -131,6 +131,30 @@ button.pages-read-chip:hover
 .tool-label
 .reasoning-block
 .reasoning-block pre
+.panel-tabs
+.record-panel
+.record-controls
+.record-filter
+.record-page-toggle
+.record-list
+.record-entry
+.record-entry-head
+.record-byline
+.record-byline-reader
+.record-entry:has(.record-byline-reader)
+.record-claim
+.record-why
+.record-state
+.record-strike
+.record-entry-inactive
+.record-entry-inactive .record-claim
+.record-pages
+.record-page-chip
+.record-page-chip:hover
+.record-page-chip.here
+.record-empty
+.record-empty-hint
+.record-none
 # 05-chat-empty-composer.css
 .empty-state
 .empty-lead
@@ -284,13 +308,6 @@ button.pages-read-chip:hover
 .mark-item-text
 .mark-item-note
 .mark-item-here .outline-page
-.mark-row .mark-item
-.finding-item
-.finding-byline
-.finding-claim
-.finding-row-inactive .finding-claim
-.finding-row-inactive
-.finding-state
 .pdf-region-layer
 .pdf-region-band
 @media (prefers-reduced-motion: reduce)
