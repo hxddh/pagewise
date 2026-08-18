@@ -616,3 +616,181 @@ button.pages-read-chip:hover {
   white-space: pre-wrap;
   font-size: var(--text-xs);
 }
+
+/* ==========================================================================
+   The record — the assistant column's other tab.
+
+   9.0 put this in the page sidebar beside marks. That column is 160px, sized
+   for a thumbnail of a page, and a finding is prose: claims wrapped to four or
+   five lines and there was no way to widen it — 8.1.6 established that taking
+   40px from the preview at a 900px window puts the toolbar back into overlap.
+
+   Here the column is 360px at its narrowest. A claim wraps twice, not five
+   times, and it is the same place the reader already looks for what the
+   document says.
+   ========================================================================== */
+
+.panel-tabs {
+  min-width: 0;
+}
+
+.record-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.record-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.record-filter {
+  flex: 1;
+  min-width: 0;
+}
+
+.record-page-toggle {
+  flex-shrink: 0;
+}
+
+.record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.record-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  /* The assistant's, unless the byline below says otherwise. */
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.record-entry-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.record-byline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+
+/*
+ * The reader's own entries carry the highlighter yellow they already own, and
+ * say "You" in words. Never the same colour as the assistant's, and never only
+ * a colour: what came off the page and what was worked out about it have to
+ * stay tellable apart, and colour alone does not survive a colour-blind reader.
+ */
+.record-byline-reader {
+  color: var(--mark-highlight-strong);
+}
+
+.record-entry:has(.record-byline-reader) {
+  box-shadow: inset 2px 0 0 var(--mark-highlight-strong);
+}
+
+.record-claim {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+.record-why {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.record-state {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.record-strike {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/*
+ * Struck by the reader, or replaced by a later entry. Dimmed and ruled through,
+ * never removed: the reader has to see what they struck in order to undo it,
+ * and a revision that hid what it overturned would leave no trace of the
+ * assistant having been wrong.
+ */
+.record-entry-inactive {
+  opacity: 0.55;
+}
+
+.record-entry-inactive .record-claim {
+  text-decoration: line-through;
+}
+
+.record-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+/*
+ * The pages are controls, not decoration. A claim the reader cannot trace back
+ * to the text is the failure this record exists to avoid — and the assistant is
+ * told these again on the next question.
+ */
+.record-page-chip {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  padding: var(--space-2xs) var(--space-sm);
+  cursor: pointer;
+}
+
+.record-page-chip:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.record-page-chip.here {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-subtle));
+}
+
+.record-empty {
+  padding: var(--space-2xl) var(--space-lg);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.record-empty-hint {
+  margin-top: var(--space-md);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.record-none {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}

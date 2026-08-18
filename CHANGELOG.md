@@ -4,6 +4,26 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.2.0] - 2026-08-18
+
+### Changed
+
+- **What the assistant has worked out now lives beside the conversation, not in the page sidebar.** The assistant panel has two tabs: Chat, and Record. The record was put in the 160-pixel page thumbnails column in 9.0, which is sized for a picture of a page — a claim there wrapped to as many as ten lines. Measured on the same entries, the widest goes from ten lines to three, and six entries take ten lines instead of twenty-nine.
+- **The page sidebar is about the page again.** Pages, Outline and Marks — what you put on the document stays where you put it.
+
+### Added
+
+- **Keep an answer.** Every finished answer has a "Keep this" button. It writes what the assistant said into the record, anchored to the pages that answer actually read, marked as yours rather than as the assistant's. The next question then carries it, the same as anything the assistant recorded itself.
+- **See only what bears on the page you are reading.** A toggle above the record filters it to the current page.
+
+### Notes
+
+- Your entries and the assistant's are never the same colour and each says whose it is in words — what came off the page and what was worked out about it have to stay tellable apart, and colour alone does not survive a colour-blind reader.
+- Keeping an answer invents nothing: the pages it records are the pages that answer read, which the app already worked out and already showed you under it.
+- A long answer is shortened to whole sentences, and if not even one sentence fits, to whole words with an ellipsis. The full answer stays in the transcript.
+- **The 9.0 design promised findings drawn in the margin beside the text, and that has been dropped rather than postponed.** A finding is anchored to page numbers, not to a rectangle — the assistant reads page text and has no coordinates at all, so there is no place on the page to draw it. Filtering the record to the current page is the honest version of the same idea.
+- The acceptance target written for this release — claims wrapping no more than twice — was mis-specified and is not met for the longest ones: a claim may be up to 500 characters, so no fixed line count can hold for all of them. The real measurement is the comparison above, on identical text.
+
 ## [9.1.0] - 2026-08-16
 
 ### Fixed

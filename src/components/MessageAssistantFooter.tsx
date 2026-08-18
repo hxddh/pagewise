@@ -1,8 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { Copy, Gauge, RotateCcw } from "lucide-react";
+import { Copy, Gauge, RotateCcw, BookmarkPlus } from "lucide-react";
 import { AnchoredMenu } from "./AnchoredMenu";
 import { useI18n } from "../i18n";
+import { collectReadPages } from "../lib/read-pages";
+import { claimFromAnswer } from "../lib/keep-answer";
 import { useToast } from "../hooks/useToast";
 import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
 import {
@@ -24,6 +26,8 @@ interface MessageAssistantFooterProps {
   canRegenerate?: boolean;
   onRegenerate?: () => void;
   onCopy?: () => void;
+  /** Keep this answer in the record. Absent when there is no document open. */
+  onKeep?: (claim: string, pages: number[]) => void;
 }
 
 /**
@@ -92,12 +96,17 @@ function MessageAssistantFooterInner({
   canRegenerate = false,
   onRegenerate,
   onCopy,
+  onKeep,
 }: MessageAssistantFooterProps) {
   const { t } = useI18n();
   const { showToast } = useToast();
   const [statsOpen, setStatsOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
+  // Kept once. The record is append-and-revise, so a second click would write a
+  // duplicate rather than update the first — and the reader has no way to see
+  // that from here.
+  const [kept, setKept] = useState(false);
   const statsBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimerRef = useRef<number | undefined>(undefined);
 
@@ -139,6 +148,10 @@ function MessageAssistantFooterInner({
 
   // Hooks must run unconditionally — keep this above the early return below.
   const hasCopyable = useMemo(() => extractCopyableText(message).length > 0, [message]);
+  const plainText = useMemo(() => extractCopyableText(message), [message]);
+  // The anchor: the pages this answer actually read. Already computed for the
+  // "Pages read" trail, so keeping an answer invents nothing.
+  const keepPages = useMemo(() => collectReadPages(message.parts), [message.parts]);
 
   if (!showFooter) return null;
 
@@ -161,6 +174,20 @@ function MessageAssistantFooterInner({
         >
           <Copy size={14} />
         </Button>
+        {onKeep && keepPages.length > 0 && (
+          <Button
+            variant="ghost" size="sm" icon className="message-action-btn"
+            onClick={() => {
+              onKeep(claimFromAnswer(plainText), keepPages);
+              setKept(true);
+            }}
+            disabled={kept}
+            title={kept ? t("record.kept") : t("record.keep")}
+            aria-label={kept ? t("record.kept") : t("record.keep")}
+          >
+            <BookmarkPlus size={14} />
+          </Button>
+        )}
         {canRegenerate && onRegenerate && (
           <Button
             variant="ghost" size="sm" icon className="message-action-btn"

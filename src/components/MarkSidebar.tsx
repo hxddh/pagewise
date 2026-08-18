@@ -1,13 +1,7 @@
-import { MessageSquareQuote, Sparkles, Undo2 } from "lucide-react";
+import { MessageSquareQuote } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { getMarks, type Mark } from "../lib/mark-store";
-import {
-  getFindings,
-  isSuperseded,
-  setFindingStruck,
-  type Finding,
-} from "../lib/finding-store";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Field";
 
@@ -26,28 +20,18 @@ interface MarkSidebarProps {
   onAsk?: (mark: Mark) => void;
 }
 
-/** A mark or a finding, placed on the page it belongs to. */
-type Entry =
-  | { kind: "mark"; page: number; at: number; mark: Mark }
-  | { kind: "finding"; page: number; at: number; finding: Finding; superseded: boolean };
-
 /**
- * The record: everything known about this document, by either author.
+ * Everything the reader marked, in page order.
  *
- * The reader's marks and the assistant's findings are one list because they are
- * the same kind of thing — *this passage means this* — and splitting them into
- * two lists would ask the reader to look in two places for one answer.
+ * Without this a mark in a 300-page document is only findable by remembering
+ * where it was, which is the thing marking it was supposed to solve.
  *
- * They are never the same colour. A finding is the assistant's inference and a
- * mark is the reader's own act, and a record that blurs the two is worse than
- * no record: the reader would have no way to tell what came off the page from
- * what was worked out about it. Every finding carries its pages for the same
- * reason — the claim must always be checkable against the text.
- *
- * Findings sort by their first page, so a claim spanning 4-7 sits at 4 among
- * the marks. Struck and superseded ones stay visible: the reader needs to see
- * what they struck in order to undo it, and a revision that hid what it
- * overturned would leave no trace of the assistant having been wrong.
+ * 9.0 also put the assistant's findings here, and 9.2 took them out again. A
+ * finding is prose and this column is 160px, sized for a thumbnail of a page —
+ * claims wrapped to four or five lines, and the column cannot be widened at a
+ * 900px window without undoing 8.1.6. The record moved to the assistant
+ * column, which is 360px at its narrowest. What stays here is what the reader
+ * put on the page, which is what this sidebar was always for.
  */
 export const MarkSidebar = memo(function MarkSidebar({
   path,
@@ -64,36 +48,15 @@ export const MarkSidebar = memo(function MarkSidebar({
   // `revision` is the subscription; the record itself is read synchronously.
   const entries = useMemo(() => {
     void revision;
-    const findings = getFindings(path);
-    const rows: Entry[] = [
-      ...getMarks(path).map<Entry>((mark) => ({
-        kind: "mark",
-        page: mark.page,
-        at: mark.createdAt,
-        mark,
-      })),
-      ...findings.map<Entry>((finding) => ({
-        kind: "finding",
-        page: finding.pages[0] ?? 1,
-        at: finding.createdAt,
-        finding,
-        superseded: isSuperseded(findings, finding.id),
-      })),
-    ];
-    // Notes and claims are in no search index — ⌘F covers the document,
-    // deliberately not this. Once there are fifty entries, "where did I write
-    // that" needs an answer somewhere.
+    const all = getMarks(path);
+    // Notes are the reader's own words and are in no search index — ⌘F covers
+    // the document, deliberately not this. Once there are fifty marks, "where
+    // did I write that" needs an answer somewhere.
     const needle = filter.trim().normalize("NFC").toLowerCase();
-    const matched = needle
-      ? rows.filter((row) => {
-          const hay =
-            row.kind === "mark"
-              ? `${row.mark.text}\n${row.mark.note}`
-              : `${row.finding.claim}\n${row.finding.evidence}`;
-          return hay.normalize("NFC").toLowerCase().includes(needle);
-        })
-      : rows;
-    return [...matched].sort((a, b) => a.page - b.page || a.at - b.at);
+    if (!needle) return all;
+    return all.filter((m) =>
+      `${m.text}\n${m.note}`.normalize("NFC").toLowerCase().includes(needle),
+    );
   }, [path, revision, filter]);
 
   return (
@@ -117,27 +80,16 @@ export const MarkSidebar = memo(function MarkSidebar({
         <p className="outline-empty">{filter ? t("marks.noFilterMatch") : t("marks.empty")}</p>
       ) : (
         <nav className="outline-list">
-          {entries.map((entry) =>
-            entry.kind === "finding" ? (
-              <FindingRow
-                key={entry.finding.id}
-                path={path}
-                finding={entry.finding}
-                superseded={entry.superseded}
-                currentPage={currentPage}
-                onSelect={onSelect}
-              />
-            ) : (
-              <MarkRow
-                key={entry.mark.id}
-                mark={entry.mark}
-                selectedId={selectedId}
-                currentPage={currentPage}
-                onSelect={onSelect}
-                onAsk={onAsk}
-              />
-            ),
-          )}
+          {entries.map((mark) => (
+            <MarkRow
+              key={mark.id}
+              mark={mark}
+              selectedId={selectedId}
+              currentPage={currentPage}
+              onSelect={onSelect}
+              onAsk={onAsk}
+            />
+          ))}
         </nav>
       )}
     </aside>
@@ -196,69 +148,6 @@ function MarkRow({
           <MessageSquareQuote size={13} />
         </Button>
       )}
-    </div>
-  );
-}
-
-/**
- * One thing the assistant established, and the pages it came from.
- *
- * The pages are the whole point: a claim the reader cannot trace back to the
- * text is the failure this record has to avoid, because the assistant is told
- * it again next turn and the reader has no way to check it. So they are
- * rendered as controls that go there, never as decoration.
- */
-function FindingRow({
-  path,
-  finding,
-  superseded,
-  currentPage,
-  onSelect,
-}: {
-  path: string;
-  finding: Finding;
-  superseded: boolean;
-  currentPage: number;
-  onSelect: (page: number, id: string) => void;
-}) {
-  const { t } = useI18n();
-  const struck = Boolean(finding.struck);
-  const here = finding.pages.includes(currentPage);
-  return (
-    <div className={`mark-row finding-row ${struck || superseded ? "finding-row-inactive" : ""}`}>
-      {/* raw-button: a list row carrying the claim, its pages and its state; Button would flatten it */}
-      <button
-        type="button"
-        className={`outline-item mark-item finding-item ${here ? "mark-item-here" : ""}`}
-        title={finding.evidence || finding.claim}
-        onClick={() => onSelect(finding.pages[0] ?? 1, finding.id)}
-      >
-        <span className="outline-title">
-          <span className="finding-byline">
-            <Sparkles size={11} aria-hidden />
-            {t("marks.agentFinding")}
-          </span>
-          <span className="mark-item-text finding-claim">{finding.claim}</span>
-          {finding.why && <span className="mark-item-note">{finding.why}</span>}
-          {(struck || superseded) && (
-            <span className="finding-state">
-              {struck ? t("marks.struck") : t("marks.replaced")}
-            </span>
-          )}
-        </span>
-        <span className="outline-page">{finding.pages.join(", ")}</span>
-      </button>
-      <Button
-        variant="ghost"
-        size="sm"
-        icon
-        className="mark-ask-btn"
-        title={struck ? t("marks.unstrike") : t("marks.strike")}
-        aria-label={struck ? t("marks.unstrike") : t("marks.strike")}
-        onClick={() => setFindingStruck(path, finding.id, !struck)}
-      >
-        <Undo2 size={13} />
-      </Button>
     </div>
   );
 }

@@ -64,6 +64,16 @@ export interface Finding {
   why?: string;
   /** The reader struck this out. It never re-enters the agent's context. */
   struck?: boolean;
+  /**
+   * Who wrote it. Absent means the assistant, which is every finding written
+   * before 9.2 and most of them after — so the common case stores nothing
+   * extra, the same way a text mark omits `kind`.
+   *
+   * It is not cosmetic. A reader keeping an answer and the assistant recording
+   * an inference are different acts, and a record that cannot tell them apart
+   * is the failure mode this whole thing has to avoid.
+   */
+  author?: "reader";
   createdAt: number;
   /** The file's stamp when it was written — see `findingsAreStale`. */
   stamp: string;
@@ -128,7 +138,8 @@ function isValidFinding(value: unknown): value is Finding {
     typeof f.stamp === "string" &&
     (f.supersedes === undefined || typeof f.supersedes === "string") &&
     (f.why === undefined || typeof f.why === "string") &&
-    (f.struck === undefined || typeof f.struck === "boolean")
+    (f.struck === undefined || typeof f.struck === "boolean") &&
+    (f.author === undefined || f.author === "reader")
   );
 }
 
@@ -319,6 +330,8 @@ export interface NewFinding {
   /** Set when this replaces an earlier finding. */
   supersedes?: string;
   why?: string;
+  /** Omit for the assistant's own findings. */
+  author?: "reader";
 }
 
 /**
@@ -346,6 +359,7 @@ export function addFinding(path: string, input: NewFinding): Finding | null {
     createdAt: Date.now(),
     stamp: input.stamp,
     ...(input.supersedes ? { supersedes: input.supersedes } : {}),
+    ...(input.author ? { author: input.author } : {}),
     ...(input.why ? { why: input.why.trim().slice(0, MAX_CLAIM_TEXT) } : {}),
   };
   mutate(path, [...existing, finding]);
