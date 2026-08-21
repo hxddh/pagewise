@@ -5,6 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoadedDocument } from "../../lib/types";
 
 const measured: number[][] = [];
+/** Per-page heights the fake measurer reports. Default: every page is Letter. */
+let heightFor: (page: number) => number = () => 792;
+/**
+ * Answers held back until the test releases them.
+ *
+ * Real measurements arrive after the reader has already been looking at the
+ * approximate layout for a moment — which is the whole reason the column can
+ * reflow under them. A mock that answers inside the effect that asked can never
+ * reproduce that.
+ */
+let deferred: Array<() => void> | null = null;
+const flushMeasurements = () => {
+  const pending = deferred ?? [];
+  deferred = [];
+  for (const answer of pending) answer();
+};
 
 vi.mock("../../lib/pdf", () => ({
   measurePages: (
@@ -13,7 +29,10 @@ vi.mock("../../lib/pdf", () => ({
     onMeasured: (m: Array<{ page: number; size: { width: number; height: number } }>) => void,
   ) => {
     measured.push([...pages]);
-    onMeasured(pages.map((page) => ({ page, size: { width: 612, height: 792 } })));
+    const answer = () =>
+      onMeasured(pages.map((page) => ({ page, size: { width: 612, height: heightFor(page) } })));
+    if (deferred) deferred.push(answer);
+    else answer();
     return Promise.resolve();
   },
   renderPageToCanvas: () => Promise.resolve({ cancelled: false }),
@@ -44,6 +63,8 @@ function doc(totalPages: number): LoadedDocument {
 
 beforeEach(() => {
   measured.length = 0;
+  heightFor = () => 792;
+  deferred = null;
   globalThis.ResizeObserver = class {
     observe() {}
     unobserve() {}
@@ -226,6 +247,48 @@ describe("PageScroller", () => {
     }
 
     expect(renderOverlays.mock.calls.length).toBe(before);
+  });
+
+  it("keeps the reader's place when a page above them is measured", async () => {
+    // Pages are measured as the reader reaches them, so a stretch that was
+    // jumped over is still standing in at page 1's height. Measuring it moves
+    // everything below — including the paragraph being read. Measured in a
+    // browser before this was written down: on a sixty-page document, one
+    // scroll up moved the text by nothing at all and a later one lost 488px of
+    // it — most of a screen, mid-sentence.
+    deferred = [];
+    const { container } = render(<Controlled totalPages={40} />);
+    const scroller = container.querySelector(".pdf-scroller")! as HTMLDivElement;
+    await act(async () => flushMeasurements());
+    await waitFor(() => expect(mountedPages(container).length).toBeGreaterThan(0));
+
+    // Well past the measured window, so the pages between are still guesses.
+    // Deliberately 300px INTO page 21 rather than at its top: at a page top the
+    // effect that pulls the view back to the current page happens to land in
+    // the right place on its own, and a test written there passes whether this
+    // works or not. Mid-page is where a reader actually is.
+    const pageStride = Math.round((792 * (VIEWPORT_W - 48)) / 612) + 16;
+    scrollTo(scroller, pageStride * 20 + 300);
+    await frame();
+    await waitFor(() => expect(mountedPages(container)).toContain(21));
+
+    const slotTop = () =>
+      Number(
+        (container.querySelector('.pdf-page-slot[data-page="21"]') as HTMLElement).style.top.replace(
+          "px",
+          "",
+        ),
+      );
+    const before = { top: slotTop(), scroll: scroller.scrollTop };
+
+    // Page 12 turns out to be twice the height everything was guessed at.
+    heightFor = (page) => (page === 12 ? 1584 : 792);
+    await act(async () => flushMeasurements());
+    await waitFor(() => expect(slotTop()).not.toBe(before.top));
+
+    // Whatever the column did to the page the reader is on, the scroll did the
+    // same — so on screen it did not move at all.
+    expect(scroller.scrollTop - before.scroll).toBe(slotTop() - before.top);
   });
 
   it("scrolls to a page the rest of the app navigated to", async () => {

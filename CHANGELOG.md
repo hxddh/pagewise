@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.2.2] - 2026-08-21
+
+### Fixed
+
+- **A page shorter than the screen was nowhere you could be.** PageWise decided which page you were on by which one covered the most of the window. A half-height page — a chapter divider, a plate, the short page at the end of a section — is covered by more of its neighbour at every scroll position there is, so it could never win: the page number counted 1 2 3 4 5 7 8 9 10 straight past it, the thumbnail highlight skipped with it, and asking "这一页讲什么" while that page sat alone and complete in the middle of the screen told the assistant you were looking at the next one. Measured on a ten-page document with one half-height page: the toolbar said 7, the hint sent to the model said page 7, and page 6 was the only page fully visible.
+- **Navigating to a page and reading the page number back could disagree.** The same cause: jumping to a short page put it at the top of the window, where its taller neighbour still covered more, so the two halves of the app answered differently about where you were and a single scroll flipped the number without you having moved.
+- **Scrolling back through a stretch you had jumped over threw your place away.** Pages are measured as you reach them, so after jumping to page 50 the forty pages behind it are still standing in at page 1's height. Scrolling back up measured each one for the first time and moved everything below it — including the line being read. Measured on a sixty-page document with mixed page heights: one scroll up moved the text by nothing at all, and a later one lost 488 pixels of it, most of a screen, mid-sentence.
+
+### Notes
+
+- The rule for which page you are on is now three, in order: at the end of the column, the last page; otherwise a page you can see the whole of, whatever share of the screen its taller neighbours take; otherwise the page covering the most of the window. Together these make navigating to a page and reading the page number back agree at every page height — an invariant that was already written as a test and only ever run on pages that were all the same height, the one shape where it cannot fail.
+
 ## [9.2.1] - 2026-08-18
 
 ### Fixed

@@ -66,25 +66,56 @@ export function layoutPages(
 /**
  * The page the reader is looking at.
  *
- * Whichever page covers the most of the viewport — not whichever is topmost.
- * Scrolling a tall page's last inch into view should not yet count as being on
- * the next page, and on a short page the one behind it should not win.
+ * Three rules, in order.
+ *
+ * AT THE END OF THE COLUMN, the last page. There is no scroll left to bring a
+ * later page forward, so without this the pages sharing the final screenful
+ * could never take their turn — a document ending in a short page would report
+ * the one before it while the reader stared at the last one.
+ *
+ * A PAGE YOU CAN SEE THE WHOLE OF is the page you are on, whatever share of the
+ * screen its taller neighbours happen to take. This is what the rule below on
+ * its own gets wrong: a page shorter than the viewport is covered by more of
+ * its neighbour at every scroll position there is, so it could never be
+ * current — the number jumped from 5 to 7 past a half-height page 6, and the
+ * assistant was told the reader was on 7 while page 6 sat alone and complete in
+ * the middle of the screen. Measured, not reasoned: see the note on the
+ * round-trip test.
+ *
+ * OTHERWISE whichever page covers the most of the viewport — not whichever is
+ * topmost. Scrolling a tall page's last inch into view should not yet count as
+ * being on the next page.
+ *
+ * Together these make `pageAtScroll(layout, offsetForPage(layout, p), h) === p`
+ * hold for every page at any height, which is what keeps navigating to a page
+ * and reading the page number back from agreeing with each other.
  */
 export function pageAtScroll(
   layout: PageLayout,
   scrollTop: number,
   viewportHeight: number,
 ): number {
-  if (layout.tops.length === 0) return 1;
+  const count = layout.tops.length;
+  if (count === 0) return 1;
+  const height = Math.max(1, viewportHeight);
   const top = scrollTop;
-  const bottom = scrollTop + Math.max(1, viewportHeight);
+  const bottom = scrollTop + height;
+
+  // Only when the column actually scrolls: a document that fits on one screen
+  // is at its end from the moment it opens, and opening it on the last page
+  // would be absurd.
+  if (layout.total > height && top >= layout.total - height - 1) return count;
+
   let best = -1;
   let bestOverlap = 0;
-  for (let i = 0; i < layout.tops.length; i++) {
+  for (let i = 0; i < count; i++) {
     const pageTop = layout.tops[i]!;
     const pageBottom = pageTop + layout.heights[i]!;
     if (pageTop >= bottom) break;
     if (pageBottom <= top) continue;
+    // Top-down, so this is the FIRST page fully on screen — the one being read
+    // rather than the one after it.
+    if (pageTop >= top && pageBottom <= bottom) return i + 1;
     const overlap = Math.min(pageBottom, bottom) - Math.max(pageTop, top);
     if (overlap > bestOverlap) {
       bestOverlap = overlap;
@@ -96,8 +127,8 @@ export function pageAtScroll(
   // would send the outline, the thumbnails and the assistant's idea of the
   // current page back to the top of the document.
   if (best < 0) {
-    const last = layout.tops.length - 1;
-    return top >= (layout.tops[last] ?? 0) ? last + 1 : 1;
+    const last = count - 1;
+    return top >= (layout.tops[last] ?? 0) ? count : 1;
   }
   return best + 1;
 }
@@ -141,6 +172,43 @@ export function visibleRange(
     first: Math.max(1, first + 1 - overscan),
     last: Math.min(count, last + 1 + overscan),
   };
+}
+
+/**
+ * How far the scroll has to move to keep the reader where they were when the
+ * column reflows under them.
+ *
+ * Pages are measured lazily and stand in at the first known size until they
+ * are. Jump to page 50 and everything between page 2 and page 42 is still
+ * standing in at page 1's height; scroll back up and each one is measured for
+ * the first time as it comes into range, and every page below it — including
+ * the one being read — moves by the difference. Measured on a sixty-page
+ * document with mixed page heights: the text under the reader leapt 1,110px,
+ * more than a full screen, and then 488px again.
+ *
+ * The correction is the shift of the page the reader is on. Moving the scroll
+ * by exactly that keeps both the page and the position within it fixed, so the
+ * reflow happens entirely off screen — which is what a reader should never have
+ * to notice.
+ *
+ * Returns 0 when the two layouts are not comparable (a different document, a
+ * different scale), because then there is no "same place" to hold.
+ */
+export function scrollShiftForRelayout(
+  prev: PageLayout,
+  next: PageLayout,
+  scrollTop: number,
+  viewportHeight: number,
+): number {
+  if (prev === next) return 0;
+  if (prev.tops.length !== next.tops.length || prev.tops.length === 0) return 0;
+  const anchor = pageAtScroll(prev, scrollTop, viewportHeight);
+  const before = prev.tops[anchor - 1];
+  const after = next.tops[anchor - 1];
+  if (before === undefined || after === undefined) return 0;
+  const shift = after - before;
+  // Never scroll above the top of the document to honour a shift.
+  return Math.max(-scrollTop, shift);
 }
 
 /** Scrolltop that puts `page` at the top of the viewport. */

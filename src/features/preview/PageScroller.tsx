@@ -8,6 +8,7 @@ import {
   offsetForPage,
   pageAtScroll,
   PAGE_GAP,
+  scrollShiftForRelayout,
   visibleRange,
   type PageSize,
 } from "./page-layout";
@@ -163,6 +164,32 @@ export function PageScroller({
     },
     [containerRef],
   );
+
+  // Hold the reader's place when the column reflows under them.
+  //
+  // Pages are measured as the reader reaches them, so scrolling back up through
+  // a stretch that was jumped over measures each page for the first time and
+  // moves everything below it — including the paragraph being read. This runs
+  // before the page-sync effect below so that effect sees the corrected scroll
+  // and has nothing left to do.
+  //
+  // A scale change is excluded: zoom is meant to re-anchor to the page, and the
+  // effect below already does that.
+  const relayoutRef = useRef({ layout, scale });
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    const prev = relayoutRef.current;
+    relayoutRef.current = { layout, scale };
+    if (!node || prev.scale !== scale) return;
+    const shift = scrollShiftForRelayout(prev.layout, layout, node.scrollTop, node.clientHeight);
+    if (shift === 0) return;
+    selfScrollRef.current = true;
+    node.scrollTop += shift;
+    setScrollTop(node.scrollTop);
+    requestAnimationFrame(() => {
+      selfScrollRef.current = false;
+    });
+  }, [layout, scale]);
 
   // Bring the view to a page the rest of the app navigated to (outline click,
   // a citation, the page box). Scrolling here must not echo back as a page
