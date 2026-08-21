@@ -22,6 +22,7 @@ import { PageScroller } from "./PageScroller";
 import { regionSnapshot } from "./region-snapshot";
 import { MarkNote } from "./MarkNote";
 import { useMarkRevision } from "./useMarks";
+import { useSearchHit } from "./useSearchHit";
 import { addMark, getMarks, marksAreStale } from "../../lib/mark-store";
 import { extractRegion } from "../../lib/pdf";
 import { clientRectToPageRect } from "./selection-quote";
@@ -64,13 +65,15 @@ function PreviewPaneInner({
   const [regionMode, setRegionMode] = useState(false);
   const markRevision = useMarkRevision(doc.path);
   // What the reader searched for when they jumped here, so the hit can be
-  // marked on the page. Cleared as soon as they navigate away from it.
-  const [searchHit, setSearchHit] = useState<{ page: number; query: string } | null>(null);
+  // marked on the page. Forgotten as soon as they navigate away from it — see
+  // `useSearchHit`, which is where that rule lives.
+  const [searchHit, setSearchHit] = useSearchHit(page);
   // A link the reader clicked, held until they confirm. Document URLs are
   // untrusted input, so nothing opens the browser on its own.
   const [pendingLink, setPendingLink] = useState<string | null>(null);
 
   const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision });
+
   // Bumped whenever the view changes or this pane goes away, so an in-flight
   // selection read can tell that its answer no longer belongs anywhere.
   const quoteRun = useRef(0);
