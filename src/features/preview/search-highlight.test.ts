@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { highlightBoxes, matchingItems, pdfRectToBox } from "./search-highlight";
+import { highlightBoxes, matchingItems, pdfRectToBox, topLeftRectToBox } from "./search-highlight";
 import type { PageGeometry } from "../../lib/pdf";
 import type { TextItemRect } from "../../lib/types";
 
@@ -113,5 +113,75 @@ describe("highlightBoxes", () => {
   it("returns one box per matching run", () => {
     expect(highlightBoxes(items, "营业收入", upright)).toHaveLength(1);
     expect(highlightBoxes(items, "nothing here", upright)).toHaveLength(0);
+  });
+});
+
+/**
+ * The reader's marks are measured from the other edge.
+ *
+ * `clientRectToPageRect` returns a top-left origin because that is what
+ * `extract_region` takes; `page_text_items` and link rectangles come from Rust
+ * measured from the bottom. Marks went through the bottom-left conversion, and
+ * every one a reader made was drawn mirrored about the middle of the page.
+ *
+ * Measured in a browser on a real PDF before this was written down: a box
+ * dragged across 5%–15% down the page appeared at 85%, and one dragged at
+ * 80%–92% appeared at 8%. Width, height and horizontal position were exactly
+ * right in every case, which is why it read as a rendering quirk rather than a
+ * wrong coordinate system.
+ */
+describe("topLeftRectToBox", () => {
+  it("keeps a rect near the top of the page near the top", () => {
+    // 40pt down from an 800pt page's top edge is 5% down. Under the bottom-left
+    // conversion this same rect came out at 92.5%.
+    const box = topLeftRectToBox({ x: 60, y: 40, width: 120, height: 20 }, upright);
+    expect(box.top).toBeCloseTo(0.05, 5);
+    expect(box.height).toBeCloseTo(0.025, 5);
+    expect(box.left).toBeCloseTo(0.1, 5);
+    expect(box.width).toBeCloseTo(0.2, 5);
+  });
+
+  it("keeps a rect near the bottom of the page near the bottom", () => {
+    const box = topLeftRectToBox({ x: 60, y: 720, width: 120, height: 40 }, upright);
+    expect(box.top).toBeCloseTo(0.9, 5);
+    expect(box.height).toBeCloseTo(0.05, 5);
+  });
+
+  it("is not the bottom-left conversion", () => {
+    // The two agree only on a rect centred on the page — which is exactly the
+    // shape a first test would use, and why this survived.
+    const offCentre = { x: 60, y: 40, width: 120, height: 20 };
+    expect(topLeftRectToBox(offCentre, upright).top).not.toBeCloseTo(
+      pdfRectToBox(offCentre, upright).top,
+      3,
+    );
+
+    const centred = { x: 60, y: 390, width: 120, height: 20 };
+    expect(topLeftRectToBox(centred, upright).top).toBeCloseTo(
+      pdfRectToBox(centred, upright).top,
+      5,
+    );
+  });
+
+  it("round-trips a rect back to where the reader drew it", () => {
+    // The whole contract: a fraction of the page down, converted to storage and
+    // back, must be the same fraction down.
+    for (const y of [0, 100, 400, 700, 780]) {
+      const box = topLeftRectToBox({ x: 0, y, width: 100, height: 20 }, upright);
+      expect(box.top, `a mark ${y}pt from the top must draw ${y}pt from the top`).toBeCloseTo(
+        y / PAGE_H,
+        5,
+      );
+    }
+  });
+
+  it("survives a page that is painted rotated", () => {
+    // Both corners go through the viewport transform, so a /Rotate 90 page
+    // transposes rather than mirrors. Nothing may fall off the page.
+    const box = topLeftRectToBox({ x: 60, y: 40, width: 120, height: 20 }, rotated90);
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.left + box.width).toBeLessThanOrEqual(1);
+    expect(box.top + box.height).toBeLessThanOrEqual(1);
   });
 });

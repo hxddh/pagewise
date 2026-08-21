@@ -71,6 +71,48 @@ export function pdfRectToBox(
   };
 }
 
+/**
+ * Place a rectangle measured from the page's TOP-left edge.
+ *
+ * PDF space has its origin at the bottom-left, and `pdfRectToBox` above expects
+ * that: it is what `page_text_items` and link rectangles report. The reader's
+ * MARKS are the other convention — `clientRectToPageRect` returns a top-left
+ * origin because that is what `extract_region` takes — and drawing one through
+ * the other flips it about the middle of the page.
+ *
+ * That is not a hypothetical. Every mark a reader made was drawn mirrored:
+ * measured on a Letter page, a box dragged across the top tenth (5%–15% down)
+ * appeared at 85%, and one dragged at 80%–92% appeared at 8%. Width, height and
+ * horizontal position were all exactly right, which is what made it look like a
+ * rendering quirk rather than a wrong coordinate system, and a box drawn
+ * symmetrically about the middle of the page landed correctly — so it is
+ * invisible in exactly the test one would write first.
+ *
+ * The conversion belongs here rather than in the store: marks already on disk
+ * are in this convention, so a reader's existing notes come back in the right
+ * place with no migration.
+ */
+export function topLeftRectToBox(
+  rect: { x: number; y: number; width: number; height: number },
+  geometry: PageGeometry,
+): HighlightBox {
+  const [viewLeft, viewBottom, , viewTop] = geometry.view;
+  return pdfRectToBox(
+    {
+      x: rect.x + viewLeft,
+      // `y` is the distance DOWN from the page's top edge to the rect's top;
+      // PDF wants the distance UP from its bottom edge to the rect's bottom.
+      y: viewTop - rect.y - rect.height,
+      width: rect.width,
+      height: rect.height,
+    },
+    geometry,
+  );
+  // viewBottom is unused deliberately: `pdfRectToBox` puts both corners through
+  // the viewport transform, which already accounts for a non-zero lower edge.
+  void viewBottom;
+}
+
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
