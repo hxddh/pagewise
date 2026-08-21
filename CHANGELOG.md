@@ -4,6 +4,16 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.2.3] - 2026-08-21
+
+### Fixed
+
+- **Every mark you made was drawn upside-down on the page.** Not the text of it, and not its size — its position. A box drawn across the top of a page appeared across the bottom, mirrored about the middle. Measured on a Letter page: a mark dragged from 5% to 15% down was drawn at 85%, and one dragged at 80% to 92% was drawn at 8%. Its width, its height and its horizontal position were all exactly right, which is why this looked like a rendering quirk rather than what it was — and a mark drawn symmetrically about the middle of the page landed correctly, so it is invisible in exactly the case anyone would check first.
+
+### Notes
+
+- The cause: a mark is stored measured from the page's top edge, because that is what reading the text under it requires. Links and search hits come from the document measured from the bottom, which is how PDF itself counts. Marks were being drawn through the second, and the two differ by a flip. Marks already saved are not touched and now come back in the right place — nothing needs re-making.
+
 ## [9.2.2] - 2026-08-21
 
 ### Fixed

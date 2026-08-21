@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { getPageGeometry } from "../../lib/pdf";
 import { marksOnPage, type Mark } from "../../lib/mark-store";
-import { pdfRectToBox, type HighlightBox } from "./search-highlight";
+import { topLeftRectToBox, type HighlightBox } from "./search-highlight";
 
 interface MarkLayerProps {
   path: string;
@@ -21,9 +21,13 @@ interface PlacedMark {
 /**
  * Draw the reader's marks over the page.
  *
- * Same shape as `LinkLayer` and `SearchHighlight`: rectangles in PDF points go
- * through `pdfRectToBox` and come out as fractions of the page, so zoom, window
- * size and device pixel ratio need no recomputation.
+ * Same shape as `LinkLayer` and `SearchHighlight` — rectangles go through the
+ * viewport transform and come out as fractions of the page, so zoom, window
+ * size and device pixel ratio need no recomputation — but NOT the same origin.
+ * A mark is stored measured from the page's top edge, because that is what
+ * `extract_region` takes; links and text runs come from Rust measured from the
+ * bottom. Sending a mark through the bottom-left conversion drew every one of
+ * them mirrored about the middle of the page.
  */
 export function MarkLayer({ path, page, revision, selectedId, onSelect }: MarkLayerProps) {
   const { t } = useI18n();
@@ -43,7 +47,7 @@ export function MarkLayer({ path, page, revision, selectedId, onSelect }: MarkLa
         setPlaced(
           onPage.map((mark) => ({
             mark,
-            boxes: mark.rects.map((rect) => pdfRectToBox(rect, geometry)),
+            boxes: mark.rects.map((rect) => topLeftRectToBox(rect, geometry)),
           })),
         );
       } catch {
