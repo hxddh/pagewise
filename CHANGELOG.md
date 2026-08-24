@@ -4,6 +4,12 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.2.4] - 2026-08-21
+
+### Fixed
+
+- **A search highlight came back long after the search was over.** Jump to a hit, read on, and hours later scroll back past that page: the phrase was still marked, with no search running and nothing on screen to say why. It was never forgotten — only hidden, because the mark draws on its own page and you were somewhere else. It is now forgotten as soon as you leave the page you jumped to, which is what the code had claimed to do all along.
+
 ## [9.2.3] - 2026-08-21
 
 ### Fixed
