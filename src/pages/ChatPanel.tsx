@@ -71,6 +71,8 @@ interface ChatPanelProps {
   steerRun?: (text: string) => boolean;
   onDismissError?: () => void;
   onJumpToPage?: (page: number) => void;
+  /** Turn to where a recorded claim was found, and light it up on the page. */
+  onRevealFinding?: (id: string, page: number) => void;
   onClearChat: () => void;
   onExportChat: () => void;
   onExportSummary: () => void;
@@ -112,6 +114,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     steerRun,
     onDismissError,
     onJumpToPage,
+    onRevealFinding,
     onClearChat,
     onExportChat,
     onExportSummary,
@@ -501,6 +504,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           currentPage={previewPage}
           stale={activeDoc ? findingsAreStale(activeDoc.path, activeDoc.stamp ?? "") : false}
           onJumpToPage={(page) => onJumpToPage?.(page)}
+          onRevealFinding={onRevealFinding}
         />
       ) : (
       <div className="messages messages-panel" ref={messagesRef} onScroll={onMessagesScroll}>

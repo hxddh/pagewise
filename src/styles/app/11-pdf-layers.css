@@ -330,3 +330,89 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--annotation) 55%, transparent);
 }
+
+/*
+ * What the assistant established, drawn where its own words were found.
+ *
+ * An underline, not a wash. The reader's highlighter fills — that is what a
+ * highlighter does — and a second fill over the same page would read as a
+ * second reader having marked it. This is a citation being shown its source,
+ * so it rules the line the way a reference does and leaves the page legible
+ * underneath.
+ */
+.pdf-finding-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-finding {
+  position: absolute;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+/*
+ * The rule goes BELOW the run box, not inside it.
+ *
+ * A text run's rectangle is tighter than the glyphs it reports — drawn at the
+ * box's own bottom edge the rule crosses the letters, and a line through a
+ * sentence means the sentence was deleted. The one thing this must never say
+ * about a passage the assistant is citing.
+ */
+.pdf-finding::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 2px;
+  background: color-mix(in srgb, var(--finding) 65%, transparent);
+}
+
+.pdf-finding:hover {
+  background: color-mix(in srgb, var(--finding) 10%, transparent);
+}
+
+.pdf-finding-selected {
+  background: color-mix(in srgb, var(--finding) 18%, transparent);
+}
+
+.pdf-finding-selected::after {
+  background: var(--finding);
+}
+
+/*
+ * The margin. A page carries its own white border — this sits in it, where
+ * marginalia has always gone, rather than over the text it refers to.
+ * `pointer-events` stays off: it is a locator, and the passage itself is the
+ * control.
+ */
+.pdf-finding-margin {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-finding-tab {
+  position: absolute;
+  right: 0.35%;
+  width: 3px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--finding) 55%, transparent);
+}
+
+/* Selected: the tab grows rather than gaining a halo. A drop shadow here would
+   be a fourth elevation nothing else uses, and the scale exists so that does not
+   happen — see `--shadow-sm` and what twelve hand-written shadows cost. */
+.pdf-finding-tab-selected {
+  width: 5px;
+  height: 20px;
+  background: var(--finding);
+}

@@ -18,6 +18,7 @@ import { SearchHighlight } from "./SearchHighlight";
 import { LinkLayer } from "./LinkLayer";
 import { AnnotationLayer } from "./AnnotationLayer";
 import { MarkLayer } from "./MarkLayer";
+import { FindingLayer } from "./FindingLayer";
 import { RegionSelectLayer } from "./RegionSelectLayer";
 import { PageScroller } from "./PageScroller";
 import { regionSnapshot } from "./region-snapshot";
@@ -48,6 +49,9 @@ interface PreviewPaneProps {
   prefsRevision?: number;
   onOpenAiSettings?: () => void;
   onAskAboutSelection?: (text: string) => void;
+  /** The record entry the reader picked in the other column, if any. */
+  selectedFindingId?: string | null;
+  onSelectFinding?: (id: string | null) => void;
 }
 
 function PreviewPaneInner({
@@ -57,6 +61,8 @@ function PreviewPaneInner({
   prefsRevision = 0,
   onOpenAiSettings,
   onAskAboutSelection,
+  selectedFindingId = null,
+  onSelectFinding,
 }: PreviewPaneProps) {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -334,6 +340,13 @@ function PreviewPaneInner({
           selectedId={selectedMarkId}
           onSelect={setSelectedMarkId}
         />
+        <FindingLayer
+          path={doc.path}
+          page={slotPage}
+          revision={markRevision}
+          selectedId={selectedFindingId}
+          onSelect={(id) => onSelectFinding?.(id)}
+        />
         {doc.links && doc.links.length > 0 && (
           <LinkLayer
             path={doc.path}
@@ -347,7 +360,20 @@ function PreviewPaneInner({
         )}
       </>
     ),
-    [doc.path, doc.links, doc.annotations, doc.stamp, searchHit, regionMode, markRevision, selectedMarkId, showToast, t],
+    [
+      doc.path,
+      doc.links,
+      doc.annotations,
+      doc.stamp,
+      searchHit,
+      regionMode,
+      markRevision,
+      selectedMarkId,
+      selectedFindingId,
+      onSelectFinding,
+      showToast,
+      t,
+    ],
   );
 
   const canvasBody = (

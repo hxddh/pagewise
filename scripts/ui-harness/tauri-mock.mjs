@@ -59,6 +59,33 @@
 export const FIXTURE_PAGE_COUNT = 3;
 
 /** The document the mock shell reports. Long enough page text to matter. */
+/**
+ * The text runs `text-pages.pdf` really has on a page, with their rectangles.
+ *
+ * Dumped from `inspect::page_text_items` against the fixture itself, not
+ * invented: bottom-left origin, PDF points, a Letter page. `FindingLayer` looks
+ * the assistant's quoted wording up in these, so runs that are merely plausible
+ * would place a finding somewhere the reader can see is wrong — and a
+ * screenshot of that is worse than no screenshot.
+ */
+export const PAGE_RUNS = [
+  { text: "# Section {page}", rect: { x: 72, y: 700, width: 100.06, height: 24 } },
+  {
+    text: "Lorem ipsum dolor sit amet, consetetur sadipscing elitr,",
+    rect: { x: 72, y: 660, width: 293.44, height: 12 },
+  },
+  {
+    text: "sed diam nonumy eirmod tempor invidunt ut labore on page {page}.",
+    rect: { x: 72, y: 640, width: 330.16, height: 12 },
+  },
+];
+
+/** The runs as one page of Markdown, the way the extractor reports them. */
+export function pageText(page) {
+  const [heading, ...body] = PAGE_RUNS.map((r) => r.text.replace("{page}", String(page)));
+  return `${heading}\n\n${body.join(" ")}`;
+}
+
 export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
   return {
     page_count: pageCount,
@@ -69,10 +96,12 @@ export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
       // shows the "Image-based PDF" hint. A short stub therefore produces a
       // banner that looks like a rendering bug and is the heuristic working
       // correctly on fake input — it cost one wrong finding already.
-      text:
-        `# Section ${i + 1}\n\nLorem ipsum dolor sit amet, consetetur sadipscing ` +
-        `elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ` +
-        `aliquyam erat, sed diam voluptua on page ${i + 1}.`,
+      // Word for word what `text-pages.pdf` actually renders, taken from the
+      // extractor rather than approximated. It used to carry an extra clause
+      // the fixture does not contain, which meant the mocked page text and the
+      // page on screen disagreed — invisible until a feature started matching
+      // one against the other.
+      text: pageText(i + 1),
       needs_vision: false,
       has_table: false,
     })),
@@ -87,7 +116,7 @@ export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
  *
  * Takes its data as one argument because `addInitScript` passes exactly one.
  */
-export function installTauriMock({ pdfB64, doc, apiKey, settings }) {
+export function installTauriMock({ pdfB64, doc, apiKey, settings, runs }) {
   const store = new Map(Object.entries(settings ?? {}));
 
   // Tauri v2 routes unlisten through its own global, not through INTERNALS.
@@ -116,8 +145,20 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings }) {
       switch (cmd) {
         case "open_document_cmd":
           return doc;
-        case "page_text_items_cmd":
-          return [];
+        case "page_text_items_cmd": {
+          /*
+           * Real text runs, so a located finding is exercised rather than
+           * mocked away. `FindingLayer` looks the assistant's own wording up in
+           * these; returning [] made every claim unlocatable, which is exactly
+           * the state the feature exists to distinguish from a bad quote.
+           */
+          const page = args?.page ?? 1;
+          if (page < 1 || page > (doc.page_count ?? 0)) return [];
+          return (runs ?? []).map(({ text, rect }) => ({
+            text: text.replace(/^#+\s*/, "").replace("{page}", String(page)),
+            rect,
+          }));
+        }
         case "read_file_bytes":
           return Array.from(bytes(pdfB64));
         case "file_stamp_cmd":

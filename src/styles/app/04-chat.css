@@ -102,13 +102,17 @@
   border-radius: var(--radius-sm);
 }
 
+/* Part 10 redeclared this whole selector rather than adjusting it, so the
+   border and radius written here were dead the moment 10 loaded. Merged: what
+   10 actually asked for, in one place. */
 .message.user {
   align-self: flex-end;
   max-width: 88%;
+  margin-left: var(--space-lg);
   padding: var(--space-md) var(--space-lg);
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: none;
+  border-radius: var(--radius);
   color: var(--text);
 }
 
@@ -136,7 +140,9 @@
 
 .message.assistant {
   align-self: stretch;
-  padding: 0;
+  background: transparent;
+  border: none;
+  padding: var(--space-md) 0;
 }
 
 .message-assistant-footer {
@@ -569,10 +575,13 @@ button.pages-read-chip:hover {
   color: var(--text-muted);
 }
 
+/* A step in the run is a way back to the page it read — numbered, so the run
+   reads as a sequence. The padding and list-style here were overridden from
+   part 13 for exactly that; merged rather than left as two half-rules. */
 .tool-steps-list {
   margin: 0;
-  padding: 0 var(--space-md) var(--space-md) var(--space-2xl);
-  list-style: none;
+  padding: 0 0 0 var(--space-xl);
+  list-style: decimal;
   font-size: var(--text-sm);
   line-height: 1.45;
   color: var(--text-muted);
@@ -718,6 +727,58 @@ button.pages-read-chip:hover {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-sm);
+}
+
+/*
+ * The wording the claim rests on, and whether the page actually carries it.
+ *
+ * The evidence was stored from the first version of the record and never shown.
+ * It is what makes a claim checkable, and now that `locateQuote` can confirm it
+ * against the page's own text runs, hiding it would mean showing a verdict
+ * without showing what was judged.
+ */
+.record-evidence {
+  margin: 0;
+  padding-left: var(--space-md);
+  border-left: 2px solid color-mix(in srgb, var(--finding) 40%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.record-locate {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: var(--text-xs);
+  text-align: left;
+}
+
+.record-locate-found {
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.record-locate-found:hover {
+  color: var(--finding);
+}
+
+/*
+ * The quote is not on the page the claim cites.
+ *
+ * The most valuable line in this panel, and the reason the locating exists at
+ * all: a citation that cannot be found is a citation that is not there, and
+ * that verdict is reached locally, from the document, with no second opinion to
+ * pay for. Warning-coloured rather than danger-coloured — the claim may still
+ * be sound and the page reference merely wrong, which is for the reader to
+ * judge once they know.
+ */
+.record-locate-absent {
+  color: var(--warning);
 }
 
 .record-state {

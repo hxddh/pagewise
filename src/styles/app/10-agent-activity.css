@@ -39,25 +39,6 @@
   transition: opacity var(--transition-slow);
 }
 
-.message.assistant {
-  background: transparent;
-  border: none;
-  padding: var(--space-md) 0;
-}
-
-.message.user {
-  background: var(--bg-elevated);
-  border: none;
-  border-radius: var(--radius);
-  padding: var(--space-md) var(--space-lg);
-  margin-left: var(--space-lg);
-}
-
-.empty-state-compact .empty-lead {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
 .empty-hint {
   margin: var(--space-sm) 0 0;
   font-size: var(--text-xs);

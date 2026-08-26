@@ -18,6 +18,7 @@ import {
 import { docCache } from "../lib/doc-cache";
 import { flushMarkStore, forgetMarks, loadMarks } from "../lib/mark-store";
 import { flushFindingStore, forgetFindings, loadFindings } from "../lib/finding-store";
+import { clearFindingAnchors } from "../lib/finding-anchors";
 import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import { addRecentFile, getRecentFiles, removeRecentFile, removeRecentFiles, type RecentFile } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
@@ -310,6 +311,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // in-memory copy for the document being closed goes.
           void flushMarkStore().then(() => forgetMarks(prevPath));
           void flushFindingStore().then(() => forgetFindings(prevPath));
+          // Where those findings were located on the page. Derived from the
+          // file, never stored, so it goes when the file is closed rather than
+          // outliving the document it describes.
+          clearFindingAnchors(prevPath);
         }
 
         const doc = commitLoadedDocument(staged);

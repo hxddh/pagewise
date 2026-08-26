@@ -392,6 +392,75 @@ describe("CSS hygiene", () => {
     ).toMatch(/min-width:\s*max-content/);
   });
 
+  it("declares each selector in one part, not two", () => {
+    /*
+     * The sediment, made testable.
+     *
+     * Thirteen parts imported in a fixed order, where "later overrides earlier"
+     * is the mechanism, produce a specific decay: the same selector written out
+     * twice in two files, the later one silently winning, and the earlier one's
+     * declarations dead without anything saying so. Six of them had accumulated
+     * — `.message.user` redeclared whole in part 10 so the border written in
+     * part 4 never applied, `.tool-steps-list` bulleted in part 4 and numbered
+     * in part 13, `.preview-panel` given its `position` two files away from its
+     * definition. `13-chat-late.css` is what that decay is named after.
+     *
+     * This is the `--mark-highlight` lesson at the level of rules rather than
+     * values: one thing written in two places drifts until the two disagree,
+     * and the drift is invisible because the file that loses is still there
+     * looking correct. Same-file duplication is left alone — that is a cascade
+     * an author can see in one screen.
+     */
+    const byFile = new Map();
+    for (const file of stylesheets()) {
+      const rel = file.slice(ROOT.length).split(sep).join("/");
+      if (!rel.startsWith("src/styles/app/")) continue;
+      const css = withoutComments(readFileSync(file, "utf8"));
+      // Top-level rules only. A `*` inside `@media (prefers-reduced-motion)`
+      // and the `*` reset in part 01 are not the same rule, and neither are two
+      // `50%` stops belonging to different `@keyframes`.
+      const seen = new Set();
+      let depth = 0;
+      let head = "";
+      for (const ch of css) {
+        if (ch === "{") {
+          if (depth === 0) {
+            const prelude = head.trim();
+            if (prelude && !prelude.startsWith("@")) {
+              for (const part of prelude.split(",")) {
+                const sel = part.trim().replace(/\s+/g, " ");
+                if (sel) seen.add(sel);
+              }
+            }
+          }
+          depth += 1;
+          head = "";
+        } else if (ch === "}") {
+          depth = Math.max(0, depth - 1);
+          head = "";
+        } else if (depth === 0) {
+          head += ch;
+        }
+      }
+      byFile.set(rel, seen);
+    }
+
+    const owners = new Map();
+    for (const [rel, seen] of byFile) {
+      for (const sel of seen) {
+        if (!owners.has(sel)) owners.set(sel, []);
+        owners.get(sel).push(rel);
+      }
+    }
+    const shared = [...owners]
+      .filter(([, files]) => files.length > 1)
+      .map(([sel, files]) => `${sel}  —  ${files.join(", ")}`);
+    expect(
+      shared,
+      `declared in more than one part; merge them into the part that owns the selector:\n${shared.join("\n")}`,
+    ).toEqual([]);
+  });
+
   it("keeps the cascade in the order the snapshot records", () => {
     // Splitting App.css into 13 parts is only safe while they concatenate in the
     // original order — later rules deliberately override earlier ones. This is

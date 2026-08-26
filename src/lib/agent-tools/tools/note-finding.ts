@@ -1,7 +1,12 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as R from "../reading";
-import { addFinding, MAX_CLAIM_TEXT, MAX_EVIDENCE_TEXT } from "../../finding-store";
+import {
+  addFinding,
+  findingHandle,
+  MAX_CLAIM_TEXT,
+  MAX_EVIDENCE_TEXT,
+} from "../../finding-store";
 
 /**
  * The `note_finding` tool — the first one that writes.
@@ -57,7 +62,11 @@ export function createNoteFindingTool() {
           // the run, it just means this one was not kept.
           return { recorded: false, reason: "not recorded (document at its limit, or empty claim)" };
         }
-        return { recorded: true, id: finding.id, pages: finding.pages };
+        // The handle, not the uuid: it is the one form the agent ever sees,
+        // here and in the record note it is given on later questions, and two
+        // spellings of the same identifier is an invitation to quote the wrong
+        // one back. `resolveFindingId` accepts either.
+        return { recorded: true, id: findingHandle(finding.id), pages: finding.pages };
       },
     ),
   });

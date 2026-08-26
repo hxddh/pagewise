@@ -18,7 +18,7 @@
  * a memory, not a substitute for the document, and an agent that trusted it
  * over the page would be worse than one that forgets.
  */
-import { activeFindings, type Finding } from "./finding-store";
+import { activeFindings, findingHandle, type Finding } from "./finding-store";
 import { sanitizeForPrompt } from "./agent-view-context";
 
 /**
@@ -31,9 +31,25 @@ import { sanitizeForPrompt } from "./agent-view-context";
  */
 export const RECORD_CHAR_BUDGET = 2_000;
 
-/** One line per claim: the pages first, so the anchor is never separated from it. */
+/**
+ * One line per claim: its handle, then the pages, then what was established.
+ *
+ * The handle is what makes `revise_finding` callable at all. Its schema takes
+ * "the finding being replaced", and before this the record note named no
+ * finding — it listed claims and pages and then told the agent to correct them
+ * with a tool that needs an identifier it had never been given. The final
+ * sentence of this note has always asked for a correction; this is the first
+ * version where the agent can make one.
+ *
+ * The pages stay immediately beside the claim so the anchor is never separated
+ * from it. See `FINDING_HANDLE_LEN` for why the handle is short rather than a
+ * full uuid — it is paid on every question, for every claim.
+ */
 function renderFinding(finding: Finding): string {
-  return `- p${finding.pages.join(",")}: ${sanitizeForPrompt(finding.claim, 300)}`;
+  return `- [${findingHandle(finding.id)}] p${finding.pages.join(",")}: ${sanitizeForPrompt(
+    finding.claim,
+    300,
+  )}`;
 }
 
 /**
@@ -89,6 +105,6 @@ export function buildRecordInstructions(path: string | null): string {
     `${lines.join("\n")}${tail}\n` +
     `Treat these as known. Do not re-read those pages just to work them out again — ` +
     `read when the question needs text you do not have, or when you suspect one of ` +
-    `these is wrong, and then use revise_finding to correct it.`
+    `these is wrong, and then use revise_finding with the id in brackets to correct it.`
   );
 }

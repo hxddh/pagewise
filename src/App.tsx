@@ -69,6 +69,15 @@ function AppContent() {
   const overlays = useWorkbenchOverlays(s.setSettingsOpen);
 
   const [composerDraft, setComposerDraft] = useState("");
+  /**
+   * The recorded claim the reader asked to see.
+   *
+   * Lives here rather than in either column because it is the one piece of
+   * state both of them need: the record panel picks it, the page draws it. The
+   * page it was found on comes with it — a claim can cite several, and only one
+   * of them carries the wording.
+   */
+  const [revealedFindingId, setRevealedFindingId] = useState<string | null>(null);
 
   const doc = s.document;
   const agent = s.agent;
@@ -84,6 +93,7 @@ function AppContent() {
 
   useEffect(() => {
     setComposerDraft("");
+    setRevealedFindingId(null);
   }, [doc?.path]);
 
   // Put something from the document into the composer and show it. The caller
@@ -257,6 +267,8 @@ function AppContent() {
                 prefsRevision={prefs.prefsRevision}
                 onOpenAiSettings={overlays.openSettings}
                 onAskAboutSelection={askAboutSelection}
+                selectedFindingId={revealedFindingId}
+                onSelectFinding={setRevealedFindingId}
               />
             </Suspense>
 
@@ -303,6 +315,10 @@ function AppContent() {
                   steerRun={agent.steerRun}
                   onDismissError={agent.clearError}
                   onJumpToPage={s.setPreviewPage}
+                  onRevealFinding={(id, page) => {
+                    s.setPreviewPage(page);
+                    setRevealedFindingId(id);
+                  }}
                   onClearChat={overlays.openClearConfirm}
                   onExportChat={() => void s.exportChat()}
                   onExportSummary={() => void exportSummary()}

@@ -10,6 +10,10 @@
 /* Preview */
 
 .preview-panel {
+  /* `position` was declared again in part 09, purely because 09 loads after 03.
+     Same selector, same specificity, two files — the later one won and nothing
+     said so. Merged here, where the panel is defined. */
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
