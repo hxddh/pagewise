@@ -40,7 +40,26 @@ import { newReadBudget } from "./agent-tools/reading";
 const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
   document_outline: "DlydP-BxnDOX9g_NB1vj33IsxTYjnKDe61WkVN9dIG4",
   read_figure: "DZZNzFvpUbnTr3Gh6SSU1Nvdp82Xrg1cZAAYzFTe7dk",
-  read_pdf_page: "3EC4JoI0hwaqAI2wZxkIE9HE1oDBCE80dGJH2y1ffdU",
+  // 9.4's `label` argument, and the sentence that tells the model when to use
+  // it. Deliberate, and paid on every request by every reader whether or not
+  // their document numbers its pages unusually.
+  //
+  // Measured before and after, by the same method both times: this tool's
+  // description + resolved input schema + name goes 1,613 -> 1,958 characters,
+  // and the six readers together 7,968 -> 8,313. +4.3% of the reader block.
+  //
+  // NOT converted to tokens. There is no tokenizer here, and this file already
+  // records two earlier token estimates in this project that were wrong for
+  // exactly that reason. These characters are not comparable to the 4,698
+  // quoted below either — that was measured at 9.0 and the block has grown
+  // since; only the before/after pair above was measured together.
+  //
+  // What the cost buys: the alternative was sending the model the page-label
+  // mapping so it could do the arithmetic itself, and for a three-hundred-page
+  // book that is three hundred labels on every question. This is a fixed 345
+  // characters instead of an unbounded per-document table, and the resolution
+  // is exact rather than arithmetic the model has to get right.
+  read_pdf_page: "gi-TW7X_LNLzKvyF_lgHTjYdi-rcuqddUxQLlpnLRYc",
   read_pdf_range: "TPzE6nqoYaLTzghpOJbN3V0cLUIzvp7ylyRH98enf1c",
   read_section: "LhN3IP2pTRh09c35zhg3ieDGZBX2dAncguJkApacZYs",
   search_in_document: "QTyUOwi1RfJ0tnrjjE3A82806M6iRRzVsHH2L9gQQ7c",

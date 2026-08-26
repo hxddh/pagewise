@@ -10,7 +10,6 @@
  */
 import { z } from "zod";
 import { throwIfAborted } from "./../abort-utils";
-import { getPdfOutline } from "./../pdf";
 import {
   resolveDocPath,
   type PageWiseDocToolContext,
@@ -25,9 +24,10 @@ import {
 import type { LoadedDocument, DocHeading } from "./../types";
 import { MIN_INDEX_CHARS } from "./../page-text-merge";
 import { getMarks } from "./../mark-store";
-import { preferAuthoredOutline, usableOutline } from "./../outline-nav";
+import { usableOutline } from "./../outline-nav";
 import { getAgentRunAbortSignal } from "./../agent-abort";
 import { yieldToUi } from "./../yield-to-ui";
+import { labelForPage } from "./../page-labels";
 import type { ReadAttachments, ReadResult } from "./result";
 
 /** Re-exported so a tool file needs one import path for the reading layer. */
@@ -154,6 +154,16 @@ export function requireLoadedDoc(path: string): LoadedDocument {
     );
   }
   return doc;
+}
+
+/**
+ * What this page is printed as, when that differs from where it sits.
+ *
+ * Returned alongside a read so a citation can quote the number the reader can
+ * actually see on the paper. Absent on the great majority of documents.
+ */
+export function printedLabel(doc: LoadedDocument, page: number): string | null {
+  return labelForPage(doc.pageLabels ?? null, page);
 }
 
 /** Validate a 1-based page against the document's page count. */
@@ -333,13 +343,8 @@ export const OUTLINE_PREVIEW_CHARS = 60;
  * told no such section exists, on exactly the well-structured documents where
  * bookmarks are present.
  */
-export async function resolveOutline(doc: LoadedDocument, path: string): Promise<DocHeading[]> {
-  const authored = doc.kind === "pdf" ? await getPdfOutline(path) : [];
-  const usableAuthored = usableOutline(
-    authored.filter((b): b is { title: string; page: number; level: number } => b.page !== null),
-    doc.totalPages,
-  );
-  return preferAuthoredOutline(usableAuthored, usableOutline(doc.outline, doc.totalPages));
+export function resolveOutline(doc: LoadedDocument): DocHeading[] {
+  return usableOutline(doc.outline, doc.totalPages);
 }
 
 export async function readPageRange(

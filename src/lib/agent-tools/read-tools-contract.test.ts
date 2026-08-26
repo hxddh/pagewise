@@ -22,7 +22,10 @@ const options = { context: { defaultDocPath: PATH } } as never;
 const pageText = (page: number, chars = 400) =>
   `PAGE-${page}-START ` + `p${page} `.repeat(Math.ceil(chars / 4)).slice(0, chars);
 
-function loadDoc(pages: Array<{ page: number; text: string }>) {
+function loadDoc(
+  pages: Array<{ page: number; text: string }>,
+  pageLabels?: string[],
+) {
   // Clear first. `docCache.set` MERGES page text on reload — reopening the same
   // path keeps whatever text is longer — so without this a 12,000-character
   // page from one block survives into the next and silently changes what the
@@ -39,6 +42,7 @@ function loadDoc(pages: Array<{ page: number; text: string }>) {
     outline: [],
     links: [],
     figures: [],
+    pageLabels,
   } as never);
 }
 
@@ -329,5 +333,76 @@ describe("read tool contract: an aborted run cannot spend the next one's budget"
     const { budget, t } = tools();
     await t.read_pdf_page!.execute({ page: 1 }, options);
     expect(budget.used).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Printed page numbers reaching the tool that reads pages.
+ *
+ * `page-labels.ts` unit-tests the resolution. This is the WIRING, and the
+ * wiring is the part this project keeps finding dead: a page citation that
+ * rendered nowhere, a per-send context that was built and thrown away, a
+ * mark drawn through the wrong conversion. All three type-checked and all
+ * three had passing tests on either side of the seam.
+ */
+describe("read tool contract: a page can be asked for by its printed number", () => {
+  /** Front matter in roman, then the body restarts at 1 on sheet 3. */
+  const LABELS = ["i", "ii", "1", "2", "3"];
+
+  beforeEach(() => {
+    loadDoc([1, 2, 3, 4, 5].map((page) => ({ page, text: pageText(page) })), LABELS);
+  });
+
+  it("reads the sheet a printed number is printed on, not the nth sheet", () => {
+    // The whole feature in one assertion. The reader says "page 1" meaning the
+    // body's first page; that is sheet 3.
+    return tools()
+      .t.read_pdf_page!.execute({ page: 1, label: "1" }, options)
+      .then((out) => {
+        const r = out as never as { page: number; text: string };
+        expect(r.page).toBe(3);
+        expect(r.text).toContain("PAGE-3-START");
+      });
+  });
+
+  it("ignores case and punctuation, as a reader types them", async () => {
+    const { t } = tools();
+    const r = (await t.read_pdf_page!.execute({ page: 1, label: "II" }, options)) as {
+      page: number;
+    };
+    expect(r.page).toBe(2);
+  });
+
+  it("falls back to the position when the label resolves to nothing", async () => {
+    // The model may pass a label for a document that prints none, or one that
+    // prints it on several pages. Reading the page it also asked for is a
+    // better answer than failing the call.
+    const { t } = tools();
+    const missing = (await t.read_pdf_page!.execute({ page: 4, label: "zzz" }, options)) as {
+      page: number;
+    };
+    expect(missing.page).toBe(4);
+
+    loadDoc([1, 2, 3].map((page) => ({ page, text: pageText(page) })));
+    const noLabels = (await tools().t.read_pdf_page!.execute(
+      { page: 2, label: "1" },
+      options,
+    )) as { page: number };
+    expect(noLabels.page).toBe(2);
+  });
+
+  it("reports what the page is printed as, so an answer can cite it", async () => {
+    const { t } = tools();
+    const r = (await t.read_pdf_page!.execute({ page: 2 }, options)) as { printedAs?: string };
+    expect(r.printedAs).toBe("ii");
+  });
+
+  it("says nothing extra for a page printed as its own number", async () => {
+    // Sheet 5 is printed "3"... which differs, so it does report. Sheet 4 of a
+    // plainly-numbered document must not: every field here is paid for.
+    loadDoc([1, 2, 3].map((page) => ({ page, text: pageText(page) })));
+    const { t } = tools();
+    const r = (await t.read_pdf_page!.execute({ page: 2 }, options)) as { printedAs?: string };
+    expect(r.printedAs).toBeUndefined();
   });
 });

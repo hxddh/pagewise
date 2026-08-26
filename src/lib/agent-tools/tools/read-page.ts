@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as R from "../reading";
+import { pageForLabel } from "../../page-labels";
 import type { ReadBudget } from "../reading";
 
 /** The `read_pdf_page` tool. Everything shared with the other five lives in ../reading. */
@@ -11,6 +12,9 @@ export function createReadPdfPageTool(
   return tool({
       description:
         "Read text from a specific page of a loaded document (1-based page number). " +
+        "If the reader cited a number printed on the page rather than a position you " +
+        "worked out, pass it as `label` instead — some documents number their front " +
+        "matter separately, so the two differ. " +
         "For very long pages the output is capped at maxChars; when truncated=true, call again " +
         "with offset=nextOffset to continue the same page.",
       inputSchema: z.object({
@@ -19,6 +23,10 @@ export function createReadPdfPageTool(
           .optional()
           .describe("Loaded document path; defaults to the active document"),
         page: z.number().int().min(1),
+        label: z
+          .string()
+          .optional()
+          .describe("A page number as PRINTED on the page (e.g. \"iv\", \"A-3\"); overrides page"),
         offset: z
           .number()
           .int()
@@ -48,12 +56,19 @@ export function createReadPdfPageTool(
         "read",
         () => budget.gen,
         async (
-          { path: inputPath, page, offset = 0, maxChars = R.DEFAULT_PAGE_MAX_CHARS },
+          { path: inputPath, page: askedPage, label, offset = 0, maxChars = R.DEFAULT_PAGE_MAX_CHARS },
           options,
           runGen,
         ): Promise<R.ReadResultLike> => {
           const path = R.resolvePathInput(inputPath, options);
           const doc = R.requireLoadedDoc(path);
+          // A printed number wins when the document prints it exactly once.
+          // Resolution is arithmetic the model should not be doing: it has the
+          // table nowhere, and a document may restart its numbering per
+          // chapter. Unresolvable falls back to the position rather than
+          // failing — the model may have passed a label for a document that
+          // has none, and reading the page it asked for is the better answer.
+          const page = label ? (pageForLabel(doc.pageLabels ?? null, label) ?? askedPage) : askedPage;
           R.assertPageInBounds(doc, page);
 
           // Already handed over whole in this run. Answered before R.readPageText
@@ -139,6 +154,7 @@ export function createReadPdfPageTool(
 
           return {
             page,
+            ...(R.printedLabel(doc, page) ? { printedAs: R.printedLabel(doc, page) } : {}),
             text: slice,
             source,
             truncated,

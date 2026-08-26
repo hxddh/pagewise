@@ -4,6 +4,23 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.4.0] - 2026-08-26
+
+### Added
+
+- **PageWise now reads the number printed on the page.** A book numbers its front matter i, ii, iii and restarts at 1 for the body, so the page whose footer says "47" is the 59th sheet — and until now every number you said meant something different to the app than it did to you. Where the two differ, the toolbar shows the printed number first and the sheet count behind it, the page box accepts what is printed (type `1` and land on the body's first page, or `iv`, or `A-3`), and the assistant can be asked for a page by the number you read off it. Documents numbered the obvious way are unchanged in every respect.
+
+- **Section lists now come from the document when it has one.** A well-made PDF tags its own headings, and PageWise was ignoring that and guessing from font sizes instead. Where a document declares its structure, the sidebar and the assistant use what it declares. Bookmarks still win when there are any; the guess is still there for the documents that say nothing.
+
+### Fixed
+
+- **The section names you saw and the ones the assistant used could be different lists.** On a PDF with bookmarks, the sidebar showed headings recovered from the text while the assistant answered against the bookmarks — so asking about a section by the name in front of you could come back as "no such section". Both now read one list, resolved once when the document opens.
+
+### Notes
+
+- The page-label mapping is deliberately not sent to the assistant. Three hundred pages is three hundred labels, and that would cost more on every question than the pages the question is about — so the assistant is told one sentence and hands the printed number back for exact resolution here.
+- A number printed on more than one page — a document that restarts its numbering per chapter — resolves to nothing rather than to a guess, and the sheet position stands.
+
 ## [9.3.0] - 2026-08-26
 
 ### Changed

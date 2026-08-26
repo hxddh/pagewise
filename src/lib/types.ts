@@ -84,6 +84,8 @@ export interface DocumentModel {
   title: string | null;
   pages: { page: number; text: string; needs_vision: boolean; has_table: boolean }[];
   outline: DocHeading[];
+  /** Headings the document declares itself, when it is a tagged PDF. */
+  structure_outline: DocHeading[];
   links: DocLink[];
   figures: DocFigure[];
 }
@@ -112,12 +114,26 @@ export interface LoadedDocument {
   stamp?: string;
   /** Title from the PDF's metadata, when it has one. */
   title?: string;
-  /** Chapter headings recovered from the text, for documents without bookmarks. */
+  /**
+   * The document's sections — already arbitrated.
+   *
+   * Bookmarks if it has them, else its tagged headings, else headings recovered
+   * from the text. Resolved once at load so the reader's sidebar and the model
+   * are never looking at two different lists; see `preferAuthoredOutline`.
+   */
   outline?: DocHeading[];
   links?: DocLink[];
   figures?: DocFigure[];
   /** Pages whose text contains a table. */
   tablePages?: number[];
+  /**
+   * What each page calls itself, when that differs from where it sits.
+   *
+   * Absent for the great majority of documents — see `page-labels.ts`. Present
+   * means the reader and the app count differently, and every number crossing
+   * between them has to say which kind it is.
+   */
+  pageLabels?: string[];
 }
 
 export const DEFAULT_SETTINGS: LlmSettings = {

@@ -146,6 +146,23 @@
   padding: 0 var(--space-md);
 }
 
+/*
+ * The number printed on the page leads; its position follows, quieter.
+ *
+ * Only rendered where the two disagree, so on a document numbered the obvious
+ * way this rule never applies and the toolbar is unchanged.
+ */
+.toolbar-page-printed {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: var(--space-2xs);
+}
+
+.toolbar-page-printed + .toolbar-page-current {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 .toolbar-page-current {
   color: var(--text);
   font-weight: 500;

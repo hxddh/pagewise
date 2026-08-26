@@ -64,17 +64,26 @@ describe("preferAuthoredOutline", () => {
   const authored: DocHeading[] = [{ title: "Chapter One", page: 3, level: 1 }];
   const synthesized: DocHeading[] = [{ title: "1 Chapter One", page: 3, level: 1 }];
 
+  const structure: DocHeading[] = [{ title: "Chapter One", page: 3, level: 1 }];
+
   it("uses the document's own bookmarks when it has them", () => {
     // The model is shown these titles; a section read must resolve against the
     // same list or its own quote comes back as "no such section".
-    expect(preferAuthoredOutline(authored, synthesized)).toBe(authored);
+    expect(preferAuthoredOutline(authored, structure, synthesized)).toBe(authored);
   });
 
-  it("falls back to recovered headings when there are no bookmarks", () => {
-    expect(preferAuthoredOutline([], synthesized)).toBe(synthesized);
+  it("takes the document's tagged headings over a guess at its headings", () => {
+    // A tagged PDF marks its own H1..H6. That is the document's answer; the
+    // synthesized list is markdown recovered from font sizes.
+    expect(preferAuthoredOutline([], structure, synthesized)).toBe(structure);
   });
 
-  it("yields nothing when the document has neither", () => {
-    expect(preferAuthoredOutline([], [])).toEqual([]);
+  it("falls back to recovered headings when the document says nothing", () => {
+    // Most documents. Neither bookmarks nor tags, so a guess is all there is.
+    expect(preferAuthoredOutline([], [], synthesized)).toBe(synthesized);
+  });
+
+  it("yields nothing when the document has none of the three", () => {
+    expect(preferAuthoredOutline([], [], [])).toEqual([]);
   });
 });

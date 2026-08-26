@@ -29,8 +29,8 @@
 use pdf_inspector::extractor::{extract_text_with_positions, extract_text_with_positions_pages};
 use pdf_inspector::types::ItemType;
 use pdf_inspector::{
-    detect_pdf, extract_pages_markdown, extract_tables_in_regions_mem,
-    extract_text_in_regions_mem, PdfType,
+    detect_pdf, extract_pages_markdown, extract_structure_elements,
+    extract_tables_in_regions_mem, extract_text_in_regions_mem, PdfType,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -111,6 +111,12 @@ pub struct DocumentModel {
     pub title: Option<String>,
     pub pages: Vec<Page>,
     pub outline: Vec<Heading>,
+    /// Headings the document itself declares, when it is a tagged PDF.
+    ///
+    /// Separate from `outline` rather than merged into it: the frontend
+    /// arbitrates between this, the authored bookmarks pdf.js reads, and the
+    /// synthesized fallback, and it can only do that if it can tell them apart.
+    pub structure_outline: Vec<Heading>,
     pub links: Vec<Link>,
     pub figures: Vec<Figure>,
 }
@@ -385,6 +391,103 @@ pub fn synthesize_outline(pages: &[Page]) -> Vec<Heading> {
     out
 }
 
+/// The document's own headings, from its structure tree.
+///
+/// A tagged PDF says which runs of text are headings and at what level —
+/// `/StructTreeRoot` marks them `H1`..`H6` — and that is the author's answer
+/// rather than a guess made from font sizes. [`synthesize_outline`] exists
+/// because most documents ship no bookmarks; this exists because some of those
+/// documents were never guessing material in the first place.
+///
+/// Empty for a PDF that is not tagged, which is most of them, so the caller
+/// falls back exactly as before.
+///
+/// Levels are clamped to 1 and 2 to match [`Heading`], whose own doc says
+/// deeper levels are dropped as noise: an outline is for navigating, and an H4
+/// under an H3 under an H2 is a paragraph with ambitions.
+fn structure_outline(path: &str, page_count: usize) -> Vec<Heading> {
+    if page_count > POSITIONS_PAGE_LIMIT {
+        return Vec::new();
+    }
+    let Ok(elements) = extract_structure_elements(path, None) else {
+        return Vec::new();
+    };
+    if elements.is_empty() {
+        return Vec::new();
+    }
+    // (page, mcid) -> level. Only heading roles; everything else is body.
+    let roles: HashMap<(u32, i64), u8> = elements
+        .into_iter()
+        .filter_map(|e| heading_level(&e.role).map(|l| ((e.page, e.mcid), l)))
+        .collect();
+    if roles.is_empty() {
+        return Vec::new();
+    }
+
+    let Ok(items) = extract_text_with_positions(path) else {
+        return Vec::new();
+    };
+
+    let mut out: Vec<Heading> = Vec::new();
+    // Runs carrying the same mcid are one heading split across draw calls;
+    // joining them is what turns "Chapter", " ", "One" back into a title.
+    let mut current: Option<((u32, i64), u8, String)> = None;
+    for item in items {
+        let Some(mcid) = item.mcid else { continue };
+        let key = (item.page, mcid);
+        let Some(&level) = roles.get(&key) else {
+            continue;
+        };
+        match current.as_mut() {
+            Some((k, _, text)) if *k == key => {
+                if !text.ends_with(' ') && !item.text.starts_with(' ') {
+                    text.push(' ');
+                }
+                text.push_str(&item.text);
+            }
+            _ => {
+                if let Some((k, level, text)) = current.take() {
+                    push_structure_heading(&mut out, k.0, level, &text);
+                }
+                current = Some((key, level, item.text.clone()));
+            }
+        }
+        if out.len() >= MAX_OUTLINE_ENTRIES {
+            return out;
+        }
+    }
+    if let Some((k, level, text)) = current.take() {
+        push_structure_heading(&mut out, k.0, level, &text);
+    }
+    out
+}
+
+/// `H1`..`H6` (and bare `H`) to the two levels an outline keeps, or None.
+fn heading_level(role: &str) -> Option<u8> {
+    match role {
+        "H" | "H1" => Some(1),
+        "H2" => Some(2),
+        // Deeper headings are real, but an outline listing them is a wall of
+        // text rather than a way to navigate. Folded into level 2 so a document
+        // tagged only H3 downward still gets an outline instead of nothing.
+        "H3" | "H4" | "H5" | "H6" => Some(2),
+        _ => None,
+    }
+}
+
+fn push_structure_heading(out: &mut Vec<Heading>, page: u32, level: u8, text: &str) {
+    let title = clean_heading(text);
+    if !is_plausible_heading(&title, level) {
+        return;
+    }
+    // A heading repeated across a page break is one section, not two — the same
+    // rule `synthesize_outline` applies, for the same reason.
+    if out.last().is_some_and(|h| h.title == title) {
+        return;
+    }
+    out.push(Heading { title, page, level });
+}
+
 fn collect_positions(path: &str, page_count: usize) -> (Vec<Link>, Vec<Figure>) {
     if page_count > POSITIONS_PAGE_LIMIT {
         return (Vec::new(), Vec::new());
@@ -510,6 +613,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
             title,
             pages,
             outline: Vec::new(),
+            structure_outline: Vec::new(),
             links: Vec::new(),
             figures: Vec::new(),
         });
@@ -555,6 +659,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         .collect();
 
     let outline = synthesize_outline(&pages);
+    let structure_outline = structure_outline(path, pages.len());
     let (links, figures) = collect_positions(path, pages.len());
 
     Ok(DocumentModel {
@@ -562,6 +667,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         title,
         pages,
         outline,
+        structure_outline,
         links,
         figures,
     })
@@ -689,6 +795,56 @@ mod tests {
     fn outline_strips_inline_markup_from_titles() {
         let pages = vec![page(1, "# <u>Vorwort</u>\n")];
         assert_eq!(synthesize_outline(&pages)[0].title, "Vorwort");
+    }
+
+    #[test]
+    fn tagged_headings_come_from_the_document_not_from_font_sizes() {
+        // A tagged PDF declares its own headings. Before 9.5 the only sources
+        // were the author's bookmarks (often absent) and a guess made from
+        // markdown produced by font-size heuristics.
+        let path = fixture("tagged-headings.pdf");
+        let model = open_document(&path).expect("tagged fixture opens");
+        let titles: Vec<&str> = model
+            .structure_outline
+            .iter()
+            .map(|h| h.title.as_str())
+            .collect();
+        assert!(
+            titles.contains(&"Chapter One") && titles.contains(&"Chapter Two"),
+            "structure outline should carry both H1s, got {titles:?}"
+        );
+        // The body paragraph is tagged /P, not a heading, and must not appear.
+        assert!(
+            !titles.iter().any(|t| t.contains("Body text")),
+            "a /P element is not a heading: {titles:?}"
+        );
+        assert_eq!(
+            model.structure_outline.iter().map(|h| h.page).collect::<Vec<_>>(),
+            vec![1, 2],
+            "each heading is anchored to the page it is tagged on"
+        );
+    }
+
+    #[test]
+    fn an_untagged_document_yields_no_structure_outline() {
+        // Most PDFs are not tagged. They must fall back exactly as before
+        // rather than gain an empty-but-present outline that outranks the
+        // synthesized one.
+        let model = open_document(&fixture("text-pages.pdf")).expect("opens");
+        assert!(model.structure_outline.is_empty());
+    }
+
+    #[test]
+    fn heading_roles_map_to_the_two_levels_an_outline_keeps() {
+        assert_eq!(heading_level("H1"), Some(1));
+        assert_eq!(heading_level("H"), Some(1));
+        assert_eq!(heading_level("H2"), Some(2));
+        // Deeper headings fold rather than vanish: a document tagged only from
+        // H3 down would otherwise get no outline at all.
+        assert_eq!(heading_level("H4"), Some(2));
+        assert_eq!(heading_level("P"), None);
+        assert_eq!(heading_level("Table"), None);
+        assert_eq!(heading_level("TD"), None);
     }
 
     // --- Golden fixtures -------------------------------------------------

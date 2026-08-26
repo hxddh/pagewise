@@ -72,7 +72,7 @@ export function createDocumentOutlineTool(
           // authoritative when the PDF carries them; most do not, and for those
           // the headings recovered from the page text are the only structure
           // there is. Image documents have neither.
-          const bookmarks = await R.resolveOutline(doc, path);
+          const bookmarks = R.resolveOutline(doc);
           const figurePages = pagesWithFigures(doc.figures);
           const linkPages = pagesWithLinks(doc.links);
           const markPages = pagesWithMarks(path);

@@ -50,7 +50,7 @@ export function createReadSectionTool(
             return { budgetExceeded: true, note: R.BUDGET_NOTE };
           }
 
-          const outline = await R.resolveOutline(doc, path);
+          const outline = R.resolveOutline(doc);
           const index = findSectionIndex(outline, title);
           const range = sectionRange(outline, index, doc.totalPages);
           if (!range) {

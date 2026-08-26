@@ -17,6 +17,7 @@ import {
 } from "./agent-view-context";
 import { AGENT_TIMEOUT } from "./agent-timeouts";
 import { buildRecordInstructions } from "./agent-record-context";
+import { labelHintFor } from "./agent-label-context";
 import { compactRunMessages } from "./compact-run-messages";
 import { beginSteerRun, withSteerMessage } from "./agent-steer";
 import { resolveModel, resolveReasoning } from "./llm";
@@ -303,6 +304,12 @@ export function createDocAgent() {
       // re-derive it. Appended to the user message with the rest of the volatile
       // context — never to the system prompt, which is what providers cache.
       viewHint += buildRecordInstructions(runtime.activeDocPath);
+      // Whether THIS document numbers its pages unusually. One sentence, and
+      // only for the documents that do. It rides on the user message with the
+      // rest of the volatile half, so it costs nothing from the cached prefix —
+      // unlike the tool description, which had to say the `label` argument
+      // exists at all.
+      viewHint += labelHintFor(runtime.activeDocPath);
       runMaxSteps = resolveRunMaxSteps(viewCtx?.totalPages ?? 0);
       budget.max = RUN_CHAR_BUDGET;
       // Read at call time so a Settings change takes effect on the next

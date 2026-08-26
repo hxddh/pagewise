@@ -396,6 +396,7 @@ function PreviewPaneInner({
       filename={doc.name}
       page={doc.kind === "pdf" ? page : 1}
       totalPages={totalPages}
+      pageLabels={doc.pageLabels}
       zoom={viewer.zoom}
       onZoomChange={viewer.handleZoomChange}
       onZoomIn={viewer.zoomIn}
