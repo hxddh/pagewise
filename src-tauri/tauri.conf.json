@@ -40,6 +40,17 @@
     "macOS": {
       "minimumSystemVersion": "12.0",
       "entitlements": "Entitlements.plist"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "pdf"
+        ],
+        "name": "PDF document",
+        "description": "Read and ask questions about a PDF in PageWise",
+        "role": "Viewer",
+        "mimeType": "application/pdf"
+      }
+    ]
   }
 }

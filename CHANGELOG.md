@@ -4,6 +4,14 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.6.0] - 2026-08-26
+
+### Added
+
+- **Opening a second PDF uses the window you already have.** Double-clicking a file, or opening one from the terminal, started a second copy of PageWise with its own empty conversation and its own idea of which document was open. It now hands the file to the window that is already running and brings it to the front.
+- **PDF files can be opened with PageWise from the desktop.** It registers as a PDF viewer, so double-clicking one is an option your system offers.
+- **The window remembers how you left it.** Size and position survive a restart instead of resetting to 1200×800 wherever the system decides to put it.
+
 ## [9.5.0] - 2026-08-26
 
 ### Added

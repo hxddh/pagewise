@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use inspect::{DocumentModel, Rect, RegionText, TextItemRect};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 #[derive(Default)]
 struct AllowedPaths(Mutex<HashSet<PathBuf>>);
@@ -310,6 +310,32 @@ async fn write_text_file(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let result = tauri::Builder::default()
+        // Single instance FIRST. The plugin's own docs are emphatic about it:
+        // registered after another plugin, the second launch has already done
+        // that plugin's setup before it is told to bow out.
+        //
+        // A reader who double-clicks a second PDF wants it in the window they
+        // already have, not a second copy of the app with its own empty
+        // conversation and its own idea of which document is open.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let Some(window) = app.get_webview_window("main") else {
+                return;
+            };
+            // Raise the window the reader already has. `unminimize` first —
+            // `set_focus` on a minimized window is a no-op on Windows, which
+            // is exactly the state a reader who went looking for the app is
+            // most likely to have left it in.
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            // Anything that looks like a file on the second command line is
+            // what they double-clicked. The front end decides whether it can
+            // open it; this only carries it across.
+            if let Some(path) = argv.iter().skip(1).find(|a| !a.starts_with('-')) {
+                let _ = window.emit("pagewise://open-path", path.clone());
+            }
+        }))
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())

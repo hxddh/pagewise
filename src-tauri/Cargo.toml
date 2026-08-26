@@ -1,6 +1,6 @@
 [package]
 name = "pagewise"
-version = "9.5.0"
+version = "9.6.0"
 description = "Local desktop PDF agent — page-wise AI analysis"
 authors = ["hxddh"]
 edition = "2021"
@@ -25,6 +25,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 pdf-inspector = "1"
 tauri-plugin-dialog = "2.7.1"
+# Remembering the window, and being one app rather than several.
+#
+# Both are desktop table stakes and neither existed: every launch reset the
+# window to 1200x800 wherever the OS put it, and opening a second PDF from the
+# file manager started a second copy of PageWise with its own empty state.
+tauri-plugin-window-state = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2.4.3"
 # keyring 4 is a different crate. Its own docs say an application that wants to
 # control which credential stores it uses "should not be linking to this library
