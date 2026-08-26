@@ -84,6 +84,8 @@ export interface DocumentModel {
   title: string | null;
   pages: { page: number; text: string; needs_vision: boolean; has_table: boolean }[];
   outline: DocHeading[];
+  /** Headings the document declares itself, when it is a tagged PDF. */
+  structure_outline: DocHeading[];
   links: DocLink[];
   figures: DocFigure[];
 }
@@ -112,7 +114,13 @@ export interface LoadedDocument {
   stamp?: string;
   /** Title from the PDF's metadata, when it has one. */
   title?: string;
-  /** Chapter headings recovered from the text, for documents without bookmarks. */
+  /**
+   * The document's sections — already arbitrated.
+   *
+   * Bookmarks if it has them, else its tagged headings, else headings recovered
+   * from the text. Resolved once at load so the reader's sidebar and the model
+   * are never looking at two different lists; see `preferAuthoredOutline`.
+   */
   outline?: DocHeading[];
   links?: DocLink[];
   figures?: DocFigure[];

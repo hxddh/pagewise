@@ -10,7 +10,6 @@
  */
 import { z } from "zod";
 import { throwIfAborted } from "./../abort-utils";
-import { getPdfOutline } from "./../pdf";
 import {
   resolveDocPath,
   type PageWiseDocToolContext,
@@ -25,7 +24,7 @@ import {
 import type { LoadedDocument, DocHeading } from "./../types";
 import { MIN_INDEX_CHARS } from "./../page-text-merge";
 import { getMarks } from "./../mark-store";
-import { preferAuthoredOutline, usableOutline } from "./../outline-nav";
+import { usableOutline } from "./../outline-nav";
 import { getAgentRunAbortSignal } from "./../agent-abort";
 import { yieldToUi } from "./../yield-to-ui";
 import { labelForPage } from "./../page-labels";
@@ -344,13 +343,8 @@ export const OUTLINE_PREVIEW_CHARS = 60;
  * told no such section exists, on exactly the well-structured documents where
  * bookmarks are present.
  */
-export async function resolveOutline(doc: LoadedDocument, path: string): Promise<DocHeading[]> {
-  const authored = doc.kind === "pdf" ? await getPdfOutline(path) : [];
-  const usableAuthored = usableOutline(
-    authored.filter((b): b is { title: string; page: number; level: number } => b.page !== null),
-    doc.totalPages,
-  );
-  return preferAuthoredOutline(usableAuthored, usableOutline(doc.outline, doc.totalPages));
+export function resolveOutline(doc: LoadedDocument): DocHeading[] {
+  return usableOutline(doc.outline, doc.totalPages);
 }
 
 export async function readPageRange(

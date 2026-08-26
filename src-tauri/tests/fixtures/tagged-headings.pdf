@@ -1,0 +1,61 @@
+%PDF-1.5
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R /MarkInfo << /Marked true >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 2 /Kids [5 0 R 7 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /StructTreeRoot /K [9 0 R 11 0 R 10 0 R] >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R /StructParents 0 >>
+endobj
+6 0 obj
+<< /Length 151 >>
+stream
+BT /F1 24 Tf 40 720 Td /P <</MCID 0>> BDC (Chapter One) Tj EMC ET
+BT /F1 11 Tf 40 680 Td /P <</MCID 1>> BDC (Body text of the first chapter.) Tj EMC ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 8 0 R /StructParents 1 >>
+endobj
+8 0 obj
+<< /Length 152 >>
+stream
+BT /F1 24 Tf 40 720 Td /P <</MCID 0>> BDC (Chapter Two) Tj EMC ET
+BT /F1 11 Tf 40 680 Td /P <</MCID 1>> BDC (Body text of the second chapter.) Tj EMC ET
+endstream
+endobj
+9 0 obj
+<< /Type /StructElem /S /H1 /P 4 0 R /Pg 5 0 R /K 0 >>
+endobj
+10 0 obj
+<< /Type /StructElem /S /H1 /P 4 0 R /Pg 7 0 R /K 0 >>
+endobj
+11 0 obj
+<< /Type /StructElem /S /P /P 4 0 R /Pg 5 0 R /K 1 >>
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000009 00000 n 
+0000000109 00000 n 
+0000000172 00000 n 
+0000000242 00000 n 
+0000000310 00000 n 
+0000000453 00000 n 
+0000000655 00000 n 
+0000000798 00000 n 
+0000001001 00000 n 
+0000001071 00000 n 
+0000001142 00000 n 
+trailer
+<< /Size 12 /Root 1 0 R >>
+startxref
+1212
+%%EOF

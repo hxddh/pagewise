@@ -25,3 +25,4 @@ detection, or link positions must.
 | `links-figure.pdf` | Chromium `--print-to-pdf`, two hyperlinks and one image | link URLs and figure boxes carry positions |
 | `form-fields.pdf` | hand-built AcroForm with two filled text fields | filled form values reach the page text, so the assistant can read them |
 | `damaged.pdf` | first 600 bytes of a valid PDF | a malformed file fails cleanly instead of panicking |
+| `tagged-headings.pdf` | hand-built, two `H1`s and a `/P` under a `/StructTreeRoot` | the document's own headings are read from its structure tree, and a paragraph is not mistaken for one |

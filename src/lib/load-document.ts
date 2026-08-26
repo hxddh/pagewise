@@ -1,5 +1,6 @@
 import { docCache } from "./doc-cache";
-import { getPdfPageLabels, openDocument } from "./pdf";
+import { getPdfOutline, getPdfPageLabels, openDocument } from "./pdf";
+import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
@@ -88,7 +89,16 @@ export async function loadDocument(
       totalPages: model.page_count,
       stamp,
       title: model.title ?? undefined,
-      outline: model.outline,
+      // Arbitrated here, once, rather than by each consumer remembering to.
+      outline: preferAuthoredOutline(
+        usableOutline(
+          (await getPdfOutline(path))
+            .filter((b): b is { title: string; page: number; level: number } => b.page !== null),
+          model.page_count,
+        ),
+        usableOutline(model.structure_outline, model.page_count),
+        usableOutline(model.outline, model.page_count),
+      ),
       links: model.links,
       figures: model.figures,
       tablePages: model.pages.filter((p) => p.has_table).map((p) => p.page),

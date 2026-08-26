@@ -41,17 +41,35 @@ export function usableOutline(
 }
 
 /**
- * Which section list wins: the document's own bookmarks, or the headings
- * recovered from its text?
+ * Which section list wins, of the three a PDF can offer.
  *
- * Authored bookmarks are the document's own answer and are preferred whenever
- * it has usable ones. Every consumer must apply this same rule — a model shown
- * bookmark titles and answered against synthesized ones is told its own quote
- * does not exist.
+ * BOOKMARKS the author wrote are the document's own navigation, curated at the
+ * level someone thought you would want to move through it. They win when there
+ * are any.
+ *
+ * TAGGED HEADINGS come next. A tagged PDF marks its own runs of text `H1`..`H6`
+ * — also the document's answer, and exhaustive where bookmarks are curated, but
+ * it lists every heading rather than the ones worth navigating by.
+ *
+ * SYNTHESIZED headings are last, because they are a guess: markdown recovered
+ * from font sizes, which is what you fall back to when the document says
+ * nothing about its own structure. Most documents say nothing.
+ *
+ * ARBITRATED ONCE, AT LOAD, AND STORED. This used to be a rule every consumer
+ * had to remember, and the comment here said so — and they did not: the agent
+ * called this function while the outline sidebar and the chat panel read the
+ * synthesized list directly. On any PDF with bookmarks the reader and the model
+ * were looking at different section names, which is the exact failure this
+ * comment warned about. A rule that has to be remembered in four places is not
+ * a rule; `load-document.ts` resolves it once and everything downstream reads
+ * the winner.
  */
 export function preferAuthoredOutline(
   authored: DocHeading[],
+  structure: DocHeading[],
   synthesized: DocHeading[],
 ): DocHeading[] {
-  return authored.length > 0 ? authored : synthesized;
+  if (authored.length > 0) return authored;
+  if (structure.length > 0) return structure;
+  return synthesized;
 }
