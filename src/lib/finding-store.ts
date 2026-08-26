@@ -213,6 +213,49 @@ export function isSuperseded(findings: readonly Finding[], id: string): boolean 
 }
 
 /**
+ * How many leading characters of an id identify a finding to the agent.
+ *
+ * `revise_finding` takes an id, and nothing ever gave the agent one. Within a
+ * single run `note_finding` returns it, so the agent can correct what it just
+ * wrote; across runs — which is the only reason this store is on disk — the
+ * record note listed claims and pages and no identifier at all, while ending
+ * with "use revise_finding to correct it". The instruction was unfollowable.
+ *
+ * A full `crypto.randomUUID()` is 36 characters. Spending 38 of a 2,000-char
+ * record budget per line on an identifier would take roughly a fifth of the
+ * record away from the claims it exists to carry — and that budget is paid on
+ * every question. Six hex characters is 16.7M values against a 500-finding
+ * per-document cap, and `resolveFindingId` refuses an ambiguous one rather than
+ * guessing, so the short form costs a handful of characters and can never
+ * silently revise the wrong claim.
+ */
+export const FINDING_HANDLE_LEN = 6;
+
+/** The short form of an id, as the agent is shown it. */
+export function findingHandle(id: string): string {
+  return id.replace(/-/g, "").slice(0, FINDING_HANDLE_LEN);
+}
+
+/**
+ * Turn what the agent said back into a finding id.
+ *
+ * Exact ids still work — the agent has one for anything `note_finding` returned
+ * in this run — so the short handle is an addition, not a replacement. A prefix
+ * matching more than one finding resolves to null: revising the wrong claim is
+ * worse than refusing, because the record is what the next run is told.
+ */
+export function resolveFindingId(path: string, handle: string): string | null {
+  const wanted = handle.trim();
+  if (!wanted) return null;
+  const all = getFindings(path);
+  if (all.some((f) => f.id === wanted)) return wanted;
+  const folded = wanted.replace(/-/g, "").toLowerCase();
+  if (!folded) return null;
+  const matches = all.filter((f) => f.id.replace(/-/g, "").toLowerCase().startsWith(folded));
+  return matches.length === 1 ? matches[0]!.id : null;
+}
+
+/**
  * What the agent is entitled to be told on the next turn.
  *
  * Struck findings are excluded because the reader said they were wrong, and a

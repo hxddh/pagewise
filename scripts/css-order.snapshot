@@ -144,6 +144,11 @@ button.pages-read-chip:hover
 .record-entry:has(.record-byline-reader)
 .record-claim
 .record-why
+.record-evidence
+.record-locate
+.record-locate-found
+.record-locate-found:hover
+.record-locate-absent
 .record-state
 .record-strike
 .record-entry-inactive
@@ -244,7 +249,6 @@ button.pages-read-chip:hover
 .zoom-menu-item:hover, .zoom-menu-item.active
 .doc-search-overlay
 .doc-search-backdrop
-.preview-panel
 .doc-search-panel .doc-search-input
 .doc-search-panel .doc-search-results
 # 10-agent-activity.css
@@ -254,9 +258,6 @@ button.pages-read-chip:hover
 .message-in-progress
 .message-parts--settling
 .tool-fold-wrap--settling
-.message.assistant
-.message.user
-.empty-state-compact .empty-lead
 .empty-hint
 .sidebar-tabs
 .sidebar-tab
@@ -316,6 +317,15 @@ button.pages-read-chip:hover
 .pdf-annotation
 .pdf-annotation-noted
 .pdf-annotation-text
+.pdf-finding-layer
+.pdf-finding
+.pdf-finding::after
+.pdf-finding:hover
+.pdf-finding-selected
+.pdf-finding-selected::after
+.pdf-finding-margin
+.pdf-finding-tab
+.pdf-finding-tab-selected
 # 12-shell-rail.css
 .app.v3
 .app-rail
@@ -415,7 +425,6 @@ button.pages-read-chip:hover
 .confirm-bar
 .confirm-bar-message
 .confirm-bar-actions
-.tool-steps-list
 .tool-steps-list li
 .tool-steps-list li.tool-step-failed
 .tool-step-link

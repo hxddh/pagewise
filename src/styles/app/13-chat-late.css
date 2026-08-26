@@ -180,13 +180,6 @@
   flex-shrink: 0;
 }
 
-/* A step in the run is a way back to the page it read. */
-.tool-steps-list {
-  margin: 0;
-  padding: 0 0 0 var(--space-xl);
-  list-style: decimal;
-}
-
 .tool-steps-list li {
   color: var(--text-muted);
   font-size: var(--text-xs);

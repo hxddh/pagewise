@@ -22,7 +22,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { installTauriMock, sampleDocument } from "./ui-harness/tauri-mock.mjs";
+import { installTauriMock, sampleDocument, PAGE_RUNS } from "./ui-harness/tauri-mock.mjs";
 
 // fileURLToPath, not `.pathname` — see scripts/css-hygiene.test.mjs for the two
 // Windows release builds that idiom cost.
@@ -65,6 +65,48 @@ const ANSWER_STREAM =
   chunk({}, "stop") +
   "data: [DONE]\n\n";
 
+/*
+ * A second turn that writes to the record.
+ *
+ * `note_finding` carries a claim, the page, and the wording it rests on — and
+ * that wording is really on page 1 of the fixture, so the whole chain runs for
+ * real: the tool writes, `locateQuote` finds the words among the page's own
+ * text runs, and `FindingLayer` underlines them. Nothing about the placement is
+ * faked; only the provider is.
+ */
+const NOTE_CALL_STREAM =
+  chunk({
+    role: "assistant",
+    tool_calls: [
+      { index: 0, id: "t2", type: "function", function: { name: "note_finding", arguments: "" } },
+    ],
+  }) +
+  chunk({
+    tool_calls: [
+      {
+        index: 0,
+        function: {
+          arguments: JSON.stringify({
+            pages: [1],
+            claim: "Page 1 is filler text, not an argument.",
+            evidence: "Lorem ipsum dolor sit amet, consetetur sadipscing",
+          }),
+        },
+      },
+    ],
+  }) +
+  chunk({}, "tool_calls") +
+  "data: [DONE]\n\n";
+
+const NOTED_STREAM =
+  chunk({ role: "assistant", content: "" }) +
+  "Recorded: page 1 is filler text rather than an argument."
+    .split(" ")
+    .map((w) => chunk({ content: `${w} ` }))
+    .join("") +
+  chunk({}, "stop") +
+  "data: [DONE]\n\n";
+
 const shots = [];
 
 async function shoot(page, name) {
@@ -87,6 +129,9 @@ page.on("console", (m) => {
 await page.addInitScript(installTauriMock, {
   pdfB64: readFileSync(FIXTURE).toString("base64"),
   doc: sampleDocument(),
+  // Passed as data, not closed over: `addInitScript` serializes the function
+  // body into the page, so a module-level constant would arrive undefined.
+  runs: PAGE_RUNS,
   // A configured provider, so the composer is live rather than showing the
   // "Configure AI" state the other shots exercise.
   apiKey: "sk-harness",
@@ -162,6 +207,30 @@ await page.waitForTimeout(1200);
 await shoot(page, "06-answering");
 await page.waitForTimeout(4000);
 await shoot(page, "07-answered");
+
+// The record, written and then placed. Turn 3 calls `note_finding`; turn 4 is
+// the sentence that follows it.
+await page.unroute("**/chat/completions").catch(() => {});
+let noteTurn = 0;
+await page.route("**/chat/completions", async (route) => {
+  noteTurn += 1;
+  await route.fulfill({
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+    body: noteTurn === 1 ? NOTE_CALL_STREAM : NOTED_STREAM,
+  });
+});
+
+await composer.click();
+await composer.fill("Note that down.");
+await page.keyboard.press("Enter");
+await page.waitForTimeout(5000);
+// The underline on the page, drawn where the quoted words actually are.
+await shoot(page, "08-finding-on-page");
+
+await page.getByRole("tab", { name: /record/i }).first().click();
+await page.waitForTimeout(1500);
+await shoot(page, "09-record");
 
 await browser.close();
 

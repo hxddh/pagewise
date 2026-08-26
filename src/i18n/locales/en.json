@@ -539,7 +539,10 @@
     "byReader": "You",
     "staleFile": "Some entries were written against an earlier version of this file.",
     "keep": "Keep this",
-    "kept": "Kept to the record"
+    "kept": "Kept to the record",
+    "locatedOn": "Found on page {{page}}",
+    "notOnCitedPage": "This wording is not on the page it cites",
+    "onPage": "Recorded: {{claim}}"
   },
   "annotations": {
     "byAuthor": "{{author}}: {{text}}",

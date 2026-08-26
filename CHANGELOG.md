@@ -4,6 +4,28 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-08-26
+
+### Added
+
+- **The assistant's citations are shown on the page, and a citation that is not there is now caught.** When it records something it worked out, it quotes the wording the claim rests on — and PageWise looks that wording up in the page's own text. Found, it is underlined where it really is, with a mark in the margin beside it. Not found, the record says so: *this wording is not on the page it cites*. Nothing is taken on trust and nothing extra is paid for; the page either carries the words or it does not.
+- **What the assistant established can be corrected across sessions.** Its record already survived closing the document, and the note it was given on later questions listed the claims and then asked it to correct any that were wrong — without naming a single one. It now names them, so a claim worked out last week can be revised this week instead of standing until someone notices.
+
+### Changed
+
+- **The record shows the wording each claim rests on.** It was always stored and never displayed, which meant the one thing that makes a claim checkable was the one thing you could not see.
+- Findings are drawn in their own colour — not your highlighter's yellow, not the teal of a note somebody else left in the file. Three authors can write on a page and it should never be a guess which one did.
+
+### Notes
+
+- A quote is matched ignoring line breaks and spacing, so a sentence that wraps across two lines still resolves — in English and in Chinese alike. A word hyphenated across a break does not, and is reported as unlocated rather than placed somewhere it might not belong.
+- Very short quotes are neither confirmed nor doubted. A handful of characters occurs on almost any page, and a false warning about a citation is worse than none.
+- Claims you struck out, and ones the assistant later replaced, stay in the record and stop being drawn on the page.
+
+### Internal
+
+- Six CSS selectors were declared in two stylesheet parts at once, the later silently winning — a button border, a list's numbering, a panel's positioning, all written twice and half-dead. They are merged, and a test now fails on the commit that introduces the next one.
+
 ## [9.6.0] - 2026-08-26
 
 ### Added

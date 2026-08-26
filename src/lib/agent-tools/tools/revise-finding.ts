@@ -1,7 +1,13 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as R from "../reading";
-import { reviseFinding, MAX_CLAIM_TEXT, MAX_EVIDENCE_TEXT } from "../../finding-store";
+import {
+  reviseFinding,
+  resolveFindingId,
+  findingHandle,
+  MAX_CLAIM_TEXT,
+  MAX_EVIDENCE_TEXT,
+} from "../../finding-store";
 
 /**
  * The `revise_finding` tool.
@@ -38,13 +44,21 @@ export function createReviseFindingTool() {
       async ({ id, pages, claim, why, evidence }, options) => {
         const path = R.resolvePathInput(undefined, options);
         const doc = R.requireLoadedDoc(path);
-        const finding = reviseFinding(path, id, {
-          pages,
-          claim,
-          why,
-          evidence,
-          stamp: doc.stamp ?? "",
-        });
+        // The record note names findings by a short handle rather than a full
+        // uuid, so what comes back is usually a prefix. An exact id still
+        // resolves to itself; an ambiguous prefix resolves to nothing, and the
+        // refusal below is the same one an unknown id gets.
+        const resolved = resolveFindingId(path, id);
+        const finding =
+          resolved === null
+            ? null
+            : reviseFinding(path, resolved, {
+                pages,
+                claim,
+                why,
+                evidence,
+                stamp: doc.stamp ?? "",
+              });
         if (!finding) {
           // Unknown id, or already revised — revising a revision would fork the
           // record into two live claims, and it is a single timeline by design.
@@ -53,7 +67,15 @@ export function createReviseFindingTool() {
             reason: "not revised (no such finding, or it was already replaced)",
           };
         }
-        return { revised: true, id: finding.id, replaced: id, pages: finding.pages };
+        return {
+          revised: true,
+          id: findingHandle(finding.id),
+          // `supersedes` is the id the store actually replaced, so the
+          // answer names the same finding the record does even when the agent
+          // quoted a prefix.
+          replaced: findingHandle(finding.supersedes ?? ""),
+          pages: finding.pages,
+        };
       },
     ),
   });

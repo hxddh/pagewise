@@ -38,6 +38,21 @@
    */
   --annotation: #2aa9a0;
   /*
+   * What the ASSISTANT worked out, drawn where it found the words.
+   *
+   * The third author on a page, and the last one without ink of its own. The
+   * reader highlights in yellow; whoever sent the file annotates in teal; a
+   * finding is neither, and a reader who cannot tell the three apart will
+   * eventually answer for a claim they never made and never checked. That is
+   * the argument `--annotation` was added under, applied to the remaining case.
+   *
+   * Violet rather than the indigo `--accent`: an accent is chrome — a focus
+   * ring, a primary button — and reusing it here would make a conclusion look
+   * like a control. Held across both themes, like the other two inks, because
+   * it stands for something written on the document rather than for a surface.
+   */
+  --finding: #8b5cf6;
+  /*
    * Corners. Three steps and a pill, where there used to be ten different
    * pixel values: 1, 2, 3, 4, 5, 6, 8, 10, 12 and 999. Nothing chose those —
    * they accumulated, and the result is a surface where nothing quite matches

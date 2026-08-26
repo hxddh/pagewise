@@ -539,7 +539,10 @@
     "byReader": "你",
     "staleFile": "有些条目是针对这个文件的早前版本写的。",
     "keep": "留下这条",
-    "kept": "已留到记录"
+    "kept": "已留到记录",
+    "locatedOn": "在第 {{page}} 页找到",
+    "notOnCitedPage": "这段文字不在它引用的页面上",
+    "onPage": "已记录：{{claim}}"
   },
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",

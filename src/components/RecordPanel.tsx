@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from "react";
-import { Sparkles, Undo2, User } from "lucide-react";
+import { AlertTriangle, Crosshair, Sparkles, Undo2, User } from "lucide-react";
 import { useI18n } from "../i18n";
 import {
   getFindings,
@@ -7,6 +7,7 @@ import {
   setFindingStruck,
   type Finding,
 } from "../lib/finding-store";
+import { useFindingPlacement } from "../hooks/useFindingPlacement";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Field";
 
@@ -18,6 +19,8 @@ interface RecordPanelProps {
   /** Some entries were written against a different version of this file. */
   stale: boolean;
   onJumpToPage: (page: number) => void;
+  /** Show this claim where it was found: turn there and light it up. */
+  onRevealFinding?: (id: string, page: number) => void;
 }
 
 /**
@@ -46,6 +49,7 @@ export const RecordPanel = memo(function RecordPanel({
   currentPage,
   stale,
   onJumpToPage,
+  onRevealFinding,
 }: RecordPanelProps) {
   const { t } = useI18n();
   const [filter, setFilter] = useState("");
@@ -114,6 +118,7 @@ export const RecordPanel = memo(function RecordPanel({
               superseded={isSuperseded(all, finding.id)}
               currentPage={currentPage}
               onJumpToPage={onJumpToPage}
+              onRevealFinding={onRevealFinding}
             />
           ))}
         </ul>
@@ -135,14 +140,17 @@ function RecordEntry({
   superseded,
   currentPage,
   onJumpToPage,
+  onRevealFinding,
 }: {
   path: string;
   finding: Finding;
   superseded: boolean;
   currentPage: number;
   onJumpToPage: (page: number) => void;
+  onRevealFinding?: (id: string, page: number) => void;
 }) {
   const { t } = useI18n();
+  const placement = useFindingPlacement(path, finding);
   const struck = Boolean(finding.struck);
   const byReader = finding.author === "reader";
   const inactive = struck || superseded;
@@ -173,6 +181,24 @@ function RecordEntry({
       </div>
       <p className="record-claim">{finding.claim}</p>
       {finding.why && <p className="record-why">{finding.why}</p>}
+      {finding.evidence && <p className="record-evidence">{finding.evidence}</p>}
+      {placement?.status === "located" && (
+        /* raw-button: a status line that is also the control that acts on it */
+        <button
+          type="button"
+          className="record-locate record-locate-found"
+          onClick={() => onRevealFinding?.(finding.id, placement.anchor.page)}
+        >
+          <Crosshair size={11} aria-hidden />
+          {t("record.locatedOn", { page: placement.anchor.page })}
+        </button>
+      )}
+      {placement?.status === "absent" && (
+        <p className="record-locate record-locate-absent">
+          <AlertTriangle size={11} aria-hidden />
+          {t("record.notOnCitedPage")}
+        </p>
+      )}
       <div className="record-pages">
         {finding.pages.map((page) => (
           /* raw-button: an inline page chip in a row of them; a control's padding would break the line */

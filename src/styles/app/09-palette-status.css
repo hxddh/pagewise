@@ -135,7 +135,8 @@
 
 .empty-state-compact .empty-lead {
   margin-bottom: var(--space-md);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 
@@ -218,10 +219,6 @@
   background: rgba(0, 0, 0, 0.35);
   cursor: default;
   pointer-events: auto;
-}
-
-.preview-panel {
-  position: relative;
 }
 
 .doc-search-panel .doc-search-input {
