@@ -1,5 +1,5 @@
 import { docCache } from "./doc-cache";
-import { openDocument } from "./pdf";
+import { getPdfPageLabels, openDocument } from "./pdf";
 import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
@@ -92,6 +92,9 @@ export async function loadDocument(
       links: model.links,
       figures: model.figures,
       tablePages: model.pages.filter((p) => p.has_table).map((p) => p.page),
+      // pdf.js, not Rust: `/PageLabels` is a document-level table and the
+      // extractor does not surface it. Undefined for the common case.
+      pageLabels: (await getPdfPageLabels(path, model.page_count)) ?? undefined,
     };
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });

@@ -6,11 +6,14 @@ import { IconChevronLeft, IconChevronRight } from "./Icon";
 import { ZoomStepper } from "./ZoomStepper";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Field";
+import { labelForPage, pageForLabel } from "../lib/page-labels";
 
 interface PreviewToolbarProps {
   filename: string;
   page: number;
   totalPages: number;
+  /** What the pages call themselves, when that differs from where they sit. */
+  pageLabels?: string[];
   zoom: ZoomMode;
   onZoomChange: (zoom: ZoomMode) => void;
   onZoomIn?: () => void;
@@ -27,13 +30,17 @@ interface PreviewToolbarProps {
 function PageNav({
   page,
   totalPages,
+  pageLabels,
   onPageChange,
 }: {
   page: number;
   totalPages: number;
+  pageLabels?: string[];
   onPageChange: (page: number) => void;
 }) {
   const { t } = useI18n();
+  // What is printed on this page, when it is not simply the page's position.
+  const printed = labelForPage(pageLabels ?? null, page);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(page));
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +56,17 @@ function PageNav({
   if (totalPages <= 1) return null;
 
   function commit() {
+    // A printed number first, when the document prints any. The reader is
+    // looking at a footer that says 47; typing 47 has to land there, not on
+    // the 47th sheet. Falls through to the position when the number is not
+    // printed anywhere, or is printed on more than one page.
+    const byLabel = pageForLabel(pageLabels ?? null, draft);
+    if (byLabel !== null) {
+      onPageChange(byLabel);
+      setDraft(String(byLabel));
+      setEditing(false);
+      return;
+    }
     const n = parseInt(draft, 10);
     if (!Number.isFinite(n)) {
       setDraft(String(page));
@@ -80,7 +98,13 @@ function PageNav({
           numeric
           className="toolbar-page-input"
           value={draft}
-          onChange={(e) => setDraft(e.target.value.replace(/\D/g, ""))}
+          // Digits only where pages are numbered with digits; a document that
+          // prints "iv" or "A-1" needs those characters to reach `commit`.
+          onChange={(e) =>
+            setDraft(
+              pageLabels ? e.target.value.slice(0, 24) : e.target.value.replace(/\D/g, ""),
+            )
+          }
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing || e.keyCode === 229) return;
@@ -103,6 +127,11 @@ function PageNav({
           title={t("preview.pageOf", { page, total: totalPages })}
           aria-label={t("preview.pageOf", { page, total: totalPages })}
         >
+          {/* The printed number leads, because it is the one on the paper in
+              front of the reader; the position follows it, quieter. Shown only
+              where the two disagree — on a document numbered the obvious way
+              this is noise. */}
+          {printed ? <span className="toolbar-page-printed">{printed}</span> : null}
           <span className="toolbar-page-current">{page}</span>
           <span className="toolbar-page-sep">/</span>
           <span className="toolbar-page-total">{totalPages}</span>
@@ -126,6 +155,7 @@ export function PreviewToolbar({
   filename,
   page,
   totalPages,
+  pageLabels,
   zoom,
   onZoomChange,
   onZoomIn,
@@ -152,7 +182,12 @@ export function PreviewToolbar({
       </div>
 
       <div className="preview-toolbar-center">
-        <PageNav page={page} totalPages={totalPages} onPageChange={onPageChange} />
+        <PageNav
+          page={page}
+          totalPages={totalPages}
+          pageLabels={pageLabels}
+          onPageChange={onPageChange}
+        />
       </div>
 
       <div className="toolbar-right">

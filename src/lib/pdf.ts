@@ -13,6 +13,7 @@ import { raceWithAbort, throwIfAborted } from "./abort-utils";
 import { ensureProviderCompatibleImage } from "./image-transcode";
 import { isTauriRuntime } from "./runtime";
 import { insertionIndex, type RenderPriority } from "./render-queue-order";
+import { normalizeLabels } from "./page-labels";
 
 const MAX_CACHE_BYTES = 128 * 1024 * 1024;
 const RASTER_TEXT_THRESHOLD = 48;
@@ -738,6 +739,27 @@ async function outlineDestToPage(doc: PDFDocumentProxy, dest: unknown): Promise<
     if (!ref || typeof ref !== "object") return null;
     const index = await doc.getPageIndex(ref as Parameters<PDFDocumentProxy["getPageIndex"]>[0]);
     return index + 1;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The numbers printed on the pages, when they differ from the pages' positions.
+ *
+ * `/PageLabels` is the document's own answer to "what does this page call
+ * itself", and pdf.js hands it over whole. Returns null for the common case —
+ * no labels, or labels that are just 1..n — so nothing downstream carries a
+ * redundant array. Failures return null too: a printed number is an aid, and a
+ * document that will not give one still reads fine.
+ */
+export async function getPdfPageLabels(
+  path: string,
+  totalPages: number,
+): Promise<string[] | null> {
+  try {
+    const doc = await getPdfDocument(path);
+    return normalizeLabels(await doc.getPageLabels(), totalPages);
   } catch {
     return null;
   }

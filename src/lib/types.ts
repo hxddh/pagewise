@@ -118,6 +118,14 @@ export interface LoadedDocument {
   figures?: DocFigure[];
   /** Pages whose text contains a table. */
   tablePages?: number[];
+  /**
+   * What each page calls itself, when that differs from where it sits.
+   *
+   * Absent for the great majority of documents — see `page-labels.ts`. Present
+   * means the reader and the app count differently, and every number crossing
+   * between them has to say which kind it is.
+   */
+  pageLabels?: string[];
 }
 
 export const DEFAULT_SETTINGS: LlmSettings = {
