@@ -1,7 +1,18 @@
 # Golden fixtures
 
 `pdf-inspector` is intentionally not pinned to an exact version, so these
-fixtures — not a version lock — are what guards behavior. Assertions in
+fixtures — not a version lock — are what guards behavior.
+
+That was the intent and not the practice: the requirement read `"0.1"`, which
+Cargo takes as `>=0.1.0, <0.2.0`, so it was a lock in everything but name.
+Upstream published 1.0 and sixteen more minors that never arrived, and the
+weekly drift job reported green throughout because `cargo update` obeys the
+same ceiling. It reads `"1"` now, and the drift job compares against crates.io
+directly so the next major cannot hide behind the range either.
+
+Crossing that boundary moved nothing these fixtures can see: on all six, page
+count, extracted characters, table detection, text-run count, `pdf_type`,
+confidence and `pages_needing_ocr` were identical under 0.1.8 and 1.17.0. Assertions in
 `src/inspect.rs` use tolerances: an upstream improvement that shifts extracted
 text by a few percent must not fail CI, but losing table structure, scanned
 detection, or link positions must.

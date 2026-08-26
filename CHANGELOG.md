@@ -4,6 +4,21 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.3.0] - 2026-08-26
+
+### Changed
+
+- **The PDF engine is a major version newer.** The library PageWise uses to read PDFs — text, tables, and the judgement of whether a page is a scan — had been held on a pre-1.0 release while its authors published 1.0 and sixteen versions after it. It now tracks the current one. On all six reference documents the reading is identical to the character: same text, same tables found, same pages judged to need scanning. Nothing you read should change; the point is that the next improvement upstream can now arrive.
+- **Every other dependency moved to its newest version too**, on both sides of the app.
+
+### Fixed
+
+- **The weekly check for changes in that engine had been reporting all-clear while looking at nothing.** It asked for updates within a range that stopped below 1.0, so it never saw the versions it existed to warn about. It now compares against what is actually published.
+
+### Notes
+
+- Console output is stripped from release builds by a different mechanism than before — the build tool dropped the one it used to use. The check that asserts nothing reaches your devtools is what caught it, and it caught five calls that had started slipping through.
+
 ## [9.2.4] - 2026-08-21
 
 ### Fixed

@@ -2,19 +2,28 @@
 /**
  * Nothing the reader should never see reaches the shipped bundle.
  *
- * This exists because the config line that was supposed to guarantee it had
- * quietly stopped being true — twice over. `esbuild: { drop: ["console",
- * "debugger"] }` was ignored outright once Vite 8 switched to oxc, and before
- * that it was already inert: it keyed off `process.env.NODE_ENV ===
- * "production"`, which is not set while the config file is being evaluated
- * during `vite build`, so the array it produced was empty. Vite 8 printed the
- * evidence — `The following esbuild options were set: { drop: [] }` — and that
- * empty array is what the option had been contributing all along.
- *
- * A setting nobody checks is a promise nobody keeps. The stripping still
- * happens, by the minifier's own default; this asserts the outcome instead of
- * trusting the knob, so a future change to the minifier fails here rather than
+ * A setting nobody checks is a promise nobody keeps. This asserts the OUTCOME
+ * rather than trusting any knob, so a change of minifier fails here instead of
  * shipping a console call to a reader's devtools.
+ *
+ * It has now done that twice, and the second time corrected this comment.
+ *
+ * This paragraph used to say `esbuild: { drop: [...] }` had always been inert
+ * because it keyed off `process.env.NODE_ENV === "production"`, which is not
+ * set while the config is evaluated, so the array was empty — and it cited the
+ * dev-server warning `{ drop: [] }` as proof. That was wrong. `vite build`
+ * DOES set NODE_ENV: the same warning under `vite build` reads `{ drop: [
+ * 'console', 'debugger' ] }`, and esbuild's minifier honoured it. The empty
+ * array appears in DEV, which is what that warning was printed by.
+ *
+ * The claim was believed until Vite 8.2.2 made `minify: "esbuild"` unloadable
+ * and five console.error calls landed in the vendor chunk — at which point
+ * "the stripping happens by the minifier's own default" was measurably false
+ * too. Stripping is now stated explicitly to oxc, the minifier that actually
+ * runs (`rollupOptions.output.minify.compress.dropConsole`).
+ *
+ * Both readings were reasonable and both were wrong, which is the argument for
+ * this file: check the bundle, not the config.
  *
  * Runs as `postbuild`, so `npm run build` covers it and so does CI.
  *
