@@ -4,6 +4,18 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [9.5.0] - 2026-08-26
+
+### Added
+
+- **PageWise can see the notes already written on a document.** A PDF that reached you through other people carries their highlights, their sticky notes, their questions in the margin — and until now none of it existed as far as PageWise was concerned. They are drawn on the page, deliberately unlike your own marks so the two can never be confused, and the assistant can read them: someone has already said which sentence matters and why, and an answer given without that is an answer given with less than you have.
+
+### Notes
+
+- A highlight carries the sentence it covers, so a note reads as "on *this*, they said *that*" rather than as a coloured rectangle.
+- Marks with nothing written on them and nothing underneath are left out — a coloured box means something only to whoever drew it.
+- Nothing here is editable. A note in the file is somebody else's; your own marks stay yours.
+
 ## [9.4.0] - 2026-08-26
 
 ### Added

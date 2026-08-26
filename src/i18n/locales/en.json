@@ -540,5 +540,9 @@
     "staleFile": "Some entries were written against an earlier version of this file.",
     "keep": "Keep this",
     "kept": "Kept to the record"
+  },
+  "annotations": {
+    "byAuthor": "{{author}}: {{text}}",
+    "fromDocument": "Note in the document: {{text}}"
   }
 }

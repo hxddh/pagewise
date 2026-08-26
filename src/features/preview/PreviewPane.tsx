@@ -16,6 +16,7 @@ import { useAskSelection } from "./useAskSelection";
 import { selectionQuote } from "./selection-quote";
 import { SearchHighlight } from "./SearchHighlight";
 import { LinkLayer } from "./LinkLayer";
+import { AnnotationLayer } from "./AnnotationLayer";
 import { MarkLayer } from "./MarkLayer";
 import { RegionSelectLayer } from "./RegionSelectLayer";
 import { PageScroller } from "./PageScroller";
@@ -341,9 +342,12 @@ function PreviewPaneInner({
             onActivate={setPendingLink}
           />
         )}
+        {doc.annotations && doc.annotations.length > 0 && (
+          <AnnotationLayer path={doc.path} page={slotPage} annotations={doc.annotations} />
+        )}
       </>
     ),
-    [doc.path, doc.links, doc.stamp, searchHit, regionMode, markRevision, selectedMarkId, showToast, t],
+    [doc.path, doc.links, doc.annotations, doc.stamp, searchHit, regionMode, markRevision, selectedMarkId, showToast, t],
   );
 
   const canvasBody = (

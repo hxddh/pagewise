@@ -14,6 +14,11 @@ import { ensureProviderCompatibleImage } from "./image-transcode";
 import { isTauriRuntime } from "./runtime";
 import { insertionIndex, type RenderPriority } from "./render-queue-order";
 import { normalizeLabels } from "./page-labels";
+import {
+  MAX_ANNOTATIONS,
+  readableAnnotations,
+  type DocAnnotation,
+} from "./pdf-annotations";
 
 const MAX_CACHE_BYTES = 128 * 1024 * 1024;
 const RASTER_TEXT_THRESHOLD = 48;
@@ -112,6 +117,15 @@ const fitScaleCache = new Map<string, number>();
  */
 const textLayerCache = new Map<string, unknown>();
 const MAX_TEXT_LAYER_CACHE = 40;
+
+/**
+ * Above this page count, a document's annotations are not collected.
+ *
+ * One `getAnnotations` round trip per page, paid on every open. Rust bounds the
+ * positions pass the same way and for the same reason; the number matches it so
+ * the two features are limited together rather than surprising separately.
+ */
+const ANNOTATION_PAGE_LIMIT = 400;
 
 function setTextLayerCache(key: string, value: unknown): void {
   textLayerCache.delete(key);
@@ -741,6 +755,39 @@ async function outlineDestToPage(doc: PDFDocumentProxy, dest: unknown): Promise<
     return index + 1;
   } catch {
     return null;
+  }
+}
+
+/**
+ * The notes already written on this document, across all its pages.
+ *
+ * Read at open, once, rather than per page: they are what a question about the
+ * document may need, and a per-page fetch would mean the assistant could only
+ * see notes on pages it had already decided to read — which is backwards, since
+ * the notes are part of how it should decide.
+ *
+ * Bounded by page count for the same reason `collect_positions` is on the Rust
+ * side: a thousand-page file is a thousand `getAnnotations` round trips, paid on
+ * every open, for a feature most documents do not use.
+ */
+export async function getPdfAnnotations(
+  path: string,
+  totalPages: number,
+  maxPages = ANNOTATION_PAGE_LIMIT,
+): Promise<DocAnnotation[]> {
+  if (totalPages <= 0 || totalPages > maxPages) return [];
+  try {
+    const doc = await getPdfDocument(path);
+    const out: DocAnnotation[] = [];
+    for (let page = 1; page <= totalPages; page += 1) {
+      const raw = await (await doc.getPage(page)).getAnnotations();
+      out.push(...readableAnnotations(raw, page));
+      if (out.length >= MAX_ANNOTATIONS) return out.slice(0, MAX_ANNOTATIONS);
+    }
+    return out;
+  } catch {
+    // The document reads fine without other people's notes on it.
+    return [];
   }
 }
 

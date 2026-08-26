@@ -125,6 +125,12 @@ export function createDocumentOutlineTool(
             // Tables must be read whole — a reflowed table merges neighbouring
             // numbers into one wrong number.
             ...(doc.tablePages?.length ? { pagesWithTables: R.compressPageRanges(doc.tablePages) } : {}),
+            // Notes somebody already wrote on this document. Carried in the
+            // survey's OUTPUT, which costs nothing in the cached prefix — only
+            // a tool's description and input schema sit there. Someone has
+            // already said which sentence matters and why, and an answer given
+            // without that is an answer given with less than the reader has.
+            ...R.documentNotes(doc),
             // Without this, read_figure could only be reached by guessing that
             // a page has a figure.
             ...(figurePages.length > 0

@@ -540,5 +540,9 @@
     "staleFile": "有些条目是针对这个文件的早前版本写的。",
     "keep": "留下这条",
     "kept": "已留到记录"
+  },
+  "annotations": {
+    "byAuthor": "{{author}}：{{text}}",
+    "fromDocument": "文档中的批注：{{text}}"
   }
 }

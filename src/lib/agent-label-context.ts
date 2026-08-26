@@ -15,10 +15,27 @@
  */
 import { docCache } from "./doc-cache";
 import { describeLabels } from "./page-labels";
+import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
 
 export function labelHintFor(path: string | null): string {
   if (!path) return "";
   const doc = docCache.get(path);
-  const sentence = describeLabels(doc?.pageLabels ?? null);
-  return sentence ? `\n\n${sentence}` : "";
+  const parts: string[] = [];
+
+  const labels = describeLabels(doc?.pageLabels ?? null);
+  if (labels) parts.push(labels);
+
+  // That the document carries somebody else's notes, and where to read them.
+  // A pointer rather than the notes: they go in `document_outline`'s output,
+  // which the model pays for only when it asks.
+  const notes = doc?.annotations?.length ?? 0;
+  if (notes > 0) {
+    parts.push(
+      `This document carries ${notes} note${notes === 1 ? "" : "s"} written on it by ` +
+        `whoever sent it — highlights and comments. ${DOCUMENT_OUTLINE_TOOL} lists them; ` +
+        `they are worth reading before deciding which pages matter.`,
+    );
+  }
+
+  return parts.length > 0 ? `\n\n${parts.join("\n\n")}` : "";
 }

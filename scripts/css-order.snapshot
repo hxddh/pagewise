@@ -312,6 +312,10 @@ button.pages-read-chip:hover
 .pdf-region-band
 @media (prefers-reduced-motion: reduce)
   *, *::before, *::after
+.pdf-annotation-layer
+.pdf-annotation
+.pdf-annotation-noted
+.pdf-annotation-text
 # 12-shell-rail.css
 .app.v3
 .app-rail

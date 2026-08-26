@@ -1,3 +1,4 @@
+import type { DocAnnotation } from "./pdf-annotations";
 export type ProviderId = "openai" | "deepseek" | "openrouter" | "ollama" | "custom";
 
 export const ALL_PROVIDER_IDS: ProviderId[] = [
@@ -126,6 +127,12 @@ export interface LoadedDocument {
   figures?: DocFigure[];
   /** Pages whose text contains a table. */
   tablePages?: number[];
+  /**
+   * Notes already written on the document by whoever sent it — highlights,
+   * sticky notes, questions in the margin. Not the reader's own marks, which
+   * live in `mark-store` and use the other coordinate convention.
+   */
+  annotations?: DocAnnotation[];
   /**
    * What each page calls itself, when that differs from where it sits.
    *
