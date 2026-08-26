@@ -29,6 +29,7 @@ import { useDocAgent } from "../hooks/useDocAgent";
 import { useConnectionStatus } from "../hooks/useConnectionStatus";
 import { useResizeWidth } from "../hooks/useResizeWidth";
 import { useTauriFileDrop } from "../hooks/useTauriFileDrop";
+import { useOpenPathEvent } from "../hooks/useOpenPathEvent";
 import { useI18n } from "../i18n";
 import { useToast } from "../hooks/useToast";
 import { stampMissingFinishedAt, type PageWiseUIMessage } from "../lib/message-metadata";
@@ -399,6 +400,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (loadingRef.current) return;
     const docPath = paths.find((p) => isSupportedDocument(p));
     if (docPath) void switchDocument(docPath);
+  });
+
+  // A document opened from the desktop — double-clicked, or handed over by a
+  // second launch that the single-instance plugin turned back. Same treatment
+  // as a drop: the reader asked for this file in this window.
+  useOpenPathEvent((path) => {
+    if (loadingRef.current) return;
+    if (isSupportedDocument(path)) void switchDocument(path);
   });
 
   const reindexDoc = useCallback(() => {
