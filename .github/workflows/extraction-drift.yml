@@ -6,6 +6,14 @@
 # release notes, so the only way to know what a new version changes is to run
 # the golden fixtures against it.
 #
+# THIS JOB WAS BLIND TO THE THING IT EXISTS FOR. `cargo update` obeys the
+# requirement in Cargo.toml, and that requirement said `"0.1"` — which in Cargo
+# means `>=0.1.0, <0.2.0`. Upstream shipped 1.0 and then sixteen more minors;
+# this ran every Monday, found nothing to update, and reported green the whole
+# way. A guard that cannot see across the boundary it is guarding is not a
+# guard, so the version published on crates.io is now compared against the one
+# in the lockfile directly, whatever major either is on.
+#
 # This job never blocks a merge: it upgrades in a scratch checkout and reports.
 # Acting on a failure is a decision for a person.
 name: Extraction drift
@@ -47,7 +55,22 @@ jobs:
       - name: Upgrade the extractor
         working-directory: src-tauri
         run: |
+          set -euo pipefail
+          locked=$(cargo metadata --format-version 1 \
+            | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="pdf-inspector"))')
+          latest=$(curl -sS --retry 3 https://crates.io/api/v1/crates/pdf-inspector \
+            -H 'User-Agent: pagewise-extraction-drift' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["crate"]["max_version"])')
+          echo "locked=$locked  crates.io=$latest"
+
+          # Within the declared range first, then across it. `cargo update`
+          # alone can only ever reach the top of the current range, which is
+          # exactly how this job missed 0.1.8 -> 1.17.0.
           cargo update -p pdf-inspector
+          if [ "$locked" != "$latest" ]; then
+            echo "::notice::pdf-inspector $locked -> $latest is outside the declared range; testing against it anyway"
+            cargo add "pdf-inspector@$latest"
+          fi
           cargo tree -p pdf-inspector --depth 0
 
       - name: Golden fixtures against the newest version
