@@ -1,5 +1,5 @@
 import { docCache } from "./doc-cache";
-import { getPdfOutline, getPdfPageLabels, openDocument } from "./pdf";
+import { getPdfAnnotations, getPdfOutline, getPdfPageLabels, openDocument } from "./pdf";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
@@ -105,6 +105,7 @@ export async function loadDocument(
       // pdf.js, not Rust: `/PageLabels` is a document-level table and the
       // extractor does not surface it. Undefined for the common case.
       pageLabels: (await getPdfPageLabels(path, model.page_count)) ?? undefined,
+      annotations: await getPdfAnnotations(path, model.page_count),
     };
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });

@@ -28,6 +28,7 @@ import { usableOutline } from "./../outline-nav";
 import { getAgentRunAbortSignal } from "./../agent-abort";
 import { yieldToUi } from "./../yield-to-ui";
 import { labelForPage } from "./../page-labels";
+import { describeAnnotations } from "./../pdf-annotations";
 import type { ReadAttachments, ReadResult } from "./result";
 
 /** Re-exported so a tool file needs one import path for the reading layer. */
@@ -164,6 +165,25 @@ export function requireLoadedDoc(path: string): LoadedDocument {
  */
 export function printedLabel(doc: LoadedDocument, page: number): string | null {
   return labelForPage(doc.pageLabels ?? null, page);
+}
+
+/**
+ * The notes already on the document, for the survey's output.
+ *
+ * Bounded like everything that reaches a request: a heavily reviewed PDF can
+ * carry hundreds of comments, and sending them all would cost more than the
+ * pages the question is about. What is left out is said, so the model knows the
+ * list is partial rather than assuming it is all there is.
+ */
+export function documentNotes(doc: LoadedDocument): {
+  notesInDocument?: string[];
+  notesOmitted?: number;
+} {
+  const notes = doc.annotations ?? [];
+  if (notes.length === 0) return {};
+  const { lines, omitted } = describeAnnotations(notes);
+  if (lines.length === 0) return {};
+  return { notesInDocument: lines, ...(omitted > 0 ? { notesOmitted: omitted } : {}) };
 }
 
 /** Validate a 1-based page against the document's page count. */

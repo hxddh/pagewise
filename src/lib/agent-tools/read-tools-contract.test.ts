@@ -25,6 +25,7 @@ const pageText = (page: number, chars = 400) =>
 function loadDoc(
   pages: Array<{ page: number; text: string }>,
   pageLabels?: string[],
+  annotations?: unknown[],
 ) {
   // Clear first. `docCache.set` MERGES page text on reload — reopening the same
   // path keeps whatever text is longer — so without this a 12,000-character
@@ -43,6 +44,7 @@ function loadDoc(
     links: [],
     figures: [],
     pageLabels,
+    annotations,
   } as never);
 }
 
@@ -404,5 +406,66 @@ describe("read tool contract: a page can be asked for by its printed number", ()
     const { t } = tools();
     const r = (await t.read_pdf_page!.execute({ page: 2 }, options)) as { printedAs?: string };
     expect(r.printedAs).toBeUndefined();
+  });
+});
+
+/**
+ * The notes already on the document reaching the model.
+ *
+ * `pdf-annotations.ts` unit-tests the extraction against objects copied from a
+ * real pdf.js dump. This is the WIRING — that they reach the survey's output at
+ * all, and that they cost nothing when a document has none.
+ */
+describe("read tool contract: notes already written on the document", () => {
+  const NOTE = {
+    page: 2,
+    id: "6R",
+    subtype: "Highlight",
+    contents: "Is eight weeks long enough?",
+    author: "Reviewer A",
+    quoted: "The trial ran for eight weeks.",
+    rect: { x: 38, y: 714, width: 382, height: 20 },
+  };
+
+  it("carries them in the survey, with the page, the author and the words", async () => {
+    loadDoc([1, 2, 3].map((page) => ({ page, text: pageText(page) })), undefined, [NOTE]);
+    const { t } = tools();
+    const out = (await t.document_outline!.execute({}, options)) as {
+      notesInDocument?: string[];
+    };
+    expect(out.notesInDocument).toBeDefined();
+    expect(out.notesInDocument!.join("\n")).toContain("p2");
+    expect(out.notesInDocument!.join("\n")).toContain("Reviewer A");
+    expect(out.notesInDocument!.join("\n")).toContain("Is eight weeks long enough?");
+    expect(out.notesInDocument!.join("\n")).toContain("The trial ran for eight weeks");
+  });
+
+  it("says nothing at all about a document nobody has written on", async () => {
+    // The overwhelming majority. Every field in this result is paid for on the
+    // request that carries it.
+    loadDoc([1, 2, 3].map((page) => ({ page, text: pageText(page) })));
+    const { t } = tools();
+    const out = (await t.document_outline!.execute({}, options)) as {
+      notesInDocument?: string[];
+      notesOmitted?: number;
+    };
+    expect(out.notesInDocument).toBeUndefined();
+    expect(out.notesOmitted).toBeUndefined();
+  });
+
+  it("says how many it left out rather than pretending the list is whole", async () => {
+    const many = Array.from({ length: 400 }, (_, i) => ({
+      ...NOTE,
+      id: `n${i}`,
+      contents: `A comment long enough to matter, number ${i}, on this document.`,
+    }));
+    loadDoc([1, 2, 3].map((page) => ({ page, text: pageText(page) })), undefined, many);
+    const { t } = tools();
+    const out = (await t.document_outline!.execute({}, options)) as {
+      notesInDocument?: string[];
+      notesOmitted?: number;
+    };
+    expect(out.notesOmitted).toBeGreaterThan(0);
+    expect(out.notesInDocument!.length + out.notesOmitted!).toBe(400);
   });
 });

@@ -26,6 +26,18 @@
   --mark-highlight: #ffd54a;
   --mark-highlight-strong: #ffb300;
   /*
+   * Notes somebody ELSE wrote on the document.
+   *
+   * Its own token rather than a borrowed one, because the only requirement it
+   * has is to be unmistakable for `--mark-highlight` above — a reader who
+   * confuses their own highlight with a reviewer's will eventually answer for a
+   * claim they never made. Teal is the one direction neither the highlighter
+   * (yellow) nor the accent (indigo) occupies. Held across both themes for the
+   * same reason the highlighter is: it stands for ink on paper, not for a
+   * surface.
+   */
+  --annotation: #2aa9a0;
+  /*
    * Corners. Three steps and a pill, where there used to be ten different
    * pixel values: 1, 2, 3, 4, 5, 6, 8, 10, 12 and 999. Nothing chose those —
    * they accumulated, and the result is a surface where nothing quite matches

@@ -33,6 +33,7 @@ vi.mock("./pdf", () => ({
   openDocument: async () => ({ ...model, structure_outline: structure }),
   getPdfOutline: async () => bookmarks,
   getPdfPageLabels: async () => null,
+  getPdfAnnotations: async () => [],
 }));
 vi.mock("./fs-access", () => ({ allowPath: async () => {} }));
 vi.mock("./file-stamp", () => ({ fileStamp: async () => "" }));
