@@ -12,9 +12,21 @@ export default defineConfig(async () => ({
     // i.e. Safari 15), NOT Chrome. Targeting chrome110 emits syntax WKWebView
     // can't parse and white-screens on the minimum supported OS.
     target: "safari15",
-    minify: "esbuild",
     rollupOptions: {
       output: {
+        // Console stripping, stated to the minifier that actually runs.
+        //
+        // This used to be `minify: "esbuild"` plus a top-level `esbuild: {
+        // drop: [...] }`, and that pair really did strip them — `vite build`
+        // sets NODE_ENV, so the array was populated, and esbuild's minifier
+        // honoured it. Vite 8.2.2 with @vitejs/plugin-react 6.1.0 can no
+        // longer load esbuild at all: it is not bundled any more and
+        // `transformWithEsbuild` is deprecated, so `minify: "esbuild"` fails
+        // the build outright. The minifier is oxc now, it has its own switch,
+        // and it does not drop console by default — five console.error calls
+        // reached the vendor chunk the moment the old pair stopped working,
+        // and `scripts/check-bundle.mjs` is what caught them.
+        minify: { compress: { dropConsole: true, dropDebugger: true } },
         // Rolldown (Vite 8) takes only the function form. The object form used
         // to say "these packages and whatever they exclusively pull in"; a
         // function sees one module id at a time, so the transitive tail has to
@@ -34,25 +46,6 @@ export default defineConfig(async () => ({
         },
       },
     },
-  },
-
-  /*
-   * Console calls are stripped from production builds.
-   *
-   * Vite 8 warns on every dev start that this is ignored, because the React
-   * plugin sets oxc options and oxc wins over esbuild. The warning is accurate
-   * about dev and misleading about build: `vite build` sets NODE_ENV, the array
-   * below is populated, and the calls really are removed. The dev warning
-   * prints `drop: []` precisely because in dev the array is empty.
-   *
-   * I read that warning as proof the option had never worked and deleted it.
-   * Five console.error calls immediately appeared in the vendor chunk. What
-   * caught it was scripts/check-bundle.mjs, written minutes earlier on that
-   * same mistaken premise — the check failed the change that created it, which
-   * is the only reason this line is still here.
-   */
-  esbuild: {
-    drop: process.env.NODE_ENV === "production" ? ["console", "debugger"] : [],
   },
 
   clearScreen: false,
