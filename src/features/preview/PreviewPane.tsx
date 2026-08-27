@@ -25,6 +25,7 @@ import { regionSnapshot } from "./region-snapshot";
 import { MarkNote } from "./MarkNote";
 import { useMarkRevision } from "./useMarks";
 import { useSearchHit } from "./useSearchHit";
+import { sidebarTabState } from "./sidebar-tabs";
 import { addMark, getMarks, marksAreStale } from "../../lib/mark-store";
 import { extractRegion } from "../../lib/pdf";
 import { clientRectToPageRect } from "./selection-quote";
@@ -463,8 +464,9 @@ function PreviewPaneInner({
   // Recovered from the page text when the document was opened; a document with
   // no headings simply has no tab to switch to.
   const outline = usableOutline(doc.outline, doc.totalPages);
-  const showOutline = sidebarTab === "outline" && outline.length > 0;
-  const showMarks = sidebarTab === "marks";
+  // Derived together, so the three cannot disagree — see `sidebar-tabs.ts` for
+  // the two-tabs-selected-at-once bug that is about.
+  const { showPages, showOutline, showMarks } = sidebarTabState(sidebarTab, outline.length > 0);
   const marks = (void markRevision, getMarks(doc.path));
   const selectedMark = marks.find((m) => m.id === selectedMarkId) ?? null;
   // Marks made against a different version of this file. Unlike the page index,
@@ -479,8 +481,8 @@ function PreviewPaneInner({
       <button
         type="button"
         role="tab"
-        aria-selected={!showOutline}
-        className={`sidebar-tab ${!showOutline ? "active" : ""}`}
+        aria-selected={showPages}
+        className={`sidebar-tab ${showPages ? "active" : ""}`}
         onClick={() => setSidebarTab("pages")}
       >
         {t("preview.pages")}

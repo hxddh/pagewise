@@ -19,16 +19,15 @@
   padding-top: 12vh;
 }
 
+/* Same wash as a drawer, and the same reason it is light plus blurred rather
+   than dark — see `--scrim`. */
 .palette-backdrop {
   position: absolute;
   inset: 0;
   border: none;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
   cursor: default;
-}
-
-[data-theme="light"] .palette-backdrop {
-  background: rgba(0, 0, 0, 0.25);
 }
 
 /*
@@ -55,6 +54,20 @@
   background: transparent;
   color: var(--text);
   font-size: var(--text-md);
+}
+
+/*
+ * focus-exception: this input is focused for the whole life of the palette —
+ * opening it puts the caret here and nothing else in the panel is reachable by
+ * Tab — so a ring is permanent, and a permanent state indicator is decoration.
+ * The panel appearing is the focus indication. The border below it stays.
+ *
+ * The `outline: none` that used to be here never applied at all:
+ * `.ui-input:focus-visible` is a pseudo-class and outranked a plain class, so
+ * the shared 2px ring drew and the panel's `overflow: hidden` clipped it on
+ * three sides — which is where that stray blue underline came from.
+ */
+.palette-input:focus-visible {
   outline: none;
 }
 
@@ -89,12 +102,6 @@
   text-align: left;
 }
 
-.palette-item:hover,
-.palette-item.active {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
 .palette-item kbd {
   font-size: var(--text-xs);
   color: var(--text-muted);
@@ -122,9 +129,11 @@
   color: var(--text-muted);
 }
 
+/* A one-time nudge, not a link. In the accent it read as something to click,
+   sitting in a footer where everything else is a keyboard hint. */
 .palette-first-hint {
   margin-left: auto;
-  color: var(--accent);
+  color: var(--text-secondary);
 }
 
 /* Settings styles moved to styles/settings.css */
@@ -178,12 +187,6 @@
   font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
-}
-
-.zoom-menu-item:hover,
-.zoom-menu-item.active {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 
 .doc-search-overlay {

@@ -17,11 +17,22 @@
   justify-content: flex-end;
 }
 
+/*
+ * Behind a sheet, not switched off.
+ *
+ * 45% black is a fine scrim over dark chrome and a bad one over a document: a
+ * white page under it comes out flat mid-grey, which reads as a page that
+ * failed to render rather than as a page that is temporarily out of reach.
+ * Lighter, plus a small blur, says "behind something" the way no amount of
+ * dimming can — and where `backdrop-filter` is unsupported the scrim alone
+ * still does its job, only less well.
+ */
 .drawer-backdrop {
   position: absolute;
   inset: 0;
   border: none;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
   cursor: pointer;
 }
 

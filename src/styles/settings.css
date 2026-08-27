@@ -50,28 +50,6 @@
   color: var(--text);
 }
 
-.settings-nav-item.active {
-  background: color-mix(in srgb, var(--accent-muted) 80%, transparent);
-  color: var(--text);
-  font-weight: 500;
-}
-
-.settings-nav-item.active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--accent);
-}
-
-.settings-nav-item.active svg {
-  opacity: 1;
-  color: var(--accent);
-}
-
 .settings-main {
   flex: 1;
   min-width: 0;
@@ -239,12 +217,6 @@
   border-color: var(--border);
   color: var(--text);
   background: var(--bg-hover);
-}
-
-.provider-cell.active {
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-  background: color-mix(in srgb, var(--accent-muted) 70%, var(--bg-base));
-  color: var(--text);
 }
 
 .provider-cell.in-use:not(.active) {
@@ -418,11 +390,6 @@
   text-align: left;
 }
 
-.model-select-option.active {
-  background: var(--accent-muted);
-  color: var(--accent);
-}
-
 .model-select-divider {
   height: 1px;
   margin: var(--space-xs) var(--space-sm);
@@ -457,12 +424,6 @@
   background: var(--bg-hover);
 }
 
-.settings-pill.active {
-  background: var(--accent-muted);
-  color: var(--accent);
-  font-weight: 500;
-}
-
 .settings-pill-row {
   display: flex;
   flex-direction: column;
@@ -489,12 +450,16 @@
   color: var(--text);
 }
 
+/* Explanations run to a measure like anything else meant to be read. Left
+   unbounded they ran the full width of the panel — three lines of 11px grey
+   from edge to edge, which is the shape of fine print rather than of help. */
 .settings-row-hint {
   display: block;
+  max-width: 58ch;
   margin-top: var(--space-xs);
   font-size: var(--text-xs);
-  color: var(--text-muted);
-  line-height: 1.4;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 .settings-row-toggle input[type="checkbox"] {

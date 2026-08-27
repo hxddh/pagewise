@@ -105,7 +105,13 @@ export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
       needs_vision: false,
       has_table: false,
     })),
-    outline: [],
+    // A real document has bookmarks, and without them the Outline tab is
+    // disabled — so the sidebar's second tab could never be photographed.
+    outline: Array.from({ length: pageCount }, (_, i) => ({
+      title: `Section ${i + 1}`,
+      page: i + 1,
+      level: 1,
+    })),
     links: [],
     figures: [],
   };

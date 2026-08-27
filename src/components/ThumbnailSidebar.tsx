@@ -26,7 +26,33 @@ import { renderThumbnail } from "../lib/pdf";
  * win, and the pitch is what the virtualization depends on.
  */
 const THUMB_GAP = 8;
-const THUMB_BUTTON_HEIGHT = 192;
+/*
+ * How wide a thumbnail is drawn.
+ *
+ * It was 96, and `.thumb-canvas`'s `width: 100%` was never going to change that
+ * — `renderThumbnail` sets the element's width and height inline, and an inline
+ * style beats a stylesheet. Measured: computed width 96px inside a 146px card,
+ * with 40px of `--bg-base` painted either side of every page in the list.
+ *
+ * 96 was right when the sidebar was 128 wide. It was widened to 160 so the
+ * "Pages / Outline / Marks" strip would stop being cut to "Mar" — see
+ * `.thumb-sidebar`, whose own comment says the thumbnails are "~100px and
+ * unaffected". They were unaffected; they were also never revisited, and the
+ * loose, half-empty look of that column is the whole of what was left behind.
+ *
+ * 160 sidebar − 12 list padding − 8 item padding − 2 border = 138, less 2 for
+ * the scrollbar the list gets on any real document.
+ */
+const THUMB_IMAGE_WIDTH = 136;
+/*
+ * And the row that holds one, tall enough that a portrait page is not shrunk.
+ *
+ * A Letter page at 136px across is 176px tall; the label, the gap between them
+ * and the button's own padding need about 29 more. Below that, `.thumb-canvas`
+ * shrinks to fit — correctly, but on every single page, which is the letterbox
+ * again by a different route.
+ */
+const THUMB_BUTTON_HEIGHT = 208;
 const THUMB_ROW_HEIGHT = THUMB_BUTTON_HEIGHT + THUMB_GAP;
 const OVERSCAN = 4;
 
@@ -71,7 +97,7 @@ const ThumbnailItem = memo(function ThumbnailItem({
   useEffect(() => {
     if (!visible || !canvasRef.current) return;
     let cancelled = false;
-    renderThumbnail(path, page, canvasRef.current, 96, () => cancelled).catch(() => {
+    renderThumbnail(path, page, canvasRef.current, THUMB_IMAGE_WIDTH, () => cancelled).catch(() => {
       if (!cancelled && canvasRef.current) {
         const ctx = canvasRef.current.getContext("2d");
         if (ctx) {

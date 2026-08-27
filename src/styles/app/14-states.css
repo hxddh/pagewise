@@ -1,0 +1,111 @@
+/* ==========================================================================
+   Interaction state — selected, current, on, focused.
+
+   THE ONE PLACE ANY OF THIS IS WRITTEN, and the only part of the sequence
+   that is allowed to be about state rather than about a component. It is last
+   on purpose: state has to win over the component that owns the element, and
+   the alternative — repeating the winning declarations inside every component
+   file — is the sediment that produced `13-chat-late.css`.
+
+   WHY IT EXISTS. "This one is selected" had been written out in 29 selectors
+   across nine files, in six different visual dialects: `accent-muted` fill with
+   accent text; `bg-hover` fill with plain text; `bg-hover` plus an inset accent
+   bar; an accent border with a 1px ring; accent text with a tinted border and
+   no fill; and a background wash at its own mix. On the settings screen alone
+   three of them appeared at once — Dark filled with white text, System filled
+   with blue text, Crisp filled with blue text and a lighter border — three
+   spellings of one idea, in one row of controls, on one screen.
+
+   That is the `--mark-highlight` problem one level up. The tokens were
+   consolidated and the app came out tidy; the MEANINGS were never named, so
+   the eye can never learn that the same kind of thing is happening again. This
+   names them.
+
+   TWO, NOT ONE, and each earns its place from what the control is:
+
+     is-current   a row or card in a list — "you are here". Leading-edge bar,
+                  because a list is read down its left side.
+     is-on        a toggle, a segment, or one of this app's small tab strips —
+                  "this is on". Filled, because a switch that is on should read
+                  as filled.
+
+   A third idiom for tabs was tried and dropped, and the measurement is why:
+   PageWise has no full-width tab bar. Its tab strips — Pages/Outline/Marks, and
+   Chat/Record — are 143px of 11px text with 2px of vertical padding, and an
+   underline inside a box that size is a text-decoration, not a tab indicator.
+   They behave like segmented switches, so they are styled like segmented
+   switches. The width is not incidental either: `.sidebar-tab`'s own comment
+   records the 8.1.3 revert where this strip did not fit its header.
+
+   Four things are deliberately NOT here, and `css-hygiene.test.mjs` knows why:
+   the reader's marks, the assistant's findings, and their margin tabs are ink
+   on the document rather than chrome — they answer to `--mark-highlight` and
+   `--finding`, not to the accent — and the run-plan dot is progress, not
+   selection.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   is-current — the row you are on
+   -------------------------------------------------------------------------- */
+.outline-item.active,
+.thumb-item.active,
+.palette-item.active,
+.zoom-menu-item.active,
+.model-select-option.active,
+.anchored-popover button.active,
+.settings-nav-item.active,
+.library-list li.active .library-item {
+  background: var(--bg-hover);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The keyboard cursor and the mouse are not the same thing. Hover gets the
+   surface; only the cursor gets the bar — which is what makes it findable
+   while arrowing through a list of twenty commands. */
+.palette-item:hover:not(.active),
+.zoom-menu-item:hover:not(.active),
+.model-select-option:hover:not(.active),
+.outline-item:hover:not(.active) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* --------------------------------------------------------------------------
+   is-on — the switch that is on
+   -------------------------------------------------------------------------- */
+.sidebar-tab.active,
+.rail-btn.active,
+.toolbar-btn.active,
+.settings-pill.active,
+.web-toggle.active,
+.message-action-btn.active,
+.provider-cell.active,
+.record-page-chip.here,
+.ui-btn--ghost[aria-pressed="true"],
+.ui-btn--secondary[aria-pressed="true"] {
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+
+/* The nav row's icon follows its label rather than staying half-lit. */
+.settings-nav-item.active svg {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+   Focus.
+
+   Sixteen `:focus-visible` rules existed for some sixty families of control,
+   and four places switched the outline off outright — so most of this app,
+   driven from the keyboard, showed nothing at all. Written with `:where()` so
+   it carries zero specificity: it is a floor every control gets, and any
+   component that has a considered focus treatment of its own still wins
+   without needing `!important` or a longer selector.
+   -------------------------------------------------------------------------- */
+:where(button, [role="tab"], [role="option"], [role="menuitem"], a[href], input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

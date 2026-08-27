@@ -4,6 +4,28 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [11.0.0] - 2026-08-27
+
+### Changed
+
+- **"This one is selected" now looks the same everywhere it happens.** It had been written out in 29 places in six different ways — a filled pill here, a faint wash there, an accent border, a coloured label with no fill. The settings screen managed three of them in a single row of controls. There are two now, and each says something different: a bar down the leading edge of a row means *you are here*, and a filled control means *this is on*.
+- **Every control shows keyboard focus.** Roughly three quarters of them had no focus style at all, and four switched the browser's own off. Tabbing through PageWise no longer means guessing where you are.
+- **Answers are set at a reading size.** The assistant's replies, the claims in the record and the wording quoted under them were all at the size of a toolbar label. They now have their own scale, their own line spacing, and a line length that stops growing when you widen the panel.
+- **The page looks like a sheet of paper.** It sits on a lifted canvas rather than on near-black, with an edge and a shadow of its own. A white page against pure black is a contrast the eye has to fight all the way down a long document.
+- **Opening settings no longer looks like the document broke.** The dim behind a drawer was heavy enough to flatten a white page to muddy grey; it is lighter now, with a slight blur, which reads as *behind something* instead of *failed to load*.
+- **An empty conversation starts where the conversation will.** The invitation to ask sat marooned in the middle of the panel with a few hundred pixels of nothing under it. It now sits against the composer, and the suggestions under it read down the panel as a short list instead of wrapping into a ragged four-line block.
+- **Thumbnails fill the column they are in.** Each page was drawn at 96px inside a 146px card, with a band of background painted either side of every one. The sidebar was widened for the tab strip above it and the thumbnails were never revisited.
+
+### Fixed
+
+- **Two tabs in the page sidebar could both look selected.** With Marks open, Pages was marked selected as well — visibly, and to a screen reader. It went unnoticed while the selected state was a faint wash.
+- Explanations in settings ran the full width of the panel; they now stop at a readable line length.
+- The command palette's search field no longer draws a stray blue line under itself, and the first-run tip in its footer no longer looks like a link.
+
+### Internal
+
+- Selection is declared in exactly one stylesheet, and a test fails on the commit that styles it anywhere else. The same check now covers every stylesheet rather than only the numbered parts — which is how a second, differently-styled copy of one menu row had survived.
+
 ## [10.0.0] - 2026-08-26
 
 ### Added
