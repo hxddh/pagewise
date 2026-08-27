@@ -88,7 +88,8 @@
 }
 
 .message {
-  font-size: var(--text-base);
+  font-size: var(--text-read);
+  line-height: var(--leading-read);
   max-width: 100%;
 }
 
@@ -127,6 +128,12 @@
   min-height: 72px;
 }
 
+/*
+ * focus-exception: an editing textarea shows focus by lighting its own border,
+ * which is what a text field does everywhere else in this app. `:focus` rather
+ * than `:focus-visible` on purpose — a click into a field you are about to type
+ * in should show it too.
+ */
 .message-edit-input:focus {
   outline: none;
   border-color: var(--accent);
@@ -190,11 +197,6 @@
 .message-action-btn:hover:not(:disabled) {
   color: var(--text-secondary);
   background: var(--bg-hover);
-}
-
-.message-action-btn.active {
-  color: var(--accent);
-  background: var(--accent-muted);
 }
 
 .usage-stats-popover {
@@ -333,9 +335,14 @@
 
 /* Markdown */
 
+/*
+ * The answer itself. Reading size, reading leading, and a measure it cannot
+ * outgrow when the reader drags the column wider — see `--text-read`.
+ */
 .markdown {
+  max-width: var(--measure-read);
   color: var(--text);
-  line-height: 1.55;
+  line-height: var(--leading-read);
 }
 
 .markdown p {
@@ -431,11 +438,6 @@
 .web-toggle {
   margin-left: auto;
   color: var(--text-secondary);
-}
-
-.web-toggle.active {
-  color: var(--accent);
-  background: var(--bg-hover);
 }
 
 .pages-read-trail {
@@ -718,9 +720,10 @@ button.pages-read-chip:hover {
 
 .record-claim {
   margin: 0;
+  max-width: var(--measure-read);
   color: var(--text);
-  font-size: var(--text-base);
-  line-height: 1.5;
+  font-size: var(--text-read);
+  line-height: var(--leading-read);
 }
 
 .record-why {
@@ -739,6 +742,7 @@ button.pages-read-chip:hover {
  */
 .record-evidence {
   margin: 0;
+  max-width: var(--measure-read);
   padding-left: var(--space-md);
   border-left: 2px solid color-mix(in srgb, var(--finding) 40%, transparent);
   color: var(--text-secondary);
@@ -831,11 +835,6 @@ button.pages-read-chip:hover {
 .record-page-chip:hover {
   color: var(--text);
   border-color: var(--border);
-}
-
-.record-page-chip.here {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-subtle));
 }
 
 .record-empty {

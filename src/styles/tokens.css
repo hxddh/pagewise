@@ -3,7 +3,20 @@
   --bg-surface: #0f0f11;
   --bg-elevated: #141416;
   --bg-hover: #1a1a1e;
-  --bg-canvas: var(--bg-base);
+  /*
+   * THE CANVAS THE PAGE LIES ON, and the one surface in this app that is not a
+   * panel. It was `--bg-base` — #09090b, near black — which puts a white page
+   * at about 21:1 against its surround. Every reader built for reading rather
+   * than for previewing (Preview, Acrobat, Zotero, Skim) sets a mid tone here,
+   * because the eye adapts to the brightest large area in view and a page
+   * floating on black makes that adaptation fight the page itself.
+   *
+   * Lifted, not lightened to grey: it stays in the same near-neutral family as
+   * the panels so the app is one piece, and it is still darker than any panel,
+   * so the document reads as recessed into the window rather than stuck on top
+   * of it. The light theme moves the other way for the same reason.
+   */
+  --bg-canvas: #17171b;
   --bg-panel: var(--bg-surface);
   --border: #232329;
   --border-subtle: #1a1a1f;
@@ -97,6 +110,27 @@
   --text-lg: 15px;
   --text-display: 28px;
   /*
+   * READING, as distinct from CHROME.
+   *
+   * The six steps above are a UI scale — a tab, a label, a page number, a
+   * button. The assistant's answers were set in `--text-base`, 13px, the same
+   * size as the toolbar, and so were the claims in the record and the passages
+   * quoted under them. Those are the things a reader actually reads, and
+   * setting prose at chrome size is why the panel feels like a settings dialog
+   * that happens to contain sentences.
+   *
+   * Three values rather than one, because a reading size without the leading
+   * and the measure to go with it is just a bigger version of the same problem:
+   * 15px at 1.5 in a 480px column is 60-odd characters of dense grey.
+   *
+   * The measure is in `ch` on purpose. The chat column is resizable and the
+   * reader can drag it to 640px; a line that keeps growing past about 70
+   * characters is one the eye loses its place returning from.
+   */
+  --text-read: 15px;
+  --leading-read: 1.65;
+  --measure-read: 68ch;
+  /*
    * Motion. Three durations and one pulse period, where the stylesheets had
    * `--transition-fast` plus five hand-written timings — and, twice, the same
    * animation at two different speeds:
@@ -141,6 +175,20 @@
    * a reason.
    */
   --shadow-edge: 8px 0 24px rgba(0, 0, 0, 0.2);
+  /*
+   * The wash behind a drawer or the command palette.
+   *
+   * Written out three times at two values before this — 0.45 in two files and a
+   * light-theme override at 0.25 — which is the shadow problem again: one thing
+   * in several places, drifting. Theme-aware, so the override is unnecessary
+   * rather than merely shorter.
+   *
+   * 0.28, not 0.45. The higher value is fine over dark chrome and wrong over a
+   * document: a white page under it comes out flat mid-grey, which reads as a
+   * page that failed to render. See `.drawer-backdrop` for the blur that does
+   * the work the extra darkness was doing badly.
+   */
+  --scrim: rgba(0, 0, 0, 0.28);
 
   /* z-index scale — keep overlay ordering coherent across the app */
   --z-doc-search: 30;
@@ -163,7 +211,7 @@
   --bg-surface: #ffffff;
   --bg-elevated: #f4f4f5;
   --bg-hover: #ececee;
-  --bg-canvas: #f0f0f2;
+  --bg-canvas: #d8d8dd;
   --bg-panel: #ffffff;
   --border: #e4e4e7;
   --border-subtle: #f0f0f2;
@@ -183,4 +231,5 @@
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.12);
   --shadow-edge: 8px 0 24px rgba(0, 0, 0, 0.08);
+  --scrim: rgba(0, 0, 0, 0.18);
 }

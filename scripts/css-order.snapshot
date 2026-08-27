@@ -67,7 +67,6 @@ body
 .message.assistant:hover .message-assistant-actions, .message-assistant-footer:hover .message-assistant-actions, .message-assistant-footer:focus-within .message-assistant-actions
 .message-action-btn
 .message-action-btn:hover:not(:disabled)
-.message-action-btn.active
 .usage-stats-popover
 .usage-stats-popover .usage-stats-panel
 .usage-stats-list
@@ -103,7 +102,6 @@ body
 .ask-selection-btn
 .ask-selection-btn:hover
 .web-toggle
-.web-toggle.active
 .pages-read-trail
 .pages-read-label
 .pages-read-chip
@@ -156,7 +154,6 @@ button.pages-read-chip:hover
 .record-pages
 .record-page-chip
 .record-page-chip:hover
-.record-page-chip.here
 .record-empty
 .record-empty-hint
 .record-none
@@ -199,7 +196,6 @@ button.pages-read-chip:hover
 .thumb-list
 .thumb-item
 .thumb-item:hover
-.thumb-item.active
 .thumb-canvas
 .thumb-label
 .doc-search
@@ -230,13 +226,12 @@ button.pages-read-chip:hover
 # 09-palette-status.css
 .palette-root
 .palette-backdrop
-[data-theme="light"] .palette-backdrop
 .palette-panel
 .palette-input
+.palette-input:focus-visible
 .palette-list
 .palette-section-label
 .palette-item
-.palette-item:hover, .palette-item.active
 .palette-item kbd
 .palette-empty
 .palette-footer
@@ -246,7 +241,6 @@ button.pages-read-chip:hover
 .library-remove
 .library-list li:hover .library-remove, .library-list li:focus-within .library-remove
 .zoom-menu-item
-.zoom-menu-item:hover, .zoom-menu-item.active
 .doc-search-overlay
 .doc-search-backdrop
 .doc-search-panel .doc-search-input
@@ -262,11 +256,9 @@ button.pages-read-chip:hover
 .sidebar-tabs
 .sidebar-tab
 .sidebar-tab:hover
-.sidebar-tab.active
 .outline-list
 .outline-item
 .outline-item:hover
-.outline-item.active
 .outline-title
 .outline-page
 # 11-pdf-layers.css
@@ -335,7 +327,6 @@ button.pages-read-chip:hover
 .rail-btn
 .rail-btn:active:not(:disabled)
 .rail-btn:hover
-.rail-btn.active
 .rail-btn-accent
 .rail-btn-label
 .rail-btn-bottom
@@ -354,7 +345,6 @@ button.pages-read-chip:hover
 .library-section-label
 .library-list
 .library-list li
-.library-list li.active .library-item
 .library-item
 .library-item:hover
 .library-item-history
@@ -449,3 +439,9 @@ button.pages-read-chip:hover
 .follow-ups
 .follow-up-chip
 .follow-up-chip:hover:not(:disabled)
+# 14-states.css
+.outline-item.active, .thumb-item.active, .palette-item.active, .zoom-menu-item.active, .model-select-option.active, .anchored-popover button.active, .settings-nav-item.active, .library-list li.active .library-item
+.palette-item:hover:not(.active), .zoom-menu-item:hover:not(.active), .model-select-option:hover:not(.active), .outline-item:hover:not(.active)
+.sidebar-tab.active, .rail-btn.active, .toolbar-btn.active, .settings-pill.active, .web-toggle.active, .message-action-btn.active, .provider-cell.active, .record-page-chip.here, .ui-btn--ghost[aria-pressed="true"], .ui-btn--secondary[aria-pressed="true"]
+.settings-nav-item.active svg
+:where(button, [role="tab"], [role="option"], [role="menuitem"], a[href], input, select, textarea, summary):focus-visible

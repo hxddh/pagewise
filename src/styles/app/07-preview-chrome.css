@@ -40,8 +40,12 @@
 }
 
 /* Positioned by preview.css; this is only what is inside it. */
+/* Never stretched: the middle of the toolbar holds the page control, and the
+   two sides share the slack around it. Declared here rather than half here and
+   half in preview.css. */
 .preview-toolbar-center {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--space-sm);
 }
@@ -112,26 +116,22 @@
   border-color: var(--border);
 }
 
-.thumb-item.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-muted);
-}
-
 .thumb-canvas {
   /*
-   * Natural size when it fits the row, shrink-to-fit when it does not.
+   * Shrink-to-fit for the shapes the row was not sized for.
    *
-   * `height: auto` alone made the canvas as tall as the page's aspect demanded,
-   * which overflowed a fixed-height row and pushed the page number onto the next
-   * thumbnail. The row is sized for a portrait page (see THUMB_BUTTON_HEIGHT);
-   * anything squarer or wider than that shrinks here instead of growing the row,
-   * because the row pitch is what the windowed list measures with.
+   * The element's own width and height are set INLINE by `renderThumbnail`, from
+   * `THUMB_IMAGE_WIDTH` — an inline style beats a stylesheet, so the `width:
+   * 100%; height: auto` that used to be here never applied to anything and the
+   * comment above it described behaviour the app did not have.
    *
-   * `object-fit: contain` keeps the page's proportions while it shrinks — a
-   * thumbnail whose aspect is wrong is not a thumbnail of that page.
+   * What is real: the row pitch is fixed, because that is what the windowed list
+   * measures with, so a page taller than the row allows has to shrink rather
+   * than grow it — otherwise the page number lands on the next thumbnail, which
+   * is what happened at a row height of 112. `object-fit: contain` keeps the
+   * proportions while it does, because a thumbnail with the wrong aspect is not
+   * a thumbnail of that page.
    */
-  width: 100%;
-  height: auto;
   min-height: 0;
   flex-shrink: 1;
   object-fit: contain;

@@ -75,11 +75,6 @@
   background: var(--bg-hover);
 }
 
-.sidebar-tab.active {
-  color: var(--text);
-  background: var(--bg-hover);
-}
-
 .outline-list {
   flex: 1;
   overflow-y: auto;
@@ -118,12 +113,6 @@
 .outline-item:hover {
   background: var(--bg-hover);
   color: var(--text);
-}
-
-.outline-item.active {
-  color: var(--text);
-  background: var(--bg-hover);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 

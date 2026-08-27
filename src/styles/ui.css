@@ -104,12 +104,6 @@
   color: var(--text);
 }
 
-.ui-btn--ghost[aria-pressed="true"],
-.ui-btn--secondary[aria-pressed="true"] {
-  background: var(--accent-muted);
-  color: var(--text);
-}
-
 .ui-btn--link {
   height: auto;
   padding: 0;

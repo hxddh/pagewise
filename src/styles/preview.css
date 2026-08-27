@@ -95,10 +95,6 @@
   flex-shrink: 0;
 }
 
-.preview-toolbar-center {
-  flex: 0 0 auto;
-}
-
 .toolbar-group {
   display: inline-flex;
   align-items: center;
@@ -129,11 +125,6 @@
 .toolbar-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-}
-
-.toolbar-btn.active {
-  background: var(--accent-muted);
-  color: var(--accent);
 }
 
 .toolbar-btn:focus-visible {
@@ -294,6 +285,11 @@
   }
 }
 
+/*
+ * focus-exception: an outline around the whole document column reads as a
+ * selected object rather than as a focused scroller, and it would sit outside
+ * the page it belongs to. The ring is drawn inside instead, immediately below.
+ */
 .preview-focusable {
   outline: none;
 }
@@ -354,22 +350,12 @@
   color: var(--text);
 }
 
-.anchored-popover button.active {
-  background: var(--accent-muted);
-  color: var(--accent);
-}
-
 .anchored-popover button.danger {
   color: var(--danger);
 }
 
 .zoom-presets-menu {
   min-width: 140px;
-}
-
-.zoom-menu-item.active {
-  background: var(--accent-muted);
-  color: var(--accent);
 }
 
 .app.v3 .preview-page-frame {
@@ -453,7 +439,6 @@
   /* Wheel and trackpad scroll the document; nothing intercepts them to flip a
      page any more. */
   overscroll-behavior: contain;
-  outline: none;
 }
 
 .pdf-scroller-column {
@@ -461,12 +446,23 @@
   width: 100%;
 }
 
+/*
+ * A sheet of paper, not a div with a white background.
+ *
+ * `--shadow-sm` is the resting elevation for a card inside a panel; a page
+ * lying on the canvas is the one thing in this app that should look like an
+ * object with a thickness. It gets the raised step plus a hairline edge, so
+ * the boundary survives on a light page against a light canvas, where a shadow
+ * alone disappears.
+ */
 .pdf-page-slot {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   background: #fff;
-  box-shadow: var(--shadow-sm);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.28),
+    var(--shadow-md);
   /* A page contains its own overlays. Marks are clamped to the page before
      they are drawn, but a page that clips is what makes "over the neighbouring
      page" impossible rather than merely unlikely. The note popover is rendered

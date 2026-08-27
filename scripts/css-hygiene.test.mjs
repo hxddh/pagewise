@@ -38,6 +38,10 @@ function stylesheets() {
 
 const withoutComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 
+/** Comments replaced by blanks, so line numbers still point at the source. */
+const blankComments = (css) =>
+  css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+
 describe("CSS hygiene", () => {
   it("defines no class the app never applies", () => {
     // find-dead-css.mjs is the authority on what "applies" means — it reads
@@ -274,6 +278,37 @@ describe("CSS hygiene", () => {
       "THUMB_ROW_HEIGHT must be the pitch — button + gap — not the button alone",
     ).toContain("const THUMB_ROW_HEIGHT = THUMB_BUTTON_HEIGHT + THUMB_GAP;");
 
+    // And the thumbnail fills the column it is drawn in.
+    //
+    // `renderThumbnail` sets the canvas width and height INLINE, so
+    // `.thumb-canvas { width: 100% }` never applied — measured at 96px inside a
+    // 146px card, with 40px of background painted either side of every page.
+    // 96 was right for a 128px sidebar; it was widened to 160 for the tab strip
+    // and the thumbnails were never revisited. Two numbers in two files with
+    // nothing making them agree, which is the same shape as the pitch bug
+    // above.
+    const image = Number(/const THUMB_IMAGE_WIDTH = (\d+)/.exec(tsx)?.[1]);
+    expect(Number.isFinite(image), "THUMB_IMAGE_WIDTH not found").toBe(true);
+    expect(
+      tsx,
+      "renderThumbnail must be given THUMB_IMAGE_WIDTH, not a literal",
+    ).toMatch(/renderThumbnail\([^)]*THUMB_IMAGE_WIDTH/);
+    const sidebar = Number(/\.thumb-sidebar\s*\{[^}]*?width:\s*(\d+)px/s.exec(css)?.[1]);
+    expect(Number.isFinite(sidebar), ".thumb-sidebar width not found").toBe(true);
+    // Sidebar less the list's padding, the button's padding and its border —
+    // and a couple of px for the scrollbar any real document brings.
+    expect(
+      image,
+      `a ${image}px thumbnail in a ${sidebar}px sidebar leaves a band of background either side`,
+    ).toBeGreaterThan(sidebar - 32);
+    expect(image).toBeLessThan(sidebar - 16);
+    // Tall enough that a portrait page is not shrunk on every single row.
+    const LETTER = 792 / 612;
+    expect(
+      button,
+      `a ${image}px-wide portrait page is ${Math.ceil(image * LETTER)}px tall and will not fit a ${button}px row`,
+    ).toBeGreaterThanOrEqual(Math.ceil(image * LETTER) + 24);
+
     const listGap = /\.thumb-list\s*\{[^}]*?gap:\s*var\(--space-([a-z0-9]+)\)/s.exec(css);
     expect(listGap, ".thumb-list gap not found").toBeTruthy();
     const SPACING = { "2xs": 2, xs: 4, sm: 6, md: 8, lg: 12, xl: 16, "2xl": 24 };
@@ -367,10 +402,16 @@ describe("CSS hygiene", () => {
     // Both halves are needed: sides that flex equally to keep the middle
     // centred, and a right column pinned to its content so it cannot be
     // squeezed into the middle.
-    const css = readFileSync(join(ROOT, "src/styles/preview.css"), "utf8").replace(
-      /\/\*[\s\S]*?\*\//g,
-      "",
-    );
+    // Both files: `.preview-toolbar-center` was declared in each of them, half
+    // its layout in one and half in the other, and merging it moved the whole
+    // rule into part 07. The invariant is about the toolbar, not about which
+    // file happens to hold a line of it.
+    const css = [
+      readFileSync(join(ROOT, "src/styles/preview.css"), "utf8"),
+      readFileSync(join(ROOT, "src/styles/app/07-preview-chrome.css"), "utf8"),
+    ]
+      .join("\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
     const rule = (selector) => {
       const start = css.indexOf(`${selector} {`);
       expect(start, `${selector} not found`).toBeGreaterThan(-1);
@@ -413,8 +454,10 @@ describe("CSS hygiene", () => {
      */
     const byFile = new Map();
     for (const file of stylesheets()) {
+      // Every stylesheet, not only the numbered parts: `.zoom-menu-item.active`
+      // was declared in part 09 AND in preview.css, in two different dialects,
+      // and an app-only scan could not see it.
       const rel = file.slice(ROOT.length).split(sep).join("/");
-      if (!rel.startsWith("src/styles/app/")) continue;
       const css = withoutComments(readFileSync(file, "utf8"));
       // Top-level rules only. A `*` inside `@media (prefers-reduced-motion)`
       // and the `*` reset in part 01 are not the same rule, and neither are two
@@ -429,7 +472,11 @@ describe("CSS hygiene", () => {
             if (prelude && !prelude.startsWith("@")) {
               for (const part of prelude.split(",")) {
                 const sel = part.trim().replace(/\s+/g, " ");
-                if (sel) seen.add(sel);
+                // `:root`, `html` and `body` are document hooks rather than
+                // components: the token file owns the custom properties and the
+                // base file owns typography, and neither is the other's
+                // duplicate.
+                if (sel && !/^(:root|html|body|\*)$/.test(sel)) seen.add(sel);
               }
             }
           }
@@ -458,6 +505,112 @@ describe("CSS hygiene", () => {
     expect(
       shared,
       `declared in more than one part; merge them into the part that owns the selector:\n${shared.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("expresses selection in one file, in the idioms that file names", () => {
+    /*
+     * "This one is selected", written once.
+     *
+     * It had been written in 29 selectors across nine files, in six visual
+     * dialects — `accent-muted` fill with accent text, `bg-hover` fill with
+     * plain text, `bg-hover` plus an inset bar, an accent border with a ring,
+     * accent text with a tinted border and no fill, and a wash at its own mix.
+     * The settings screen showed three of them in one row of controls. Tidy,
+     * tokenized, and impossible for the eye to learn.
+     *
+     * `14-states.css` names three idioms and owns all of them. Everything else
+     * must not restate one: this fails on the commit that writes the fourth
+     * dialect somewhere new, which is the only way a consolidation survives.
+     *
+     * The exceptions are ink on the document rather than chrome — a reader's
+     * mark and an assistant's finding answer to `--mark-highlight` and
+     * `--finding`, never to the accent — plus the run-plan dot, which is
+     * progress, and the in-use dot, which is a status marker.
+     */
+    const OWNER = "src/styles/app/14-states.css";
+    const ALLOWED_ELSEWHERE = [
+      /pdf-mark-selected/,
+      /pdf-finding-selected/,
+      /pdf-finding-tab-selected/,
+      /run-plan-phase--active/,
+      /provider-cell\.in-use/,
+      /pdf-text-layer-active/,
+    ];
+    const STATE = /(\.active\b|\.selected\b|-selected\b|\.here\b|\[aria-selected|\[aria-pressed|--active\b)/;
+
+    const offenders = [];
+    for (const file of stylesheets()) {
+      const rel = file.slice(ROOT.length).split(sep).join("/");
+      if (rel === OWNER) continue;
+      const css = withoutComments(readFileSync(file, "utf8"));
+      let depth = 0;
+      let head = "";
+      for (const ch of css) {
+        if (ch === "{") {
+          if (depth === 0) {
+            const prelude = head.trim().replace(/\s+/g, " ");
+            if (
+              prelude &&
+              !prelude.startsWith("@") &&
+              STATE.test(prelude) &&
+              !ALLOWED_ELSEWHERE.some((ok) => ok.test(prelude))
+            ) {
+              offenders.push(`${rel}  ${prelude}`);
+            }
+          }
+          depth += 1;
+          head = "";
+        } else if (ch === "}") {
+          depth = Math.max(0, depth - 1);
+          head = "";
+        } else if (depth === 0) {
+          head += ch;
+        }
+      }
+    }
+    expect(
+      offenders,
+      `selection styled outside ${OWNER}; move it into one of that file's three idioms:\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("gives every control a focus ring it cannot lose", () => {
+    // Sixteen `:focus-visible` rules covered some sixty families of control,
+    // and four places switched the outline off. The floor in 14-states.css is
+    // written with `:where()` so it carries no specificity — a component with
+    // its own considered focus style still wins, and one with none is no
+    // longer invisible to the keyboard.
+    const states = readFileSync(join(ROOT, "src/styles/app/14-states.css"), "utf8");
+    expect(states, "the zero-specificity focus floor must survive").toMatch(
+      /:where\([^)]*button[^)]*\):focus-visible\s*\{[^}]*outline:/,
+    );
+    // And nothing may switch it off without saying why on the line above.
+    const offenders = [];
+    for (const file of stylesheets()) {
+      const rel = file.slice(ROOT.length).split(sep).join("/");
+      // Two readings of the same file, deliberately. The offence is looked for
+      // in code with comments blanked — several of these rules explain, in
+      // prose, the `outline: none` they replaced, and a scan that read its own
+      // documentation would report the documentation. The REASON is then looked
+      // for in the raw text, because a reason is a comment. Blanking preserves
+      // line count, so the two line up.
+      const raw = readFileSync(file, "utf8").split("\n");
+      const code = blankComments(raw.join("\n")).split("\n");
+      code.forEach((line, i) => {
+        if (!/outline:\s*none/.test(line)) return;
+        // Back to the end of the previous rule rather than a fixed number of
+        // lines: a reason worth writing runs longer than any window I would
+        // pick, and one of these already does.
+        let from = i;
+        while (from > 0 && !/\}/.test(code[from - 1])) from -= 1;
+        const reason = raw.slice(from, i).join("\n");
+        if (!/focus-exception:\s*\S/.test(reason)) offenders.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(
+      offenders,
+      `outline switched off with no \`focus-exception:\` reason above it:\n${offenders.join("\n")}`,
     ).toEqual([]);
   });
 

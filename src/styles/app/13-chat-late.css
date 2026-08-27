@@ -7,53 +7,72 @@
    the app looks like. `npm run check:css-order` fails if that order drifts.
    ========================================================================== */
 
+/*
+ * An empty conversation begins where the first message will.
+ *
+ * This was centred in the messages column — `justify-content: center` inside
+ * `flex: 1` — so at a 900px window the lead sat around 315px with roughly 450px
+ * of nothing between it and the composer, reading as a dialog adrift rather
+ * than as the top of a conversation. Messages arrive at the bottom and grow
+ * upward; the invitation to send one belongs in the same place, against the
+ * composer, aligned with the text that will replace it.
+ */
 .empty-state-minimal {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: flex-end;
   flex: 1;
   min-height: 120px;
-  padding: var(--space-xl);
+  padding: var(--space-xl) var(--space-lg) var(--space-md);
 }
 
 .empty-state-minimal .empty-lead {
   margin: 0;
   font-size: var(--text-sm);
-  color: var(--text-muted);
-  text-align: center;
+  color: var(--text-secondary);
 }
 
 .empty-state-minimal .empty-hint {
-  margin: var(--space-md) 0 0;
+  margin: var(--space-2xs) 0 0;
   font-size: var(--text-xs);
   color: var(--text-muted);
-  text-align: center;
 }
 
+/*
+ * Suggestions read down, not across.
+ *
+ * Five pills wrapping in a centred row came out 1/1/1/2 at the panel's default
+ * width — four ragged edges, and a set whose shape changed every time the
+ * reader dragged the column. A column of rows has one edge, survives any width,
+ * and is the shape the thing actually is: a short list to pick from.
+ */
 .empty-examples {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-md);
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2xs);
   margin-top: var(--space-lg);
 }
 
+/* A row in that list. No border: five outlined boxes stacked would out-shout
+   the answer they are standing in for. The surface arrives on hover, which is
+   how every other list row in this app behaves. */
 .empty-example-chip {
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
+  border: none;
+  background: transparent;
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-sm);
-  padding: var(--space-sm) var(--space-lg);
-  border-radius: var(--radius-pill);
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius);
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .empty-example-chip:hover {
   background: var(--bg-hover);
-  border-color: var(--border-strong);
   color: var(--text);
 }
 
