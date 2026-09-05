@@ -323,6 +323,7 @@ function AppContent() {
                   onClearChat={overlays.openClearConfirm}
                   onExportChat={() => void s.exportChat()}
                   onExportSummary={() => void exportSummary()}
+                  onExportBrief={() => void s.exportBrief()}
                   onCollapse={() => s.setAgentOpen(false)}
                   unscannedPages={unscannedPages}
                   onScanAllPages={requestScanAll}

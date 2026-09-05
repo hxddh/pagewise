@@ -6,6 +6,7 @@ import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
 import { allowPath } from "./fs-access";
 import { fileStamp } from "./file-stamp";
+import { fileIdentity } from "./file-identity";
 import { loadIndexedPages } from "./index-store";
 import { mergePageTextsOnReload } from "./page-text-merge";
 import { scheduleIndex } from "../document/index-queue";
@@ -63,6 +64,8 @@ export async function loadDocument(
   // so a rewrite during the parse advances the real stamp and the next open
   // misses the cache instead of being served text from the older contents.
   const stamp = await fileStamp(path);
+  // And what the file is, so a rename does not lose what was written on it.
+  const identity = await fileIdentity(path);
 
   report(onProgress, { stage: "opening", message: "load.openingFile", percent: 5 });
   throwIfAborted(signal);
@@ -88,6 +91,7 @@ export async function loadDocument(
       pages: model.pages.map((p) => ({ page: p.page, text: p.text, source: "native" as const })),
       totalPages: model.page_count,
       stamp,
+      ...(identity ? { identity } : {}),
       title: model.title ?? undefined,
       // Arbitrated here, once, rather than by each consumer remembering to.
       outline: preferAuthoredOutline(
@@ -116,6 +120,7 @@ export async function loadDocument(
       pages: [{ page: 1, text: "" }],
       totalPages: 1,
       stamp,
+      ...(identity ? { identity } : {}),
     };
   }
 

@@ -17,10 +17,17 @@
  */
 import { LazyStore } from "@tauri-apps/plugin-store";
 import type { PdfRect } from "./types";
+import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
 
 const STORE_PATH = "marks.json";
 const KEY = "marks";
-const VERSION = 1;
+/** 2 since 12.0 — see the same note in `finding-store.ts`. */
+const VERSION = 2;
+
+const MIGRATIONS: readonly Migration[] = [
+  // 1 → 2: `identity` on a document is an optional addition.
+  { from: 1, migrate: (raw) => raw },
+];
 
 /** Marks kept for one document. A defence against runaway state, not a policy. */
 export const MAX_MARKS_PER_DOC = 2_000;
@@ -58,6 +65,8 @@ export interface Mark {
 
 interface StoredDoc {
   path: string;
+  /** Content fingerprint — see `finding-store.ts` and `file-identity.ts`. */
+  identity?: string;
   marks: Mark[];
 }
 
@@ -134,9 +143,10 @@ function isValidMark(value: unknown): value is Mark {
  * entries that are actually unusable — a mark with no rects cannot be drawn.
  */
 export function sanitizeStoredMarks(raw: unknown): StoredDoc[] {
-  if (!raw || typeof raw !== "object") return [];
-  const parsed = raw as Partial<StoredMarks>;
-  if (parsed.version !== VERSION || !Array.isArray(parsed.docs)) return [];
+  const outcome = migrateStored(raw, VERSION, MIGRATIONS);
+  if (outcome.status !== "current" && outcome.status !== "migrated") return [];
+  const parsed = outcome.value as Partial<StoredMarks>;
+  if (!Array.isArray(parsed.docs)) return [];
   const out: StoredDoc[] = [];
   let total = 0;
   for (const doc of parsed.docs) {
@@ -147,14 +157,24 @@ export function sanitizeStoredMarks(raw: unknown): StoredDoc[] {
     if (marks.length === 0) continue;
     if (total + marks.length > MAX_MARKS_TOTAL) continue;
     total += marks.length;
-    out.push({ path: d.path, marks });
+    out.push({
+      path: d.path,
+      marks,
+      ...(typeof d.identity === "string" && d.identity ? { identity: d.identity } : {}),
+    });
   }
   return out;
 }
 
 async function readDocs(): Promise<StoredDoc[]> {
   const s = await getStore();
-  return sanitizeStoredMarks(await s.get<unknown>(KEY));
+  const raw = await s.get<unknown>(KEY);
+  const outcome = migrateStored(raw, VERSION, MIGRATIONS);
+  if (outcome.status === "newer") {
+    await preserveNewer(s, KEY, raw).catch(() => {});
+    return [];
+  }
+  return sanitizeStoredMarks(raw);
 }
 
 async function writeDocs(docs: StoredDoc[]): Promise<void> {
@@ -168,6 +188,7 @@ async function writeDocs(docs: StoredDoc[]): Promise<void> {
  * The store is the durable copy; this is what the UI reads.
  */
 const marksByPath = new Map<string, Mark[]>();
+const identityByPath = new Map<string, string>();
 type MarkListener = (path: string) => void;
 const listeners = new Set<MarkListener>();
 
@@ -221,11 +242,30 @@ function sortMarks(marks: Mark[]): Mark[] {
   return [...marks].sort((a, b) => a.page - b.page || a.createdAt - b.createdAt);
 }
 
-/** Load a document's marks into memory. Call once per open. */
-export async function loadMarks(path: string): Promise<Mark[]> {
+/**
+ * Load a document's marks into memory. Call once per open.
+ *
+ * By path, then by fingerprint: marks found under another path for a file
+ * with this content were made on this file before it was renamed or moved,
+ * and are re-keyed to where it is now. See `loadFindings`.
+ */
+export async function loadMarks(path: string, identity?: string): Promise<Mark[]> {
+  if (identity) identityByPath.set(path, identity);
+  else identityByPath.delete(path);
   try {
     const docs = await withStoreLock(readDocs);
-    const marks = sortMarks(docs.find((d) => d.path === path)?.marks ?? []);
+    let doc = docs.find((d) => d.path === path);
+    if (!doc && identity) {
+      const moved = docs.find((d) => d.identity === identity);
+      if (moved) {
+        doc = moved;
+        marksByPath.set(moved.path, []);
+        dirty.add(moved.path);
+        dirty.add(path);
+        scheduleFlush();
+      }
+    }
+    const marks = sortMarks(doc?.marks ?? []);
     marksByPath.set(path, marks);
     notify(path);
     return marks;
@@ -265,7 +305,14 @@ export async function flushMarkStore(): Promise<void> {
     for (const path of paths) {
       const marks = marksByPath.get(path) ?? [];
       if (marks.length === 0) byPath.delete(path);
-      else byPath.set(path, { path, marks: marks.slice(0, MAX_MARKS_PER_DOC) });
+      else {
+        const identity = identityByPath.get(path) ?? byPath.get(path)?.identity;
+        byPath.set(path, {
+          path,
+          marks: marks.slice(0, MAX_MARKS_PER_DOC),
+          ...(identity ? { identity } : {}),
+        });
+      }
     }
     let total = 0;
     const kept: StoredDoc[] = [];
@@ -340,6 +387,7 @@ export function removeMark(path: string, id: string): void {
 /** Drop a document's marks from memory. The stored copy is untouched. */
 export function forgetMarks(path: string): void {
   marksByPath.delete(path);
+  identityByPath.delete(path);
 }
 
 export interface MarkStoreStats {
@@ -369,6 +417,7 @@ if (typeof window !== "undefined") {
 
 export function __resetMarkStoreForTests(): void {
   marksByPath.clear();
+  identityByPath.clear();
   dirty.clear();
   listeners.clear();
   if (flushTimer) {

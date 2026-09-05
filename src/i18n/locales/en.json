@@ -126,11 +126,11 @@
   },
   "marks": {
     "markSelection": "Mark",
-    "markPlain": "Mark: {text}",
-    "markWithNote": "Mark with note: {note}",
+    "markPlain": "Mark: {{text}}",
+    "markWithNote": "Mark with note: {{note}}",
     "noteDialog": "Mark note",
     "notePlaceholder": "Add a note…",
-    "onPage": "Page {page}",
+    "onPage": "Page {{page}}",
     "delete": "Delete mark",
     "empty": "Nothing marked yet. Select text on a page and choose Mark.",
     "noText": "(no text)",
@@ -141,8 +141,8 @@
     "filterPlaceholder": "Filter marks",
     "noFilterMatch": "No mark matches that.",
     "ask": "Ask about this mark",
-    "askQuoted": "About the mark on page {page}: \"{text}\"",
-    "askRegion": "About what I marked on page {page}",
+    "askQuoted": "About the mark on page {{page}}: \"{{text}}\"",
+    "askRegion": "About what I marked on page {{page}}",
     "agentFinding": "Assistant",
     "strike": "Strike out",
     "unstrike": "Restore",
@@ -261,7 +261,7 @@
     "activityReadSection": "Reading section “{{title}}”…",
     "usageCached": "Served from cache",
     "usageCachedHint": "Input tokens the provider charged at the cached rate.",
-    "stepCounter": "Step {step}",
+    "stepCounter": "Step {{step}}",
     "planSurvey": "Survey",
     "planLocate": "Locate",
     "planRead": "Read",
@@ -269,17 +269,18 @@
     "planLabel": "Plan",
     "steer": "Send instead",
     "placeholderSteer": "Send to redirect this answer…",
-    "followUpNextSection": "What does “{section}” say?",
-    "followUpScan": "Scan the {count} unreadable pages",
+    "followUpNextSection": "What does “{{section}}” say?",
+    "followUpScan": "Scan the {{count}} unreadable pages",
     "followUpMarks": "How does this relate to what I marked?",
     "followUpWholeDoc": "Summarize the whole document",
     "followUpLabel": "Next",
     "searchConversation": "Search this conversation",
-    "searchCount": "{index} of {total}",
+    "searchCount": "{{index}} of {{total}}",
     "searchPrev": "Previous match",
     "searchNext": "Next match",
     "activityNoteFinding": "Noting a finding…",
-    "activityReviseFinding": "Revising a finding…"
+    "activityReviseFinding": "Revising a finding…",
+    "exportBrief": "Export brief"
   },
   "empty": {
     "lead": "Ask questions about your document",
@@ -464,7 +465,8 @@
     "scanAllPages": "Scan all unscanned pages",
     "exportMarks": "Export marks",
     "walkConversation": "Previous / next message",
-    "searchConversation": "Search this conversation"
+    "searchConversation": "Search this conversation",
+    "exportBrief": "Export brief"
   },
   "toast": {
     "chatExported": "Chat exported",
@@ -489,7 +491,10 @@
     "scanAllNone": "Every page already has text",
     "scanAllStarted": "Scanning 1 page…",
     "scanAllStarted_plural": "Scanning {{count}} pages…",
-    "marksExported": "Marks exported"
+    "marksExported": "Marks exported",
+    "briefExported": "Brief exported",
+    "noFindings": "Nothing in the record to export",
+    "resumedAt": "Back at page {{page}}"
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",
@@ -525,7 +530,10 @@
     "deleteChat": "Delete saved chat",
     "deleteChatConfirm": "Delete this saved chat? This cannot be undone.",
     "deleteChatConfirmAction": "Delete chat",
-    "close": "Close library"
+    "close": "Close library",
+    "readTo": "Read to page {{page}} of {{total}}",
+    "findingCount": "{{count}} in the record",
+    "openCount": "{{count}} to re-check"
   },
   "record": {
     "tabChat": "Chat",
@@ -541,8 +549,25 @@
     "keep": "Keep this",
     "kept": "Kept to the record",
     "locatedOn": "Found on page {{page}}",
-    "notOnCitedPage": "This wording is not on the page it cites",
-    "onPage": "Recorded: {{claim}}"
+    "notOnCitedPage": "This wording was not found in the page's text",
+    "onPage": "Recorded: {{claim}}",
+    "trustConfirmed": "You checked this",
+    "trustLocated": "Wording found on page {{page}}",
+    "trustUnverified": "Nothing to check against",
+    "trustUnlocated": "Wording not found in the page's text",
+    "trustUnreadable": "Page has no readable text — look at the page itself",
+    "trustStale": "File changed since this was written — re-check",
+    "trustRetracted": "No longer stands",
+    "confirm": "I checked this",
+    "unconfirm": "Withdraw my check",
+    "showBody": "Show the whole answer",
+    "hideBody": "Hide the whole answer",
+    "backToAnswer": "Back to the answer",
+    "editClaim": "Edit the claim",
+    "saveClaim": "Save",
+    "cancelEdit": "Cancel",
+    "claimLabel": "Claim",
+    "bodyOf": "The whole answer this was kept from"
   },
   "annotations": {
     "byAuthor": "{{author}}: {{text}}",

@@ -126,11 +126,11 @@
   },
   "marks": {
     "markSelection": "标记",
-    "markPlain": "标记：{text}",
-    "markWithNote": "带批注的标记：{note}",
+    "markPlain": "标记：{{text}}",
+    "markWithNote": "带批注的标记：{{note}}",
     "noteDialog": "标记批注",
     "notePlaceholder": "写点什么…",
-    "onPage": "第 {page} 页",
+    "onPage": "第 {{page}} 页",
     "delete": "删除标记",
     "empty": "还没有标记。在页面上选中文字，然后点“标记”。",
     "noText": "（无文字）",
@@ -141,8 +141,8 @@
     "filterPlaceholder": "过滤标记",
     "noFilterMatch": "没有匹配的标记。",
     "ask": "就这条标记提问",
-    "askQuoted": "关于第 {page} 页的标记：“{text}”",
-    "askRegion": "关于我在第 {page} 页标出的内容",
+    "askQuoted": "关于第 {{page}} 页的标记：“{{text}}”",
+    "askRegion": "关于我在第 {{page}} 页标出的内容",
     "agentFinding": "助手",
     "strike": "划掉",
     "unstrike": "恢复",
@@ -261,7 +261,7 @@
     "activityReadSection": "正在读取「{{title}}」…",
     "usageCached": "缓存命中",
     "usageCachedHint": "按缓存价计费的输入 token。",
-    "stepCounter": "第 {step} 步",
+    "stepCounter": "第 {{step}} 步",
     "planSurvey": "通览",
     "planLocate": "定位",
     "planRead": "精读",
@@ -269,17 +269,18 @@
     "planLabel": "计划",
     "steer": "改问这个",
     "placeholderSteer": "输入以改变这次回答的方向…",
-    "followUpNextSection": "“{section}”讲了什么？",
-    "followUpScan": "扫描无法识别的 {count} 页",
+    "followUpNextSection": "“{{section}}”讲了什么？",
+    "followUpScan": "扫描无法识别的 {{count}} 页",
     "followUpMarks": "这和我标记的内容有什么关系？",
     "followUpWholeDoc": "总结整份文档",
     "followUpLabel": "接着问",
     "searchConversation": "在本次会话中搜索",
-    "searchCount": "第 {index} / 共 {total}",
+    "searchCount": "第 {{index}} / 共 {{total}}",
     "searchPrev": "上一个匹配",
     "searchNext": "下一个匹配",
     "activityNoteFinding": "记下一条发现…",
-    "activityReviseFinding": "修正一条发现…"
+    "activityReviseFinding": "修正一条发现…",
+    "exportBrief": "导出简报"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",
@@ -464,7 +465,8 @@
     "scanAllPages": "扫描所有未扫描页面",
     "exportMarks": "导出标记",
     "walkConversation": "上一条 / 下一条消息",
-    "searchConversation": "在本次会话中搜索"
+    "searchConversation": "在本次会话中搜索",
+    "exportBrief": "导出简报"
   },
   "toast": {
     "chatExported": "对话已导出",
@@ -489,7 +491,10 @@
     "scanAllNone": "所有页面均已有文字",
     "scanAllStarted": "正在扫描 1 页…",
     "scanAllStarted_plural": "正在扫描 {{count}} 页…",
-    "marksExported": "标记已导出"
+    "marksExported": "标记已导出",
+    "briefExported": "简报已导出",
+    "noFindings": "记录中没有可导出的内容",
+    "resumedAt": "已回到第 {{page}} 页"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",
@@ -525,7 +530,10 @@
     "deleteChat": "删除已保存会话",
     "deleteChatConfirm": "确定删除此已保存会话？此操作无法撤销。",
     "deleteChatConfirmAction": "删除会话",
-    "close": "关闭书库"
+    "close": "关闭书库",
+    "readTo": "读到第 {{page}} / {{total}} 页",
+    "findingCount": "记录 {{count}} 条",
+    "openCount": "{{count}} 条待复核"
   },
   "record": {
     "tabChat": "对话",
@@ -541,8 +549,25 @@
     "keep": "留下这条",
     "kept": "已留到记录",
     "locatedOn": "在第 {{page}} 页找到",
-    "notOnCitedPage": "这段文字不在它引用的页面上",
-    "onPage": "已记录：{{claim}}"
+    "notOnCitedPage": "在该页可提取文本中未找到这段文字",
+    "onPage": "已记录：{{claim}}",
+    "trustConfirmed": "你已核对",
+    "trustLocated": "原文在第 {{page}} 页找到",
+    "trustUnverified": "没有可核对的引文",
+    "trustUnlocated": "在该页可提取文本中未找到这段文字",
+    "trustUnreadable": "该页没有可读文本 — 请直接查看页面",
+    "trustStale": "文件在写下这条之后被改动过 — 请复核",
+    "trustRetracted": "已不成立",
+    "confirm": "我已核对",
+    "unconfirm": "撤回核对",
+    "showBody": "展开完整回答",
+    "hideBody": "收起完整回答",
+    "backToAnswer": "回到原回答",
+    "editClaim": "编辑结论",
+    "saveClaim": "保存",
+    "cancelEdit": "取消",
+    "claimLabel": "结论",
+    "bodyOf": "这条结论所来自的完整回答"
   },
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",

@@ -9,8 +9,11 @@ import { MAX_CLAIM_TEXT } from "./finding-store";
  * is meant to be read later by someone deciding whether to trust it.
  *
  * So: whole sentences while they fit, and if even the first sentence does not,
- * whole words with an ellipsis. The full answer is still in the transcript, and
- * the pages are on the entry, so nothing is lost — only shortened.
+ * whole words. Either way a cut ends in an ellipsis — the sentence branch did
+ * not until 12.0, so a summary that dropped the answer's last, qualifying
+ * sentence read as though that sentence had never been written. Since 12.0 the
+ * whole answer is kept beside the claim as `body`, so the claim is a summary of
+ * something the record still has, not a replacement for it.
  */
 export function claimFromAnswer(text: string, max = MAX_CLAIM_TEXT): string {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -29,7 +32,9 @@ export function claimFromAnswer(text: string, max = MAX_CLAIM_TEXT): string {
     out += sentence;
   }
   out = out.trim();
-  if (out) return out;
+  // Whole sentences fit, and at least one did not. Say so: the reader deciding
+  // whether to trust this entry later has to know it is not the whole answer.
+  if (out) return out.length + 1 <= max ? `${out}…` : `${out.slice(0, max - 1).trimEnd()}…`;
 
   // Not even one sentence fits. Whole words, and say that it was cut.
   const room = max - 1;

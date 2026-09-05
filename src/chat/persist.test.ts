@@ -62,3 +62,35 @@ describe("pruneOrphanedChats", () => {
     expect(store.size).toBe(5);
   });
 });
+
+describe("a chat follows its file", () => {
+  beforeEach(() => {
+    store.clear();
+    vi.resetModules();
+  });
+
+  it("is found by fingerprint after a rename, and re-keyed to the new path", async () => {
+    const { loadChat, saveChat } = await import("./persist");
+    await saveChat("/old/paper.pdf", [{ id: "m1" }] as never, "fnv1a64:abc:1");
+    expect(await loadChat("/new/paper.pdf", "fnv1a64:abc:1")).toEqual([{ id: "m1" }]);
+    expect(store.has("/new/paper.pdf")).toBe(true);
+    expect(store.has("/old/paper.pdf")).toBe(false);
+    // And the index now points at the new path.
+    expect(await loadChat("/new/paper.pdf")).toEqual([{ id: "m1" }]);
+  });
+
+  it("never adopts a chat whose fingerprint differs", async () => {
+    const { loadChat, saveChat } = await import("./persist");
+    await saveChat("/old/paper.pdf", [{ id: "m1" }] as never, "fnv1a64:abc:1");
+    expect(await loadChat("/new/other.pdf", "fnv1a64:zzz:2")).toEqual([]);
+    expect(store.has("/old/paper.pdf")).toBe(true);
+  });
+
+  it("keeps the fingerprint index out of the prune", async () => {
+    const { pruneOrphanedChats, saveChat } = await import("./persist");
+    await saveChat("/doc-0.pdf", [{ id: "m" }] as never, "id-0");
+    for (let i = 1; i < 12; i++) store.set(`/doc-${i}.pdf`, [{ id: "m" }]);
+    await pruneOrphanedChats(["/doc-11.pdf"], 4);
+    expect(store.has("pagewise:identity-index")).toBe(true);
+  });
+});

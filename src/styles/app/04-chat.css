@@ -785,6 +785,112 @@ button.pages-read-chip:hover {
   color: var(--warning);
 }
 
+/* Nothing to check against. Not a warning: the claim was never in doubt, it was never checked. */
+.record-locate-unverified {
+  color: var(--text-muted);
+}
+
+/* The reader's own word. The one state only a person can grant. */
+.record-locate-confirmed {
+  color: var(--success);
+}
+
+/*
+ * "I checked this" and its undo, at the end of the status line they act on.
+ * An inline affordance, not a button: the line is prose about the entry and
+ * the action is one word of it.
+ */
+.record-trust-action {
+  margin-left: var(--space-xs);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.record-trust-action:hover {
+  color: var(--text);
+}
+
+/*
+ * The whole answer a reader kept, one disclosure below its one-line claim.
+ *
+ * Until 12.0 the first 500 characters of the answer were the entry. A table
+ * became a row of pipes, the qualifying sentence at the end was gone, and the
+ * entry read as though that were all the assistant had said.
+ */
+.record-body-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.record-body-toggle:hover {
+  color: var(--text);
+}
+
+.record-body {
+  max-width: var(--measure-read);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: var(--text-sm);
+  line-height: var(--leading-read);
+}
+
+.record-body > :first-child {
+  margin-top: 0;
+}
+
+.record-body > :last-child {
+  margin-bottom: 0;
+}
+
+.record-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.record-edit {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.record-edit + .record-strike {
+  margin-left: 0;
+}
+
+.record-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.record-edit-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.record-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
 .record-state {
   color: var(--text-muted);
   font-size: var(--text-xs);

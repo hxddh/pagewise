@@ -26,8 +26,14 @@ interface MessageAssistantFooterProps {
   canRegenerate?: boolean;
   onRegenerate?: () => void;
   onCopy?: () => void;
-  /** Keep this answer in the record. Absent when there is no document open. */
-  onKeep?: (claim: string, pages: number[]) => void;
+  /**
+   * Keep this answer in the record. Absent when there is no document open.
+   *
+   * The claim is the one-line summary; `body` is the whole answer as it was
+   * written, and `messageId` is where it came from. Until 12.0 only the
+   * claim was kept.
+   */
+  onKeep?: (claim: string, pages: number[], source: { body: string; messageId: string }) => void;
 }
 
 /**
@@ -149,6 +155,17 @@ function MessageAssistantFooterInner({
   // Hooks must run unconditionally — keep this above the early return below.
   const hasCopyable = useMemo(() => extractCopyableText(message).length > 0, [message]);
   const plainText = useMemo(() => extractCopyableText(message), [message]);
+  // The answer as written — markdown intact — for the record to keep whole.
+  const markdownText = useMemo(
+    () =>
+      stripDsmlToolMarkup(
+        message.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text)
+          .join("\n"),
+      ).trim(),
+    [message.parts],
+  );
   // The anchor: the pages this answer actually read. Already computed for the
   // "Pages read" trail, so keeping an answer invents nothing.
   const keepPages = useMemo(() => collectReadPages(message.parts), [message.parts]);
@@ -178,7 +195,10 @@ function MessageAssistantFooterInner({
           <Button
             variant="ghost" size="sm" icon className="message-action-btn"
             onClick={() => {
-              onKeep(claimFromAnswer(plainText), keepPages);
+              onKeep(claimFromAnswer(plainText), keepPages, {
+                body: markdownText,
+                messageId: message.id,
+              });
               setKept(true);
             }}
             disabled={kept}

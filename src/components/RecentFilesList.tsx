@@ -37,6 +37,24 @@ function pathSummary(path: string): string {
   return `…/${parts.slice(-2).join("/")}`;
 }
 
+/**
+ * What the reader had when they left: where they were, what the record holds,
+ * and how much of it is waiting on them. Empty for an entry written before
+ * 12.0, or for a document opened and closed without reading.
+ */
+function progressSummary(
+  file: RecentFile,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string[] {
+  const out: string[] = [];
+  if (file.lastPage && file.totalPages && file.lastPage > 1) {
+    out.push(t("library.readTo", { page: file.lastPage, total: file.totalPages }));
+  }
+  if (file.findingCount) out.push(t("library.findingCount", { count: file.findingCount }));
+  if (file.openCount) out.push(t("library.openCount", { count: file.openCount }));
+  return out;
+}
+
 interface RecentFilesListProps {
   files: RecentFile[];
   layout: "welcome" | "drawer";
@@ -122,6 +140,11 @@ function RecentFilesListInner({
               <span className="library-meta">
                 {formatOpenedAt(file.openedAt, t)} · {pathSummary(file.path)}
               </span>
+              {progressSummary(file, t).length > 0 && (
+                <span className="library-meta library-progress">
+                  {progressSummary(file, t).join(" · ")}
+                </span>
+              )}
             </button>
             {onRemove && (
               <Button

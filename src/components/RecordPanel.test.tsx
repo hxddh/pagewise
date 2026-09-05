@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/plugin-store", () => ({
@@ -17,6 +17,7 @@ import { RecordPanel } from "./RecordPanel";
 import {
   __resetFindingStoreForTests,
   addFinding,
+  getFindings,
   reviseFinding,
   setFindingStruck,
 } from "../lib/finding-store";
@@ -91,5 +92,103 @@ describe("the record panel", () => {
   it("says so when nothing has been established", () => {
     const { container } = view();
     expect(container.querySelector(".record-empty")).not.toBeNull();
+  });
+});
+
+/**
+ * 12.0: one trust line per entry, the whole answer under its claim, and the
+ * way back to where it came from.
+ */
+describe("the record panel, 12.0", () => {
+  const trusted = (currentPage = 1, extra: Partial<Parameters<typeof RecordPanel>[0]> = {}) =>
+    render(
+      <RecordPanel
+        path={PATH}
+        revision={1}
+        currentPage={currentPage}
+        stale={false}
+        stamp="s"
+        totalPages={9}
+        onJumpToPage={() => {}}
+        {...extra}
+      />,
+    );
+
+  it("keeps the whole answer under its one-line claim, shown on request", () => {
+    addFinding(PATH, {
+      pages: [1],
+      claim: "Eight weeks.…",
+      stamp: "s",
+      author: "reader",
+      body: "| week | n |\n|---|---|\n| 8 | 40 |\n\nEight weeks, **unless** the site closed.",
+      source: { messageId: "m7" },
+    });
+    const { container } = trusted();
+    expect(container.querySelector(".record-body")).toBeNull();
+    fireEvent.click(screen.getByText("record.showBody"));
+    const body = container.querySelector(".record-body");
+    expect(body, "the body renders as markdown, not as pipes").not.toBeNull();
+    expect(body?.querySelector("table")).not.toBeNull();
+    expect(body?.querySelector("strong")?.textContent).toBe("unless");
+  });
+
+  it("leads back to the answer an entry was kept from", () => {
+    addFinding(PATH, {
+      pages: [1],
+      claim: "Kept.",
+      stamp: "s",
+      author: "reader",
+      body: "Kept.",
+      source: { messageId: "m7" },
+    });
+    const revealed: string[] = [];
+    trusted(1, { onRevealMessage: (id) => revealed.push(id) });
+    fireEvent.click(screen.getByText("record.backToAnswer"));
+    expect(revealed).toEqual(["m7"]);
+  });
+
+  it("says an entry was written on an earlier version of the file, and lets the reader settle it", () => {
+    addFinding(PATH, { pages: [1], claim: "Old.", stamp: "older-stamp" });
+    const { container, rerender } = trusted();
+    expect(container.querySelector(".record-entry")?.getAttribute("data-trust")).toBe("stale");
+    expect(screen.getByText("record.trustStale")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("record.confirm"));
+    // Checking it against the file that is open is what "re-check" asked for,
+    // so the entry is carried forward to this version and vouched for.
+    expect(getFindings(PATH)[0]?.confirmedAt).toBeTypeOf("number");
+    expect(getFindings(PATH)[0]?.stamp).toBe("s");
+    rerender(
+      <RecordPanel
+        path={PATH}
+        revision={2}
+        currentPage={1}
+        stale={false}
+        stamp="s"
+        totalPages={9}
+        onJumpToPage={() => {}}
+      />,
+    );
+    expect(container.querySelector(".record-entry")?.getAttribute("data-trust")).toBe("confirmed");
+    expect(screen.getByText("record.trustConfirmed")).toBeTruthy();
+  });
+
+  it("lets the reader rewrite a claim, and counts that as checking it", () => {
+    addFinding(PATH, { pages: [1], claim: "Six weeks.", stamp: "s" });
+    const { container } = trusted();
+    expect(container.querySelector(".record-entry")?.getAttribute("data-trust")).toBe("unverified");
+    fireEvent.click(screen.getByLabelText("record.editClaim"));
+    const input = screen.getByLabelText("record.claimLabel") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Eight weeks." } });
+    fireEvent.submit(input.closest("form")!);
+    expect(getFindings(PATH)[0]?.claim).toBe("Eight weeks.");
+    expect(getFindings(PATH)[0]?.confirmedAt).toBeTypeOf("number");
+  });
+
+  it("never shows a claim on a page past the end as standing", () => {
+    addFinding(PATH, { pages: [999], claim: "Nowhere.", stamp: "s" });
+    const { container } = trusted();
+    expect(container.querySelector(".record-entry-inactive")).not.toBeNull();
+    expect(screen.getByText("record.trustRetracted")).toBeTruthy();
   });
 });

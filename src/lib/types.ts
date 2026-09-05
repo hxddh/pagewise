@@ -113,6 +113,13 @@ export interface LoadedDocument {
    * index; empty/absent means the index cache is bypassed for this document.
    */
   stamp?: string;
+  /**
+   * Content fingerprint — what the file is, as opposed to where it is. The
+   * reader's marks, findings and chat are keyed on it beside the path, so a
+   * renamed or moved file finds its own record. Empty when unobtainable; see
+   * `file-identity.ts`.
+   */
+  identity?: string;
   /** Title from the PDF's metadata, when it has one. */
   title?: string;
   /**

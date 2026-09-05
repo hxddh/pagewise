@@ -23,15 +23,20 @@ describe("keeping an answer as a claim", () => {
     const text = `${"A".repeat(300)}. ${"B".repeat(300)}. ${"C".repeat(300)}.`;
     const out = claimFromAnswer(text, 500);
     expect(out.length).toBeLessThanOrEqual(500);
-    expect(out.endsWith("."), "a cut must land on a sentence end").toBe(true);
+    expect(out.endsWith(".…"), "a cut must land on a sentence end, and say it cut").toBe(true);
     expect(out).not.toContain("B".repeat(10));
+  });
+
+  it("says nothing was cut when nothing was", () => {
+    const text = `${"A".repeat(100)}. ${"B".repeat(100)}.`;
+    expect(claimFromAnswer(text, 500)).toBe(text);
   });
 
   it("splits a Chinese answer too", () => {
     // "." alone would never split this, and the app ships in two languages.
     const text = `${"甲".repeat(300)}。${"乙".repeat(300)}。`;
     const out = claimFromAnswer(text, 400);
-    expect(out.endsWith("。")).toBe(true);
+    expect(out.endsWith("。…")).toBe(true);
     expect(out).not.toContain("乙");
   });
 

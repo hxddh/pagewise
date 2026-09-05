@@ -4,6 +4,37 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [12.0.0] - 2026-09-05
+
+One reading, one thing to take away. A reader opens a long document, asks, keeps what is worth keeping, comes back tomorrow to the page they were on, and leaves with a brief that stands on its own — every conclusion traceable to a page, every doubt named. Each of the four steps had a break in it; this release is the four repairs.
+
+### Added
+
+- **What you keep is kept whole.** "Keep this" used to store the first 500 characters of an answer and call that the record of it. A table became a row of pipes, the qualifying sentence at the end was gone, and nothing said so. The whole answer now travels with the entry — as Markdown, shown on request under its one-line claim — and the entry leads back to the answer it came from. A claim that had to be cut ends in an ellipsis now, so it never again reads as the whole of what was said.
+- **One trust state per entry, read everywhere.** A finding carried four signals that never met: struck, replaced, written on an older version of the file, wording found or not found on the page. The panel read some, the model was told others. There is one now — *you checked this*, *wording found on page 12*, *nothing to check against*, *wording not found*, *page has no readable text*, *file changed — re-check*, *no longer stands* — and the panel, the note the assistant is given, and the exported brief all read it. What the reader sees flagged, the model is told to re-read before relying on. Where the reader can settle it, the line carries the one control that does: *I checked this*.
+- **You can vouch for a claim, or rewrite it.** Editing the sentence, or confirming it as it stands, is the one trust state no lookup can grant — the page can confirm that the wording exists; only a person can confirm that the claim follows from it.
+- **Export brief.** The record leaves PageWise as one Markdown file, filed by trust: conclusions, the evidence each rests on, and what still needs re-checking with the reason. Pages are named by their printed number with the sheet behind it. Nothing in it needs the chat to be understood.
+- **The document reopens where you left it.** The page you were on, and the library row says so: *read to page 37 of 120 · 6 in the record · 2 to re-check*.
+- **A renamed or moved file finds its own record.** Marks, findings and the chat were keyed on the path alone, so a rename made them vanish — "the record is gone", though nothing on disk had been touched. Every document now also carries a content fingerprint, and a record found under another path for a file with this content is re-keyed to where the file is now.
+
+### Fixed
+
+- **A scanned page is no longer accused of not carrying a citation it was never checked for.** A page with no text layer, or one whose text failed to load, was an empty list to the quote matcher, and an empty list made every quote "not on the page it cites". That sentence — the most important one in the product — was wrong for every scanned page. Such pages now say *page has no readable text — look at the page itself*, and the model is told the citation is unverified rather than false.
+- **A word hyphenated across a line break now matches.** Recorded as a known limit at 10.0; hyphens and dashes are dropped from both sides now, so "reve-\nnue" is "revenue".
+- **The assistant can no longer record a claim on a page the document does not have.** `note_finding` on page 999 of a three-page file returned `recorded: true`. Both writing tools now refuse a page past the end and name the real range; a historical entry that cites one is shown as *no longer stands* and never told to the model.
+- **"第 {step} 步".** Eleven strings in each language were written with single braces and reached the screen verbatim, the running assistant's step counter among them. A test now walks both catalogs and fails on the next one.
+
+### Internal
+
+- **A store's version number can change without destroying what is in it.** Both per-document stores returned `[]` on any version they did not recognise — which made bumping the number the one change guaranteed to empty every reader's record. `store-migrate.ts` is the missing half: older blobs are migrated step by step, a blob from a later PageWise is kept aside rather than overwritten, and both stores went 1 → 2 in this release as the proof. The 9.0 decision to open a second file rather than touch `marks.json` was correct at the time and is no longer necessary.
+- Placements are remembered per finding after the panel resolves them, so the record note built at send time reads what the panel already worked out without an IPC call of its own.
+
+### Notes
+
+- Confirming an entry settles it for the version of the file it was written on. When the file changes after that, the entry is *re-check* again until the reader confirms it on the new version or the assistant restates it.
+- The fingerprint hashes the head, tail and length of the file, not the whole of it; two of a reader's own documents agreeing on all three is not a case worth a full read on every open.
+- Not in this release, deliberately: automatic OCR of an unreadable page (it would send the page image to a vision model without being asked), scroll position within a page, and cross-document anything. See `docs/reviews/2026-09-05-pagewise-v12.0-design.md`.
+
 ## [11.0.0] - 2026-08-27
 
 ### Changed
