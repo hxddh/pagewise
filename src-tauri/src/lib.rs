@@ -99,6 +99,60 @@ async fn file_stamp_cmd(path: String, allowed: State<'_, AllowedPaths>) -> Resul
     ))
 }
 
+/// Content fingerprint for an authorized file: what the file *is*, as opposed
+/// to where it is (`path`) or when it last changed (`file_stamp_cmd`).
+///
+/// The frontend keys the reader's marks, findings and chat on it beside the
+/// path, so a document that is renamed or moved finds its own record again.
+/// Hashing the first and last 64 KiB plus the length rather than the whole
+/// file keeps this cheap on a 400 MB scan; two of a reader's own documents
+/// agreeing on all three is not a case worth a full read on every open.
+///
+/// FNV-1a, 64-bit, written out here rather than pulled in as a crate: this is
+/// a fingerprint, not a signature, and nothing checks it against anything a
+/// third party could forge.
+#[tauri::command]
+async fn file_identity_cmd(
+    path: String,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<String, String> {
+    let canon = ensure_allowed(&allowed, &path)?;
+    tauri::async_runtime::spawn_blocking(move || file_identity(&canon))
+        .await
+        .map_err(|e| format!("Task join failed: {e}"))?
+}
+
+const IDENTITY_WINDOW: u64 = 64 * 1024;
+
+fn file_identity(path: &std::path::Path) -> Result<String, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file =
+        std::fs::File::open(path).map_err(|e| format!("Failed to open file: {e}"))?;
+    let len = file
+        .metadata()
+        .map_err(|e| format!("Failed to read file metadata: {e}"))?
+        .len();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |bytes: &[u8]| {
+        for b in bytes {
+            hash ^= u64::from(*b);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    let mut buf = vec![0u8; IDENTITY_WINDOW as usize];
+    let head = file.read(&mut buf).map_err(|e| format!("Failed to read file: {e}"))?;
+    feed(&buf[..head]);
+    if len > IDENTITY_WINDOW {
+        let tail_start = len.saturating_sub(IDENTITY_WINDOW).max(IDENTITY_WINDOW);
+        file.seek(SeekFrom::Start(tail_start))
+            .map_err(|e| format!("Failed to read file: {e}"))?;
+        let tail = file.read(&mut buf).map_err(|e| format!("Failed to read file: {e}"))?;
+        feed(&buf[..tail]);
+    }
+    feed(&len.to_le_bytes());
+    Ok(format!("fnv1a64:{hash:016x}:{len}"))
+}
+
 /// Parse a document once and hand back everything the app needs from it.
 #[tauri::command]
 async fn open_document_cmd(
@@ -345,6 +399,7 @@ pub fn run() {
             register_allowed_path,
             cancel_file_read_cmd,
             file_stamp_cmd,
+            file_identity_cmd,
             open_document_cmd,
             extract_region_cmd,
             page_text_items_cmd,

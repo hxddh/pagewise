@@ -147,6 +147,21 @@ button.pages-read-chip:hover
 .record-locate-found
 .record-locate-found:hover
 .record-locate-absent
+.record-locate-unverified
+.record-locate-confirmed
+.record-trust-action
+.record-trust-action:hover
+.record-body-toggle
+.record-body-toggle:hover
+.record-body
+.record-body > :first-child
+.record-body > :last-child
+.record-body table
+.record-edit
+.record-edit + .record-strike
+.record-edit-form
+.record-edit-actions
+.record-source-chip
 .record-state
 .record-strike
 .record-entry-inactive

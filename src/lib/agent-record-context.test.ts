@@ -112,3 +112,72 @@ describe("the record in the prompt", () => {
     expect(lines[1]).toContain("Second.");
   });
 });
+
+/**
+ * The second list.
+ *
+ * The 11.0 review's F1: a finding whose file had changed, or whose quoted
+ * wording the page did not carry, still went out as "treat these as known".
+ * The panel warned the reader; the model was told the opposite.
+ */
+describe("what the model is told to re-check", () => {
+  const anchorsMod = () => import("./finding-anchors");
+  const docCacheMod = () => import("./doc-cache");
+
+  beforeEach(async () => {
+    const { docCache } = await docCacheMod();
+    docCache.set({ path: PATH, name: "p.pdf", kind: "pdf", totalPages: 9, stamp: "s", pages: [] } as never);
+    const { clearFindingAnchors } = await anchorsMod();
+    clearFindingAnchors();
+  });
+
+  it("moves a claim written on an earlier version of the file out of 'known'", () => {
+    note({ claim: "Written before the file changed.", stamp: "old-stamp" });
+    note({ claim: "Written on this version." });
+    const out = buildRecordInstructions(PATH);
+    const known = out.slice(0, out.indexOf("need re-checking"));
+    const doubtful = out.slice(out.indexOf("need re-checking"));
+    expect(known).toContain("Written on this version.");
+    expect(known).not.toContain("Written before the file changed.");
+    expect(doubtful).toContain("Written before the file changed.");
+    expect(doubtful).toMatch(/do not treat these as established/i);
+    expect(doubtful).toMatch(/read the cited page first/i);
+  });
+
+  it("moves a claim whose wording the page does not carry out of 'known'", async () => {
+    const f = note({ claim: "Says twelve percent.", evidence: "twelve percent" });
+    // What the panel already worked out, read back here without IPC.
+    const anchors = await anchorsMod();
+    vi.spyOn(anchors, "cachedPlacement").mockImplementation((_p, id) =>
+      id === f!.id ? { status: "absent" } : null,
+    );
+    const out = buildRecordInstructions(PATH);
+    expect(out).toContain("need re-checking");
+    expect(out.slice(0, out.indexOf("need re-checking"))).not.toContain("twelve percent");
+    vi.restoreAllMocks();
+  });
+
+  it("says nothing about a claim the reader vouched for, except that it is known", async () => {
+    const { confirmFinding } = await import("./finding-store");
+    const f = note({ claim: "Checked by hand.", evidence: "twelve percent" });
+    confirmFinding(PATH, f!.id);
+    const anchors = await anchorsMod();
+    vi.spyOn(anchors, "cachedPlacement").mockReturnValue({ status: "absent" });
+    const out = buildRecordInstructions(PATH);
+    expect(out).toContain("Checked by hand.");
+    expect(out).not.toContain("need re-checking");
+    vi.restoreAllMocks();
+  });
+
+  it("never tells the model a claim on a page past the end of the document", () => {
+    note({ claim: "On page 999.", pages: [999] });
+    expect(buildRecordInstructions(PATH)).toBe("");
+  });
+
+  it("sends only the doubtful list when nothing is known", () => {
+    note({ claim: "Old.", stamp: "old-stamp" });
+    const out = buildRecordInstructions(PATH);
+    expect(out).not.toContain("Already established");
+    expect(out).toContain("need re-checking");
+  });
+});

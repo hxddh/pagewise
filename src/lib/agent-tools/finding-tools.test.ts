@@ -130,6 +130,47 @@ describe("the writing tools", () => {
     expect(result.reason).toMatch(/no such finding/i);
   });
 
+  it("refuses a page past the end of the document, and names the real range", async () => {
+    // The 11.0 review wrote `note_finding({ pages: [999] })` against a
+    // three-page file and got `recorded: true`. A claim on a page that does
+    // not exist is exactly as untraceable as one with no page at all — and it
+    // would have been told to the model as known on the next question.
+    docCache.set({
+      path: PATH,
+      name: "paper.pdf",
+      kind: "pdf",
+      totalPages: 3,
+      stamp: "stamp-1",
+      pages: [],
+    } as never);
+    const tools = createDocumentTools(newReadBudget()) as never as Record<
+      string,
+      { execute: (i: unknown, o: unknown) => Promise<unknown> }
+    >;
+    const noted = (await tools.note_finding!.execute(
+      { pages: [999], claim: "Nothing here." },
+      options,
+    )) as { recorded: boolean; reason?: string };
+    expect(noted.recorded).toBe(false);
+    expect(noted.reason).toMatch(/999/);
+    expect(noted.reason).toMatch(/1–3/);
+    expect(getFindings(PATH)).toHaveLength(0);
+
+    const ok = (await tools.note_finding!.execute(
+      { pages: [3], claim: "The last page." },
+      options,
+    )) as { recorded: boolean; id: string };
+    expect(ok.recorded).toBe(true);
+
+    const revised = (await tools.revise_finding!.execute(
+      { id: ok.id, pages: [2, 4], claim: "Still wrong." },
+      options,
+    )) as { revised: boolean; reason?: string };
+    expect(revised.revised).toBe(false);
+    expect(revised.reason).toMatch(/\b4\b/);
+    expect(activeFindings(PATH).map((f) => f.claim)).toEqual(["The last page."]);
+  });
+
   it("keeps finding results out of the history pruner", () => {
     // Everything in PRUNE_DOCUMENT_TOOLS gets replaced by a one-line summary in
     // persisted history. These results are already one line — and they carry

@@ -17,10 +17,20 @@ import {
 } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
 import { flushMarkStore, forgetMarks, loadMarks } from "../lib/mark-store";
-import { flushFindingStore, forgetFindings, loadFindings } from "../lib/finding-store";
-import { clearFindingAnchors } from "../lib/finding-anchors";
+import { flushFindingStore, forgetFindings, loadFindings, subscribeFindings } from "../lib/finding-store";
+import { clearFindingAnchors, prewarmPlacements } from "../lib/finding-anchors";
+import { trustedFindings } from "../lib/agent-record-context";
+import { TRUST_DOUBTFUL } from "../lib/finding-trust";
+import { briefToMarkdown, BRIEF_LABELS_EN, BRIEF_LABELS_ZH } from "../lib/export-brief";
 import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
-import { addRecentFile, getRecentFiles, removeRecentFile, removeRecentFiles, type RecentFile } from "../lib/recent-files";
+import {
+  addRecentFile,
+  getRecentFiles,
+  removeRecentFile,
+  removeRecentFiles,
+  updateRecentProgress,
+  type RecentFile,
+} from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
 import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
@@ -72,6 +82,8 @@ interface SessionContextValue {
   exportChat: () => Promise<void>;
   exportDocument: () => Promise<void>;
   exportMarks: () => Promise<void>;
+  /** The record, filed by trust, as one Markdown file. */
+  exportBrief: () => Promise<void>;
   isDragging: boolean;
 }
 
@@ -93,7 +105,7 @@ const DOCUMENT_FILTERS = [
 ];
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { showToast } = useToast();
 
   const [phase, setPhase] = useState<AppPhase>("empty");
@@ -104,6 +116,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [chatLoading, setChatLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  // Read synchronously while opening, to know where the reader left off
+  // before the first page is drawn.
+  const recentFilesRef = useRef<RecentFile[]>([]);
+  recentFilesRef.current = recentFiles;
+  const previewPageRef = useRef(1);
+  previewPageRef.current = previewPage;
   const [agentOpen, setAgentOpen] = useState(
     () => localStorage.getItem("pagewise.agentOpen") !== "0",
   );
@@ -200,7 +218,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const path = documentRef.current?.path;
       const msgs = messagesRef.current;
       if (!path || msgs.length === 0) return;
-      void saveChat(path, msgs).catch((e) => {
+      void saveChat(path, msgs, documentRef.current?.identity).catch((e) => {
         if (import.meta.env.DEV) console.warn("[session] autosave failed", e);
       });
     }, 500);
@@ -241,6 +259,46 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // Registered once; the handler reads the latest flush via ref.
   }, []);
 
+  // What the library row says about a document: where the reader is, how many
+  // entries the record holds, and how many are waiting on them. Best-effort,
+  // and written only when it changed — `updateRecentProgress` compares.
+  const recordProgress = useCallback(
+    async (path: string, page: number, totalPages: number) => {
+      try {
+        const rated = trustedFindings(path);
+        const updated = await updateRecentProgress(path, {
+          lastPage: Math.max(1, Math.round(page)),
+          ...(totalPages > 0 ? { totalPages } : {}),
+          findingCount: rated.length,
+          openCount: rated.filter((r) => TRUST_DOUBTFUL.has(r.trust)).length,
+        });
+        setRecentFiles(updated);
+      } catch {
+        // The row is a convenience; the document is not.
+      }
+    },
+    [],
+  );
+
+  // The page the reader is on, remembered a moment after they stop turning.
+  useEffect(() => {
+    const doc = documentRef.current;
+    if (!doc || phase !== "ready") return;
+    const timer = window.setTimeout(() => {
+      void recordProgress(doc.path, previewPage, doc.totalPages);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [previewPage, phase, recordProgress]);
+
+  // And the record's counts, whenever the record changes.
+  useEffect(() => {
+    return subscribeFindings((path) => {
+      const doc = documentRef.current;
+      if (!doc || doc.path !== path) return;
+      void recordProgress(path, previewPageRef.current, doc.totalPages);
+    });
+  }, [recordProgress]);
+
   const switchDocument = useCallback(
     async (path: string) => {
       if (loadingRef.current) return;
@@ -268,8 +326,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clearAgentMessageContext();
 
       if (prevPath) {
+        // Where the reader was in the document being closed, before anything
+        // about it is forgotten.
+        void recordProgress(prevPath, previewPageRef.current, prev?.totalPages ?? 0);
         try {
-          await saveChat(prevPath, messagesToSave);
+          await saveChat(prevPath, messagesToSave, prev?.identity);
         } catch (e) {
           if (import.meta.env.DEV) console.warn("[session] save chat on switch failed", e);
           showToast(t("toast.chatSaveFailed"), "error");
@@ -297,7 +358,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // reject bubble into the document-load catch below.
         let messages: PageWiseUIMessage[] = [];
         try {
-          messages = (await loadChat(path)) as PageWiseUIMessage[];
+          messages = (await loadChat(path, staged.identity)) as PageWiseUIMessage[];
         } catch (e) {
           if (import.meta.env.DEV) console.warn("[session] chat history load failed", e);
         }
@@ -322,19 +383,37 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setActivePdfPath(doc.path);
         // Marks are drawn synchronously from memory, so they load with the
         // document rather than on first paint.
-        await loadMarks(doc.path);
+        await loadMarks(doc.path, doc.identity);
         // The assistant's half of the same record. Loaded here rather than
         // lazily, for the reason the marks are: the sidebar draws it from
         // memory and must never await disk mid-render.
-        await loadFindings(doc.path);
+        const findings = await loadFindings(doc.path, doc.identity);
+        // Where each finding's quote sits on the page, resolved once now so
+        // the first question's record note can read it — see `trustOf`.
+        void prewarmPlacements(doc.path, findings);
         chatHydrateRef.current = { path: doc.path, messages };
         setDocument(docCache.get(doc.path) ?? doc);
-        setPreviewPage(1);
+        // Back where the reader left off, when the library remembers and the
+        // page still exists. Page 1 otherwise — and page 1 for a document
+        // that was closed on page 1, which says nothing worth a toast.
+        const remembered = recentFilesRef.current.find((f) => f.path === doc.path)?.lastPage ?? 1;
+        const resumeAt = remembered > 1 && remembered <= doc.totalPages ? remembered : 1;
+        setPreviewPage(resumeAt);
         setPhase("ready");
 
-        const recent = await addRecentFile({ path: doc.path, name: doc.name, kind: doc.kind });
+        const recent = await addRecentFile({
+          path: doc.path,
+          name: doc.name,
+          kind: doc.kind,
+          totalPages: doc.totalPages,
+        });
         if (epochRef.current === myEpoch) setRecentFiles(recent);
-        showToast(t("toast.opened", { name: doc.name }), "success");
+        showToast(
+          resumeAt > 1
+            ? t("toast.resumedAt", { page: resumeAt })
+            : t("toast.opened", { name: doc.name }),
+          "success",
+        );
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
         if (e instanceof Error && e.name === "AbortError") return;
@@ -498,6 +577,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [showToast, t]);
 
+  const exportBrief = useCallback(async () => {
+    const doc = documentRef.current;
+    if (!doc) return;
+    const entries = trustedFindings(doc.path).filter((e) => e.trust !== "retracted");
+    if (entries.length === 0) {
+      showToast(t("toast.noFindings"), "error");
+      return;
+    }
+    const md = briefToMarkdown(doc, entries, locale === "zh-CN" ? BRIEF_LABELS_ZH : BRIEF_LABELS_EN);
+    const name = doc.name.replace(/\.[^.]+$/, "") + "-brief.md";
+    try {
+      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
+      if (ok) showToast(t("toast.briefExported"), "success");
+    } catch {
+      showToast(t("toast.exportFailed"), "error");
+    }
+  }, [locale, showToast, t]);
+
   const value = useMemo<SessionContextValue>(
     () => ({
       phase,
@@ -529,6 +626,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       exportChat,
       exportDocument,
       exportMarks,
+      exportBrief,
       isDragging,
     }),
     [
@@ -554,6 +652,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       exportChat,
       exportDocument,
       exportMarks,
+      exportBrief,
       isDragging,
     ],
   );

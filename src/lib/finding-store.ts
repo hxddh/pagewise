@@ -19,10 +19,13 @@
  * `rects`, correctly — a mark with no rectangle cannot be drawn — and a finding
  * has none to give.
  *
- * SEPARATE STORE FILE, deliberately. Adding findings to `marks.json` means
- * bumping its version, and `sanitizeStoredMarks` returns [] when the version
- * does not match: every existing reader's marks would be silently discarded on
- * first launch. The two stores share their machinery, not their file.
+ * SEPARATE STORE FILE, deliberately. At 9.0, adding findings to `marks.json`
+ * meant bumping its version, and `sanitizeStoredMarks` returned [] when the
+ * version did not match: every existing reader's marks would have been
+ * silently discarded on first launch. 12.0 gave both stores a migration chain
+ * (`store-migrate.ts`) so a version can change without that; the two files
+ * stay separate because they are different things, not because merging them
+ * would still be destructive.
  *
  * APPEND AND REVISE, never edit. A finding is never rewritten in place. When
  * later reading contradicts an earlier claim, a new finding is written carrying
@@ -32,10 +35,23 @@
  * that says what it changed its mind about.
  */
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
 
 const STORE_PATH = "findings.json";
 const KEY = "findings";
-const VERSION = 1;
+/**
+ * 2 since 12.0. The bump itself changes nothing in the shape — every new field
+ * is optional — and that is the point of bumping it now: the first version
+ * change is the one that proves `migrateStored` keeps a 1-era record intact,
+ * before a change that actually needs it.
+ */
+const VERSION = 2;
+
+const MIGRATIONS: readonly Migration[] = [
+  // 1 → 2: `body`, `source`, `confirmedAt` on a finding and `identity` on a
+  // document are all optional additions. A v1 blob is a valid v2 blob.
+  { from: 1, migrate: (raw) => raw },
+];
 
 /** Findings kept for one document. A defence against runaway state, not a policy. */
 export const MAX_FINDINGS_PER_DOC = 500;
@@ -45,6 +61,12 @@ export const MAX_FINDINGS_TOTAL = 5_000;
 export const MAX_CLAIM_TEXT = 500;
 /** Longest evidence quote stored, matching the mark snapshot cap. */
 export const MAX_EVIDENCE_TEXT = 1_000;
+/**
+ * Longest full answer a reader may keep. The claim is one sentence and the
+ * body is the whole answer it was cut from; a body longer than this is a
+ * transcript, and the transcript already exists.
+ */
+export const MAX_BODY_TEXT = 20_000;
 /** Most pages one finding may cite. A claim spanning more is not one claim. */
 export const MAX_FINDING_PAGES = 20;
 /** Coalesce a burst of writes into one flush, as the mark store does. */
@@ -77,10 +99,31 @@ export interface Finding {
   createdAt: number;
   /** The file's stamp when it was written — see `findingsAreStale`. */
   stamp: string;
+  /**
+   * The whole answer this was kept from, as Markdown. Only a reader's kept
+   * answer has one; the claim is its one-line summary. Until 12.0 the first
+   * 500 characters of the answer WERE the record of it, and a table, a list,
+   * or the qualifying sentence at the end were simply gone.
+   */
+  body?: string;
+  /** The answer it came from, so the record can lead back to it. */
+  source?: { messageId: string };
+  /**
+   * When the reader said "I checked this". Set by editing the claim or by
+   * confirming it outright; it is the one trust state only a person can
+   * grant — see `finding-trust.ts`.
+   */
+  confirmedAt?: number;
 }
 
 interface StoredDoc {
   path: string;
+  /**
+   * Content fingerprint of the file these were written on — see
+   * `file-identity.ts`. Lets a renamed or moved file find its record again.
+   * Absent for documents last opened before 12.0.
+   */
+  identity?: string;
   findings: Finding[];
 }
 
@@ -139,7 +182,14 @@ function isValidFinding(value: unknown): value is Finding {
     (f.supersedes === undefined || typeof f.supersedes === "string") &&
     (f.why === undefined || typeof f.why === "string") &&
     (f.struck === undefined || typeof f.struck === "boolean") &&
-    (f.author === undefined || f.author === "reader")
+    (f.author === undefined || f.author === "reader") &&
+    (f.body === undefined || typeof f.body === "string") &&
+    (f.source === undefined ||
+      (typeof f.source === "object" &&
+        f.source !== null &&
+        typeof (f.source as { messageId?: unknown }).messageId === "string")) &&
+    (f.confirmedAt === undefined ||
+      (typeof f.confirmedAt === "number" && Number.isFinite(f.confirmedAt)))
   );
 }
 
@@ -151,9 +201,10 @@ function isValidFinding(value: unknown): value is Finding {
  * record must never show, because the reader cannot check it against anything.
  */
 export function sanitizeStoredFindings(raw: unknown): StoredDoc[] {
-  if (!raw || typeof raw !== "object") return [];
-  const parsed = raw as Partial<StoredFindings>;
-  if (parsed.version !== VERSION || !Array.isArray(parsed.docs)) return [];
+  const outcome = migrateStored(raw, VERSION, MIGRATIONS);
+  if (outcome.status !== "current" && outcome.status !== "migrated") return [];
+  const parsed = outcome.value as Partial<StoredFindings>;
+  if (!Array.isArray(parsed.docs)) return [];
   const out: StoredDoc[] = [];
   let total = 0;
   for (const doc of parsed.docs) {
@@ -164,14 +215,26 @@ export function sanitizeStoredFindings(raw: unknown): StoredDoc[] {
     if (findings.length === 0) continue;
     if (total + findings.length > MAX_FINDINGS_TOTAL) continue;
     total += findings.length;
-    out.push({ path: d.path, findings });
+    out.push({
+      path: d.path,
+      findings,
+      ...(typeof d.identity === "string" && d.identity ? { identity: d.identity } : {}),
+    });
   }
   return out;
 }
 
 async function readDocs(): Promise<StoredDoc[]> {
   const s = await getStore();
-  return sanitizeStoredFindings(await s.get<unknown>(KEY));
+  const raw = await s.get<unknown>(KEY);
+  const outcome = migrateStored(raw, VERSION, MIGRATIONS);
+  if (outcome.status === "newer") {
+    // Written by a later PageWise. Kept aside, never overwritten: reading the
+    // store as empty and then flushing would otherwise replace it.
+    await preserveNewer(s, KEY, raw).catch(() => {});
+    return [];
+  }
+  return sanitizeStoredFindings(raw);
 }
 
 async function writeDocs(docs: StoredDoc[]): Promise<void> {
@@ -182,6 +245,8 @@ async function writeDocs(docs: StoredDoc[]): Promise<void> {
 
 /** In-memory findings for the open document, so the sidebar never awaits disk. */
 const findingsByPath = new Map<string, Finding[]>();
+/** The fingerprint the open document was loaded with, written back on flush. */
+const identityByPath = new Map<string, string>();
 type FindingListener = (path: string) => void;
 const listeners = new Set<FindingListener>();
 
@@ -296,11 +361,34 @@ function sortFindings(findings: Finding[]): Finding[] {
   return [...findings].sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** Load a document's findings into memory. Call once per open. */
-export async function loadFindings(path: string): Promise<Finding[]> {
+/**
+ * Load a document's findings into memory. Call once per open.
+ *
+ * Looked up by path first, then by content fingerprint. A record found under
+ * another path with this file's fingerprint belongs to this file — it was
+ * renamed or moved — and is re-keyed to the path it now has. Until 12.0 a
+ * rename left the record stranded under the old path, which the reader saw as
+ * "my notes are gone" though nothing on disk had been touched.
+ */
+export async function loadFindings(path: string, identity?: string): Promise<Finding[]> {
+  if (identity) identityByPath.set(path, identity);
+  else identityByPath.delete(path);
   try {
     const docs = await withStoreLock(readDocs);
-    const findings = sortFindings(docs.find((d) => d.path === path)?.findings ?? []);
+    let doc = docs.find((d) => d.path === path);
+    if (!doc && identity) {
+      const moved = docs.find((d) => d.identity === identity);
+      if (moved) {
+        doc = moved;
+        // Re-keyed in memory now and on disk at the next flush: `dirty` names
+        // both paths, so the old key is dropped and the new one written.
+        findingsByPath.set(moved.path, []);
+        dirty.add(moved.path);
+        dirty.add(path);
+        scheduleFlush();
+      }
+    }
+    const findings = sortFindings(doc?.findings ?? []);
     findingsByPath.set(path, findings);
     notify(path);
     return findings;
@@ -340,7 +428,14 @@ export async function flushFindingStore(): Promise<void> {
     for (const path of paths) {
       const findings = findingsByPath.get(path) ?? [];
       if (findings.length === 0) byPath.delete(path);
-      else byPath.set(path, { path, findings: findings.slice(0, MAX_FINDINGS_PER_DOC) });
+      else {
+        const identity = identityByPath.get(path) ?? byPath.get(path)?.identity;
+        byPath.set(path, {
+          path,
+          findings: findings.slice(0, MAX_FINDINGS_PER_DOC),
+          ...(identity ? { identity } : {}),
+        });
+      }
     }
     let total = 0;
     const kept: StoredDoc[] = [];
@@ -375,6 +470,9 @@ export interface NewFinding {
   why?: string;
   /** Omit for the assistant's own findings. */
   author?: "reader";
+  /** The whole answer, when a reader keeps one. See `Finding.body`. */
+  body?: string;
+  source?: { messageId: string };
 }
 
 /**
@@ -404,6 +502,8 @@ export function addFinding(path: string, input: NewFinding): Finding | null {
     ...(input.supersedes ? { supersedes: input.supersedes } : {}),
     ...(input.author ? { author: input.author } : {}),
     ...(input.why ? { why: input.why.trim().slice(0, MAX_CLAIM_TEXT) } : {}),
+    ...(input.body?.trim() ? { body: input.body.trim().slice(0, MAX_BODY_TEXT) } : {}),
+    ...(input.source?.messageId ? { source: { messageId: input.source.messageId } } : {}),
   };
   mutate(path, [...existing, finding]);
   return finding;
@@ -444,6 +544,70 @@ export function setFindingStruck(path: string, id: string, struck: boolean): voi
   if (changed) mutate(path, next);
 }
 
+/**
+ * The reader says a claim is right — or rewrites it so that it is.
+ *
+ * Either way the entry becomes theirs to vouch for, which is the one trust
+ * state no lookup can grant: the page can confirm that the wording exists,
+ * and only a person can confirm that the claim follows from it. A rewritten
+ * claim keeps its body, evidence and pages; only the sentence changes.
+ *
+ * `stamp` is the open file's. Checking an entry against the file that is
+ * open is exactly what "re-check" asks for when the file has changed, so a
+ * confirmation carries the entry forward to that version. Without it the
+ * entry would stay flagged as stale with the reader's confirmation on it,
+ * and the control that put it there would have visibly done nothing.
+ */
+export function confirmFinding(
+  path: string,
+  id: string,
+  confirmed = true,
+  stamp?: string,
+): void {
+  const existing = getFindings(path);
+  let changed = false;
+  const next = existing.map((f) => {
+    if (f.id !== id) return f;
+    if (!confirmed) {
+      if (!f.confirmedAt) return f;
+      changed = true;
+      const { confirmedAt: _dropped, ...rest } = f;
+      return rest;
+    }
+    const restamped = stamp && f.stamp !== stamp;
+    if (f.confirmedAt && !restamped) return f;
+    changed = true;
+    return { ...f, confirmedAt: Date.now(), ...(restamped ? { stamp } : {}) };
+  });
+  if (changed) mutate(path, next);
+}
+
+export function setFindingClaim(
+  path: string,
+  id: string,
+  claim: string,
+  stamp?: string,
+): boolean {
+  const trimmed = claim.trim().slice(0, MAX_CLAIM_TEXT);
+  if (!trimmed) return false;
+  const existing = getFindings(path);
+  let changed = false;
+  const next = existing.map((f) => {
+    if (f.id !== id) return f;
+    const restamped = stamp && f.stamp !== stamp;
+    if (f.claim === trimmed && f.confirmedAt && !restamped) return f;
+    changed = true;
+    return {
+      ...f,
+      claim: trimmed,
+      confirmedAt: Date.now(),
+      ...(restamped ? { stamp } : {}),
+    };
+  });
+  if (changed) mutate(path, next);
+  return changed;
+}
+
 export function removeFinding(path: string, id: string): void {
   const existing = getFindings(path);
   const next = existing.filter((f) => f.id !== id);
@@ -453,11 +617,13 @@ export function removeFinding(path: string, id: string): void {
 /** Drop a document's findings from memory. The stored copy is untouched. */
 export function forgetFindings(path: string): void {
   findingsByPath.delete(path);
+  identityByPath.delete(path);
 }
 
 /** Reset module state between tests. */
 export function __resetFindingStoreForTests(): void {
   findingsByPath.clear();
+  identityByPath.clear();
   listeners.clear();
   dirty.clear();
   if (flushTimer) {

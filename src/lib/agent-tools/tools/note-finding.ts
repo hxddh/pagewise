@@ -20,7 +20,10 @@ import {
  *
  * `pages` is required and must be non-empty. A claim the reader cannot trace
  * back to a page is the one thing this record must never contain, so the schema
- * refuses it rather than the store dropping it later.
+ * refuses it rather than the store dropping it later. The schema cannot know
+ * how many pages the document has, so the range check is in `execute`: a page
+ * past the end was accepted until 12.0, and a claim on page 999 of a three-page
+ * file is exactly as untraceable as one with no page at all.
  *
  * Nothing is charged to the read budget: that budget exists to cap how much of
  * the document one run may pull into context, and writing pulls nothing.
@@ -50,6 +53,8 @@ export function createNoteFindingTool() {
       async ({ pages, claim, evidence }, options) => {
         const path = R.resolvePathInput(undefined, options);
         const doc = R.requireLoadedDoc(path);
+        const outOfRange = R.pagesOutOfRange(pages, doc);
+        if (outOfRange) return { recorded: false, reason: outOfRange };
         const finding = addFinding(path, {
           pages,
           claim,

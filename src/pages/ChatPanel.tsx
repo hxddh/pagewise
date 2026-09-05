@@ -74,6 +74,7 @@ interface ChatPanelProps {
   /** Turn to where a recorded claim was found, and light it up on the page. */
   onRevealFinding?: (id: string, page: number) => void;
   onClearChat: () => void;
+  onExportBrief?: () => void;
   onExportChat: () => void;
   onExportSummary: () => void;
   onCollapse?: () => void;
@@ -116,6 +117,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onJumpToPage,
     onRevealFinding,
     onClearChat,
+    onExportBrief,
     onExportChat,
     onExportSummary,
     onCollapse,
@@ -138,6 +140,27 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     return subscribeFindings(() => setRecordRevision((n) => n + 1));
   }, [activeDoc?.path]);
   const [menuOpen, setMenuOpen] = useState(false);
+  // From an entry in the record back to the answer it was kept from: switch
+  // to the transcript, then scroll and focus once it has rendered.
+  const pendingRevealRef = useRef<string | null>(null);
+  const revealMessage = useCallback((messageId: string) => {
+    pendingRevealRef.current = messageId;
+    setPanelTab("chat");
+  }, []);
+  useEffect(() => {
+    if (panelTab !== "chat" || !pendingRevealRef.current) return;
+    const id = pendingRevealRef.current;
+    pendingRevealRef.current = null;
+    const frame = requestAnimationFrame(() => {
+      const row = messagesRef.current?.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(id)}"]`,
+      );
+      if (!row) return;
+      row.scrollIntoView({ block: "center" });
+      row.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [panelTab]);
   // Path of the document whose scan offer was dismissed. Keyed by path so
   // dismissing it for one document doesn't hide it for the next.
   const [scanHintDismissed, setScanHintDismissed] = useState<string | null>(null);
@@ -478,6 +501,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             >
               {t("agent.exportSummary")}
             </button>
+            {onExportBrief && (
+              /* raw-button: role="menuitem" in the same menu; it has to match the rows above it */
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onExportBrief();
+                }}
+                disabled={interactionBusy}
+              >
+                {t("agent.exportBrief")}
+              </button>
+            )}
             {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}
             <button
               type="button"
@@ -503,8 +540,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           revision={recordRevision}
           currentPage={previewPage}
           stale={activeDoc ? findingsAreStale(activeDoc.path, activeDoc.stamp ?? "") : false}
+          stamp={activeDoc?.stamp ?? ""}
+          totalPages={activeDoc?.totalPages ?? 0}
           onJumpToPage={(page) => onJumpToPage?.(page)}
           onRevealFinding={onRevealFinding}
+          onRevealMessage={revealMessage}
         />
       ) : (
       <div className="messages messages-panel" ref={messagesRef} onScroll={onMessagesScroll}>
@@ -556,16 +596,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       message={m as PageWiseUIMessage}
                       onKeep={
                         activeDoc
-                          ? (claim, pages) => {
+                          ? (claim, pages, source) => {
                               // The reader's own entry in the same record. Marked
                               // as theirs — a record that cannot tell what the
                               // assistant inferred from what the reader chose to
                               // keep is the failure this whole thing avoids.
+                              // The whole answer travels with it: the claim is a
+                              // summary of something the record still has.
                               addFinding(activeDoc.path, {
                                 pages,
                                 claim,
                                 stamp: activeDoc.stamp ?? "",
                                 author: "reader",
+                                body: source.body,
+                                source: { messageId: source.messageId },
                               });
                               // No toast: `useToast` would make every consumer
                               // of this panel need a ToastProvider, which is a

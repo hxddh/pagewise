@@ -58,11 +58,17 @@ describe("locateQuote", () => {
     expect(locateQuote(items, "revenue rose by twelve percent").status).toBe("absent");
   });
 
-  it("reports a page with no text runs as absent rather than uncheckable", () => {
-    // A scan has no runs. The quote genuinely cannot be confirmed against it,
-    // and saying "uncheckable" would be a claim about the quote rather than
-    // about the page.
-    expect(locateQuote([], "revenue fell by twelve percent").status).toBe("absent");
+  it("reports a page with no text runs as unreadable, never as absent", () => {
+    // A scan has no runs. Until 12.0 this was "absent", and the record panel
+    // turned it into "this wording is not on the page it cites" — about a
+    // page the app had never been able to look at. Nothing was confirmed and
+    // nothing was doubted; the outcome has to say exactly that.
+    expect(locateQuote([], "revenue fell by twelve percent").status).toBe("unreadable");
+  });
+
+  it("still says absent when the page has text and the quote is not in it", () => {
+    const items = [run("Costs were flat.", 700)];
+    expect(locateQuote(items, "revenue fell by twelve percent").status).toBe("absent");
   });
 
   it("refuses to judge a quote too short to mean anything", () => {
@@ -91,11 +97,24 @@ describe("locateQuote", () => {
     expect(out.items.map((i) => i.text)).toEqual(["beta", "gamma", "delta"]);
   });
 
-  it("does not match a word hyphenated across a break, and says absent", () => {
-    // A known limit, recorded rather than papered over: the safe direction is
-    // an unlocated quote, never a wrong rectangle.
+  it("matches a word hyphenated across a break", () => {
+    // Recorded as a known limit at 10.0 and counted by the 11.0 review among
+    // the ways a true citation was reported as not on its page. Hyphens are
+    // dropped from both sides now, so the break costs nothing.
     const items = [run("Reve-", 700), run("nue fell sharply.", 686)];
-    expect(locateQuote(items, "revenue fell sharply").status).toBe("absent");
+    const out = locateQuote(items, "revenue fell sharply");
+    expect(out.status).toBe("located");
+    if (out.status !== "located") return;
+    expect(out.items).toHaveLength(2);
+  });
+
+  it("treats a hyphen in the quote and none on the page as the same word", () => {
+    const items = [run("They reenter the market in May.", 700)];
+    expect(locateQuote(items, "re-enter the market").status).toBe("located");
+    // And an en dash on the page against a hyphen in the quote.
+    expect(locateQuote([run("pages 12–15 cover it", 700)], "pages 12-15 cover").status).toBe(
+      "located",
+    );
   });
 
   it("survives a fold that changes length", () => {

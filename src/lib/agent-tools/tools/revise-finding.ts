@@ -44,6 +44,8 @@ export function createReviseFindingTool() {
       async ({ id, pages, claim, why, evidence }, options) => {
         const path = R.resolvePathInput(undefined, options);
         const doc = R.requireLoadedDoc(path);
+        const outOfRange = R.pagesOutOfRange(pages, doc);
+        if (outOfRange) return { revised: false, reason: outOfRange };
         // The record note names findings by a short handle rather than a full
         // uuid, so what comes back is usually a prefix. An exact id still
         // resolves to itself; an ambiguous prefix resolves to nothing, and the

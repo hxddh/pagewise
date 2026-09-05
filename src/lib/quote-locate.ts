@@ -29,10 +29,12 @@
  * the quote does not have. Dropping whitespace from both haystack and needle
  * handles wrapped English and wrapped Chinese with the same rule.
  *
- * What it does not handle: a word hyphenated across a line break. "reve-\nnue"
- * keeps its hyphen and will not match "revenue". That degrades to "not found",
- * which is the safe direction — an unlocated quote is reported as unlocated,
- * never as a fabrication of the reader's own making.
+ * HYPHENS AND DASHES ARE DROPPED TOO, since 12.0. A word hyphenated across a
+ * line break — "reve-\nnue" — kept its hyphen and never matched "revenue", and
+ * the 11.0 review counted that among the ways a true citation was reported as
+ * not on its page. Dropping every hyphen and dash from both sides is symmetric
+ * and cannot create a match that the words themselves do not support: "re-enter"
+ * and "reenter" fold the same, and nothing else does.
  */
 import type { PdfRect, TextItemRect } from "./types";
 
@@ -55,7 +57,17 @@ export type LocateOutcome =
   /** Looked for it on the page it was attributed to; it is not there. */
   | { status: "absent" }
   /** Too short, or nothing to look for. Neither confirmed nor doubted. */
-  | { status: "uncheckable" };
+  | { status: "uncheckable" }
+  /**
+   * The page has no text to look in. A scanned page, or one whose runs could
+   * not be read. Nothing was confirmed and nothing was doubted — until 12.0
+   * this was reported as `absent`, which told the reader a true citation was
+   * not on the page.
+   */
+  | { status: "unreadable" };
+
+/** Whitespace, plus the hyphens and dashes a line break can introduce. */
+const DROPPED = /[\s\-\u00AD\u2010\u2011\u2012\u2013\u2014]/;
 
 /**
  * Case-fold and drop whitespace, recording where each surviving character came
@@ -72,7 +84,7 @@ function fold(text: string): { folded: string; source: number[] } {
   let offset = 0;
   for (const ch of text) {
     const width = ch.length;
-    if (!/\s/.test(ch)) {
+    if (!DROPPED.test(ch)) {
       for (const unit of ch.toLowerCase()) {
         folded += unit;
         source.push(offset);
@@ -105,7 +117,7 @@ function foldItems(items: readonly TextItemRect[]): { folded: string; itemAt: nu
 export function locateQuote(items: readonly TextItemRect[], quote: string): LocateOutcome {
   const { folded: needle } = fold((quote ?? "").normalize("NFC"));
   if (needle.length < MIN_QUOTE_CHARS) return { status: "uncheckable" };
-  if (items.length === 0) return { status: "absent" };
+  if (items.length === 0) return { status: "unreadable" };
 
   const { folded, itemAt } = foldItems(items);
   const at = folded.indexOf(needle);

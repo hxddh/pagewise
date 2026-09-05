@@ -11,8 +11,10 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 - **Indexing** — PDF text layer plus optional vision model indexing for scans and images
 - **Agent** — Streaming chat with tool calls (`document_outline`, `read_pdf_page`, `search_in_document`, …)
 - **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
-- **Chat** — One thread per document, persisted locally
-- **Library** — Recent files
+- **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one trust state (*checked*, *found on the page*, *re-check*) that the panel, the model and the export all read
+- **Brief** — Export the record as one Markdown file: conclusions, evidence, and what still needs re-checking
+- **Chat** — One thread per document, persisted locally; a renamed or moved file finds its own chat, marks and record by content fingerprint
+- **Library** — Recent files, each reopening at the page you left and saying how much of the record is waiting on you
 - **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint
 - **Security** — API keys stored in the **OS keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service)
 - **i18n** — English and 简体中文

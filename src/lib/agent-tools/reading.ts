@@ -147,6 +147,28 @@ export function newReadBudget(): ReadBudget {
 }
 
 /** Reject any model-supplied path that is not a currently-loaded document. */
+/**
+ * Why a page list cannot be written against this document, or null when it can.
+ *
+ * Both writing tools call this before the store does anything. The refusal
+ * names the real range so the model can correct itself rather than retry
+ * blindly; a document whose page count is unknown (a fixture, an image with
+ * no count yet) is not checked, because refusing on a guess would be worse
+ * than accepting on none.
+ */
+export function pagesOutOfRange(
+  pages: readonly number[],
+  doc: Pick<LoadedDocument, "totalPages">,
+): string | null {
+  const total = doc.totalPages;
+  if (!Number.isInteger(total) || total < 1) return null;
+  const bad = pages.filter((p) => !Number.isInteger(p) || p < 1 || p > total);
+  if (bad.length === 0) return null;
+  return `not recorded: page${bad.length === 1 ? "" : "s"} ${bad.join(", ")} ${
+    bad.length === 1 ? "is" : "are"
+  } outside this document (pages 1–${total})`;
+}
+
 export function requireLoadedDoc(path: string): LoadedDocument {
   const doc = docCache.get(path);
   if (!doc) {
