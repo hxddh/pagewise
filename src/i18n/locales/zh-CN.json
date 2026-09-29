@@ -515,7 +515,8 @@
     "noFindings": "记录中没有可导出的内容",
     "resumedAt": "已回到第 {{page}} 页",
     "annotatedExported": "已在 PDF 副本中写入 {{count}} 条批注",
-    "annotatedNothing": "暂无可写入的内容：没有已找到原文的结论，也没有标记"
+    "annotatedNothing": "暂无可写入的内容：没有已找到原文的结论，也没有标记",
+    "tableExported": "表格已连同出处导出"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",
@@ -615,5 +616,19 @@
     "tallyNone": "没有可核对的引用",
     "keepVerified": "只留下已核对的句子（{{count}}）",
     "keptVerified": "已将 {{count}} 句已核对内容留到记录"
+  },
+  "table": {
+    "export": "导出表格为 CSV（含出处）",
+    "sources": "出处",
+    "checked": "核对",
+    "statusLocated": "已找到",
+    "statusUnlocated": "未找到",
+    "statusUnreadable": "无可读文字",
+    "statusUnconfirmed": "未能确认（扫描页）",
+    "statusUnchecked": "无引文",
+    "statusOutOfRange": "无此页",
+    "statusPending": "尚未核对",
+    "found": "{{located}}/{{total}} 条已找到",
+    "noQuote": "无可核对内容"
   }
 }

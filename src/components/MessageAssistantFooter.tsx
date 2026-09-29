@@ -1,6 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { Copy, Gauge, RotateCcw, BookmarkPlus, BookmarkCheck } from "lucide-react";
+import { Copy, Gauge, RotateCcw, BookmarkPlus, BookmarkCheck, Sheet } from "lucide-react";
 import { CitationContext } from "./CitationChip";
 import {
   checkAnswer,
@@ -28,6 +28,8 @@ import {
   type PageWiseUIMessage,
 } from "../lib/message-metadata";
 import { Button } from "./ui/Button";
+import { hasAnswerTable, tablesToCsv, type CsvLabels } from "../lib/answer-tables";
+import { saveTextFile } from "../lib/save-markdown";
 
 interface MessageAssistantFooterProps {
   message: PageWiseUIMessage;
@@ -216,6 +218,37 @@ function MessageAssistantFooterInner({
     [citationEnv, tally, markdownText],
   );
 
+  const hasTable = useMemo(() => !live && hasAnswerTable(markdownText), [live, markdownText]);
+  const exportTable = useCallback(async () => {
+    if (!citationEnv) return;
+    // The citations are checked by now, or checking; wait so the CSV says
+    // what was found rather than "pending".
+    await checkAnswer(citationEnv.path, citationEnv.totalPages, markdownText).catch(() => undefined);
+    const labels: CsvLabels = {
+      sources: t("table.sources"),
+      checked: t("table.checked"),
+      status: {
+        located: t("table.statusLocated"),
+        unlocated: t("table.statusUnlocated"),
+        unreadable: t("table.statusUnreadable"),
+        unconfirmed: t("table.statusUnconfirmed"),
+        unchecked: t("table.statusUnchecked"),
+        outOfRange: t("table.statusOutOfRange"),
+        pending: t("table.statusPending"),
+      },
+      found: (located, total) => t("table.found", { located: String(located), total: String(total) }),
+      none: t("table.noQuote"),
+    };
+    const csv = tablesToCsv(citationEnv.path, markdownText, labels);
+    if (!csv) return;
+    const base = (citationEnv.path.split(/[/\\]/).pop() ?? "table").replace(/\.[^.]+$/, "");
+    try {
+      if (await saveTextFile(csv, `${base}-table.csv`, "CSV", ["csv"])) showToast(t("toast.tableExported"), "success");
+    } catch {
+      showToast(t("toast.exportFailed"), "error");
+    }
+  }, [citationEnv, markdownText, showToast, t]);
+
   if (!showFooter) return null;
 
   const totalMs = metadata ? computeTotalDurationMs(metadata, nowMs) : undefined;
@@ -274,6 +307,16 @@ function MessageAssistantFooterInner({
             }
           >
             <BookmarkCheck size={14} />
+          </Button>
+        )}
+        {citationEnv && hasTable && (
+          <Button
+            variant="ghost" size="sm" icon className="message-action-btn"
+            onClick={() => void exportTable()}
+            title={t("table.export")}
+            aria-label={t("table.export")}
+          >
+            <Sheet size={14} />
           </Button>
         )}
         {canRegenerate && onRegenerate && (

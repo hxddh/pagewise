@@ -7,9 +7,19 @@ export async function saveMarkdownFile(
   defaultName: string,
   filterName = "Markdown",
 ): Promise<boolean> {
+  return saveTextFile(content, defaultName, filterName, ["md"]);
+}
+
+/** Ask where to save text with these extensions, and write it there. */
+export async function saveTextFile(
+  content: string,
+  defaultName: string,
+  filterName: string,
+  extensions: string[],
+): Promise<boolean> {
   const path = await save({
     defaultPath: defaultName,
-    filters: [{ name: filterName, extensions: ["md"] }],
+    filters: [{ name: filterName, extensions }],
   });
 
   if (!path) return false;

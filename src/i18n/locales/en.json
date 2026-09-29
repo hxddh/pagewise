@@ -515,7 +515,8 @@
     "noFindings": "Nothing in the record to export",
     "resumedAt": "Back at page {{page}}",
     "annotatedExported": "Wrote {{count}} annotations into the PDF copy",
-    "annotatedNothing": "Nothing to write yet: no found evidence and no marks"
+    "annotatedNothing": "Nothing to write yet: no found evidence and no marks",
+    "tableExported": "Table exported with its sources"
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",
@@ -615,5 +616,19 @@
     "tallyNone": "No citations to check",
     "keepVerified": "Keep the verified sentences ({{count}})",
     "keptVerified": "Kept {{count}} verified sentences to the record"
+  },
+  "table": {
+    "export": "Export table as CSV, with sources",
+    "sources": "Sources",
+    "checked": "Checked",
+    "statusLocated": "found",
+    "statusUnlocated": "not found",
+    "statusUnreadable": "no readable text",
+    "statusUnconfirmed": "unconfirmed (scan)",
+    "statusUnchecked": "no quote",
+    "statusOutOfRange": "no such page",
+    "statusPending": "not checked yet",
+    "found": "{{located}} of {{total}} found",
+    "noQuote": "nothing to check"
   }
 }

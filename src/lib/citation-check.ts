@@ -29,6 +29,7 @@ import {
   type Citation,
 } from "./citations";
 import type { PdfRect } from "./types";
+import { rowAt, rowClaim } from "./answer-tables";
 
 export type CitationStatus =
   /** The quoted words are on a page the citation names. */
@@ -221,7 +222,20 @@ export function verifiedSentences(path: string, markdown: string): VerifiedSente
     if (!c?.quote) continue;
     const check = cachedCitationCheck(path, c);
     if (check?.status !== "located" || !check.page) continue;
-    const claim = sentenceBefore(markdown, m.index);
+    // A citation in a table cell supports its row, not the text before the
+    // marker — which, in a table, is a run of cells from the row above.
+    const inRow = rowAt(markdown, m.index);
+    // And a row is only as verified as its least-verified cell: keeping it
+    // would put every value in it into the record.
+    if (
+      inRow &&
+      inRow.row.cells
+        .flatMap((cell) => extractCitations(cell))
+        .some((rc) => rc.quote && cachedCitationCheck(path, rc)?.status !== "located")
+    ) {
+      continue;
+    }
+    const claim = inRow ? rowClaim(inRow.table, inRow.row) : sentenceBefore(markdown, m.index);
     if (!claim || seen.has(claim)) continue;
     seen.add(claim);
     out.push({ claim, page: check.page, quote: c.quote });
