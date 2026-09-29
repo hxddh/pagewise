@@ -34,6 +34,7 @@ import {
 } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
+import { forgetOcr } from "../lib/ocr/ocr-service";
 import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
@@ -368,6 +369,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         if (prevPath) {
           cancelIndex(prevPath);
+          forgetOcr(prevPath);
           docCache.remove(prevPath);
           // Marks are the reader's own work, so the stored copy stays; only the
           // in-memory copy for the document being closed goes.

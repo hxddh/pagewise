@@ -1,4 +1,5 @@
 mod inspect;
+mod ocr_cache;
 mod secrets;
 
 use std::collections::HashSet;
@@ -408,6 +409,10 @@ pub fn run() {
             secrets::set_api_key,
             secrets::get_api_key,
             secrets::delete_api_key,
+            ocr_cache::ocr_cache_read,
+            ocr_cache::ocr_cache_write,
+            ocr_cache::ocr_cache_stats,
+            ocr_cache::ocr_cache_clear,
         ])
         .run(tauri::generate_context!());
 

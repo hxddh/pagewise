@@ -1,8 +1,8 @@
-import type { PageText } from "./types";
+import type { PageText, PageTextSource } from "./types";
 
 export const MIN_INDEX_CHARS = 20;
 
-type TextSource = "native" | "vision";
+type TextSource = PageTextSource;
 
 /**
  * Decide which of two versions of a page's text to keep.
@@ -25,6 +25,14 @@ export function pickBetterPageText(
   const aPaid = existingSource === "vision" && a.length >= MIN_INDEX_CHARS;
   const bPaid = incomingSource === "vision" && b.length >= MIN_INDEX_CHARS;
   if (aPaid !== bPaid) return aPaid ? existing : incoming;
+
+  // Recognised text is a guess at the page; extracted text is the page. When
+  // both are usable the guess loses, whatever its length.
+  const aUsable = a.length >= MIN_INDEX_CHARS;
+  const bUsable = b.length >= MIN_INDEX_CHARS;
+  if (aUsable && bUsable && (existingSource === "ocr") !== (incomingSource === "ocr")) {
+    return existingSource === "ocr" ? incoming : existing;
+  }
 
   if (a.length >= MIN_INDEX_CHARS && b.length < MIN_INDEX_CHARS) return existing;
   if (b.length >= MIN_INDEX_CHARS && a.length < MIN_INDEX_CHARS) return incoming;

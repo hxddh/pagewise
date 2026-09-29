@@ -160,7 +160,11 @@ export function createReadPdfPageTool(
             truncated,
             nextOffset: truncated ? consumedEnd : null,
             charCount: slice.length,
-            ...(limitedByBudget ? { budgetExceeded: true, note: R.BUDGET_NOTE } : {}),
+            ...(limitedByBudget
+              ? { budgetExceeded: true, note: R.BUDGET_NOTE }
+              : source === "ocr"
+                ? { note: R.OCR_TEXT_NOTE }
+                : {}),
             ...R.chargedAttachments(doc, path, [page], runGen, chargeBudget),
           };
         },

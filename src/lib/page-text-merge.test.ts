@@ -22,6 +22,18 @@ describe("pickBetterPageText", () => {
     expect(pickBetterPageText(native, vision, "native", "vision")).toBe(vision);
   });
 
+  it("ranks recognised text below extracted and vision text, and above nothing", () => {
+    const ocr = "o".repeat(400);
+    const native = "n".repeat(30);
+    const vision = "v".repeat(30);
+    expect(pickBetterPageText(ocr, native, "ocr", "native")).toBe(native);
+    expect(pickBetterPageText(native, ocr, "native", "ocr")).toBe(native);
+    expect(pickBetterPageText(ocr, vision, "ocr", "vision")).toBe(vision);
+    expect(pickBetterPageText(vision, ocr, "vision", "ocr")).toBe(vision);
+    expect(pickBetterPageText("", ocr, "native", "ocr")).toBe(ocr);
+    expect(pickBetterPageText(ocr, "", "ocr", "native")).toBe(ocr);
+  });
+
   it("still compares length between two texts of the same origin", () => {
     const short = "n".repeat(40);
     const long = "n".repeat(400);

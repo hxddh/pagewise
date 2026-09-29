@@ -8,6 +8,25 @@ const h = vi.hoisted(() => ({
   visionMode: { current: "immediate" as "immediate" | "manual" },
   visionText: { current: "x".repeat(50) },
   visionCalls: [] as string[],
+  ocr: {
+    enabled: false,
+    /** page → what OCR reads there; absent pages read nothing. */
+    pages: new Map<number, { text: string; confidence: number }>(),
+    calls: [] as number[],
+  },
+}));
+
+vi.mock("../lib/ocr/ocr-service", () => ({
+  ocrEnabled: () => h.ocr.enabled,
+  cachedOcrPage: (_path: string, page: number) => {
+    const read = h.ocr.pages.get(page);
+    return read ? { ...read, page, items: [], ms: 1 } : undefined;
+  },
+  ocrPage: vi.fn(async (_path: string, page: number) => {
+    h.ocr.calls.push(page);
+    const read = h.ocr.pages.get(page);
+    return read ? { ...read, page, items: [], ms: 1 } : null;
+  }),
 }));
 
 vi.mock("../lib/doc-cache", () => ({
@@ -18,12 +37,12 @@ vi.mock("../lib/doc-cache", () => ({
     },
     getPages: (path: string) => h.store.get(path)?.pages ?? [],
     has: (path: string) => h.store.has(path),
-    upsertPageText: vi.fn((path: string, page: number, text: string) => {
+    upsertPageText: vi.fn((path: string, page: number, text: string, source?: string) => {
       const d = h.store.get(path);
       if (!d) return;
       const ex = d.pages.find((p) => p.page === page);
-      if (ex) ex.text = text;
-      else d.pages.push({ page, text });
+      if (ex) Object.assign(ex, { text, source });
+      else d.pages.push({ page, text, source } as { page: number; text: string });
     }),
     invalidateIndexedPageText: vi.fn((path: string, pages: number[]) => {
       const d = h.store.get(path);
@@ -48,7 +67,9 @@ vi.mock("../lib/settings", () => ({
 }));
 
 vi.mock("../lib/llm", () => ({
-  assertApiKeyForAgent: vi.fn(),
+  assertApiKeyForAgent: vi.fn((settings: { apiKey?: string }) => {
+    if (!settings.apiKey) throw new Error("no key");
+  }),
   formatLlmError: vi.fn(() => "vision error detail"),
 }));
 
@@ -95,6 +116,7 @@ vi.mock("../lib/usage-tracker", () => ({
 import { docCache } from "../lib/doc-cache";
 import { renderPageToJpegBytes } from "../lib/pdf";
 import { forgetIndexedPages } from "../lib/index-store";
+import { loadVisionSettings } from "../lib/settings";
 import {
   cancelIndex,
   DEFAULT_AGENT_SCAN_PAGES,
@@ -105,6 +127,8 @@ import {
   reindexDocument,
   getAgentScanCap,
   getAutoIndexCap,
+  indexPageInBackground,
+  OCR_TRUSTED_CONFIDENCE,
   scheduleIndex,
   setAgentScanCap,
   setAutoIndexCap,
@@ -139,6 +163,14 @@ beforeEach(() => {
   h.visionCalls.length = 0;
   h.visionMode.current = "immediate";
   h.visionText.current = "x".repeat(50);
+  h.ocr.enabled = false;
+  h.ocr.pages.clear();
+  h.ocr.calls.length = 0;
+  vi.mocked(loadVisionSettings).mockImplementation(async () => ({
+    provider: "openai",
+    model: "gpt-4o-mini",
+    apiKey: "sk-test",
+  }) as never);
   setAutoIndexCap(DEFAULT_AUTO_INDEX_PAGES);
   setAgentScanCap(DEFAULT_AGENT_SCAN_PAGES);
   vi.clearAllMocks();
@@ -395,5 +427,113 @@ describe("agent scan allowance", () => {
     setAgentScanCap(20);
     expect(getAutoIndexCap()).toBe(0);
     expect(getAgentScanCap()).toBe(20);
+  });
+});
+
+describe("local OCR first (14.0)", () => {
+  const readWell = { text: "The filter admits a newcomer only if it is popular.", confidence: 92 };
+  const readPoorly = { text: "Tbe fi1ter adm1ts a newc0mer on1y if it is popu1ar.", confidence: 41 };
+
+  it("keeps a page OCR reads well, and never calls vision for it", async () => {
+    h.ocr.enabled = true;
+    const path = uniquePath();
+    const doc = seed(path, 2);
+    h.ocr.pages.set(1, readWell);
+    h.ocr.pages.set(2, readWell);
+
+    scheduleIndex(doc);
+    await vi.waitFor(() => expect(statusesFor(path, 2)).toContain("done"));
+
+    expect(h.visionCalls).toHaveLength(0);
+    expect(h.store.get(path)?.pages[0]).toMatchObject({ text: readWell.text, source: "ocr" });
+    expect(eventsFor(path, 1).slice(-1)[0]).toMatchObject({ status: "done", source: "ocr" });
+  });
+
+  it("reads every page when the vision budget is zero — OCR costs nothing", async () => {
+    h.ocr.enabled = true;
+    setAutoIndexCap(0);
+    const path = uniquePath();
+    const doc = seed(path, 5);
+    for (let p = 1; p <= 5; p++) h.ocr.pages.set(p, readWell);
+
+    scheduleIndex(doc);
+    await vi.waitFor(() => expect(statusesFor(path, 5)).toContain("done"));
+    expect(h.ocr.calls.sort()).toEqual([1, 2, 3, 4, 5]);
+    expect(h.visionCalls).toHaveLength(0);
+  });
+
+  it("offers a poorly read page to vision within the budget, and keeps OCR's text beyond it", async () => {
+    h.ocr.enabled = true;
+    setAutoIndexCap(1);
+    const path = uniquePath();
+    const doc = seed(path, 3);
+    for (let p = 1; p <= 3; p++) h.ocr.pages.set(p, readPoorly);
+    expect(readPoorly.confidence).toBeLessThan(OCR_TRUSTED_CONFIDENCE);
+
+    scheduleIndex(doc);
+    await vi.waitFor(() => {
+      for (const p of [1, 2, 3]) expect(statusesFor(path, p)).toContain("done");
+    });
+
+    expect(h.visionCalls).toHaveLength(1);
+    const sources = h.store.get(path)!.pages.map((p) => (p as { source?: string }).source).sort();
+    expect(sources).toEqual(["ocr", "ocr", "vision"]);
+  });
+
+  it("goes on reading locally without an API key, and fails nothing", async () => {
+    h.ocr.enabled = true;
+    vi.mocked(loadVisionSettings).mockImplementation(async () => ({ provider: "openai", model: "m", apiKey: "" }) as never);
+    const path = uniquePath();
+    const doc = seed(path, 4);
+    h.ocr.pages.set(1, readPoorly);
+    h.ocr.pages.set(3, readWell);
+    h.ocr.pages.set(4, readPoorly);
+
+    scheduleIndex(doc);
+    await vi.waitFor(() => expect(h.ocr.calls.length).toBe(4));
+    await vi.waitFor(() => expect(statusesFor(path, 4).slice(-1)[0]).toBe("done"));
+
+    expect(h.events.some((e) => e.status === "failed")).toBe(false);
+    expect(h.store.get(path)!.pages.map((p) => p.text.length > 0)).toEqual([true, false, true, true]);
+  });
+
+  it("does not pay to improve a page the reader is only looking at", async () => {
+    h.ocr.enabled = true;
+    const path = uniquePath();
+    seed(path, 2);
+    h.ocr.pages.set(1, readPoorly);
+
+    indexPageInBackground(path, 1);
+    await vi.waitFor(() => expect(statusesFor(path, 1)).toContain("done"));
+    expect(h.visionCalls).toHaveLength(0);
+
+    // A page OCR read nothing on still goes to vision, as before.
+    indexPageInBackground(path, 2);
+    await vi.waitFor(() => expect(statusesFor(path, 2)).toContain("done"));
+    expect(h.visionCalls).toHaveLength(1);
+  });
+
+  it("lets an explicit read replace poorly read text with vision", async () => {
+    h.ocr.enabled = true;
+    const path = uniquePath();
+    seed(path, 1);
+    h.ocr.pages.set(1, readPoorly);
+
+    await ensurePageIndexed(path, 1);
+    expect(h.visionCalls).toHaveLength(1);
+    expect(h.store.get(path)!.pages[0]).toMatchObject({ source: "vision" });
+  });
+
+  it("re-scans with vision when asked, not with OCR", async () => {
+    h.ocr.enabled = true;
+    const path = uniquePath();
+    seed(path, 2);
+    h.ocr.pages.set(1, readWell);
+    h.ocr.pages.set(2, readWell);
+
+    reindexDocument(path);
+    await vi.waitFor(() => expect(statusesFor(path, 2)).toContain("done"));
+    expect(h.ocr.calls).toHaveLength(0);
+    expect(h.visionCalls).toHaveLength(2);
   });
 });

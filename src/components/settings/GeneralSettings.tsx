@@ -6,11 +6,15 @@ import {
   AUTO_INDEX_PAGE_CHOICES,
   loadPreferences,
   patchPreferences,
+  resolveOcrLanguages,
+  type OcrLanguageMode,
   type LocaleMode,
   type PreviewQuality,
 } from "../../lib/preferences";
 import { clearIndexCache, getIndexCacheStats, type IndexCacheStats } from "../../lib/index-store";
 import { setAgentScanCap, setAutoIndexCap } from "../../document/index-queue";
+import { configureOcr } from "../../lib/ocr/ocr-service";
+import { clearOcrCache, getOcrCacheStats } from "../../lib/ocr/ocr-store";
 import { Button } from "../ui/Button";
 
 interface GeneralSettingsProps {
@@ -70,6 +74,10 @@ export function GeneralSettings({
   const [autoIndexPages, setAutoIndexPages] = useState<number | null>(null);
   const [agentScanPages, setAgentScanPages] = useState<number | null>(null);
   const [cacheStats, setCacheStats] = useState<IndexCacheStats | null>(null);
+  const [localOcr, setLocalOcr] = useState<boolean | null>(null);
+  const [ocrLanguage, setOcrLanguage] = useState<OcrLanguageMode>("auto");
+  const [ocrStats, setOcrStats] = useState<{ bytes: number; docs: number } | null>(null);
+  const [clearingOcr, setClearingOcr] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
 
   useEffect(() => {
@@ -79,8 +87,44 @@ export function GeneralSettings({
       setLocalIncludeViewingPage(p.includeViewingPageDefault);
       setAutoIndexPages(p.autoIndexPages);
       setAgentScanPages(p.agentScanPages);
+      setLocalOcr(p.localOcr);
+      setOcrLanguage(p.ocrLanguage);
     });
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void getOcrCacheStats().then((stats) => {
+      if (alive) setOcrStats(stats);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function onLocalOcr(next: boolean) {
+    setLocalOcr(next);
+    const p = await patchPreferences({ localOcr: next });
+    configureOcr({ enabled: p.localOcr, languages: resolveOcrLanguages(p) });
+    await onPreferencesSaved?.();
+  }
+
+  async function onOcrLanguage(next: OcrLanguageMode) {
+    setOcrLanguage(next);
+    const p = await patchPreferences({ ocrLanguage: next });
+    configureOcr({ enabled: p.localOcr, languages: resolveOcrLanguages(p) });
+    await onPreferencesSaved?.();
+  }
+
+  async function onClearOcr() {
+    setClearingOcr(true);
+    try {
+      await clearOcrCache();
+      setOcrStats({ bytes: 0, docs: 0 });
+    } finally {
+      setClearingOcr(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -207,6 +251,34 @@ export function GeneralSettings({
 
       <section className="settings-card">
         <h4 className="settings-card-title">{t("settings.scanning")}</h4>
+        <label className="settings-row-toggle">
+          <div>
+            <span className="settings-row-title">{t("settings.localOcr")}</span>
+            <span className="settings-row-hint">{t("settings.localOcrHint")}</span>
+          </div>
+          <input
+            type="checkbox"
+            checked={localOcr ?? true}
+            disabled={localOcr === null}
+            onChange={(e) => void onLocalOcr(e.target.checked)}
+          />
+        </label>
+        {localOcr !== false && (
+          <>
+            <PillRow
+              label={t("settings.ocrLanguage")}
+              value={ocrLanguage}
+              options={[
+                { id: "auto", label: t("settings.ocrLanguageAuto") },
+                { id: "eng", label: t("settings.ocrLanguageEng") },
+                { id: "chi_sim+eng", label: t("settings.ocrLanguageChi") },
+              ]}
+              onChange={(id) => void onOcrLanguage(id as OcrLanguageMode)}
+            />
+            <span className="settings-row-hint">{t("settings.ocrLanguageHint")}</span>
+          </>
+        )}
+        <div className="settings-card-divider" />
         <PillRow
           label={t("settings.autoScanBudget")}
           value={String(autoIndexPages ?? "")}
@@ -249,6 +321,25 @@ export function GeneralSettings({
             onClick={() => void onClearCache()}
           >
             {clearingCache ? t("settings.scanCacheClearing") : t("settings.scanCacheClear")}
+          </Button>
+        </div>
+        <div className="settings-row-toggle">
+          <div>
+            <span className="settings-row-title">{t("settings.ocrCache")}</span>
+            <span className="settings-row-hint">
+              {ocrStats === null
+                ? t("settings.scanCacheLoading")
+                : ocrStats.docs === 0
+                  ? t("settings.ocrCacheEmpty")
+                  : t("settings.ocrCacheStats", { docs: ocrStats.docs, size: formatChars(ocrStats.bytes) })}
+            </span>
+          </div>
+          <Button
+            variant="ghost" size="md"
+            disabled={clearingOcr || !ocrStats || ocrStats.docs === 0}
+            onClick={() => void onClearOcr()}
+          >
+            {clearingOcr ? t("settings.scanCacheClearing") : t("settings.scanCacheClear")}
           </Button>
         </div>
       </section>

@@ -10,6 +10,7 @@ import { fileIdentity } from "./file-identity";
 import { loadIndexedPages } from "./index-store";
 import { mergePageTextsOnReload } from "./page-text-merge";
 import { scheduleIndex } from "../document/index-queue";
+import { restoreOcr } from "./ocr/ocr-service";
 
 const SUPPORTED_EXT = new Set([
   "pdf",
@@ -131,6 +132,12 @@ export async function loadDocument(
     if (cached.length > 0) {
       doc = { ...doc, pages: mergePageTextsOnReload(cached, doc.pages) };
     }
+  }
+  // And what local OCR read on it before (14.0): free to recompute, but at
+  // seconds a page, so a reopened scan should not start from nothing.
+  const recognised = await restoreOcr(path, identity);
+  if (recognised.length > 0) {
+    doc = { ...doc, pages: mergePageTextsOnReload(recognised, doc.pages) };
   }
   throwIfAborted(signal);
 

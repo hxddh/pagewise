@@ -43,7 +43,7 @@ export interface ReadResult extends ReadAttachments {
   /** Set by the single-page reader; ranges report `nextStart` instead. */
   page?: number;
   /** Where the text came from — extracted, or a billed vision pass. */
-  source?: "cache" | "vision";
+  source?: "cache" | "vision" | "ocr";
   /** True when the caller must ask again to see the rest. */
   truncated: boolean;
   /** Resume point within a page, or null when the page is complete. */

@@ -37,6 +37,12 @@ export type CitationStatus =
   | "unlocated"
   /** A named page has no text layer, or could not be read. Unchecked, not doubted. */
   | "unreadable"
+  /**
+   * Not among the words OCR recognised on a named scanned page (14.0). OCR
+   * misreads, so this is not `unlocated`: the reader is asked to look, and the
+   * model is not told its citation failed.
+   */
+  | "unconfirmed"
   /** No quote, or one too short to mean anything: a page to turn to, not a claim to check. */
   | "unchecked"
   /** Names a page the document does not have. */
@@ -117,6 +123,7 @@ async function resolve(
 
   let sawAbsent = false;
   let sawUnreadable = false;
+  let sawRecognised = false;
   let failedRead = false;
   for (const page of c.pages) {
     const runs = await pageRuns(path, page);
@@ -129,10 +136,15 @@ async function resolve(
     if (outcome.status === "located") return settled({ status: "located", page, rects: outcome.rects });
     if (outcome.status === "uncheckable") return settled({ status: "unchecked" });
     if (outcome.status === "unreadable") sawUnreadable = true;
-    if (outcome.status === "absent") sawAbsent = true;
+    if (outcome.status === "absent") {
+      sawAbsent = true;
+      if (runs.source === "ocr") sawRecognised = true;
+    }
   }
   // One page that could not be read is enough to withhold the accusation.
   if (sawUnreadable) return { check: { status: "unreadable" }, failedRead };
+  // So is one page whose only words are OCR's reading of it.
+  if (sawRecognised) return settled({ status: "unconfirmed" });
   return settled({ status: sawAbsent ? "unlocated" : "unchecked" });
 }
 
@@ -141,6 +153,7 @@ export interface CitationTally {
   located: number;
   unlocated: number;
   unreadable: number;
+  unconfirmed: number;
   unchecked: number;
   outOfRange: number;
   /** Not resolved yet. */
@@ -148,7 +161,16 @@ export interface CitationTally {
 }
 
 export function emptyTally(): CitationTally {
-  return { total: 0, located: 0, unlocated: 0, unreadable: 0, unchecked: 0, outOfRange: 0, pending: 0 };
+  return {
+    total: 0,
+    located: 0,
+    unlocated: 0,
+    unreadable: 0,
+    unconfirmed: 0,
+    unchecked: 0,
+    outOfRange: 0,
+    pending: 0,
+  };
 }
 
 /** Count one answer's citations by what is known about them right now. */

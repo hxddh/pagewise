@@ -31,6 +31,8 @@
  * panel already worked out without an IPC call of its own.
  */
 import { pageTextItems } from "./pdf";
+import { ocrEnabled, ocrPage } from "./ocr/ocr-service";
+import { docCache } from "./doc-cache";
 import { locateQuote, unionRect, type LocateOutcome } from "./quote-locate";
 import type { Finding } from "./finding-store";
 import type { PdfRect, TextItemRect } from "./types";
@@ -49,6 +51,12 @@ export type FindingPlacement =
   | { status: "located"; anchor: FindingAnchor }
   /** Every cited page has text, and the wording is on none of them. */
   | { status: "absent" }
+  /**
+   * Not in the words OCR recognised on a scanned page (14.0). Recognition can
+   * misread, so this is not "absent": the reader is told to look, not that
+   * the evidence is wrong.
+   */
+  | { status: "unconfirmed" }
   /** No evidence to check, or too little of it to mean anything. */
   | { status: "uncheckable" }
   /** No cited page could be read: no text layer, or the runs failed to load. */
@@ -59,6 +67,22 @@ export interface PageRuns {
   items: TextItemRect[];
   /** `ok` may still carry an empty list: a page with no text layer. */
   reason: "ok" | "failed";
+  /**
+   * `ocr` when the runs are words local OCR recognised on a scan, not the
+   * page's own text layer. A quote absent from them may be a misreading.
+   */
+  source?: "text" | "ocr";
+}
+
+/**
+ * A scanned page's recognised words, when there is no text layer. Only a PDF
+ * page has somewhere to put them — an image document's OCR is text only.
+ */
+async function recognisedRuns(path: string, page: number): Promise<PageRuns | null> {
+  if (!ocrEnabled() || docCache.get(path)?.kind !== "pdf") return null;
+  const read = await ocrPage(path, page);
+  if (!read || read.items.length === 0) return null;
+  return { items: read.items, reason: "ok", source: "ocr" };
 }
 
 const itemCache = new Map<string, Promise<PageRuns>>();
@@ -74,7 +98,16 @@ export function pageRuns(path: string, page: number): Promise<PageRuns> {
   const hit = itemCache.get(cacheKey);
   if (hit) return hit;
   const pending = pageTextItems(path, page).then(
-    (items) => ({ items, reason: "ok" as const }),
+    async (items): Promise<PageRuns> => {
+      if (items.length > 0) return { items, reason: "ok", source: "text" };
+      // No text layer: a scan. Its recognised words stand in, so a citation
+      // on it can be checked and highlighted (14.0).
+      const recognised = await recognisedRuns(path, page);
+      if (recognised) return recognised;
+      // Not cached as empty while OCR is on: the page may be read later.
+      if (ocrEnabled()) itemCache.delete(cacheKey);
+      return { items, reason: "ok", source: "text" };
+    },
     () => {
       // Dropped from the cache so a transient failure is not permanent — and
       // reported as a failure, not as an empty page. See the file comment.
@@ -136,6 +169,7 @@ async function resolvePlacement(path: string, finding: Finding): Promise<Finding
 
   let sawAbsent = false;
   let sawUnreadable = false;
+  let sawRecognised = false;
   for (const page of finding.pages) {
     const runs = await pageRuns(path, page);
     const outcome: LocateOutcome = locateQuote(runs.items, quote);
@@ -144,10 +178,16 @@ async function resolvePlacement(path: string, finding: Finding): Promise<Finding
       if (bounds) return { status: "located", anchor: { page, rects: outcome.rects, bounds } };
     }
     if (outcome.status === "uncheckable") return { status: "uncheckable" };
-    if (outcome.status === "absent") sawAbsent = true;
+    if (outcome.status === "absent") {
+      sawAbsent = true;
+      if (runs.source === "ocr") sawRecognised = true;
+    }
     if (outcome.status === "unreadable") sawUnreadable = true;
   }
   if (sawUnreadable) return { status: "unreadable" };
+  // One page searched only through recognised words is enough to withhold
+  // the accusation, as one unreadable page is.
+  if (sawRecognised) return { status: "unconfirmed" };
   return sawAbsent ? { status: "absent" } : { status: "uncheckable" };
 }
 
