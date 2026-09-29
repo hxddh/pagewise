@@ -1,0 +1,16 @@
+[package]
+name = "pagewise-eval-extract"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Dumps what PageWise extracts from a PDF, using the app's own `inspect.rs`
+# (included by path, not copied), so the evaluation measures the code that
+# ships rather than a re-implementation of it. Kept outside `src-tauri` so it
+# builds without Tauri's GTK/WebKit system dependencies.
+[workspace]
+
+[dependencies]
+pdf-inspector = "=1.17.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

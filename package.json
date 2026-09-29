@@ -23,7 +23,10 @@
     "tauri": "tauri",
     "ui:shots": "node scripts/ui-shots.mjs",
     "postbuild": "node scripts/check-bundle.mjs",
-    "audit:request": "node scripts/request-audit.mjs"
+    "audit:request": "node scripts/request-audit.mjs",
+    "eval": "vitest run --config eval/vitest.config.ts",
+    "eval:fetch": "node eval/corpus/fetch.mjs",
+    "eval:corpus": "node eval/corpus/build.mjs && python3 eval/corpus/build_reportlab.py"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.37",
@@ -48,6 +51,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.5",
+    "hyphen": "^1.14.1",
     "jsdom": "^30.0.1",
     "playwright": "^1.62.1",
     "typescript": "^7.0.2",

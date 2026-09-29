@@ -129,6 +129,87 @@ describe("locateQuote", () => {
   });
 });
 
+/** A run at an explicit position, for the layouts the fast path cannot read. */
+const at = (text: string, x: number, y: number, width = 200): TextItemRect => ({
+  text,
+  rect: { x, y, width, height: 10 },
+});
+
+describe("locateQuote — reading order (13.0)", () => {
+  /**
+   * `page_text_items` lists runs top to bottom across the page, so two columns
+   * arrive interleaved line by line. Before 13.0 the page was read as one
+   * string in that order, and quotes from two-column documents were found 40%
+   * of the time on the evaluation corpus.
+   */
+  const twoColumns = [
+    at("A cache that admits every", 60, 700),
+    at("cache of capacity C bytes", 320, 700),
+    at("object it fetches is making", 60, 688),
+    at("serves a request from memory", 320, 688),
+    at("a bet on reuse.", 60, 676),
+    at("if the object is resident.", 320, 676),
+  ];
+
+  it("follows a sentence down one column of a two-column page", () => {
+    const out = locateQuote(twoColumns, "admits every object it fetches is making a bet");
+    expect(out.status).toBe("located");
+    if (out.status !== "located") return;
+    expect(out.items.map((i) => i.text)).toEqual([
+      "A cache that admits every",
+      "object it fetches is making",
+      "a bet on reuse.",
+    ]);
+  });
+
+  it("does not follow a sentence into the other column", () => {
+    // Left line one, then right line two: adjacent to nobody in the list, and
+    // not the next line of the same column either.
+    expect(locateQuote(twoColumns, "admits every serves a request").status).toBe("absent");
+  });
+
+  it("continues from the foot of one column to the head of the next", () => {
+    const items = [at("the end of the left", 60, 100), at("column carries on here", 320, 700)];
+    expect(locateQuote(items, "end of the left column carries on").status).toBe("located");
+  });
+
+  it("will not reorder words that the page splits into one run each", () => {
+    // Justified lines are often one run per word. If any run that continued
+    // the quote could come next, "most real" would match "real most" — the
+    // first version of the chain did, on 6% of deliberately altered quotes.
+    const words = ["small", "objects", "that", "most", "real", "traces"];
+    let x = 60;
+    const items = words.map((w) => {
+      const item = at(w, x, 500, w.length * 5);
+      x += w.length * 5 + 4;
+      return item;
+    });
+    expect(locateQuote(items, "objects that most real traces").status).toBe("located");
+    expect(locateQuote(items, "objects that real most traces").status).toBe("absent");
+  });
+});
+
+describe("locateQuote — what a model does while copying (13.0)", () => {
+  it("matches straight quotes against curly ones, and the reverse", () => {
+    expect(locateQuote([run("the filter’s benefit disappears", 700)], "the filter's benefit").status).toBe("located");
+    expect(locateQuote([run('he said "stop" twice', 700)], "he said “stop” twice").status).toBe("located");
+  });
+
+  it("matches a ligature on the page against the letters typed for it", () => {
+    expect(locateQuote([run("the e\uFB03cient path", 700)], "the efficient path").status).toBe("located");
+  });
+
+  it("matches full-width punctuation against half-width", () => {
+    expect(locateQuote([run("合同总价为人民币（¥4,368,000.00）", 700)], "合同总价为人民币(¥4,368,000.00)").status).toBe(
+      "located",
+    );
+  });
+
+  it("still refuses a changed number", () => {
+    expect(locateQuote([run("by 7.4% on average", 700)], "by 7.9% on average").status).toBe("absent");
+  });
+});
+
 describe("unionRect", () => {
   it("covers every run of a located quote", () => {
     const rects = [

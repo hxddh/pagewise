@@ -70,6 +70,16 @@ export type LocateOutcome =
 const DROPPED = /[\s\-\u00AD\u2010\u2011\u2012\u2013\u2014]/;
 
 /**
+ * Quotation marks of every style, since 13.0. A model copying `the filter’s
+ * benefit` writes `the filter's benefit` more often than not, and a Chinese
+ * answer may wrap a phrase in 「」 where the page has “”. The quote marks are
+ * not the words; dropping them from both sides cannot make two different
+ * passages equal. The grave accent is here because plain-text documents open
+ * a quotation with it (`show w').
+ */
+const QUOTE_MARKS = /['"`\u00B4\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2032\u2033\u300C\u300D\u300E\u300F\uFF02\uFF07]/;
+
+/**
  * Case-fold and drop whitespace, recording where each surviving character came
  * from.
  *
@@ -84,11 +94,15 @@ function fold(text: string): { folded: string; source: number[] } {
   let offset = 0;
   for (const ch of text) {
     const width = ch.length;
-    if (!DROPPED.test(ch)) {
-      for (const unit of ch.toLowerCase()) {
-        folded += unit;
-        source.push(offset);
-      }
+    // NFKC per code point, since 13.0: a ligature on the page ("ﬁ") and the
+    // letters a model types for it, full-width and half-width punctuation,
+    // "…" and "..." — each pair folds to one spelling. Compatibility forms
+    // only ever map to what they are a presentation of, so this widens what
+    // counts as the same text and never what counts as a match.
+    for (const unit of ch.normalize("NFKC").toLowerCase()) {
+      if (DROPPED.test(unit) || QUOTE_MARKS.test(unit)) continue;
+      folded += unit;
+      source.push(offset);
     }
     offset += width;
   }
@@ -121,12 +135,196 @@ export function locateQuote(items: readonly TextItemRect[], quote: string): Loca
 
   const { folded, itemAt } = foldItems(items);
   const at = folded.indexOf(needle);
-  if (at < 0) return { status: "absent" };
+  if (at >= 0) {
+    // Runs in the order the extractor listed them. That order is wrong across
+    // the gutter of a two-column page, but a quote that matches only by
+    // reading across the gutter is not one the model can have copied — the
+    // page text it reads is in column order — and requiring reading order
+    // here cost a real document a third of its true matches: table cells and
+    // centred title lines look exactly like columns. See the 13.0 notes in
+    // `eval/location.eval.ts`.
+    const first = itemAt[at]!;
+    const last = itemAt[at + needle.length - 1]!;
+    const span = items.slice(first, Math.min(last + 1, first + MAX_QUOTE_ITEMS));
+    return { status: "located", items: span, rects: span.map((item) => item.rect) };
+  }
 
-  const first = itemAt[at]!;
-  const last = itemAt[at + needle.length - 1]!;
-  const span = items.slice(first, Math.min(last + 1, first + MAX_QUOTE_ITEMS));
+  const chain = chainLocate(items, needle);
+  if (!chain) return { status: "absent" };
+  const span = chain.map((i) => items[i]!);
   return { status: "located", items: span, rects: span.map((item) => item.rect) };
+}
+
+/** Most runs `chainLocate` will visit for one quote, so a pathological page stays cheap. */
+const CHAIN_VISIT_BUDGET = 20_000;
+
+/** Above this many runs on one page the layout pass is skipped and only the fast path runs. */
+const CHAIN_MAX_ITEMS = 2_500;
+
+/**
+ * Where each run sits in the reading order of its page.
+ *
+ * Runs on one line are neighbours when the gap between them is under 1.5
+ * line heights: wider than any word space justification produces, narrower
+ * than a column gutter. That single threshold is what tells "the next word"
+ * from "the other column".
+ */
+interface Layout {
+  /** The run immediately to the right on the same line, or -1 at a line's end. */
+  right: number[];
+  /** Whether nothing sits immediately to the left: the run starts a line (in its column). */
+  lineStart: boolean[];
+  /** x of the first run of the line segment this run is on. */
+  segLeft: number[];
+  /** Whether a line continues below this run's line in the same column. */
+  hasLineBelow: boolean[];
+}
+
+function sameLine(a: PdfRect, b: PdfRect): boolean {
+  return Math.abs(a.y - b.y) < Math.max(a.height, b.height) * 0.6;
+}
+
+function layoutOf(items: readonly TextItemRect[]): Layout {
+  const n = items.length;
+  const right = new Array<number>(n).fill(-1);
+  const left = new Array<number>(n).fill(-1);
+  for (let i = 0; i < n; i += 1) {
+    const a = items[i]!.rect;
+    const gap = Math.max(a.height, 1) * 1.5;
+    let best = -1;
+    let bestGap = Infinity;
+    for (let j = 0; j < n; j += 1) {
+      if (j === i) continue;
+      const b = items[j]!.rect;
+      if (!sameLine(a, b)) continue;
+      const g = b.x - (a.x + a.width);
+      if (g > -a.height * 0.5 && g < gap && b.x > a.x && g < bestGap) {
+        best = j;
+        bestGap = g;
+      }
+    }
+    right[i] = best;
+    if (best >= 0 && left[best] < 0) left[best] = i;
+  }
+  const segLeft = items.map((item, i) => {
+    let k = i;
+    for (let guard = 0; left[k]! >= 0 && guard < n; guard += 1) k = left[k]!;
+    return k === i ? item.rect.x : items[k]!.rect.x;
+  });
+  const layout: Layout = { right, lineStart: left.map((l) => l < 0), segLeft, hasLineBelow: [] };
+  layout.hasLineBelow = items.map((_, i) => items.some((__, j) => j !== i && isLineBelow(items, layout, i, j)));
+  return layout;
+}
+
+/**
+ * How plausibly run `b` is read straight after run `a` — lower is likelier —
+ * or null when it cannot be. See `chainLocate` for why the rule is this narrow.
+ */
+function nextScore(items: readonly TextItemRect[], layout: Layout, a: number, b: number): number | null {
+  const r = layout.right[a]!;
+  if (r >= 0) return r === b ? 0 : null;
+  if (!layout.lineStart[b]) return null;
+  const ra = items[a]!.rect;
+  const rb = items[b]!.rect;
+  // Bottom-left origin: a line below has a smaller y.
+  if (isLineBelow(items, layout, a, b)) return ra.y - rb.y;
+  // Off the foot of one column onto the head of the next: only upward and to
+  // the right, and only when this column has no line below to go to instead.
+  if (rb.x >= ra.x + ra.width && rb.y > ra.y && !sameLine(ra, rb) && !layout.hasLineBelow[a]) {
+    return 10_000 - rb.y;
+  }
+  return null;
+}
+
+/** Whether `b` starts the line directly below `a`'s line, in the same column. */
+function isLineBelow(items: readonly TextItemRect[], layout: Layout, a: number, b: number): boolean {
+  if (!layout.lineStart[b]) return false;
+  const ra = items[a]!.rect;
+  const rb = items[b]!.rect;
+  const h = Math.max(ra.height, rb.height, 1);
+  const drop = ra.y - rb.y;
+  return drop > h * 0.4 && drop < h * 3.2 && Math.abs(rb.x - layout.segLeft[a]!) < h * 4;
+}
+
+/**
+ * Find a quote as a chain of runs, following the page's reading order.
+ *
+ * WHY THE FAST PATH IS NOT ENOUGH. `page_text_items` lists runs top to bottom
+ * across the whole page. On a two-column page that interleaves the columns
+ * line by line — left line, right line, left line — so the page read as one
+ * string is not the page as anyone reads it, and a sentence that wraps inside
+ * the left column is broken by the right column's lines. Measured on the 13.0
+ * evaluation corpus: verbatim quotes from the two two-column documents were
+ * found 40% of the time, against 98–99% for single-column ones.
+ *
+ * So this follows the words instead: a quote is a run's tail, then whole runs,
+ * then a run's head, each run continuing exactly where the last one stopped.
+ *
+ * AND WHY THE NEXT RUN IS SO NARROWLY CHOSEN. Justified lines are often split
+ * into one run per word. If any run that happened to continue the quote were
+ * allowed next, "most real traces" would chain as "real most traces" — the
+ * first version of this did exactly that, and located 6% of deliberately
+ * altered quotes. The next run must be the one a reader reads next: the
+ * immediate right-hand neighbour on the same line; or, at a line's end, the
+ * start of a line just below, in the same column; or, failing both, the start
+ * of a line in a column further right (a quote that runs off the bottom of one
+ * column onto the top of the next).
+ *
+ * Returns the chain's run indices in reading order, or null.
+ */
+function chainLocate(items: readonly TextItemRect[], needle: string): number[] | null {
+  if (items.length > CHAIN_MAX_ITEMS) return null;
+  const parts = items.map((item) => fold(item.text.normalize("NFC")).folded);
+  const layout = layoutOf(items);
+  let visits = 0;
+
+  const continues = (j: number, rest: string) => {
+    const part = parts[j]!;
+    return part.length > 0 && (rest.startsWith(part) || part.startsWith(rest));
+  };
+
+  /** Runs that read next after `from` and could carry `rest`, best first. */
+  const successors = (from: number, rest: string, used: ReadonlySet<number>): number[] => {
+    const r = layout.right[from]!;
+    // Mid-line, the only way on is the neighbour to the right.
+    if (r >= 0) return !used.has(r) && continues(r, rest) ? [r] : [];
+    const found: Array<{ j: number; score: number }> = [];
+    for (let j = 0; j < parts.length; j += 1) {
+      if (used.has(j) || !continues(j, rest)) continue;
+      const score = nextScore(items, layout, from, j);
+      if (score !== null) found.push({ j, score });
+    }
+    return found.sort((p, q) => p.score - q.score).map((f) => f.j);
+  };
+
+  const extend = (from: number, consumed: number, path: number[], used: Set<number>): boolean => {
+    if (consumed >= needle.length) return true;
+    if (path.length >= MAX_QUOTE_ITEMS || visits > CHAIN_VISIT_BUDGET) return false;
+    const rest = needle.slice(consumed);
+    for (const j of successors(from, rest, used)) {
+      visits += 1;
+      path.push(j);
+      used.add(j);
+      if (extend(j, consumed + Math.min(parts[j]!.length, rest.length), path, used)) return true;
+      path.pop();
+      used.delete(j);
+    }
+    return false;
+  };
+
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i]!;
+    // Where in this run could the quote begin, such that the run's whole tail
+    // is the quote's opening? A quote wholly inside one run was the fast path.
+    for (let offset = Math.max(0, part.length - needle.length + 1); offset < part.length; offset += 1) {
+      const tail = part.slice(offset);
+      if (!needle.startsWith(tail)) continue;
+      const path = [i];
+      if (extend(i, tail.length, path, new Set(path))) return path;
+      if (visits > CHAIN_VISIT_BUDGET) return null;
+    }
+  }
+  return null;
 }
 
 /**
