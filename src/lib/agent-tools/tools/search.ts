@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { docCache } from "../../doc-cache";
 import { MIN_INDEX_CHARS } from "../../page-text-merge";
-import { searchInDocument } from "../../../document/search";
+import { searchForAgent } from "../../../document/search";
 import { formatSearchPreview } from "../../search-preview";
 import { emitAgentProgress } from "../../agent-progress";
 import * as R from "../reading";
@@ -45,7 +45,7 @@ export function createSearchInDocumentTool(
           const boundedQuery = query.length > 400 ? query.slice(0, 400) : query;
           // Probe one hit past the cap so truncated distinguishes "exactly
           // maxResults matches" from "more matches exist".
-          const raw = searchInDocument(pages, boundedQuery, maxResults + 1);
+          const raw = searchForAgent(pages, boundedQuery, maxResults + 1);
           const truncated = raw.length > maxResults;
           const hits = truncated ? raw.slice(0, maxResults) : raw;
           const preview = formatSearchPreview(hits);
