@@ -23,7 +23,13 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-pdf-inspector = "1"
+pdf-inspector = "1.25"
+# Read directly for one thing only: each page's visible box. pdf-inspector
+# after 1.17 reports positions relative to it (CropBox ∩ MediaBox); PageWise's
+# frontend and the pdf.js annotations it draws beside them work in absolute
+# user space, so inspect.rs adds the origin back. Same version pdf-inspector
+# already builds, so it adds nothing to the dependency tree.
+lopdf = "0.45"
 tauri-plugin-dialog = "2.7.1"
 # Remembering the window, and being one app rather than several.
 #

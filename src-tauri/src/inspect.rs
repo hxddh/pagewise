@@ -20,11 +20,23 @@
 //!
 //! Coordinates are the one convention we cannot normalize: page height lives
 //! behind a private helper upstream, so a bottom-left→top-left flip is
-//! impossible here. `Link`/`Figure` rects are therefore emitted in PDF points
-//! with a **bottom-left origin**, and the frontend flips them with the page
-//! height it already has from pdf.js. `extract_region` takes a **top-left**
-//! rect, which is what a viewport selection already is — so that path needs no
-//! conversion at all.
+//! impossible here. `Link`/`Figure` rects and text runs are therefore emitted
+//! in PDF points with a **bottom-left origin**, and the frontend flips them
+//! with the page height it already has from pdf.js. `extract_region` takes a
+//! **top-left** rect, which is what a viewport selection already is — so that
+//! path needs no conversion at all.
+//!
+//! **Absolute user space, since 13.1.** pdf-inspector releases after 1.17 report
+//! positions relative to the page's visible box (CropBox ∩ MediaBox), the
+//! frame a renderer draws. pdf.js's `convertToViewportPoint`, which every
+//! bottom-left rect here is drawn through, subtracts that box's origin itself,
+//! and so do the pdf.js annotations PageWise draws beside these — so a
+//! relative rect would be shifted twice on any page whose box does not start
+//! at (0, 0). Measured on a page cropped to `[100 100 512 692]`: a line at
+//! (150, 600) came back as (50, 500). [`visible_origins`] adds the origin back
+//! before anything leaves this module. Region inputs need nothing: the
+//! frontend already sends them relative to pdf.js's view box, which is the
+//! same box, and the frame 1.25 reads them in.
 
 use pdf_inspector::extractor::{extract_text_with_positions, extract_text_with_positions_pages};
 use pdf_inspector::types::ItemType;
@@ -186,10 +198,60 @@ fn recover_blank_pages(bytes: &[u8], blank: &[usize]) -> Vec<(usize, String)> {
             .collect::<Vec<_>>()
             .join("\n");
         if !text.trim().is_empty() {
-            out.push((*slot, text));
+            out.push((*slot, reflow_lines(&text)));
         }
     }
     out
+}
+
+/// Put the region path's printed lines back into paragraphs.
+///
+/// The region path returns one printed line per `\n`. That was tolerable
+/// while it only rescued the odd symbol-dense page; since pdf-inspector 1.25
+/// classifies OCR'd scans as image-based, it carries whole documents, and a
+/// model reading "dan-\ngerous" quotes "dan- gerous" — which the citation check
+/// then has to forgive. Lines are joined; a word broken with a hyphen at a line
+/// end is rejoined; a line that ends a sentence well short of the others ends
+/// its paragraph; CJK lines join without a space, as they were set.
+fn reflow_lines(text: &str) -> String {
+    // `[Image: Im001]` placeholders say an image is there, which `figures`
+    // already says with its position; joined into a paragraph they become part
+    // of the last sentence on the page.
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !(l.starts_with("[Image:") && l.ends_with(']')))
+        .collect();
+    let longest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let is_cjk = |c: char| matches!(c as u32, 0x3000..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF);
+    let mut out = String::new();
+    let mut prev: Option<&str> = None;
+    for line in lines {
+        if line.is_empty() {
+            if !out.is_empty() && !out.ends_with("\n\n") {
+                out.push_str("\n\n");
+            }
+            prev = None;
+            continue;
+        }
+        if let Some(p) = prev {
+            let p_last = p.chars().last().unwrap_or(' ');
+            let before_hyphen = p.chars().rev().nth(1).unwrap_or(' ');
+            let first = line.chars().next().unwrap_or(' ');
+            let short = p.chars().count() * 10 < longest * 7;
+            let ends_sentence = matches!(p_last, '.' | '!' | '?' | ':' | '"' | '\u{201D}' | '。' | '！' | '？');
+            if ends_sentence && short {
+                out.push_str("\n\n");
+            } else if p_last == '-' && before_hyphen.is_alphabetic() && first.is_lowercase() {
+                out.pop();
+            } else if !(is_cjk(p_last) && is_cjk(first)) {
+                out.push(' ');
+            }
+        }
+        out.push_str(line);
+        prev = Some(line);
+    }
+    out.trim().to_string()
 }
 
 /// A running header must repeat on at least this many pages to be one.
@@ -501,10 +563,12 @@ fn collect_positions(path: &str, page_count: usize) -> (Vec<Link>, Vec<Figure>) 
     // The same pass already reports the page's text runs; keeping them lets a
     // link be placed in its sentence without parsing the file a second time.
     let mut lines: Vec<(u32, Rect, String)> = Vec::new();
+    let origins = visible_origins(path);
     for item in items {
+        let (dx, dy) = origin_of(&origins, item.page);
         let rect = Rect {
-            x: item.x,
-            y: item.y,
+            x: item.x + dx,
+            y: item.y + dy,
             width: item.width,
             height: item.height,
         };
@@ -673,6 +737,120 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
     })
 }
 
+/// Each page's visible-box origin `(x0, y0)` in raw user space, by page index.
+///
+/// The box pdf-inspector measures positions from: CropBox ∩ MediaBox, else the
+/// MediaBox, both inheritable, US Letter when neither is declared — the same
+/// rules as its own `visible_page_box`, which is crate-private. Only the
+/// origin is needed to undo the shift; see the module docs.
+fn visible_origins(path: &str) -> Vec<(f32, f32)> {
+    let key = file_key(path);
+    if let Some(key) = &key {
+        if let Ok(cache) = ORIGINS.lock() {
+            if let Some((k, origins)) = cache.get(path) {
+                if k == key {
+                    return origins.clone();
+                }
+            }
+        }
+    }
+    let origins = lopdf::Document::load(path)
+        .map(|doc| {
+            doc.get_pages()
+                .values()
+                .map(|&id| visible_origin(&doc, id))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(key) = key {
+        if let Ok(mut cache) = ORIGINS.lock() {
+            if cache.len() > 8 {
+                cache.clear();
+            }
+            cache.insert(path.to_string(), (key, origins.clone()));
+        }
+    }
+    origins
+}
+
+/// Size and modification time: enough to notice the file was replaced.
+fn file_key(path: &str) -> Option<(u64, std::time::SystemTime)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
+}
+
+type OriginCache = HashMap<String, ((u64, std::time::SystemTime), Vec<(f32, f32)>)>;
+static ORIGINS: std::sync::LazyLock<std::sync::Mutex<OriginCache>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+fn visible_origin(doc: &lopdf::Document, page: lopdf::ObjectId) -> (f32, f32) {
+    let media = inherited_box(doc, page, b"MediaBox");
+    let crop = inherited_box(doc, page, b"CropBox");
+    const LETTER: [f32; 4] = [0.0, 0.0, 612.0, 792.0];
+    let intersect = |a: [f32; 4], b: [f32; 4]| -> Option<[f32; 4]> {
+        let r = [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])];
+        (r[2] > r[0] && r[3] > r[1]).then_some(r)
+    };
+    let visible = match (media, crop) {
+        (Some(m), Some(c)) => intersect(m, c).unwrap_or(m),
+        (Some(m), None) => m,
+        (None, Some(c)) => intersect(LETTER, c).unwrap_or(LETTER),
+        (None, None) => LETTER,
+    };
+    (visible[0], visible[1])
+}
+
+/// An inheritable box attribute, normalized so `x0 < x1` and `y0 < y1`.
+fn inherited_box(doc: &lopdf::Document, page: lopdf::ObjectId, key: &[u8]) -> Option<[f32; 4]> {
+    use lopdf::Object;
+    let number = |o: &Object| -> Option<f32> {
+        let o = match o {
+            Object::Reference(r) => doc.get_object(*r).ok()?,
+            other => other,
+        };
+        match o {
+            Object::Integer(i) => Some(*i as f32),
+            Object::Real(r) => Some(*r),
+            _ => None,
+        }
+    };
+    let mut id = page;
+    for _ in 0..32 {
+        let dict = doc.get_dictionary(id).ok()?;
+        if let Ok(obj) = dict.get(key) {
+            let array = match obj {
+                Object::Array(a) => Some(a),
+                Object::Reference(r) => match doc.get_object(*r) {
+                    Ok(Object::Array(a)) => Some(a),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(array) = array {
+                let v: Vec<f32> = array.iter().filter_map(number).collect();
+                if v.len() >= 4 && v[..4].iter().all(|x| x.is_finite()) {
+                    let b = [v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])];
+                    if b[2] > b[0] && b[3] > b[1] {
+                        return Some(b);
+                    }
+                }
+            }
+        }
+        match dict.get(b"Parent") {
+            Ok(Object::Reference(parent)) => id = *parent,
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// The origin to add to a position on 1-based `page`; (0, 0) when unknown.
+fn origin_of(origins: &[(f32, f32)], page: u32) -> (f32, f32) {
+    page.checked_sub(1)
+        .and_then(|i| origins.get(i as usize).copied())
+        .unwrap_or((0.0, 0.0))
+}
+
 /// Every text run on one page, with its position.
 ///
 /// Fetched per page rather than carried in [`DocumentModel`]: a 117-page
@@ -685,6 +863,7 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
     // This filter is 1-based, unlike the region API's 0-based page index.
     let filter: HashSet<u32> = HashSet::from([page]);
     let items = extract_text_with_positions_pages(path, Some(&filter)).map_err(map_err)?;
+    let (dx, dy) = origin_of(&visible_origins(path), page);
     Ok(items
         .into_iter()
         // A run with no area cannot be pointed at: a zero-width box draws
@@ -699,8 +878,8 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
         .map(|item| TextItemRect {
             text: item.text,
             rect: Rect {
-                x: item.x,
-                y: item.y,
+                x: item.x + dx,
+                y: item.y + dy,
                 width: item.width,
                 height: item.height,
             },
@@ -982,6 +1161,39 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("1-based"));
+    }
+
+    #[test]
+    fn recovered_lines_are_put_back_into_paragraphs() {
+        let text = "however, it became too conspicuous and dan-\ngerous for use.\nA report creeps into camp that\nJohnston is coming with fifty\nthousand men.\nThe Yankee Lookout.\nJUNE 10TH.—The heat of the sun increases.";
+        let out = reflow_lines(text);
+        assert!(out.contains("dangerous for use."), "{out}");
+        assert!(out.contains("camp that Johnston is coming with fifty thousand men."), "{out}");
+        assert!(out.contains("\n\nThe Yankee Lookout.\n\nJUNE 10TH"), "{out}");
+        // CJK lines join as they were set; a real hyphen stays.
+        assert_eq!(reflow_lines("第一行文字继续\n到第二行"), "第一行文字继续到第二行");
+        assert_eq!(reflow_lines("a well-\nKnown name"), "a well- Known name");
+        assert_eq!(reflow_lines("the end of it\n[Image: Im001]\n[Image: Im002]"), "the end of it");
+    }
+
+    /// pdf-inspector after 1.17 reports positions relative to the visible box;
+    /// pdf.js draws them expecting absolute user space. On a page cropped to
+    /// `[100 100 512 692]` a relative rect lands 100pt left and 100pt low.
+    #[test]
+    fn positions_on_a_cropped_page_are_in_absolute_user_space() {
+        let items = page_text_items(&fixture("cropped.pdf"), 1).expect("items");
+        let marker = items
+            .iter()
+            .find(|i| i.text.contains("Marker text"))
+            .expect("marker run");
+        assert!((marker.rect.x - 150.0).abs() < 1.0, "x = {}", marker.rect.x);
+        assert!((marker.rect.y - 600.0).abs() < 3.0, "y = {}", marker.rect.y);
+
+        let model = open_document(&fixture("cropped.pdf")).expect("open");
+        let link = model.links.first().expect("link");
+        assert!((link.rect.x - 150.0).abs() < 1.0, "link x = {}", link.rect.x);
+        assert!((link.rect.y - 560.0).abs() < 1.0, "link y = {}", link.rect.y);
+        assert!(link.context.contains("A link on a cropped page"), "context = {}", link.context);
     }
 
     #[test]

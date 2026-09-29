@@ -26,3 +26,4 @@ detection, or link positions must.
 | `form-fields.pdf` | hand-built AcroForm with two filled text fields | filled form values reach the page text, so the assistant can read them |
 | `damaged.pdf` | first 600 bytes of a valid PDF | a malformed file fails cleanly instead of panicking |
 | `tagged-headings.pdf` | hand-built, two `H1`s and a `/P` under a `/StructTreeRoot` | the document's own headings are read from its structure tree, and a paragraph is not mistaken for one |
+| `cropped.pdf` | ReportLab, one Letter page with CropBox `[100 100 512 692]`, a line at (150, 600) and a link | text runs and link rects leave `inspect.rs` in absolute user space, which pdf.js expects, although pdf-inspector after 1.17 measures them from the visible box |

@@ -53,8 +53,11 @@ export function loadDoc(file: string): DumpDoc {
   mkdirSync(OUT, { recursive: true });
   const id = basename(file, ".pdf");
   const cache = join(OUT, `${id}.dump.json`);
-  if (!existsSync(cache) || statSync(cache).mtimeMs < statSync(file).mtimeMs) {
-    ensureBinary();
+  ensureBinary();
+  // A dump is stale when the document changed or the extractor did — an
+  // upgraded pdf-inspector must not be measured by the old one's output.
+  const newest = Math.max(statSync(file).mtimeMs, statSync(BIN).mtimeMs, statSync(join(ROOT, "src-tauri/src/inspect.rs")).mtimeMs);
+  if (!existsSync(cache) || statSync(cache).mtimeMs < newest) {
     const json = execFileSync(BIN, [file], { maxBuffer: 1 << 30 }).toString("utf8");
     writeFileSync(cache, json);
   }
