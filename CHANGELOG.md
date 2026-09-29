@@ -4,6 +4,41 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [13.1.0] - 2026-09-29
+
+Every dependency at its newest version, and what the new versions can do put to use. Two of those upgrades would have broken things quietly, and were caught by measuring rather than by reading changelogs.
+
+### Fixed
+
+- **Scanned PDFs that use JPEG 2000 or JBIG2 images decode properly.** pdf.js ships the decoders for these as WebAssembly, alongside its colour profiles. PageWise never copied them or told pdf.js where they were, and scanned documents are exactly the files that use these formats. Both are now bundled and passed to pdf.js.
+- **A model that stops responding now says so.** When a run hit the deadline in `agent-timeouts.ts`, it ended exactly as if you had pressed Stop — no message, no error. It now reports that the model stopped responding.
+- **A provider error partway through an answer is readable.** OpenRouter and similar routes report a failure after the stream has begun as an error frame, which reached you as "[object Object]". It is now read like any other provider error, including the upstream provider's own explanation.
+- **A step that fails partway is retried once** instead of ending the run. The retry keeps every page already read. Before, you retried the whole question and paid for every page again. If the failed step had already started its answer, its opening words may appear twice.
+- **The usage popover's "cached" row appears.** The AI SDK reports prompt-cache reads under a field PageWise was not reading, so the row that shows the saving from keeping the system prompt stable had never appeared on any provider.
+- **Saved conversations whose tool calls no longer match today's tools load cleanly.** Such a call is kept and shown, and the message it belongs to is no longer treated as empty.
+
+### Changed
+
+- **PDF extraction engine 1.17 → 1.25.2.**
+  - **Citations:** on the evaluation corpus, 98.5% of verbatim quotes are found on their pages, up from 98.0%. One altered quote in 1,997 is wrongly accepted, down from two.
+  - **OCR'd scans:** 1.25 treats scans with an OCR text layer as image-based and hands back no text for them. PageWise's region fallback recovers the text, which is now put back into paragraphs: broken words rejoined, line breaks removed, image placeholders dropped.
+  - **Cropped pages:** 1.25 measures positions from the page's visible box (its CropBox), while pdf.js expects them from the page's full coordinate space. PageWise converts back to the full space. Without that step, on any page whose visible box does not start at the corner, highlights, links and citations would all be drawn shifted by the box's offset. Selections on such pages now read the region that was selected.
+- **Everything else is at its latest version:** Tauri 2.12 with its plugins, AI SDK 7.0.122, pdf.js 6.3, React 19.3, Vite 8.3, zod 4.6, and vitest 5.
+  - **Single-instance plugin:** on Windows, it now brings the existing window to the front.
+  - **Settings store:** it no longer risks a deadlock when saving.
+
+### Internal
+
+- **The desktop crate is now built and tested locally**, not only in CI: `cargo test --locked`, 36 passed. A new golden fixture pins positions on a cropped page.
+- **The evaluation re-extracts when the extractor changes**, not only when a document does.
+- **`docs/reviews/2026-09-29-pagewise-v14-evaluation.md` evaluates the next major version:** every page checkable. Local OCR with word boxes would make citations on scanned pages checkable, highlightable and free of vision charges. A spike on the evaluation corpus found 80.2% of verbatim quotes among the OCR'd words: 98% on single-column prose and 85% on the Chinese contract.
+
+### Notes
+
+- **The `d<n>` document handle in citations is no longer reserved for anything.** 13.0 set it aside for citing across documents; multi-document work is not planned. A handle a model adds on its own is still accepted and ignored, so its citation is checked like any other.
+- **The content security policy gains `'wasm-unsafe-eval'`**, which allows compiling WebAssembly and nothing else; JavaScript `eval` stays blocked.
+- **Not verified here:** Tauri 2.12's behaviour on macOS and Windows. It is covered by the release builds and a manual check of opening a second file, saving settings and storing a key.
+
 ## [13.0.0] - 2026-09-29
 
 The answer is the evidence. Since 10.0 a claim in the record could be checked against its page; the answer a reader actually reads could not. Its "page 12" was a link and nothing more. Now every fact the assistant takes from the document carries the words it rests on, PageWise looks those words up on the page it names, and the answer shows what it found.

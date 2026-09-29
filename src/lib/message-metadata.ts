@@ -52,6 +52,29 @@ export interface PageWiseMessageMetadata {
 
 export type PageWiseUIMessage = UIMessage<PageWiseMessageMetadata>;
 
+/** The usage fields a step reports, across SDK versions. */
+type StepUsageInput = {
+  inputTokens?: number;
+  outputTokens?: number;
+  /** AI SDK 5/6. Kept so a recorded step from then still reads. */
+  cachedInputTokens?: number;
+  /** AI SDK 7: where cache reads are actually reported. */
+  inputTokenDetails?: { cacheReadTokens?: number };
+};
+
+/**
+ * Prompt tokens served from the provider's cache on this step.
+ *
+ * AI SDK 7 moved this to `inputTokenDetails.cacheReadTokens`, and this file
+ * kept reading `cachedInputTokens`, which v7 never sets — so the "cached"
+ * row the usage popover has had since 7.x never appeared, on any provider.
+ * The whole point of keeping the system prompt byte-identical between turns
+ * (`agent-view-context.ts`) is this number; now it can be seen.
+ */
+export function cachedTokensOf(usage: StepUsageInput | undefined): number | undefined {
+  return usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cachedInputTokens ?? undefined;
+}
+
 export function getPageWiseMetadata(
   message: UIMessage,
 ): PageWiseMessageMetadata | undefined {
@@ -199,7 +222,7 @@ export function formatUsageSummaryLine(
 
 type StepEndEvent = {
   stepNumber: number;
-  usage?: { inputTokens?: number; outputTokens?: number };
+  usage?: StepUsageInput;
   toolCalls?: Array<{ toolName: string }>;
 };
 
@@ -211,7 +234,7 @@ export function createUsageMetadataTracker(model: string): {
     part: {
       type: string;
       totalUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
-      usage?: { inputTokens?: number; outputTokens?: number };
+      usage?: StepUsageInput;
     };
   }) => PageWiseMessageMetadata | undefined;
 } {
@@ -228,18 +251,15 @@ export function createUsageMetadataTracker(model: string): {
 
   const upsertStepEntry = (
     step: number,
-    usage:
-      | { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number }
-      | undefined,
+    usage: StepUsageInput | undefined,
     toolNames: string[] | undefined,
   ): void => {
+    const cached = cachedTokensOf(usage);
     const entry = stepUsage.find((s) => s.step === step);
     if (entry) {
       if (usage?.inputTokens != null) entry.inputTokens = usage.inputTokens;
       if (usage?.outputTokens != null) entry.outputTokens = usage.outputTokens;
-      if (usage?.cachedInputTokens != null) {
-        entry.cachedInputTokens = usage.cachedInputTokens;
-      }
+      if (cached != null) entry.cachedInputTokens = cached;
       if (toolNames && toolNames.length > 0) entry.toolNames = toolNames;
       return;
     }
@@ -247,9 +267,7 @@ export function createUsageMetadataTracker(model: string): {
       step,
       inputTokens: usage?.inputTokens,
       outputTokens: usage?.outputTokens,
-      ...(usage?.cachedInputTokens != null
-        ? { cachedInputTokens: usage.cachedInputTokens }
-        : {}),
+      ...(cached != null ? { cachedInputTokens: cached } : {}),
       ...(toolNames && toolNames.length > 0 ? { toolNames } : {}),
     });
   };

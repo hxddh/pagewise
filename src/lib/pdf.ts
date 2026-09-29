@@ -5,8 +5,7 @@ import {
   getPdfJs,
   pdfCMapUrl,
   pdfStandardFontUrl,
-  type PDFDocumentProxy,
-} from "./pdf-loader";
+  type PDFDocumentProxy, pdfWasmUrl, pdfIccUrl } from "./pdf-loader";
 import type { PreviewQuality } from "./types";
 import type { DocumentModel, PdfRect, RegionText, TextItemRect } from "./types";
 import { raceWithAbort, throwIfAborted } from "./abort-utils";
@@ -435,6 +434,8 @@ function pdfDocumentInit(data: Uint8Array) {
     cMapUrl: pdfCMapUrl(),
     cMapPacked: true,
     standardFontDataUrl: pdfStandardFontUrl(),
+    wasmUrl: pdfWasmUrl(),
+    iccUrl: pdfIccUrl(),
   };
 }
 

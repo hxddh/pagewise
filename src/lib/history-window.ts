@@ -69,7 +69,9 @@ export function stripReasoningParts<M extends UIMessage>(messages: M[]): M[] {
       next.push(message);
       continue;
     }
-    const parts = message.parts.filter((part) => part.type !== "reasoning");
+    // `reasoning-file` too: AI SDK 7 can attach files to reasoning, and they
+    // are the same billed-again-every-turn input the reasoning text is.
+    const parts = message.parts.filter((part) => part.type !== "reasoning" && part.type !== "reasoning-file");
     if (parts.length === message.parts.length) {
       next.push(message);
       continue;

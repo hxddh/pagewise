@@ -11,6 +11,7 @@ publish = false
 [workspace]
 
 [dependencies]
-pdf-inspector = "=1.17.0"
+pdf-inspector = "=1.25.2"
+lopdf = "0.45"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

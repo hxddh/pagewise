@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { APICallError } from "ai";
+import { APICallError, StreamProviderError } from "ai";
 import {
   formatLlmError,
   injectWebSearchPlugin,
@@ -11,6 +11,27 @@ import {
 import { clearAgentRunAbortSignal, setAgentRunAbortSignal } from "./agent-abort";
 
 describe("formatLlmError", () => {
+  it("reads an error the provider sent after the stream began", () => {
+    // OpenRouter reports an upstream failure mid-run as an error frame; the
+    // raw provider message is in the same place an HTTP error body keeps it.
+    const err = new StreamProviderError({
+      message: "Provider returned error",
+      statusCode: 502,
+      isRetryable: true,
+      data: { error: { message: "Provider returned error", metadata: { raw: "upstream overloaded, retry later" } } },
+    });
+    expect(formatLlmError(err)).toBe("upstream overloaded, retry later");
+  });
+
+  it("takes the status of a mid-stream error from the error itself", () => {
+    const err = new StreamProviderError({ message: "slow down", statusCode: 429, isRetryable: true });
+    expect(formatLlmError(err)).toMatch(/rate limited/i);
+  });
+
+  it("never shows a plain error object as [object Object]", () => {
+    expect(formatLlmError({ error: { message: "context length exceeded" } })).toBe("context length exceeded");
+  });
+
   it("maps OpenRouter tool-use 404 before generic notFound", () => {
     const err = new APICallError({
       message: 'No endpoints found that support tool use',

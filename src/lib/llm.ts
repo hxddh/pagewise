@@ -1,6 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
-import { APICallError, generateText, tool, type LanguageModel } from "ai";
+import { APICallError, StreamProviderError, generateText, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import { getAgentRunAbortSignal } from "./agent-abort";
 import { CONNECTION_TEST_TIMEOUT_MS } from "./agent-timeouts";
@@ -251,6 +251,15 @@ function unwrapApiError(error: unknown): unknown {
     const fromBody = parseApiErrorBody(error.responseBody);
     if (fromBody) return new Error(fromBody);
   }
+  // A provider that fails after the stream started (OpenRouter mid-run, a
+  // DeepSeek overload) sends an error frame, not an HTTP status. Before AI
+  // SDK 7.0.80 that frame reached here as a plain object and the reader saw
+  // "[object Object]". It is a StreamProviderError now, whose `data` is the
+  // same JSON an HTTP error body carries — so the same parser reads it.
+  if (StreamProviderError.isInstance(error) && error.data != null) {
+    const fromData = parseApiErrorBody(typeof error.data === "string" ? error.data : JSON.stringify(error.data));
+    if (fromData && fromData !== error.message) return new Error(fromData);
+  }
   if (error instanceof Error) {
     const cause = (error as Error & { cause?: unknown }).cause;
     if (cause && cause !== error) return unwrapApiError(cause);
@@ -301,7 +310,9 @@ export function formatLlmError(
     ? unwrapped.statusCode
     : APICallError.isInstance(error)
       ? error.statusCode
-      : undefined;
+      : StreamProviderError.isInstance(error)
+        ? error.statusCode
+        : undefined;
   const hasStatus = typeof statusCode === "number";
 
   if (unwrapped instanceof Error) {
@@ -380,6 +391,12 @@ export function formatLlmError(
   if (typeof error === "string") {
     return formatLlmError(new Error(error), t, kind);
   }
+  // An error object that is not an Error — a provider frame passed through as
+  // data. `String()` of it is "[object Object]", which says nothing.
+  if (error && typeof error === "object") {
+    const fromObject = parseApiErrorBody(JSON.stringify(error));
+    if (fromObject) return formatLlmError(new Error(fromObject), t, kind);
+  }
   return String(error);
 }
 
@@ -388,7 +405,7 @@ export function formatAgentError(error: unknown, t?: TranslateFn): string {
   if (error == null) {
     return t?.("agent.errorUnknown") ?? "Unknown error";
   }
-  if (error instanceof Error) {
+  if (error instanceof Error || typeof error === "object") {
     return formatLlmError(error, t, "agent");
   }
   return formatLlmError(String(error), t, "agent");

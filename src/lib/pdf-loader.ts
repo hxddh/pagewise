@@ -30,3 +30,13 @@ export function pdfCMapUrl(): string {
 export function pdfStandardFontUrl(): string {
   return pdfAssetUrl("pdfjs/standard_fonts/");
 }
+
+/** The JPEG 2000 / JBIG2 decoders and colour module (see copy-pdfjs-assets.mjs). */
+export function pdfWasmUrl(): string {
+  return pdfAssetUrl("pdfjs/wasm/");
+}
+
+/** Predefined ICC profiles, for colour-managed images. */
+export function pdfIccUrl(): string {
+  return pdfAssetUrl("pdfjs/iccs/");
+}

@@ -11,9 +11,16 @@ if (!existsSync(pdfjsRoot)) {
   process.exit(0);
 }
 
+// `wasm/` holds the JPEG 2000 and JBIG2 decoders and the colour-management
+// module; `iccs/` the predefined ICC profiles. Scanned PDFs are exactly the
+// files that use JPEG 2000 and JBIG2, and without these pdf.js falls back to
+// slower or incomplete decoding — they were never copied before 13.1.
+const ASSET_DIRS = ["cmaps", "standard_fonts", "wasm", "iccs"];
+
 rmSync(destRoot, { recursive: true, force: true });
-mkdirSync(join(destRoot, "cmaps"), { recursive: true });
-mkdirSync(join(destRoot, "standard_fonts"), { recursive: true });
-cpSync(join(pdfjsRoot, "cmaps"), join(destRoot, "cmaps"), { recursive: true });
-cpSync(join(pdfjsRoot, "standard_fonts"), join(destRoot, "standard_fonts"), { recursive: true });
-console.log("[copy-pdfjs-assets] copied cmaps + standard_fonts to public/pdfjs/");
+for (const dir of ASSET_DIRS) {
+  if (!existsSync(join(pdfjsRoot, dir))) continue;
+  mkdirSync(join(destRoot, dir), { recursive: true });
+  cpSync(join(pdfjsRoot, dir), join(destRoot, dir), { recursive: true });
+}
+console.log(`[copy-pdfjs-assets] copied ${ASSET_DIRS.join(" + ")} to public/pdfjs/`);

@@ -171,6 +171,23 @@ describe("message-metadata", () => {
     expect(finish?.stepUsage?.[0]?.toolNames).toEqual(["search_in_document"]);
     expect(finish?.stepUsage?.[1]?.inputTokens).toBe(200);
   });
+  it("reads cache hits where AI SDK 7 reports them", () => {
+    // v7 reports cache reads under inputTokenDetails; `cachedInputTokens`
+    // does not exist there, and reading it left the cached row empty forever.
+    const tracker = createUsageMetadataTracker("gpt-test");
+    tracker.onStepEnd({
+      stepNumber: 0,
+      usage: { inputTokens: 1_800, outputTokens: 20, inputTokenDetails: { cacheReadTokens: 1_472 } },
+    });
+    tracker.onStepEnd({ stepNumber: 1, usage: { inputTokens: 2_000, outputTokens: 30, cachedInputTokens: 900 } });
+    tracker.messageMetadata({ part: { type: "finish-step", usage: { inputTokens: 1_800, outputTokens: 20 } } });
+    const step = tracker.messageMetadata({
+      part: { type: "finish-step", usage: { inputTokens: 2_000, outputTokens: 30 } },
+    });
+    expect(step?.stepUsage?.[0]?.cachedInputTokens).toBe(1_472);
+    expect(step?.stepUsage?.[1]?.cachedInputTokens).toBe(900);
+    expect(step?.cachedInputTokens).toBe(2_372);
+  });
 });
 
 describe("stampMissingFinishedAt", () => {

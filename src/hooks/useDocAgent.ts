@@ -15,7 +15,7 @@ import {
 } from "../lib/messages-utils";
 import { getPageWiseMetadata, type PageWiseUIMessage } from "../lib/message-metadata";
 import { PagewiseChatTransport } from "../lib/pagewise-chat-transport";
-import { clearAgentRunAbortSignal } from "../lib/agent-abort";
+import { clearAgentRunAbortSignal, consumeRunTimedOut } from "../lib/agent-abort";
 import { capturePageFilePart } from "../lib/pdf";
 import {
   pruneToolOutputsForHistory,
@@ -144,6 +144,9 @@ export function useDocAgent(chatId: string | null = null) {
           }),
         );
       } else if (isAbort) {
+        // Stopped by a deadline, not by the reader: say so, or a dead
+        // connection looks like a run the reader cancelled themselves.
+        if (consumeRunTimedOut()) setSendError(new Error(tRef.current("agent.timedOut")));
         setMessagesRef.current?.((prev) => {
           const next = prev
             .filter((m) => !(m.id === message.id && m.parts.length === 0))

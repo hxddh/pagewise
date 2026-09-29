@@ -14,9 +14,10 @@
  * easy for a model to produce and for a stream to recognise half-written.
  *
  * GRAMMAR. Inside the brackets, in order:
- *   - `d<n>` — optional document handle. Reserved: one document today, so it is
- *     parsed and ignored. It is here so that citing across documents later is
- *     an addition, not a change of format that strands every saved answer.
+ *   - `d<n>` — a leading document handle, tolerated and ignored. 13.0 reserved
+ *     it for citing across documents; that is no longer planned (13.1), and the
+ *     prompt never asks for it. It stays accepted only so that a model which
+ *     adds one anyway still gets its citation checked rather than shown raw.
  *   - `p<n>` or `p<n>-<m>` — the page or pages, by sheet number, the same
  *     numbering every reading tool uses.
  *   - a quote in "…", “…”, 「…」 or 『…』 — optional. Without one, the
