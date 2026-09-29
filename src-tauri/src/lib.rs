@@ -1,3 +1,4 @@
+mod annotate;
 mod inspect;
 mod ocr_cache;
 mod secrets;
@@ -286,13 +287,14 @@ async fn read_file_bytes(
 }
 
 
-#[tauri::command]
-async fn write_text_file(
-    path: String,
-    content: String,
-    allowed: State<'_, AllowedPaths>,
-) -> Result<(), String> {
-    let target = PathBuf::from(&path);
+/// Where a save-as write may go: `(authorized parent, target)`.
+///
+/// Authorized ONLY via an explicitly-registered parent DIRECTORY (the save-as
+/// flow registers the chosen directory). Deliberately NOT authorized by the
+/// target file being in the allowlist: that set is populated by every opened
+/// document, which would make every read path a write target too.
+fn write_target(allowed: &AllowedPaths, path: &str) -> Result<(PathBuf, PathBuf), String> {
+    let target = PathBuf::from(path);
     let parent = target
         .parent()
         .ok_or_else(|| "Invalid path: no parent directory".to_string())?;
@@ -301,10 +303,6 @@ async fn write_text_file(
         .ok_or_else(|| "Invalid path: no file name".to_string())?;
     let canon_parent = std::fs::canonicalize(parent).map_err(|e| format!("Invalid path: {e}"))?;
 
-    // Authorize writes ONLY via an explicitly-registered parent DIRECTORY (the
-    // save-as flow registers the chosen directory). Deliberately NOT authorized
-    // by the target file being in the allowlist: that set is populated by every
-    // opened document, which would make every read path a write target too.
     let authorized = {
         let set = allowed
             .0
@@ -333,29 +331,64 @@ async fn write_text_file(
     // Do NOT canonicalize the leaf: canonicalize() requires the final path
     // component to already exist, which would break saving to a NEW file name.
     let resolved = canon_parent.join(file_name);
+    Ok((canon_parent, resolved))
+}
 
-    tauri::async_runtime::spawn_blocking(move || {
-        // Validate immediately before writing (minimizes the check→write TOCTOU
-        // window) and reject a symlink leaf outright: Path::exists() follows
-        // symlinks and returns false for a DANGLING one, which would otherwise let
-        // fs::write follow it and create a file outside the authorized directory.
-        match std::fs::symlink_metadata(&resolved) {
-            Ok(meta) => {
-                if meta.file_type().is_symlink() {
-                    return Err("path not authorized".to_string());
-                }
-                let canon_resolved = std::fs::canonicalize(&resolved)
-                    .map_err(|e| format!("Invalid path: {e}"))?;
-                if !canon_resolved.starts_with(&canon_parent) {
-                    return Err("path not authorized".to_string());
-                }
+/// Run immediately before writing (minimizes the check→write TOCTOU window):
+/// reject a symlink leaf outright. Path::exists() follows symlinks and returns
+/// false for a DANGLING one, which would otherwise let the write follow it and
+/// create a file outside the authorized directory.
+fn check_write_leaf(resolved: &Path, canon_parent: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(resolved) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() {
+                return Err("path not authorized".to_string());
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                // New file — no existing target to resolve; the parent is authorized.
+            let canon_resolved =
+                std::fs::canonicalize(resolved).map_err(|e| format!("Invalid path: {e}"))?;
+            if !canon_resolved.starts_with(canon_parent) {
+                return Err("path not authorized".to_string());
             }
-            Err(e) => return Err(format!("Invalid path: {e}")),
+            Ok(())
         }
+        // New file — no existing target to resolve; the parent is authorized.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Invalid path: {e}")),
+    }
+}
+
+#[tauri::command]
+async fn write_text_file(
+    path: String,
+    content: String,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<(), String> {
+    let (canon_parent, resolved) = write_target(&allowed, &path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        check_write_leaf(&resolved, &canon_parent)?;
         std::fs::write(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
+}
+
+/// Write a copy of the open PDF with the reader's evidence as annotations
+/// (14.1, `annotate.rs`). Returns how many were written. Never over the source.
+#[tauri::command]
+async fn export_annotated_pdf(
+    path: String,
+    out_path: String,
+    annotations: Vec<annotate::AnnotationIn>,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<usize, String> {
+    let source = ensure_allowed(&allowed, &path)?;
+    let (canon_parent, resolved) = write_target(&allowed, &out_path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        check_write_leaf(&resolved, &canon_parent)?;
+        if std::fs::canonicalize(&resolved).is_ok_and(|p| p == source) {
+            return Err("Choose a new file: the open document is not overwritten".to_string());
+        }
+        run_blocking_pdf(|| annotate::annotate_file(&source, &resolved, &annotations))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -406,6 +439,7 @@ pub fn run() {
             page_text_items_cmd,
             read_file_bytes,
             write_text_file,
+            export_annotated_pdf,
             secrets::set_api_key,
             secrets::get_api_key,
             secrets::delete_api_key,

@@ -32,6 +32,8 @@ interface UseAppCommandsOptions {
   onExportChat: () => void | Promise<void>;
   onExportDocument: () => void | Promise<void>;
   onExportMarks: () => void | Promise<void>;
+  /** Absent when the open document is not a PDF. */
+  onExportAnnotatedPdf?: () => void | Promise<void>;
   /** Prompt to send every still-unscanned page to the vision model. */
   onScanAllPages: () => void;
   /** False when the document has no pages left to scan (or none can be). */
@@ -66,6 +68,7 @@ export function useAppCommands({
   onExportChat,
   onExportDocument,
   onExportMarks,
+  onExportAnnotatedPdf,
   hasMarks,
   onScanAllPages,
   canScanAllPages,
@@ -184,6 +187,13 @@ export function useAppCommands({
         // empty file.
         disabled: !activeDocName || !hasMarks,
         run: wrapRun("export-marks", exportMarks),
+      },
+      {
+        id: "export-annotated-pdf",
+        label: t("commands.exportAnnotatedPdf"),
+        section: "export",
+        disabled: !activeDocName || !onExportAnnotatedPdf,
+        run: wrapRun("export-annotated-pdf", () => onExportAnnotatedPdf?.()),
       },
       {
         id: "export-summary",

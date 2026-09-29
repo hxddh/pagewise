@@ -79,6 +79,8 @@ interface ChatPanelProps {
   onRevealCitation?: (page: number, rects: PdfRect[] | null) => void;
   onClearChat: () => void;
   onExportBrief?: () => void;
+  /** Write located findings and marks into a copy of the PDF. Absent for image documents. */
+  onExportAnnotatedPdf?: () => void;
   onExportChat: () => void;
   onExportSummary: () => void;
   onCollapse?: () => void;
@@ -123,6 +125,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onRevealCitation,
     onClearChat,
     onExportBrief,
+    onExportAnnotatedPdf,
     onExportChat,
     onExportSummary,
     onCollapse,
@@ -535,6 +538,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 disabled={interactionBusy}
               >
                 {t("agent.exportBrief")}
+              </button>
+            )}
+            {onExportAnnotatedPdf && (
+              /* raw-button: role="menuitem" in the same menu; it has to match the rows above it */
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onExportAnnotatedPdf();
+                }}
+                disabled={interactionBusy}
+              >
+                {t("agent.exportAnnotatedPdf")}
               </button>
             )}
             {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}

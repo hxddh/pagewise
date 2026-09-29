@@ -196,6 +196,13 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, runs, runsByPa
           break;
       }
       if (cmd === "plugin:dialog|open") return window.__HARNESS_OPEN_PATH__ ?? null;
+      if (cmd === "plugin:dialog|save") return window.__HARNESS_SAVE_PATH__ ?? null;
+      // What an evidence export would write into the PDF (14.1), kept for the
+      // harness to read back.
+      if (cmd === "export_annotated_pdf") {
+        window.__HARNESS_EXPORTS__ = [...(window.__HARNESS_EXPORTS__ ?? []), args];
+        return (args?.annotations ?? []).length;
+      }
       // [value, exists] — see the note at the top of this file.
       if (cmd?.startsWith("plugin:store|get")) {
         return [store.get(args?.key) ?? null, store.has(args?.key)];

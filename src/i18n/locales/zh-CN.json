@@ -10,7 +10,8 @@
   },
   "dialog": {
     "documentsFilter": "文档",
-    "markdownFilter": "Markdown"
+    "markdownFilter": "Markdown",
+    "pdfFilter": "PDF"
   },
   "llm": {
     "apiKeyRequired": "请填写 API 密钥",
@@ -286,7 +287,8 @@
     "activityNoteFinding": "记下一条发现…",
     "activityReviseFinding": "修正一条发现…",
     "exportBrief": "导出简报",
-    "timedOut": "模型长时间没有响应，本次运行已停止。请重试；如果反复出现，可以换一个服务商。"
+    "timedOut": "模型长时间没有响应，本次运行已停止。请重试；如果反复出现，可以换一个服务商。",
+    "exportAnnotatedPdf": "导出带证据的 PDF"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",
@@ -482,7 +484,8 @@
     "exportMarks": "导出标记",
     "walkConversation": "上一条 / 下一条消息",
     "searchConversation": "在本次会话中搜索",
-    "exportBrief": "导出简报"
+    "exportBrief": "导出简报",
+    "exportAnnotatedPdf": "导出带证据的 PDF"
   },
   "toast": {
     "chatExported": "对话已导出",
@@ -510,7 +513,9 @@
     "marksExported": "标记已导出",
     "briefExported": "简报已导出",
     "noFindings": "记录中没有可导出的内容",
-    "resumedAt": "已回到第 {{page}} 页"
+    "resumedAt": "已回到第 {{page}} 页",
+    "annotatedExported": "已在 PDF 副本中写入 {{count}} 条批注",
+    "annotatedNothing": "暂无可写入的内容：没有已找到原文的结论，也没有标记"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",
@@ -588,7 +593,12 @@
   },
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",
-    "fromDocument": "文档中的批注：{{text}}"
+    "fromDocument": "文档中的批注：{{text}}",
+    "reader": "读者",
+    "finding": "结论（PageWise）",
+    "mark": "标记",
+    "foundOnPage": "PageWise 已在第 {{page}} 页找到原文",
+    "confirmed": "读者已核对"
   },
   "cite": {
     "located": "已在第 {{page}} 页找到原文",
