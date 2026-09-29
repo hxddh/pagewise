@@ -390,10 +390,16 @@ function TrustLine({
   }
   if (trust === "retracted") return null;
   const doubtful =
-    trust === "unlocated" || trust === "unreadable" || trust === "unconfirmed" || trust === "stale";
+    trust === "unlocated" ||
+    trust === "mismatch" ||
+    trust === "unreadable" ||
+    trust === "unconfirmed" ||
+    trust === "stale";
   const text =
     trust === "unlocated"
       ? t("record.trustUnlocated")
+      : trust === "mismatch"
+        ? t("record.trustMismatch")
       : trust === "unreadable"
         ? t("record.trustUnreadable")
         : trust === "unconfirmed"

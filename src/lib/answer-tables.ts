@@ -16,8 +16,8 @@
  * Plain GFM tables only: a header row, a delimiter row, body rows. A `|`
  * inside a citation marker's quote does not split a cell.
  */
-import { extractCitations, stripCitations, type Citation } from "./citations";
-import { cachedCitationCheck, type CitationStatus } from "./citation-check";
+import { citationRe, extractCitations, sentenceBefore, stripCitations, type Citation } from "./citations";
+import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
 import { markdownToPlainText } from "./markdown-text";
 
 export interface AnswerRow {
@@ -142,13 +142,13 @@ export function tablesToCsv(path: string, markdown: string, labels: CsvLabels): 
   for (const table of answerTables(markdown)) {
     const lines = [[...table.headers, labels.sources, labels.checked].map(csvField).join(",")];
     for (const row of table.rows) {
-      const citations = row.cells.flatMap((cell) => extractCitations(cell));
-      const sources = citations.map((c) => {
-        const status = cachedCitationCheck(path, c)?.status ?? "pending";
-        return `${pagesOf(c)} ${labels.status[status]}`;
-      });
+      const citations = extractCitations(markdown).filter((c) => c.index >= row.start && c.index <= row.end);
+      // Read against its cell, so a number the passage does not state shows here too.
+      const statusOf = (c: Citation) =>
+        withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote)?.status ?? "pending";
+      const sources = citations.map((c) => `${pagesOf(c)} ${labels.status[statusOf(c)]}`);
       const quoted = citations.filter((c) => c.quote);
-      const located = quoted.filter((c) => cachedCitationCheck(path, c)?.status === "located").length;
+      const located = quoted.filter((c) => statusOf(c) === "located").length;
       const values = table.headers.map((_, i) => plain(row.cells[i] ?? ""));
       lines.push(
         [...values, sources.join("; "), quoted.length ? labels.found(located, quoted.length) : labels.none]
@@ -164,4 +164,19 @@ export function tablesToCsv(path: string, markdown: string, labels: CsvLabels): 
 /** Whether an answer has a table worth exporting. */
 export function hasAnswerTable(markdown: string): boolean {
   return answerTables(markdown).some((t) => t.rows.length > 0);
+}
+
+/**
+ * What a citation at `index` is evidence for: the text of its table cell up to
+ * the marker, or — outside a table — the sentence before it. The one place this
+ * is decided, so the chip, the tally, the record and the model feedback all
+ * check the same words (15.0).
+ */
+export function claimBefore(markdown: string, index: number): string {
+  const inRow = rowAt(markdown, index);
+  if (!inRow) return sentenceBefore(markdown, index);
+  // Earlier markers in the row go first, so a pipe inside one of their quotes
+  // cannot be mistaken for the cell's start.
+  const line = markdown.slice(inRow.row.start, index).replace(citationRe(), "");
+  return plain(line.slice(line.lastIndexOf("|") + 1));
 }

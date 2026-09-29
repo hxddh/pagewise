@@ -539,10 +539,39 @@ button.pages-read-chip:hover {
   border-style: dashed;
 }
 
+/* Found, but the sentence states a number the passage does not: solid, in the
+   warning red — the words are there, the claim about them is in doubt. */
+.cite-mismatch {
+  color: var(--danger);
+  border-width: 2px;
+}
+
 /* On a scan, a quote OCR did not recognise: worth a look, not an accusation. */
 .cite-unconfirmed {
   color: var(--warning);
   border-style: dotted;
+}
+
+/* The model's reading, when the reader asked for one: a mark after the page
+   number, beside the local verdict's colour rather than instead of it. */
+.cite-review-supports::after,
+.cite-review-contradicts::after,
+.cite-review-insufficient::after {
+  margin-left: 1px;
+  font-size: 0.9em;
+}
+
+.cite-review-supports::after {
+  content: "✓";
+}
+
+.cite-review-contradicts::after {
+  content: "✗";
+  color: var(--danger);
+}
+
+.cite-review-insufficient::after {
+  content: "?";
 }
 
 .cite-pending {

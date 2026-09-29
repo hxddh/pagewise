@@ -1,6 +1,10 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { Copy, Gauge, RotateCcw, BookmarkPlus, BookmarkCheck, Sheet } from "lucide-react";
+import { Copy, Gauge, RotateCcw, BookmarkPlus, BookmarkCheck, Sheet, ScanSearch } from "lucide-react";
+import { cachedCitationCheck, withClaim } from "../lib/citation-check";
+import { claimBefore } from "../lib/answer-tables";
+import { extractCitations } from "../lib/citations";
+import { cachedReview, reviewClaim } from "../lib/claim-review";
 import { CitationContext } from "./CitationChip";
 import {
   checkAnswer,
@@ -232,6 +236,7 @@ function MessageAssistantFooterInner({
         unlocated: t("table.statusUnlocated"),
         unreadable: t("table.statusUnreadable"),
         unconfirmed: t("table.statusUnconfirmed"),
+        mismatch: t("table.statusMismatch"),
         unchecked: t("table.statusUnchecked"),
         outOfRange: t("table.statusOutOfRange"),
         pending: t("table.statusPending"),
@@ -248,6 +253,54 @@ function MessageAssistantFooterInner({
       showToast(t("toast.exportFailed"), "error");
     }
   }, [citationEnv, markdownText, showToast, t]);
+
+  // Found citations the model can be asked about: located, or found with a
+  // number the passage does not state (15.0). One billed call each.
+  const reviewable = useMemo(() => {
+    if (!citationEnv || !tally || live) return [];
+    const seen = new Set<string>();
+    return extractCitations(markdownText).flatMap((c) => {
+      const claim = claimBefore(markdownText, c.index);
+      const check = withClaim(cachedCitationCheck(citationEnv.path, c), claim, c.quote);
+      if (!c.quote || !claim || !check?.page || (check.status !== "located" && check.status !== "mismatch")) return [];
+      const k = `${claim}\n${c.quote}`;
+      if (seen.has(k)) return [];
+      seen.add(k);
+      return [{ claim, quote: c.quote, passage: check.passage ?? c.quote, page: check.page }];
+    });
+  }, [citationEnv, tally, live, markdownText]);
+  const [reviewing, setReviewing] = useState(false);
+  const reviewCitations = useCallback(async () => {
+    if (!citationEnv || reviewing) return;
+    setReviewing(true);
+    const counts = { supports: 0, contradicts: 0, insufficient: 0 };
+    let failed = 0;
+    for (const r of reviewable) {
+      try {
+        const verdict = await reviewClaim(citationEnv.path, r.claim, r.quote, r.passage, r.page);
+        counts[verdict.verdict] += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setReviewing(false);
+    if (failed === reviewable.length) {
+      showToast(t("cite.reviewFailed"), "error");
+      return;
+    }
+    showToast(
+      t("cite.reviewDone", {
+        supports: String(counts.supports),
+        contradicts: String(counts.contradicts),
+        insufficient: String(counts.insufficient),
+      }),
+      counts.contradicts > 0 ? "error" : "success",
+    );
+  }, [citationEnv, reviewing, reviewable, showToast, t]);
+  const reviewedAll =
+    reviewable.length > 0 && citationEnv
+      ? reviewable.every((r) => cachedReview(citationEnv.path, r.claim, r.quote))
+      : false;
 
   if (!showFooter) return null;
 
@@ -309,6 +362,25 @@ function MessageAssistantFooterInner({
             <BookmarkCheck size={14} />
           </Button>
         )}
+        {citationEnv && reviewable.length > 0 && (
+          <Button
+            variant="ghost" size="sm" icon className="message-action-btn"
+            onClick={() => void reviewCitations()}
+            disabled={reviewing || reviewedAll}
+            title={
+              reviewedAll
+                ? t("cite.reviewed")
+                : t("cite.reviewAction", { count: String(reviewable.length) })
+            }
+            aria-label={
+              reviewedAll
+                ? t("cite.reviewed")
+                : t("cite.reviewAction", { count: String(reviewable.length) })
+            }
+          >
+            <ScanSearch size={14} />
+          </Button>
+        )}
         {citationEnv && hasTable && (
           <Button
             variant="ghost" size="sm" icon className="message-action-btn"
@@ -346,13 +418,14 @@ function MessageAssistantFooterInner({
         </div>
         {tally && tally.total > 0 && (
           <p
-            className={`citation-tally${tally.unlocated > 0 || tally.outOfRange > 0 ? " citation-tally-warn" : ""}`}
+            className={`citation-tally${tally.unlocated > 0 || tally.outOfRange > 0 || tally.mismatch > 0 ? " citation-tally-warn" : ""}`}
             aria-live="polite"
           >
             {t("cite.tally", { located: String(tally.located), total: String(tally.total) })}
             {tally.unlocated + tally.outOfRange > 0 &&
               ` · ${t("cite.tallyUnlocated", { count: String(tally.unlocated + tally.outOfRange) })}`}
             {tally.unreadable > 0 && ` · ${t("cite.tallyUnreadable", { count: String(tally.unreadable) })}`}
+            {tally.mismatch > 0 && ` · ${t("cite.tallyMismatch", { count: String(tally.mismatch) })}`}
             {tally.unconfirmed > 0 &&
               ` · ${t("cite.tallyUnconfirmed", { count: String(tally.unconfirmed) })}`}
           </p>

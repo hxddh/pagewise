@@ -17,7 +17,8 @@
  * Rides on the user message with the rest of the volatile context, never on
  * the system prompt, for the reason `agent-record-context.ts` gives.
  */
-import { cachedCitationCheck } from "./citation-check";
+import { cachedCitationCheck, withClaim } from "./citation-check";
+import { claimBefore } from "./answer-tables";
 import { extractCitations } from "./citations";
 import { sanitizeForPrompt } from "./agent-view-context";
 
@@ -58,18 +59,23 @@ export function buildCitationFeedback(path: string | null, messages: readonly Mo
   const failed: string[] = [];
   const seen = new Set<string>();
   for (const c of extractCitations(answer)) {
-    const check = cachedCitationCheck(path, c);
-    if (check?.status !== "unlocated" && check?.status !== "outOfRange") continue;
+    const check = withClaim(cachedCitationCheck(path, c), claimBefore(answer, c.index), c.quote);
+    if (check?.status !== "unlocated" && check?.status !== "outOfRange" && check?.status !== "mismatch") continue;
     if (seen.has(c.raw)) continue;
     seen.add(c.raw);
     const pages = c.pages.length > 1 ? `p${c.pages[0]}-${c.pages[c.pages.length - 1]}` : `p${c.pages[0]}`;
-    const why = check.status === "outOfRange" ? "that page does not exist" : "these words are not on that page";
+    const why =
+      check.status === "outOfRange"
+        ? "that page does not exist"
+        : check.status === "mismatch"
+          ? `the words are there, but ${sanitizeForPrompt((check.unstated ?? []).join(", "), 80)} in your sentence is not in that passage`
+          : "these words are not on that page";
     failed.push(`- ${pages} '${sanitizeForPrompt(c.quote ?? "", 160)}' — ${why}`);
     if (failed.length >= MAX_FAILED_CITATIONS) break;
   }
   if (failed.length === 0) return "";
   return (
-    `\n\nIn your previous answer, these citations were checked against the document and not found:\n` +
+    `\n\nIn your previous answer, these citations were checked against the document and did not hold:\n` +
     `${failed.join("\n")}\n` +
     `Do not repeat them as they stand. If one matters to this question, read the page and quote what it ` +
     `actually says; if it was wrong, say so plainly.`

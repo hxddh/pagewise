@@ -288,7 +288,9 @@
     "activityReviseFinding": "修正一条发现…",
     "exportBrief": "导出简报",
     "timedOut": "模型长时间没有响应，本次运行已停止。请重试；如果反复出现，可以换一个服务商。",
-    "exportAnnotatedPdf": "导出带证据的 PDF"
+    "exportAnnotatedPdf": "导出带证据的 PDF",
+    "followUpUnread": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论",
+    "followUpUnread_plural": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",
@@ -590,7 +592,8 @@
     "saveClaim": "保存",
     "cancelEdit": "取消",
     "claimLabel": "结论",
-    "bodyOf": "这条结论所来自的完整回答"
+    "bodyOf": "这条结论所来自的完整回答",
+    "trustMismatch": "原文找到了，但结论里的数字不在那段原文里，请核对"
   },
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",
@@ -615,7 +618,18 @@
     "tallyUnconfirmed": "{{count}} 条在扫描页上未能确认",
     "tallyNone": "没有可核对的引用",
     "keepVerified": "只留下已核对的句子（{{count}}）",
-    "keptVerified": "已将 {{count}} 句已核对内容留到记录"
+    "keptVerified": "已将 {{count}} 句已核对内容留到记录",
+    "mismatch": "已在第 {{page}} 页找到原文，但句中的 {{numbers}} 不在该段原文里，请核对",
+    "tallyMismatch": "{{count}} 条的数字不在原文段落里",
+    "reviewAction": "让模型逐条判断原文是否支持这句话（{{count}} 次短调用）",
+    "reviewed": "已由模型复核",
+    "reviewDone": "模型复核：{{supports}} 条支持，{{contradicts}} 条矛盾，{{insufficient}} 条原文不足以判断",
+    "reviewFailed": "模型复核未能运行，请检查模型设置",
+    "review": {
+      "supports": "模型复核：原文支持",
+      "contradicts": "模型复核：原文说的不是这样",
+      "insufficient": "模型复核：原文不足以判断"
+    }
   },
   "table": {
     "export": "导出表格为 CSV（含出处）",
@@ -629,6 +643,7 @@
     "statusOutOfRange": "无此页",
     "statusPending": "尚未核对",
     "found": "{{located}}/{{total}} 条已找到",
-    "noQuote": "无可核对内容"
+    "noQuote": "无可核对内容",
+    "statusMismatch": "已找到，但数字不符"
   }
 }

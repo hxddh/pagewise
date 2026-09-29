@@ -19,6 +19,8 @@ interface PlacedFinding {
   boxes: HighlightBox[];
   /** Where the margin note sits: the top of the passage, as a page fraction. */
   noteTop: number;
+  /** The words are here, but the claim states a number they do not (15.0). */
+  doubted: boolean;
 }
 
 /** Most notes drawn in one page's margin. Beyond this they stack illegibly. */
@@ -75,7 +77,7 @@ export function FindingLayer({ path, page, revision, selectedId, onSelect }: Fin
         for (const finding of onPage) {
           const placement = await placeFinding(path, finding);
           if (cancelled) return;
-          if (placement.status !== "located") continue;
+          if (placement.status !== "located" && placement.status !== "mismatch") continue;
           const anchor: FindingAnchor = placement.anchor;
           // Located on one of the finding's pages — but not necessarily this
           // one, when a claim cites several. Only the page carrying the words
@@ -83,7 +85,7 @@ export function FindingLayer({ path, page, revision, selectedId, onSelect }: Fin
           if (anchor.page !== page) continue;
           const boxes = anchor.rects.map((rect) => pdfRectToBox(rect, geometry));
           const bounds = pdfRectToBox(anchor.bounds, geometry);
-          out.push({ finding, boxes, noteTop: bounds.top });
+          out.push({ finding, boxes, noteTop: bounds.top, doubted: placement.status === "mismatch" });
         }
         if (!cancelled) setPlaced(out);
       } catch {
@@ -100,14 +102,14 @@ export function FindingLayer({ path, page, revision, selectedId, onSelect }: Fin
 
   return (
     <div className="pdf-finding-layer">
-      {placed.map(({ finding, boxes }) =>
+      {placed.map(({ finding, boxes, doubted }) =>
         boxes.map((box, i) => (
           // raw-button: a hit area positioned over the page at the coordinates
           // the finding's own wording was located at
           <button
             key={`${finding.id}-${i}`}
             type="button"
-            className={`pdf-finding${finding.id === selectedId ? " pdf-finding-selected" : ""}`}
+            className={`pdf-finding${doubted ? " pdf-finding-doubted" : ""}${finding.id === selectedId ? " pdf-finding-selected" : ""}`}
             title={finding.claim}
             aria-label={t("record.onPage", { claim: finding.claim })}
             style={{

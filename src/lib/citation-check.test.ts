@@ -147,7 +147,7 @@ describe("tallyCitations", () => {
     const md = 'A〔p1 "quick brown fox"〕 B〔p1 "slow green turtle"〕 C〔p1〕 D〔p9 "x y z w"〕 A again〔p1 "quick brown fox"〕';
     expect(tallyCitations(PATH, md)).toMatchObject({ total: 4, pending: 4 });
     const tally = await checkAnswer(PATH, 3, md);
-    expect(tally).toEqual({ total: 4, located: 1, unlocated: 1, unreadable: 0, unconfirmed: 0, unchecked: 1, outOfRange: 1, pending: 0 });
+    expect(tally).toEqual({ total: 4, located: 1, unlocated: 1, unreadable: 0, unconfirmed: 0, mismatch: 0, unchecked: 1, outOfRange: 1, pending: 0 });
   });
 });
 

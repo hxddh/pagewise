@@ -10,7 +10,7 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 - **Preview** — Page navigation, thumbnails, zoom, in-document search (⌘F)
 - **Indexing** — PDF text layer; scanned pages are read on your machine (English and Simplified Chinese), with a vision model as an optional fallback for pages that do not read well
 - **Agent** — Streaming chat with tool calls (`document_outline`, `read_pdf_page`, `search_in_document`, …)
-- **Checked citations** — Every fact in an answer cites its page and the words it rests on; PageWise looks the words up on that page and shows whether they are there. Click a citation to see the passage lit on the page — on scanned pages too
+- **Checked citations** — Every fact in an answer cites its page and the words it rests on; PageWise looks the words up on that page and shows whether they are there. Click a citation to see the passage lit on the page — on scanned pages too. A found quote under a sentence whose number the passage does not state is flagged, and your model can be asked, on demand, whether each passage supports its sentence
 - **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
 - **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one trust state (*checked*, *found on the page*, *re-check*) that the panel, the model and the export all read
 - **Brief** — Export the record as one Markdown file: conclusions, evidence, and what still needs re-checking
@@ -63,6 +63,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 | `npm run check:secrets` | Pre-release credential scan |
 | `npm run version:sync` | Sync `VERSION` → package / Tauri / Cargo |
 | `npm run eval` | Measure citation location (text layers and scanned pages) and search on the evaluation corpus (see [eval/README.md](eval/README.md)) |
+| `npm run audit:claims` | With `npm run dev` running: follow a citation whose number does not hold through its chip, the model review and the next question |
 | `npm run audit:tables` | With `npm run dev` running: follow a cited table answer through its chips, the CSV export and the record |
 | `npm run audit:ocr` | After `npm run build`: open a scanned document in Chromium under the app's CSP and follow one cited answer end to end |
 

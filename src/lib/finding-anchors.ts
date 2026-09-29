@@ -34,6 +34,8 @@ import { pageTextItems } from "./pdf";
 import { ocrEnabled, ocrPage } from "./ocr/ocr-service";
 import { docCache } from "./doc-cache";
 import { locateQuote, unionRect, type LocateOutcome } from "./quote-locate";
+import { passageAround } from "./passage";
+import { unstatedQuantities } from "./quantities";
 import type { Finding } from "./finding-store";
 import type { PdfRect, TextItemRect } from "./types";
 
@@ -49,6 +51,11 @@ export interface FindingAnchor {
 export type FindingPlacement =
   /** The evidence was found, on the page it was attributed to. */
   | { status: "located"; anchor: FindingAnchor }
+  /**
+   * The evidence was found, but the claim states a number the passage around
+   * it does not (15.0). Placeable — the words are there — and doubted.
+   */
+  | { status: "mismatch"; anchor: FindingAnchor; unstated: string[] }
   /** Every cited page has text, and the wording is on none of them. */
   | { status: "absent" }
   /**
@@ -175,7 +182,13 @@ async function resolvePlacement(path: string, finding: Finding): Promise<Finding
     const outcome: LocateOutcome = locateQuote(runs.items, quote);
     if (outcome.status === "located") {
       const bounds = unionRect(outcome.rects);
-      if (bounds) return { status: "located", anchor: { page, rects: outcome.rects, bounds } };
+      if (bounds) {
+        const anchor = { page, rects: outcome.rects, bounds };
+        const passage = `${passageAround(runs.items, outcome.rects)}\n${quote}`;
+        const unstated = unstatedQuantities(finding.claim, passage);
+        if (unstated.length > 0) return { status: "mismatch", anchor, unstated: unstated.map((q) => q.text) };
+        return { status: "located", anchor };
+      }
     }
     if (outcome.status === "uncheckable") return { status: "uncheckable" };
     if (outcome.status === "absent") {

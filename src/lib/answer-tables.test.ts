@@ -32,6 +32,7 @@ const labels: CsvLabels = {
     unlocated: "not found",
     unreadable: "unreadable",
     unconfirmed: "unconfirmed",
+    mismatch: "numbers differ",
     unchecked: "not checked",
     outOfRange: "no such page",
     pending: "pending",

@@ -288,7 +288,9 @@
     "activityReviseFinding": "Revising a finding…",
     "exportBrief": "Export brief",
     "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening.",
-    "exportAnnotatedPdf": "Export PDF with evidence"
+    "exportAnnotatedPdf": "Export PDF with evidence",
+    "followUpUnread": "Also read page {{pages}} — it matches the question but was not read — and say whether it changes the answer",
+    "followUpUnread_plural": "Also read pages {{pages}} — they match the question but were not read — and say whether they change the answer"
   },
   "empty": {
     "lead": "Ask questions about your document",
@@ -590,7 +592,8 @@
     "saveClaim": "Save",
     "cancelEdit": "Cancel",
     "claimLabel": "Claim",
-    "bodyOf": "The whole answer this was kept from"
+    "bodyOf": "The whole answer this was kept from",
+    "trustMismatch": "Wording found, but a number in the claim is not in that passage — check the page"
   },
   "annotations": {
     "byAuthor": "{{author}}: {{text}}",
@@ -615,7 +618,18 @@
     "tallyUnconfirmed": "{{count}} on scanned pages, unconfirmed",
     "tallyNone": "No citations to check",
     "keepVerified": "Keep the verified sentences ({{count}})",
-    "keptVerified": "Kept {{count}} verified sentences to the record"
+    "keptVerified": "Kept {{count}} verified sentences to the record",
+    "mismatch": "Found on page {{page}}, but {{numbers}} in this sentence is not in that passage — check the page",
+    "tallyMismatch": "{{count}} with a number not in the passage",
+    "reviewAction": "Ask your model whether each passage supports its sentence ({{count}} short calls)",
+    "reviewed": "Citations reviewed by your model",
+    "reviewDone": "Model review: {{supports}} supported, {{contradicts}} contradicted, {{insufficient}} not settled by the passage",
+    "reviewFailed": "The model review could not run — check the model settings",
+    "review": {
+      "supports": "Model review: supported",
+      "contradicts": "Model review: the passage says otherwise",
+      "insufficient": "Model review: the passage does not settle it"
+    }
   },
   "table": {
     "export": "Export table as CSV, with sources",
@@ -629,6 +643,7 @@
     "statusOutOfRange": "no such page",
     "statusPending": "not checked yet",
     "found": "{{located}} of {{total}} found",
-    "noQuote": "nothing to check"
+    "noQuote": "nothing to check",
+    "statusMismatch": "found, but a number differs"
   }
 }

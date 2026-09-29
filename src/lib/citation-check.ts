@@ -21,21 +21,41 @@
 import { pageRuns } from "./finding-anchors";
 import { locateQuote } from "./quote-locate";
 import {
-  citationRe,
   citationKey,
   extractCitations,
-  parseCitation,
   sentenceBefore,
   type Citation,
 } from "./citations";
 import type { PdfRect } from "./types";
-import { rowAt, rowClaim } from "./answer-tables";
+import { claimBefore, rowAt, rowClaim } from "./answer-tables";
+import { passageAround } from "./passage";
+import { unstatedQuantities } from "./quantities";
+
+/**
+ * A located check, read against the sentence it supports: `mismatch` when the
+ * sentence states a number the passage around the quote does not (15.0).
+ * Any other check comes back unchanged, and so does a located one whose
+ * sentence has no numbers, or only numbers the passage states.
+ */
+export function withClaim(check: CitationCheck | null, claim: string, quote?: string | null): CitationCheck | null {
+  if (!check || check.status !== "located" || !claim) return check;
+  const context = `${check.passage ?? ""}\n${quote ?? ""}`;
+  const unstated = unstatedQuantities(claim, context);
+  if (unstated.length === 0) return check;
+  return { ...check, status: "mismatch", unstated: unstated.map((q) => q.text) };
+}
 
 export type CitationStatus =
   /** The quoted words are on a page the citation names. */
   | "located"
   /** Every named page has text, and none of them has these words. */
   | "unlocated"
+  /**
+   * The quoted words are on the page, but a number in the sentence they
+   * support is not in the passage they were found in (15.0). Found and
+   * doubted at once: the reader is told which number.
+   */
+  | "mismatch"
   /** A named page has no text layer, or could not be read. Unchecked, not doubted. */
   | "unreadable"
   /**
@@ -55,6 +75,10 @@ export interface CitationCheck {
   page?: number;
   /** One rectangle per text run the quote spans, bottom-left origin. Only for `located`. */
   rects?: PdfRect[];
+  /** The paragraph the quote was found in, as page text. Only for `located`. */
+  passage?: string;
+  /** For `mismatch`: the sentence's numbers the passage does not state, as written. */
+  unstated?: string[];
 }
 
 const results = new Map<string, CitationCheck>();
@@ -134,7 +158,10 @@ async function resolve(
       continue;
     }
     const outcome = locateQuote(runs.items, c.quote);
-    if (outcome.status === "located") return settled({ status: "located", page, rects: outcome.rects });
+    if (outcome.status === "located") {
+      const passage = passageAround(runs.items, outcome.rects);
+      return settled({ status: "located", page, rects: outcome.rects, passage });
+    }
     if (outcome.status === "uncheckable") return settled({ status: "unchecked" });
     if (outcome.status === "unreadable") sawUnreadable = true;
     if (outcome.status === "absent") {
@@ -155,6 +182,7 @@ export interface CitationTally {
   unlocated: number;
   unreadable: number;
   unconfirmed: number;
+  mismatch: number;
   unchecked: number;
   outOfRange: number;
   /** Not resolved yet. */
@@ -168,6 +196,7 @@ export function emptyTally(): CitationTally {
     unlocated: 0,
     unreadable: 0,
     unconfirmed: 0,
+    mismatch: 0,
     unchecked: 0,
     outOfRange: 0,
     pending: 0,
@@ -183,7 +212,7 @@ export function tallyCitations(path: string, markdown: string): CitationTally {
     if (seen.has(k)) continue;
     seen.add(k);
     tally.total += 1;
-    const check = cachedCitationCheck(path, c);
+    const check = withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote);
     if (!check) tally.pending += 1;
     else tally[check.status] += 1;
   }
@@ -215,27 +244,26 @@ export interface VerifiedSentence {
 export function verifiedSentences(path: string, markdown: string): VerifiedSentence[] {
   const out: VerifiedSentence[] = [];
   const seen = new Set<string>();
-  const re = citationRe();
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(markdown)) !== null) {
-    const c = parseCitation(m[1]!);
-    if (!c?.quote) continue;
-    const check = cachedCitationCheck(path, c);
-    if (check?.status !== "located" || !check.page) continue;
+  const all = extractCitations(markdown);
+  // Located, and — since 15.0 — without a number the passage does not state.
+  const holds = (c: Citation) =>
+    withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote)?.status === "located";
+  for (const c of all) {
+    if (!c.quote || !holds(c)) continue;
+    const check = cachedCitationCheck(path, c)!;
+    if (!check.page) continue;
     // A citation in a table cell supports its row, not the text before the
     // marker — which, in a table, is a run of cells from the row above.
-    const inRow = rowAt(markdown, m.index);
+    const inRow = rowAt(markdown, c.index);
     // And a row is only as verified as its least-verified cell: keeping it
     // would put every value in it into the record.
     if (
       inRow &&
-      inRow.row.cells
-        .flatMap((cell) => extractCitations(cell))
-        .some((rc) => rc.quote && cachedCitationCheck(path, rc)?.status !== "located")
+      all.some((rc) => rc.index >= inRow.row.start && rc.index <= inRow.row.end && rc.quote && !holds(rc))
     ) {
       continue;
     }
-    const claim = inRow ? rowClaim(inRow.table, inRow.row) : sentenceBefore(markdown, m.index);
+    const claim = inRow ? rowClaim(inRow.table, inRow.row) : sentenceBefore(markdown, c.index);
     if (!claim || seen.has(claim)) continue;
     seen.add(claim);
     out.push({ claim, page: check.page, quote: c.quote });

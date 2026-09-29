@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { cachedReview, subscribeReviews } from "../lib/claim-review";
 import { useI18n } from "../i18n";
-import { cachedCitationCheck, checkCitation, type CitationCheck } from "../lib/citation-check";
+import { cachedCitationCheck, checkCitation, withClaim, type CitationCheck } from "../lib/citation-check";
 import { citationLabel, type CitationLink } from "../lib/remark-citations";
 import type { PdfRect } from "../lib/types";
 
@@ -51,24 +52,38 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
     // `link` is rebuilt on every render from its URL; its content is the key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [env?.path, env?.totalPages, pagesKey, link.quote]);
+  // `link.claim` does not change what is checked, only how it is read.
 
   const label = children ?? citationLabel(link.pages);
   if (!env) return <sup className="cite cite-inert">{label}</sup>;
 
-  const status: CitationChipStatus = check?.status ?? "pending";
+  // Read against the sentence it supports: a number the passage does not state
+  // turns a found quote into a doubted one (15.0).
+  const read = withClaim(check, link.claim ?? "", link.quote);
+  const status: CitationChipStatus = read?.status ?? "pending";
   const pages = citationLabel(link.pages);
-  const verdict = t(`cite.${status}`, { page: String(check?.page ?? link.pages[0]), pages });
-  const title = link.quote ? `“${link.quote}”\n${verdict}` : verdict;
+  const verdict = t(`cite.${status}`, {
+    page: String(read?.page ?? link.pages[0]),
+    pages,
+    numbers: (read?.unstated ?? []).join("、"),
+  });
+  // The model's reading, when the reader asked for one (15.0). Shown beside
+  // the local verdict, never in place of it.
+  const review = useSyncExternalStore(subscribeReviews, () =>
+    env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote) : null,
+  );
+  const reviewLine = review ? `\n${t(`cite.review.${review.verdict}`)}: ${review.reason}` : "";
+  const title = (link.quote ? `“${link.quote}”\n${verdict}` : verdict) + reviewLine;
 
   return (
     // raw-button: an inline mark inside a sentence — it has to sit on the text line, not read as a control
     <button
       type="button"
-      className={`cite cite-${status}`}
+      className={`cite cite-${status}${review ? ` cite-review-${review.verdict}` : ""}`}
       title={title}
       aria-label={title}
       onClick={() =>
-        env.onReveal(check?.page ?? link.pages[0]!, check?.status === "located" ? (check.rects ?? null) : null)
+        env.onReveal(read?.page ?? link.pages[0]!, read?.rects ?? null)
       }
     >
       {label}

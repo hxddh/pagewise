@@ -113,7 +113,12 @@ button.pages-read-chip:hover
 .cite:hover
 .cite-located
 .cite-unlocated, .cite-outOfRange
+.cite-mismatch
 .cite-unconfirmed
+.cite-review-supports::after, .cite-review-contradicts::after, .cite-review-insufficient::after
+.cite-review-supports::after
+.cite-review-contradicts::after
+.cite-review-insufficient::after
 .cite-pending
 .cite-inert
 .citation-tally
@@ -339,6 +344,7 @@ button.pages-read-chip:hover
 .pdf-finding
 .pdf-finding::after
 .pdf-finding:hover
+.pdf-finding-doubted::after
 .pdf-finding-selected
 .pdf-finding-selected::after
 .pdf-finding-margin
