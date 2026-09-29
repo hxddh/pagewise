@@ -17,6 +17,7 @@
  * the sheet count behind it — the same rule the toolbar follows — so a page
  * named here is a page the reader can turn to in any viewer.
  */
+import { citationsToText } from "./citations";
 import type { Finding } from "./finding-store";
 import { labelForPage } from "./page-labels";
 import { TRUST_KNOWN, type Trust } from "./finding-trust";
@@ -141,7 +142,7 @@ export function briefToMarkdown(
     );
     if (finding.body) {
       lines.push("", `   _${labels.keptFromAnswer}:_`, "");
-      for (const line of finding.body.split(/\r?\n/)) lines.push(line ? `   ${line}` : "");
+      for (const line of citationsToText(finding.body).split(/\r?\n/)) lines.push(line ? `   ${line}` : "");
     }
     lines.push("");
   }

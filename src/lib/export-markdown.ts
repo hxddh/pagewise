@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import { isToolUIPart } from "ai";
 import { stripDsmlToolMarkup } from "./agent-loop-guards";
 import { findLastMessage } from "./messages-utils";
+import { citationsToText } from "./citations";
 
 function messageText(message: UIMessage): string {
   const raw = message.parts
@@ -10,7 +11,9 @@ function messageText(message: UIMessage): string {
     .join("\n");
   // Assistant text can carry leaked DSML tool markup that the chat UI strips
   // at render time — exports must strip it too.
-  return (message.role === "assistant" ? stripDsmlToolMarkup(raw) : raw).trim();
+  // Citation markers are spelled out: outside the app the quote is the only
+  // way back to the passage.
+  return (message.role === "assistant" ? citationsToText(stripDsmlToolMarkup(raw)) : raw).trim();
 }
 
 function hasFilePart(message: UIMessage): boolean {

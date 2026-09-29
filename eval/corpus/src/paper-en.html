@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Adaptive Admission for Small Object Caches (evaluation sample)</title>
+<style>
+  @page { size: Letter; margin: 0.8in 0.75in 0.9in 0.75in; }
+  body { font-family: "DejaVu Serif", "Liberation Serif", serif; font-size: 9.6pt; line-height: 1.38; }
+  .cols { column-count: 2; column-gap: 0.28in; text-align: justify; }
+  h1 { font-size: 17pt; text-align: center; margin: 0 0 0.06in; }
+  .authors { text-align: center; font-size: 10pt; margin-bottom: 0.18in; }
+  .abstract { font-size: 9pt; margin: 0 0.35in 0.2in; text-align: justify; }
+  h2 { font-size: 10.5pt; margin: 0.14in 0 0.05in; break-after: avoid; }
+  p { margin: 0 0 0.07in; text-indent: 1.2em; }
+  table { border-collapse: collapse; width: 100%; font-size: 8.4pt; margin: 0.08in 0 0.1in; break-inside: avoid; }
+  th, td { border-top: 0.5pt solid #000; border-bottom: 0.5pt solid #000; padding: 2pt 3pt; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .caption { font-size: 8.4pt; text-indent: 0; }
+  .fn { font-size: 7.8pt; text-indent: 0; border-top: 0.4pt solid #000; padding-top: 3pt; }
+  .eq { text-align: center; text-indent: 0; font-style: italic; }
+</style>
+</head>
+<body>
+<h1>Adaptive Admission for Small Object Caches</h1>
+<div class="authors">A fictional paper written for the PageWise evaluation corpus. No results in it were measured.</div>
+<p class="abstract"><b>Abstract.</b> Object caches in front of storage services are dominated by small, short-lived objects whose reuse distance is hard to predict. We describe <i>Sieve-A</i>, an admission filter that decides whether a newly fetched object should enter the cache at all, and we evaluate it against LRU, ARC and a TinyLFU-style frequency sketch on four production-like traces. Sieve-A lowers the byte miss ratio by 7.4% on average and by up to 18.9% on the most skewed trace, while using a fixed 16 KiB of metadata per million cached objects. We also report two negative results: admission control offers little on traces whose working set already fits in memory, and the filter’s benefit disappears when object sizes vary by more than three orders of magnitude.</p>
+
+<div class="cols">
+<h2>1 Introduction</h2>
+<p>A cache that admits every object it fetches is making a bet: that the object will be requested again before it is evicted. For large, popular objects the bet usually pays off. For the long tail of small objects that most real traces contain, it frequently does not—and each lost bet costs an eviction of something that might have been reused. The classic response has been to improve the eviction policy. This paper takes the other route and asks whether an object should be admitted in the first place.</p>
+<p>Admission filters are not new. TinyLFU keeps an approximate frequency count for every key and admits a newcomer only if it is more popular than the victim it would displace. The difficulty is that approximate counters must be aged, and the aging schedule interacts with the trace in ways that are difficult to tune offline. Our contribution is a filter whose only tunable parameter, the sampling rate <i>ρ</i>, can be adjusted online from the observed hit ratio.</p>
+<p>We make three claims. First, on traces with a Zipf exponent above 0.9, admission control matters more than the choice of eviction policy. Second, a filter with a fixed memory budget can match an ideally tuned TinyLFU without offline tuning. Third, the gains are confined to workloads where most requests fall on objects smaller than 4 KiB; we find no benefit, and occasionally a small loss, elsewhere.</p>
+
+<h2>2 Background</h2>
+<p>Let a trace be a sequence of requests <i>r</i><sub>1</sub>, …, <i>r</i><sub>n</sub>, each naming an object with a size in bytes. A cache of capacity <i>C</i> bytes serves a request from memory if the object is resident and fetches it from the backing store otherwise. We report the <i>byte miss ratio</i>, the fraction of requested bytes that had to be fetched, because it is the quantity that determines backend load and egress cost.</p>
+<p>LRU evicts the least recently used object. ARC balances recency and frequency with two lists whose relative sizes adapt to the trace. TinyLFU adds a frequency sketch in front of an eviction policy and rejects newcomers whose estimated frequency is lower than the victim’s. All three are well understood; we use the reference implementations described in the appendix without modification.</p>
+<p>A useful way to think about admission is in terms of <i>reuse distance</i>: the number of distinct bytes requested between two accesses to the same object. An object whose reuse distance exceeds <i>C</i> will be evicted before it is reused under any policy that is not clairvoyant, so admitting it can only do harm. The filter’s task is to estimate, from a small sample, which newcomers are likely to fall into that category.</p>
+
+<h2>3 Design of Sieve-A</h2>
+<p>Sieve-A samples one request in every 1/<i>ρ</i> and records, for each sampled key, the logical time at which it was seen. When the same key is sampled again, the filter computes an estimated reuse distance and adds it to a small histogram with 64 logarithmic buckets. A newcomer is admitted if its size class has a median estimated reuse distance below the current cache capacity.</p>
+<p class="eq">admit(o) ⇔ median<sub>k(o)</sub>(d̂) &lt; C · (1 − ε)</p>
+<p>Here <i>k</i>(<i>o</i>) is the size class of object <i>o</i> and <i>ε</i> is a safety margin, fixed at 0.1 in all experiments. The histogram is aged by halving every bucket after each 2<sup>20</sup> sampled requests; unlike TinyLFU’s counter reset, halving is applied to a structure that is already an estimate of a distribution, so it does not erase the ordering between size classes.</p>
+<p>The sampling rate starts at <i>ρ</i> = 1/64. Every epoch the filter compares the observed hit ratio with the hit ratio of the previous epoch; if it has fallen by more than one percentage point, <i>ρ</i> is doubled (up to 1/8) so that the histogram reacts faster, and otherwise it is halved (down to 1/512) to save memory bandwidth. This is the only feedback loop in the design, and it converged within ten epochs on every trace we tried.</p>
+<p>Memory use is fixed. Each size class holds a 64-bucket histogram of 32-bit counters, and there are 32 size classes, so the histograms occupy 8 KiB; the sample table holds 1,024 entries of 8 bytes each. Together this is the 16 KiB quoted in the abstract, independent of the number of cached objects.</p>
+
+<h2>4 Methodology</h2>
+<p>We use four traces. <b>WEB</b> is a synthetic web-proxy trace with a Zipf exponent of 0.8 and log-normally distributed sizes. <b>KV</b> models a key-value store serving session tokens: 92% of objects are under 512 bytes. <b>CDN</b> is dominated by image thumbnails with a Zipf exponent of 1.1. <b>MIX</b> interleaves the other three at equal request rates, producing sizes that range from 40 bytes to 60 MiB.</p>
+<p>Each trace contains 200 million requests. Cache capacity is set to 1%, 2% and 5% of the trace’s unique bytes. Every configuration is run five times with different random seeds for the sampler, and we report the mean; the standard deviation never exceeded 0.3 percentage points and is omitted from the tables.</p>
+
+<table>
+  <tr><th>Trace</th><th>LRU</th><th>ARC</th><th>TinyLFU</th><th>Sieve-A</th></tr>
+  <tr><td>WEB</td><td>41.2</td><td>38.9</td><td>36.1</td><td>35.4</td></tr>
+  <tr><td>KV</td><td>27.6</td><td>25.3</td><td>21.8</td><td>19.7</td></tr>
+  <tr><td>CDN</td><td>33.0</td><td>31.4</td><td>26.2</td><td>22.4</td></tr>
+  <tr><td>MIX</td><td>45.8</td><td>44.1</td><td>43.9</td><td>44.6</td></tr>
+</table>
+<p class="caption">Table 1: Byte miss ratio (%) at a capacity of 2% of unique bytes. Lower is better.</p>
+
+<h2>5 Results</h2>
+<p>Table 1 summarises the main result. On KV and CDN, Sieve-A outperforms TinyLFU by 2.1 and 3.8 percentage points respectively; relative to LRU, the reduction on CDN is 32%. On WEB the difference between the two admission filters is within 0.7 points. On MIX, Sieve-A is slightly worse than TinyLFU and ARC, which we examine in Section 6.</p>
+<p>The averaged improvement of 7.4% quoted in the abstract is the mean relative reduction of byte miss ratio against the best non-admission policy (ARC), taken over all four traces and all three capacities. The largest single improvement, 18.9%, occurs on CDN at a capacity of 1%.</p>
+<p>Throughput is not affected in any way we could measure. The filter adds one hash computation and, for sampled requests, one table lookup; at 1/64 sampling this amounts to under 40 ns per request on the test machine, compared with a median fetch latency of 1.8 ms from the backing store.</p>
+
+<h2>6 Where admission does not help</h2>
+<p>Two situations defeat the filter. The first is unsurprising: when the working set fits in the cache, every object is eventually reused and rejecting any of them is a loss. At a capacity of 5% on WEB, all four policies are within 1.5 points of one another.</p>
+<p>The second is more instructive. On MIX, a single size class may contain both a 40-byte session token and a 3 KiB thumbnail, because the classes are logarithmic in size and the traces overlap. The median reuse distance of such a class describes neither population, and the filter rejects tokens that would have been reused. We tried doubling the number of size classes; it recovered about half of the loss and doubled the memory footprint, which we do not consider a good trade.</p>
+<p class="fn">Footnote: an earlier version of this paper reported a 9.1% average improvement. That figure included a WEB run with a misconfigured capacity and has been withdrawn.</p>
+
+<h2>7 Related work</h2>
+<p>Size-aware admission has a long history in web caching, where policies such as GDSF weigh an object’s size against its frequency. Machine-learned admission filters have been proposed that predict reuse from request features; they report larger gains than ours on the traces they were trained on, but require offline training and a model that must itself be kept current. Sieve-A is deliberately simpler: it has one feedback loop and a fixed memory cost, and it can be disabled at run time without flushing the cache.</p>
+
+<h2>8 Conclusion</h2>
+<p>Admission control is worth more than eviction policy on skewed traces of small objects, and it can be done with a fixed, small amount of memory and a single online parameter. It is worth little when the working set fits in memory, and it can hurt when a size class mixes unrelated populations. We recommend enabling it per tenant, where the size distribution is known to be narrow, rather than globally.</p>
+</div>
+</body>
+</html>

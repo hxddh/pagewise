@@ -122,7 +122,7 @@ export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
  *
  * Takes its data as one argument because `addInitScript` passes exactly one.
  */
-export function installTauriMock({ pdfB64, doc, apiKey, settings, runs }) {
+export function installTauriMock({ pdfB64, doc, apiKey, settings, runs, runsByPage }) {
   const store = new Map(Object.entries(settings ?? {}));
 
   // Tauri v2 routes unlisten through its own global, not through INTERNALS.
@@ -160,6 +160,9 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, runs }) {
            */
           const page = args?.page ?? 1;
           if (page < 1 || page > (doc.page_count ?? 0)) return [];
+          // A real document's own runs, page by page (the evaluation feeds
+          // these from `eval/extract`), ahead of the fixture's shared ones.
+          if (runsByPage) return runsByPage[page] ?? [];
           return (runs ?? []).map(({ text, rect }) => ({
             text: text.replace(/^#+\s*/, "").replace("{page}", String(page)),
             rect,

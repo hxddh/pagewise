@@ -29,6 +29,13 @@ const FLUSH_DELAY_MS = 800;
 
 interface StoredDoc {
   path: string;
+  /**
+   * The file's content fingerprint (`file-identity.ts`), since 13.0. Lets a
+   * renamed or moved scan find the pages already paid for; before it, only
+   * the marks, the record and the chat followed a rename, and every page of
+   * the scan was re-billed. Optional and additive, so the store version stays.
+   */
+  identity?: string;
   stamp: string;
   totalPages: number;
   pages: PageText[];
@@ -167,12 +174,35 @@ async function writeDocs(docs: StoredDoc[]): Promise<void> {
   await s.save();
 }
 
-/** Pages persisted for `path`, or `[]` when the file changed or nothing is cached. */
-export async function loadIndexedPages(path: string, stamp: string): Promise<PageText[]> {
+/** Fingerprints of the documents opened this session, written beside their pages. */
+const identityByPath = new Map<string, string>();
+
+/**
+ * Pages persisted for `path`, or `[]` when the file changed or nothing is cached.
+ *
+ * With `identity`, a document cached under another path whose content has the
+ * same fingerprint is the same file moved or renamed: its pages are returned
+ * and the entry is re-keyed to where the file is now.
+ */
+export async function loadIndexedPages(path: string, stamp: string, identity?: string): Promise<PageText[]> {
+  if (identity) identityByPath.set(path, identity);
   try {
     const docs = await withStoreLock(readDocs);
-    const doc = docs.find((d) => d.path === path);
-    if (!doc || doc.stamp !== stamp) return [];
+    let doc = docs.find((d) => d.path === path && d.stamp === stamp);
+    if (!doc && identity && !docs.some((d) => d.path === path && d.stamp === stamp)) {
+      const moved = docs.find((d) => d.identity === identity && d.path !== path);
+      if (moved) {
+        doc = moved;
+        await withStoreLock(async () => {
+          const current = await readDocs();
+          const next = current
+            .filter((d) => d.path !== path)
+            .map((d) => (d.path === moved.path && d.identity === identity ? { ...d, path, stamp } : d));
+          await writeDocs(next);
+        }).catch(() => undefined);
+      }
+    }
+    if (!doc) return [];
     // Only vision-derived text is ever written here (see the module docs), so
     // the provenance is known and must travel with the text — the merge rules
     // use it to keep free re-extraction from displacing what was paid for.
@@ -226,8 +256,10 @@ async function flushPending(): Promise<void> {
           byPath.delete(path);
           continue;
         }
+        const identity = identityByPath.get(path) ?? existing?.identity;
         byPath.set(path, {
           path,
+          ...(identity ? { identity } : {}),
           stamp: entry.stamp,
           totalPages: entry.totalPages,
           pages,

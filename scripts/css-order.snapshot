@@ -109,6 +109,14 @@ button.pages-read-chip:hover
 .pages-read-more
 .page-ref-link
 .page-ref-link:hover
+.cite
+.cite:hover
+.cite-located
+.cite-unlocated, .cite-outOfRange
+.cite-pending
+.cite-inert
+.citation-tally
+.citation-tally-warn
 .markdown-stream-caret
 @keyframes markdown-caret-blink
   50%
@@ -279,6 +287,8 @@ button.pages-read-chip:hover
 # 11-pdf-layers.css
 .search-highlight-layer
 .search-highlight
+.citation-highlight-layer
+.citation-highlight
 @keyframes search-highlight-in
   from
   to

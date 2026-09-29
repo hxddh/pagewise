@@ -127,7 +127,7 @@ export async function loadDocument(
   // Fold in page text that previously cost a vision call. Without this every
   // scanned page is re-indexed — and re-billed — on each launch.
   if (stamp) {
-    const cached = await loadIndexedPages(path, stamp);
+    const cached = await loadIndexedPages(path, stamp, identity);
     if (cached.length > 0) {
       doc = { ...doc, pages: mergePageTextsOnReload(cached, doc.pages) };
     }

@@ -1,10 +1,19 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { Copy, Gauge, RotateCcw, BookmarkPlus } from "lucide-react";
+import { Copy, Gauge, RotateCcw, BookmarkPlus, BookmarkCheck } from "lucide-react";
+import { CitationContext } from "./CitationChip";
+import {
+  checkAnswer,
+  tallyCitations,
+  verifiedSentences,
+  type CitationTally,
+  type VerifiedSentence,
+} from "../lib/citation-check";
 import { AnchoredMenu } from "./AnchoredMenu";
 import { useI18n } from "../i18n";
 import { collectReadPages } from "../lib/read-pages";
 import { claimFromAnswer } from "../lib/keep-answer";
+import { citationsToText, stripCitations } from "../lib/citations";
 import { useToast } from "../hooks/useToast";
 import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
 import {
@@ -34,6 +43,11 @@ interface MessageAssistantFooterProps {
    * claim was kept.
    */
   onKeep?: (claim: string, pages: number[], source: { body: string; messageId: string }) => void;
+  /**
+   * Keep only the sentences whose citations were found on their pages, each as
+   * its own record entry with the words that confirm it. Since 13.0.
+   */
+  onKeepVerified?: (sentences: VerifiedSentence[], messageId: string) => void;
 }
 
 /**
@@ -64,11 +78,16 @@ async function writeToClipboard(text: string): Promise<void> {
   }
 }
 
-function extractCopyableText(message: UIMessage): string {
+/**
+ * `markers` decides what becomes of an answer's citation markers: spelled out
+ * for the clipboard, where the quote is the only way back to the passage;
+ * dropped for a one-line claim, where they are noise.
+ */
+function extractCopyableText(message: UIMessage, markers: (text: string) => string = citationsToText): string {
   const parts: string[] = [];
   for (const part of message.parts) {
     if (part.type === "text" && part.text?.trim()) {
-      parts.push(stripDsmlToolMarkup(part.text));
+      parts.push(markers(stripDsmlToolMarkup(part.text)));
     } else if (part.type === "reasoning" && part.text?.trim()) {
       parts.push(part.text);
     }
@@ -103,6 +122,7 @@ function MessageAssistantFooterInner({
   onRegenerate,
   onCopy,
   onKeep,
+  onKeepVerified,
 }: MessageAssistantFooterProps) {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -154,7 +174,7 @@ function MessageAssistantFooterInner({
 
   // Hooks must run unconditionally — keep this above the early return below.
   const hasCopyable = useMemo(() => extractCopyableText(message).length > 0, [message]);
-  const plainText = useMemo(() => extractCopyableText(message), [message]);
+  const claimText = useMemo(() => extractCopyableText(message, stripCitations), [message]);
   // The answer as written — markdown intact — for the record to keep whole.
   const markdownText = useMemo(
     () =>
@@ -169,6 +189,32 @@ function MessageAssistantFooterInner({
   // The anchor: the pages this answer actually read. Already computed for the
   // "Pages read" trail, so keeping an answer invents nothing.
   const keepPages = useMemo(() => collectReadPages(message.parts), [message.parts]);
+
+  // What the answer's citations turned out to be, once it has finished
+  // streaming. The chips check themselves; this waits on the same checks
+  // (shared by `citation-check.ts`) to say it in one line.
+  const citationEnv = useContext(CitationContext);
+  const [tally, setTally] = useState<CitationTally | null>(null);
+  const [keptVerified, setKeptVerified] = useState(false);
+  useEffect(() => {
+    if (!citationEnv || live || !markdownText) {
+      setTally(null);
+      return;
+    }
+    let alive = true;
+    setTally(tallyCitations(citationEnv.path, markdownText));
+    void checkAnswer(citationEnv.path, citationEnv.totalPages, markdownText).then(
+      (t) => alive && setTally(t),
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [citationEnv, live, markdownText]);
+  const verified = useMemo(
+    () => (citationEnv && tally && tally.located > 0 ? verifiedSentences(citationEnv.path, markdownText) : []),
+    [citationEnv, tally, markdownText],
+  );
 
   if (!showFooter) return null;
 
@@ -195,7 +241,7 @@ function MessageAssistantFooterInner({
           <Button
             variant="ghost" size="sm" icon className="message-action-btn"
             onClick={() => {
-              onKeep(claimFromAnswer(plainText), keepPages, {
+              onKeep(claimFromAnswer(claimText), keepPages, {
                 body: markdownText,
                 messageId: message.id,
               });
@@ -206,6 +252,28 @@ function MessageAssistantFooterInner({
             aria-label={kept ? t("record.kept") : t("record.keep")}
           >
             <BookmarkPlus size={14} />
+          </Button>
+        )}
+        {onKeepVerified && verified.length > 0 && (
+          <Button
+            variant="ghost" size="sm" icon className="message-action-btn"
+            onClick={() => {
+              onKeepVerified(verified, message.id);
+              setKeptVerified(true);
+            }}
+            disabled={keptVerified}
+            title={
+              keptVerified
+                ? t("cite.keptVerified", { count: String(verified.length) })
+                : t("cite.keepVerified", { count: String(verified.length) })
+            }
+            aria-label={
+              keptVerified
+                ? t("cite.keptVerified", { count: String(verified.length) })
+                : t("cite.keepVerified", { count: String(verified.length) })
+            }
+          >
+            <BookmarkCheck size={14} />
           </Button>
         )}
         {canRegenerate && onRegenerate && (
@@ -233,6 +301,17 @@ function MessageAssistantFooterInner({
           <Gauge size={14} />
         </Button>
         </div>
+        {tally && tally.total > 0 && (
+          <p
+            className={`citation-tally${tally.unlocated > 0 || tally.outOfRange > 0 ? " citation-tally-warn" : ""}`}
+            aria-live="polite"
+          >
+            {t("cite.tally", { located: String(tally.located), total: String(tally.total) })}
+            {tally.unlocated + tally.outOfRange > 0 &&
+              ` · ${t("cite.tallyUnlocated", { count: String(tally.unlocated + tally.outOfRange) })}`}
+            {tally.unreadable > 0 && ` · ${t("cite.tallyUnreadable", { count: String(tally.unreadable) })}`}
+          </p>
+        )}
       </div>
 
       <AnchoredMenu

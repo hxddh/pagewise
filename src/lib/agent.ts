@@ -17,6 +17,7 @@ import {
 } from "./agent-view-context";
 import { AGENT_TIMEOUT } from "./agent-timeouts";
 import { buildRecordInstructions } from "./agent-record-context";
+import { buildCitationFeedback } from "./agent-citation-context";
 import { labelHintFor } from "./agent-label-context";
 import { compactRunMessages } from "./compact-run-messages";
 import { beginSteerRun, withSteerMessage } from "./agent-steer";
@@ -146,7 +147,7 @@ Rules:
 - If search returns nothing useful, read the relevant page(s) anyway — a figure or scanned page defeats search, so "no hits" does not mean the content is absent; read the page(s) before concluding something isn't in the document.
 - When the user asks about a term or topic while viewing a page, read that page first — it is usually what they mean; read where an ambiguous term (e.g. an acronym) appears rather than guessing its meaning.
 - If a page doesn't fully answer, read adjacent pages or search again before replying; don't answer a document-spanning question from a single page.
-- When you state a fact from the document, cite its page (e.g. "page 5"); quote short key passages verbatim rather than paraphrasing.
+- Cite every fact you take from the document with a marker right after it: 〔p12 "words copied exactly from page 12"〕 — the page number as the reading tools number it, and a short quote (a phrase to one sentence) copied character for character from the page text you read, punctuation included. PageWise looks the quote up on that page and shows the reader whether it is there: never quote from memory, never paraphrase or translate inside the quotes, never join words from different places. A fact spanning pages: 〔p12-13 "…"〕 with the quote from one of them. A figure or chart you cannot quote: 〔p12〕. No marker on your own reasoning or background knowledge.
 - If no document is loaded, ask the user to open a PDF.
 - Pages reported as unindexed have little or no extracted text, so search cannot match them. "No hits" is not evidence the content is absent; reading such a page scans it on demand, which costs a billed vision call from a limited per-question allowance — read only the pages you need, and say so plainly if the allowance runs out.
 - A page already returned in full during this turn comes back as a short marker instead of its text. The text is above; do not re-read it to see it again.
@@ -304,6 +305,12 @@ export function createDocAgent() {
       // re-derive it. Appended to the user message with the rest of the volatile
       // context — never to the system prompt, which is what providers cache.
       viewHint += buildRecordInstructions(runtime.activeDocPath);
+      // Which of the last answer's citations were not on their pages — what the
+      // reader sees as red chips, told to the one who wrote them.
+      viewHint += buildCitationFeedback(
+        runtime.activeDocPath,
+        rest.prompt as ReadonlyArray<{ role: string; content: unknown }> | undefined,
+      );
       // Whether THIS document numbers its pages unusually. One sentence, and
       // only for the documents that do. It rides on the user message with the
       // rest of the volatile half, so it costs nothing from the cached prefix —

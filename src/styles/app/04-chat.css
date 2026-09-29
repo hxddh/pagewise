@@ -498,6 +498,65 @@ button.pages-read-chip:hover {
   text-decoration-style: solid;
 }
 
+/*
+ * A citation, checked (13.0). The page number set small against the sentence
+ * it supports, in the ink of what the check found: the assistant's own violet
+ * when its words are on the page, red when they are not, muted when there was
+ * nothing to check or no text to check it in. Colour is never the only
+ * signal — the chip's title says the same in words.
+ */
+.cite {
+  display: inline-block;
+  position: relative;
+  top: -0.45em;
+  min-width: 1.4em;
+  margin: 0 0 0 1px;
+  padding: 0 var(--space-2xs);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: 0.68em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.cite:hover {
+  background: var(--bg-hover);
+}
+
+.cite-located {
+  color: var(--finding);
+}
+
+.cite-unlocated,
+.cite-outOfRange {
+  color: var(--danger);
+  border-style: dashed;
+}
+
+.cite-pending {
+  opacity: 0.6;
+}
+
+.cite-inert {
+  cursor: default;
+}
+
+.citation-tally {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.citation-tally-warn {
+  color: var(--danger);
+}
+
 .markdown-stream-caret {
   display: inline-block;
   width: 2px;
