@@ -12,7 +12,9 @@ export default defineConfig(async () => ({
     // i.e. Safari 15), NOT Chrome. Targeting chrome110 emits syntax WKWebView
     // can't parse and white-screens on the minimum supported OS.
     target: "safari15",
-    rollupOptions: {
+    // `rolldownOptions`: Vite 8's bundler is Rolldown, and `rollupOptions` is
+    // its deprecated alias.
+    rolldownOptions: {
       output: {
         // Console stripping, stated to the minifier that actually runs.
         //
