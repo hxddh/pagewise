@@ -46,3 +46,6 @@ docs/ui-shots/
 eval/extract/target
 eval/corpus/fetched/
 eval/out/
+
+# vitest 5 test attachments
+.vitest/
