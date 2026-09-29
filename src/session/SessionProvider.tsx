@@ -35,6 +35,7 @@ import {
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
 import { forgetOcr } from "../lib/ocr/ocr-service";
+import { clearReviews } from "../lib/claim-review";
 import { evidenceAnnotations, saveAnnotatedPdf, type AnnotationLabels } from "../lib/export-annotated";
 import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
@@ -383,6 +384,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // outliving the document it describes.
           clearFindingAnchors(prevPath);
           clearCitationChecks(prevPath);
+          clearReviews(prevPath);
         }
 
         const doc = commitLoadedDocument(staged);

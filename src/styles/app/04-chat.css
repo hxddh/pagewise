@@ -552,6 +552,28 @@ button.pages-read-chip:hover {
   border-style: dotted;
 }
 
+/* The model's reading, when the reader asked for one: a mark after the page
+   number, beside the local verdict's colour rather than instead of it. */
+.cite-review-supports::after,
+.cite-review-contradicts::after,
+.cite-review-insufficient::after {
+  margin-left: 1px;
+  font-size: 0.9em;
+}
+
+.cite-review-supports::after {
+  content: "✓";
+}
+
+.cite-review-contradicts::after {
+  content: "✗";
+  color: var(--danger);
+}
+
+.cite-review-insufficient::after {
+  content: "?";
+}
+
 .cite-pending {
   opacity: 0.6;
 }

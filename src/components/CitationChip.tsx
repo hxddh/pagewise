@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { cachedReview, subscribeReviews } from "../lib/claim-review";
 import { useI18n } from "../i18n";
 import { cachedCitationCheck, checkCitation, withClaim, type CitationCheck } from "../lib/citation-check";
 import { citationLabel, type CitationLink } from "../lib/remark-citations";
@@ -66,13 +67,19 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
     pages,
     numbers: (read?.unstated ?? []).join("、"),
   });
-  const title = link.quote ? `“${link.quote}”\n${verdict}` : verdict;
+  // The model's reading, when the reader asked for one (15.0). Shown beside
+  // the local verdict, never in place of it.
+  const review = useSyncExternalStore(subscribeReviews, () =>
+    env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote) : null,
+  );
+  const reviewLine = review ? `\n${t(`cite.review.${review.verdict}`)}: ${review.reason}` : "";
+  const title = (link.quote ? `“${link.quote}”\n${verdict}` : verdict) + reviewLine;
 
   return (
     // raw-button: an inline mark inside a sentence — it has to sit on the text line, not read as a control
     <button
       type="button"
-      className={`cite cite-${status}`}
+      className={`cite cite-${status}${review ? ` cite-review-${review.verdict}` : ""}`}
       title={title}
       aria-label={title}
       onClick={() =>
