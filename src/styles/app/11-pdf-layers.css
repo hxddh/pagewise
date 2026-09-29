@@ -22,6 +22,22 @@
   animation: search-highlight-in var(--transition);
 }
 
+/* The words an answer quoted, lit on the page it cited. The assistant's ink:
+   these are its words, found where it said they were. */
+.citation-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.citation-highlight {
+  position: absolute;
+  background: color-mix(in srgb, var(--finding) 26%, transparent);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--finding) 60%, transparent);
+  animation: search-highlight-in var(--transition);
+}
+
 @keyframes search-highlight-in {
   from {
     opacity: 0;

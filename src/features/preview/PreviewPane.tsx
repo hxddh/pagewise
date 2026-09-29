@@ -24,7 +24,8 @@ import { PageScroller } from "./PageScroller";
 import { regionSnapshot } from "./region-snapshot";
 import { MarkNote } from "./MarkNote";
 import { useMarkRevision } from "./useMarks";
-import { useSearchHit } from "./useSearchHit";
+import { useRevealedCitation, useSearchHit } from "./useSearchHit";
+import { CitationHighlight, type RevealedCitation } from "./CitationHighlight";
 import { sidebarTabState } from "./sidebar-tabs";
 import { addMark, getMarks, marksAreStale } from "../../lib/mark-store";
 import { extractRegion } from "../../lib/pdf";
@@ -53,6 +54,8 @@ interface PreviewPaneProps {
   /** The record entry the reader picked in the other column, if any. */
   selectedFindingId?: string | null;
   onSelectFinding?: (id: string | null) => void;
+  /** A citation the reader followed from an answer, to light on its page. */
+  revealedCitation?: RevealedCitation | null;
 }
 
 function PreviewPaneInner({
@@ -64,6 +67,7 @@ function PreviewPaneInner({
   onAskAboutSelection,
   selectedFindingId = null,
   onSelectFinding,
+  revealedCitation = null,
 }: PreviewPaneProps) {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -76,6 +80,7 @@ function PreviewPaneInner({
   // marked on the page. Forgotten as soon as they navigate away from it — see
   // `useSearchHit`, which is where that rule lives.
   const [searchHit, setSearchHit] = useSearchHit(page);
+  const citation = useRevealedCitation(page, revealedCitation);
   // A link the reader clicked, held until they confirm. Document URLs are
   // untrusted input, so nothing opens the browser on its own.
   const [pendingLink, setPendingLink] = useState<string | null>(null);
@@ -299,6 +304,9 @@ function PreviewPaneInner({
         {searchHit?.page === slotPage && (
           <SearchHighlight path={doc.path} page={slotPage} query={searchHit.query} />
         )}
+        {citation?.page === slotPage && (
+          <CitationHighlight path={doc.path} page={slotPage} rects={citation.rects} />
+        )}
         <RegionSelectLayer
           active={regionMode}
           onRegion={(rect, pageBox) => {
@@ -367,6 +375,7 @@ function PreviewPaneInner({
       doc.annotations,
       doc.stamp,
       searchHit,
+      citation,
       regionMode,
       markRevision,
       selectedMarkId,

@@ -1,3 +1,4 @@
+import { clearCitationChecks } from "../lib/citation-check";
 import {
   createContext,
   useCallback,
@@ -376,6 +377,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // file, never stored, so it goes when the file is closed rather than
           // outliving the document it describes.
           clearFindingAnchors(prevPath);
+          clearCitationChecks(prevPath);
         }
 
         const doc = commitLoadedDocument(staged);

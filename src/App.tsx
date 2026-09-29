@@ -25,6 +25,7 @@ import { useWorkbenchPrefs } from "./hooks/useWorkbenchPrefs";
 import { openableRecentFiles } from "./lib/recent-files";
 import { getMarks } from "./lib/mark-store";
 import { useMarkRevision } from "./features/preview/useMarks";
+import type { RevealedCitation } from "./features/preview/CitationHighlight";
 import "./styles/tokens.css";
 import "./styles/ui.css";
 import "./styles/preview.css";
@@ -79,6 +80,9 @@ function AppContent() {
    * of them carries the wording.
    */
   const [revealedFindingId, setRevealedFindingId] = useState<string | null>(null);
+  // The citation the reader last followed from an answer. PreviewPane forgets
+  // it once they leave its page; the nonce lets the same one be followed twice.
+  const [revealedCitation, setRevealedCitation] = useState<RevealedCitation | null>(null);
 
   const doc = s.document;
   const agent = s.agent;
@@ -95,6 +99,7 @@ function AppContent() {
   useEffect(() => {
     setComposerDraft("");
     setRevealedFindingId(null);
+    setRevealedCitation(null);
   }, [doc?.path]);
 
   // Put something from the document into the composer and show it. The caller
@@ -270,6 +275,7 @@ function AppContent() {
                 onAskAboutSelection={askAboutSelection}
                 selectedFindingId={revealedFindingId}
                 onSelectFinding={setRevealedFindingId}
+                revealedCitation={revealedCitation}
               />
             </Suspense>
 
@@ -319,6 +325,10 @@ function AppContent() {
                   onRevealFinding={(id, page) => {
                     s.setPreviewPage(page);
                     setRevealedFindingId(id);
+                  }}
+                  onRevealCitation={(page, rects) => {
+                    s.setPreviewPage(page);
+                    setRevealedCitation(rects ? { page, rects, nonce: Date.now() } : null);
                   }}
                   onClearChat={overlays.openClearConfirm}
                   onExportChat={() => void s.exportChat()}

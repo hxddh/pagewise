@@ -17,6 +17,8 @@ import { useConversationKeys } from "../hooks/useConversationKeys";
 import { reclaimUndeliveredNotes } from "../lib/agent-steer";
 import { ConversationSearchBar } from "../components/ConversationSearchBar";
 import { PageRefContext } from "../components/Markdown";
+import { CitationContext, type CitationEnv } from "../components/CitationChip";
+import type { PdfRect } from "../lib/types";
 import { RecordPanel } from "../components/RecordPanel";
 import { addFinding, findingsAreStale, subscribeFindings } from "../lib/finding-store";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
@@ -73,6 +75,8 @@ interface ChatPanelProps {
   onJumpToPage?: (page: number) => void;
   /** Turn to where a recorded claim was found, and light it up on the page. */
   onRevealFinding?: (id: string, page: number) => void;
+  /** Turn to a cited page; with `rects`, light up where the quoted words are. */
+  onRevealCitation?: (page: number, rects: PdfRect[] | null) => void;
   onClearChat: () => void;
   onExportBrief?: () => void;
   onExportChat: () => void;
@@ -116,6 +120,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onDismissError,
     onJumpToPage,
     onRevealFinding,
+    onRevealCitation,
     onClearChat,
     onExportBrief,
     onExportChat,
@@ -127,6 +132,22 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   ref,
 ) {
   const { t } = useI18n();
+  // Citations in answers are checked against, and lead back to, the open
+  // document. None open: they are drawn as text.
+  const citationEnv = useMemo<CitationEnv | null>(
+    () =>
+      activeDoc
+        ? {
+            path: activeDoc.path,
+            totalPages: activeDoc.totalPages ?? 0,
+            onReveal: (page, rects) => {
+              if (onRevealCitation) onRevealCitation(page, rects);
+              else onJumpToPage?.(page);
+            },
+          }
+        : null,
+    [activeDoc?.path, activeDoc?.totalPages, onRevealCitation, onJumpToPage],
+  );
   // Which half of the assistant column is showing. The transcript is the
   // default: asking is still the primary action, and the record is what the
   // asking leaves behind.
@@ -421,6 +442,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   return (
     <PageRefContext.Provider value={onJumpToPage ?? null}>
+    <CitationContext.Provider value={citationEnv}>
     <section className="chat-panel" aria-label={t("agent.title")} onKeyDown={convKeys.onKeyDown}>
       <header className="panel-header">
         <div className="panel-header-main">
@@ -618,6 +640,26 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                               // the record", which is feedback where the action
                               // happened, and the Record tab is in the header
                               // the whole time.
+                            }
+                          : undefined
+                      }
+                      onKeepVerified={
+                        activeDoc
+                          ? (sentences, messageId) => {
+                              // One entry per verified sentence, each already
+                              // carrying the words its page was found to have —
+                              // so it enters the record as found, not as a claim
+                              // still to be checked.
+                              for (const s of sentences) {
+                                addFinding(activeDoc.path, {
+                                  pages: [s.page],
+                                  claim: s.claim,
+                                  evidence: s.quote,
+                                  stamp: activeDoc.stamp ?? "",
+                                  author: "reader",
+                                  source: { messageId },
+                                });
+                              }
                             }
                           : undefined
                       }
@@ -874,6 +916,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
       </form>
     </section>
+    </CitationContext.Provider>
     </PageRefContext.Provider>
   );
 });

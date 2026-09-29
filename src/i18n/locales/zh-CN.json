@@ -572,5 +572,19 @@
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",
     "fromDocument": "文档中的批注：{{text}}"
+  },
+  "cite": {
+    "located": "已在第 {{page}} 页找到原文",
+    "unlocated": "未在第 {{pages}} 页的可提取文本中找到这段文字",
+    "unreadable": "第 {{pages}} 页没有可读文字，请直接查看页面",
+    "unchecked": "第 {{pages}} 页（未附原文，无法核对）",
+    "outOfRange": "文档没有第 {{pages}} 页",
+    "pending": "正在核对第 {{pages}} 页…",
+    "tally": "引用 {{total}} 处，已在原文定位 {{located}} 处",
+    "tallyUnlocated": "{{count}} 处未找到",
+    "tallyUnreadable": "{{count}} 处所在页无文字",
+    "tallyNone": "没有可核对的引用",
+    "keepVerified": "只留下已核对的句子（{{count}}）",
+    "keptVerified": "已将 {{count}} 句已核对内容留到记录"
   }
 }

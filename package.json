@@ -24,6 +24,7 @@
     "ui:shots": "node scripts/ui-shots.mjs",
     "postbuild": "node scripts/check-bundle.mjs",
     "audit:request": "node scripts/request-audit.mjs",
+    "audit:citations": "node scripts/citation-audit.mjs",
     "eval": "vitest run --config eval/vitest.config.ts",
     "eval:fetch": "node eval/corpus/fetch.mjs",
     "eval:corpus": "node eval/corpus/build.mjs && python3 eval/corpus/build_reportlab.py"
