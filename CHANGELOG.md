@@ -31,10 +31,11 @@ Every dependency at its newest version, and what the new versions can do put to 
 
 - **The desktop crate is now built and tested locally**, not only in CI: `cargo test --locked`, 36 passed. A new golden fixture pins positions on a cropped page.
 - **The evaluation re-extracts when the extractor changes**, not only when a document does.
-- **`docs/reviews/2026-09-29-pagewise-v14-evaluation.md` evaluates the next major version**, alongside this dependency round.
+- **`docs/reviews/2026-09-29-pagewise-v14-evaluation.md` evaluates the next major version:** every page checkable. Local OCR with word boxes would make citations on scanned pages checkable, highlightable and free of vision charges. A spike on the evaluation corpus found 80.2% of verbatim quotes among the OCR'd words: 98% on single-column prose and 85% on the Chinese contract.
 
 ### Notes
 
+- **The `d<n>` document handle in citations is no longer reserved for anything.** 13.0 set it aside for citing across documents; multi-document work is not planned. A handle a model adds on its own is still accepted and ignored, so its citation is checked like any other.
 - **The content security policy gains `'wasm-unsafe-eval'`**, which allows compiling WebAssembly and nothing else; JavaScript `eval` stays blocked.
 - **Not verified here:** Tauri 2.12's behaviour on macOS and Windows. It is covered by the release builds and a manual check of opening a second file, saving settings and storing a key.
 

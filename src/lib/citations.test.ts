@@ -29,7 +29,7 @@ describe("parseCitation", () => {
     expect(parseCitation("p7")).toEqual({ pages: [7], quote: null });
   });
 
-  it("parses and ignores the reserved document handle", () => {
+  it("tolerates and ignores a document handle a model adds on its own", () => {
     expect(parseCitation('d2 p9 "abc def"')).toEqual({ pages: [9], quote: "abc def" });
   });
 
