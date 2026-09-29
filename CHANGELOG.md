@@ -4,6 +4,40 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [15.0.0] - 2026-09-29
+
+A citation that holds, not only one that exists. Since 13.0, PageWise checks that the words an answer quotes are on the page it names. That leaves the most dangerous error unflagged: a real quote under a wrong claim. Examples are 24 months for 三十六个月, or 千分之三 for 万分之三. Such a citation was shown violet, as verified, which is exactly what makes a reader stop checking. Now it is caught.
+
+### Added
+
+- **A number the passage does not state is flagged.** Every citation whose words are found is also read against the sentence it supports. Inside a table, that is the cell. Each quantity in the sentence must be stated in the paragraph the quote was found in.
+  - **Same amount, any spelling:** Arabic or Chinese numerals, upper-case amounts (肆佰叁拾陆万捌仟), 百分之 or %, and equivalent units (三年 is 36 个月, 436.8 万元 is 4,368,000 元).
+  - **When it doesn't match:** the chip turns red, still marked as found. Its title names the number: *Found on page 3, but 24 in this sentence is not in that passage — check the page*.
+  - **Everywhere else it shows up:** the answer's tally counts it, *keep the verified sentences* leaves it out, and the CSV marks it. The assistant is told on the next question which number did not hold.
+  - **Findings in the record** get the same check. A finding whose number the passage does not state is shown as doubtful, drawn with a dashed underline on the page, and left out of the evidence PDF.
+- **Ask your model whether each passage supports its sentence.** A new button under an answer sends each found citation to your own model: the sentence, the quote, and the paragraph it was found in. The model answers *supported*, *the passage says otherwise*, or *the passage does not settle it*, with a reason that quotes the passage. The verdict appears on the chip (✓, ✗ or ?) next to PageWise's own check, never in its place, because a model can misread too. It runs only when you press it. The button says how many short calls it will make.
+- **Pages an answer did not read but your question points at.** Some questions ask for everything of a kind: *all*, *every*, *列出*, *哪些*, and so on. For those, and for answers laid out as a table, the first suggestion under the answer names the unread pages that match the question. It is ready to send: *Also read pages 14, 22 … and say whether they change the answer*. This runs locally and costs nothing.
+
+### Internal
+
+- **`eval/numbers.eval.ts`.** Every corpus sentence that states a quantity becomes a claim. Each is cited with a quote from that sentence and read against its passage by the app's own code:
+
+  | Claims | Flagged | Gate |
+  |---|---:|---:|
+  | Honest | 0 of 199 | false alarms ≤ 0.5% |
+  | Reworded (numerals as digits, months as years) | 0 of 32 | false alarms ≤ 0.5% |
+  | One number changed | 157 of 167 (94.0%) | caught ≥ 85% |
+
+  The changed numbers that were not caught are in diagram code lists, where the changed value also appears elsewhere in the same passage. By design, the check says "not in the passage", never "wrong".
+- **`eval/coverage.eval.ts`.** Of the 36 evaluation questions, 9 would have read the wrong page first. For 6 of those 9, the suggestion names the right page (gate: 60%). The 3 misses are synonyms, such as 保修 in the question and 质保 in the contract.
+- **`npm run audit:claims`** follows a scripted answer with one sound citation and one with a stray number through the chips, tally, keep-verified, model review and the next question's feedback. 9 of 9 checks pass. `audit:citations` still passes 15 of 15, and `audit:tables` 9 of 9.
+
+### Notes
+
+- **Not measured here:** how often a real model states a number differently from its source, for example by converting units or rounding (约 440 万). That is what decides how often the new flag appears on correct answers. Measuring it needs `npm run eval:live` and an API key. Until then, the gates above cover the corpus's own wording and the rewordings listed.
+- **Not measured here: model review accuracy.** It is verified end to end with a scripted model. How often a given model's verdict is right is again for `eval:live`.
+- **The model is told more on the next question.** Its feedback now also covers citations whose number did not hold, and it opens "…checked against the document and did not hold". This is part of the question, not the system prompt, so the cached prompt prefix is unaffected.
+
 ## [14.1.0] - 2026-09-29
 
 What PageWise found can now leave PageWise with its evidence attached: in the PDF itself, for anyone with a PDF reader, and as a spreadsheet whose every row says where it came from.
