@@ -1,5 +1,5 @@
 import { pickBetterPageText } from "./page-text-merge";
-import type { LoadedDocument, PageText } from "./types";
+import type { LoadedDocument, PageText, PageTextSource } from "./types";
 import { searchDocumentPages } from "./document-search";
 import { clearDocumentIndexState } from "./index-events";
 import { flushIndexStore } from "./index-store";
@@ -59,7 +59,7 @@ class DocCache {
     path: string,
     page: number,
     text: string,
-    source: "native" | "vision" = "native",
+    source: PageTextSource = "native",
   ): void {
     const doc = this.docs.get(path);
     if (!doc) return;

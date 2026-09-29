@@ -947,6 +947,7 @@ export function clearPageBitmapCache(): void {
 export function clearPdfCache(): void {
   renderEpoch += 1;
   pdfDocEpoch += 1;
+  for (const onReset of [...cacheResetWaiters]) onReset();
   bumpFileReadGeneration();
   for (const item of renderQueue) item.cancel();
   renderQueue.length = 0;
@@ -1019,6 +1020,65 @@ export async function renderThumbnail(
   });
 }
 
+/** Told when `clearPdfCache` destroys the document a render was using. */
+const cacheResetWaiters = new Set<() => void>();
+
+/**
+ * `work` against the cached document, settled even if the document is
+ * destroyed under it. pdf.js leaves `getPage` and a render pending forever on
+ * a destroyed document, and the cache is reset on every document switch —
+ * including the one that starts the index sweep, whose first render lands in
+ * exactly that window. A reset rejects with `StalePdfLoadError`.
+ */
+function settledAcrossReset<T>(path: string, epoch: number, work: Promise<T>): Promise<T> {
+  // Already reset between the caller's last await and this one.
+  if (epoch !== pdfDocEpoch) return Promise.reject(new StalePdfLoadError(path));
+  return new Promise<T>((resolve, reject) => {
+    const onReset = () => reject(new StalePdfLoadError(path));
+    cacheResetWaiters.add(onReset);
+    work.then(resolve, reject).finally(() => cacheResetWaiters.delete(onReset));
+  });
+}
+
+/**
+ * Paint one page of `path` onto a fresh canvas at `scale`, for an image that
+ * leaves the preview (vision, OCR). Retried when the cache is reset or the
+ * paint cancelled mid-way — both only mean the document was re-opened — and
+ * never returns a half-painted canvas.
+ */
+async function paintDetached(
+  path: string,
+  pageNumber: number,
+  scaleFor: (page: PDFPageProxy) => number,
+  signal?: AbortSignal,
+): Promise<{ canvas: HTMLCanvasElement; page: PDFPageProxy }> {
+  for (let attempt = 0; ; attempt++) {
+    throwIfAborted(signal);
+    try {
+      // The document must belong to the cache as it is now; one returned
+      // just before a reset is already destroyed.
+      const epoch = pdfDocEpoch;
+      const doc = await getPdfDocument(path);
+      throwIfAborted(signal);
+      if (pdfDocCache?.doc !== doc) throw new StalePdfLoadError(path);
+      const page = await settledAcrossReset(path, epoch, doc.getPage(pageNumber));
+      const canvas = document.createElement("canvas");
+      const paint = await settledAcrossReset(
+        path,
+        epoch,
+        paintPage(page, scaleFor(page), "performance", canvas, "print"),
+      );
+      throwIfAborted(signal);
+      if (!paint.cancelled) return { canvas, page };
+    } catch (e) {
+      if (!(e instanceof StalePdfLoadError)) throw e;
+    }
+    // A cancelled paint leaves the canvas partially painted — handing it on
+    // would feed a half-rendered page to vision or OCR.
+    if (attempt >= 3) throw new DOMException("Page render cancelled", "AbortError");
+  }
+}
+
 export async function renderPageToJpegBytes(
   path: string,
   pageNumber: number,
@@ -1026,23 +1086,15 @@ export async function renderPageToJpegBytes(
   quality = 0.85,
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
-  throwIfAborted(signal);
-  const doc = await getPdfDocument(path);
-  throwIfAborted(signal);
-  const page = await doc.getPage(pageNumber);
-  const base = page.getViewport({ scale: 1 });
-  const edge = Math.max(base.width, base.height);
-  const scale = visionRenderScale(edge, maxEdge, getOutputScale("performance"));
-
-  const offscreen = document.createElement("canvas");
-  const paint = await paintPage(page, scale, "performance", offscreen, "print");
-  throwIfAborted(signal);
-  if (paint.cancelled) {
-    // A cancelled paint leaves the canvas partially painted — encoding it
-    // would feed a half-rendered page to the vision model and persist its OCR
-    // as the page's text.
-    throw new DOMException("Page render cancelled", "AbortError");
-  }
+  const { canvas: offscreen } = await paintDetached(
+    path,
+    pageNumber,
+    (page) => {
+      const base = page.getViewport({ scale: 1 });
+      return visionRenderScale(Math.max(base.width, base.height), maxEdge, getOutputScale("performance"));
+    },
+    signal,
+  );
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     offscreen.toBlob(
@@ -1055,6 +1107,41 @@ export async function renderPageToJpegBytes(
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+
+/** Resolution a page is rendered at for local OCR (14.0), unless the caller says otherwise — see `ocrDpiFor`. */
+export const OCR_DPI = 200;
+
+/**
+ * Render one page for local OCR, and the way back from its pixels to PDF space.
+ *
+ * `toPdf` is the render viewport's own inverse, so a recognised word lands in
+ * absolute PDF user space, bottom-left origin — the frame `page_text_items`
+ * reports in — on rotated and cropped pages alike.
+ */
+export async function renderPageForOcr(
+  path: string,
+  pageNumber: number,
+  signal?: AbortSignal,
+  dpi: number = OCR_DPI,
+): Promise<{ canvas: HTMLCanvasElement; toPdf: (x: number, y: number) => [number, number] }> {
+  const renderScale = dpi / 72;
+  // paintPage multiplies by the output scale; divide it back out so the
+  // image is OCR_DPI on every display.
+  const { canvas, page } = await paintDetached(
+    path,
+    pageNumber,
+    () => renderScale / getOutputScale("performance"),
+    signal,
+  );
+  const viewport = page.getViewport({ scale: renderScale });
+  return {
+    canvas,
+    toPdf: (x, y) => {
+      const [px, py] = viewport.convertToPdfPoint(x, y);
+      return [px, py];
+    },
+  };
+}
 
 /**
  * Largest page canvas we will paint to crop a figure out of.

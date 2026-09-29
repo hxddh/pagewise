@@ -9,7 +9,8 @@ import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
 import { sanitizeIndexErrorDetail } from "../../lib/index-error-display";
 import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { isRasterHeavyPage } from "../../lib/pdf";
-import { indexPageInBackground } from "../../document/index-queue";
+import { indexPageInBackground, OCR_TRUSTED_CONFIDENCE } from "../../document/index-queue";
+import { cachedOcrPage } from "../../lib/ocr/ocr-service";
 import { useSettled } from "../../lib/use-settled";
 import { usePdfViewer } from "./usePdfViewer";
 import { useAskSelection } from "./useAskSelection";
@@ -29,6 +30,8 @@ import { CitationHighlight, type RevealedCitation } from "./CitationHighlight";
 import { sidebarTabState } from "./sidebar-tabs";
 import { addMark, getMarks, marksAreStale } from "../../lib/mark-store";
 import { extractRegion } from "../../lib/pdf";
+import { pageRuns } from "../../lib/finding-anchors";
+import { wordsInRegion } from "../../lib/ocr/ocr-region";
 import { clientRectToPageRect } from "./selection-quote";
 import { getPageGeometry } from "../../lib/pdf";
 import { displayUrl } from "../../lib/safe-link";
@@ -249,9 +252,19 @@ function PreviewPaneInner({
       if (indexState?.status === "done" && indexState.source === "vision") {
         return t("preview.indexedVision");
       }
+      const pageSource = doc.pages.find((p) => p.page === indexPage)?.source;
+      const read = pageSource === "ocr" ? cachedOcrPage(doc.path, indexPage) : undefined;
+      if (read) {
+        const confidence = String(Math.round(read.confidence));
+        return read.confidence < OCR_TRUSTED_CONFIDENCE
+          ? t("preview.indexedOcrPoor", { confidence })
+          : t("preview.indexedOcr", { confidence });
+      }
       return null;
     }
-    if (indexState?.status === "indexing") return t("preview.indexing");
+    if (indexState?.status === "indexing") {
+      return indexState.source === "ocr" ? t("preview.recognising") : t("preview.indexing");
+    }
     if (indexState?.status === "failed") {
       let hint: string;
       switch (indexState.failureReason) {
@@ -325,6 +338,11 @@ function PreviewPaneInner({
                 } catch {
                   // A region with no readable text is normal on a scan;
                   // the rectangle is what locates the mark.
+                }
+                if (!text.trim()) {
+                  // A scan: the words OCR recognised inside the rectangle.
+                  const runs = await pageRuns(doc.path, slotPage);
+                  if (runs.source === "ocr") text = wordsInRegion(runs.items, pdfRect, geometry.view);
                 }
                 if (quoteRun.current !== run) return;
                 const mark = addMark(doc.path, {

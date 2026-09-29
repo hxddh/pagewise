@@ -1,11 +1,11 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [react(), silenceTesseractLog()],
 
   build: {
     // The app ships inside macOS WKWebView (minimumSystemVersion ~ macOS 12,
@@ -67,3 +67,22 @@ export default defineConfig(async () => ({
     },
   },
 }));
+
+/**
+ * tesseract.js logs through `console.log.apply(...)`, a form the minifier's
+ * console stripping does not recognise, so it survives into the bundle (and
+ * `check-bundle.mjs` rightly refuses it). PageWise never turns that logging
+ * on; the module is replaced with one that cannot log at all.
+ */
+function silenceTesseractLog(): Plugin {
+  return {
+    name: "pagewise:silence-tesseract-log",
+    transform(code, id) {
+      if (!/[\\/]tesseract\.js[\\/]src[\\/]utils[\\/]log\.js$/.test(id)) return null;
+      return {
+        code: "'use strict';\nexports.logging = false;\nexports.setLogging = () => {};\nexports.log = () => null;\n",
+        map: null,
+      };
+    },
+  };
+}

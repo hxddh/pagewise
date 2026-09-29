@@ -1,5 +1,11 @@
 /**
- * v3 indexing: vision-only, single queue per document. No OCR.
+ * Indexing: giving every page usable text, one queue per document.
+ *
+ * Since 14.0 a page with no text layer is read by local OCR first — free,
+ * private, and with word boxes, so the page's citations can be checked. The
+ * vision model is the fallback: for a page OCR could not read, or read with
+ * low confidence. It is billed per page, so it stays behind the same budgets
+ * as before; OCR is behind none.
  */
 import { docCache } from "../lib/doc-cache";
 import { ensureProviderCompatibleImage } from "../lib/image-transcode";
@@ -11,6 +17,7 @@ import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { emitPageIndex } from "../lib/index-events";
 import { forgetIndexedPages, rememberIndexedPage } from "../lib/index-store";
 import { recordVisionCall } from "../lib/usage-tracker";
+import { cachedOcrPage, ocrEnabled, ocrPage } from "../lib/ocr/ocr-service";
 import type { LoadedDocument } from "../lib/types";
 
 const VISION_TIMEOUT_MS = 60_000;
@@ -60,9 +67,42 @@ export function getAgentScanCap(): number {
   return agentScanCap;
 }
 
+/**
+ * Below this mean word confidence a recognised page is offered to vision.
+ * Clean print reads at 90+; a page under 70 has enough misread words that a
+ * vision transcription is worth its cost where a budget allows one.
+ */
+export const OCR_TRUSTED_CONFIDENCE = 70;
+
+/** Whether this page's words came from OCR that read it poorly. */
+export function isPoorlyRecognised(path: string, page: number): boolean {
+  const read = cachedOcrPage(path, page);
+  return !!read && read.confidence < OCR_TRUSTED_CONFIDENCE;
+}
+
+/**
+ * What an indexing pass may do beyond OCR. `takeVision` is asked just before a
+ * vision call and says whether one may be made — the budget lives with the
+ * caller. `skipOcr` is for a re-scan the reader asked of the vision model.
+ */
+export interface VisionPolicy {
+  takeVision: () => boolean;
+  skipOcr?: boolean;
+  /** Vision only for a page OCR produced nothing for — never to improve on it. */
+  onlyIfUnread?: boolean;
+}
+
+const VISION_ALWAYS: VisionPolicy = { takeVision: () => true };
+
 const VISION_PROMPT = `Extract all visible text from this document page. Preserve reading order. Use Markdown headings and lists where appropriate. Output only the extracted content — no commentary.`;
 
-type QueueEntry = { abort: AbortController; generation: number };
+type QueueEntry = {
+  abort: AbortController;
+  generation: number;
+  /** Vision calls this sweep may still make; null for no limit. */
+  visionLeft: number | null;
+};
+
 
 const queues = new Map<string, QueueEntry>();
 const pathGenerations = new Map<string, number>();
@@ -181,6 +221,22 @@ async function visionImageBytes(
   };
 }
 
+/**
+ * Read one page with local OCR and keep what it read. Returns the recognised
+ * page when it produced usable text.
+ */
+async function recognisePage(
+  path: string,
+  page: number,
+  signal: AbortSignal,
+  background: boolean,
+): Promise<{ text: string; confidence: number } | null> {
+  const read = await ocrPage(path, page, { signal, background });
+  if (!read || read.text.trim().length < MIN_INDEX_CHARS) return null;
+  docCache.upsertPageText(path, page, read.text.trim(), "ocr");
+  return read;
+}
+
 async function indexPage(
   path: string,
   page: number,
@@ -188,6 +244,7 @@ async function indexPage(
   generation: number,
   attributeUsage = false,
   enforceGeneration = true,
+  policy: VisionPolicy = VISION_ALWAYS,
 ): Promise<void> {
   // Background sweeps are cancelled when a newer generation supersedes them.
   // An explicit read (agent tool / preview on-demand) must NOT be gated on the
@@ -197,13 +254,53 @@ async function indexPage(
   if (signal.aborted || !docCache.has(path) || !current()) return;
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
-  if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
+  const usable = !!cached && cached.text.trim().length >= MIN_INDEX_CHARS;
+  // A page OCR read poorly is still worth a vision call when the caller can
+  // afford one; any other page with text is done.
+  if (usable && (policy.onlyIfUnread || !(cached.source === "ocr" && isPoorlyRecognised(path, page)))) {
     emitPageIndex({ path, page, status: "done", source: "cache" });
     return;
   }
 
-  emitPageIndex({ path, page, status: "indexing", source: "vision" });
   clearIndexFailure(path, page);
+
+  // Local OCR first. What it reads stays as the page's text even if vision is
+  // tried after: a vision failure then leaves the page readable.
+  let recognised = usable;
+  if (!usable && ocrEnabled() && !policy.skipOcr) {
+    emitPageIndex({ path, page, status: "indexing", source: "ocr" });
+    try {
+      const read = await recognisePage(path, page, signal, enforceGeneration);
+      if (signal.aborted || !current()) {
+        emitIdle(path, page);
+        return;
+      }
+      if (read) {
+        recognised = true;
+        if (read.confidence >= OCR_TRUSTED_CONFIDENCE) {
+          emitPageIndex({ path, page, status: "done", source: "ocr" });
+          return;
+        }
+      }
+    } catch {
+      // OCR never throws by contract; if it did, vision is still the fallback.
+    }
+  }
+
+  /** The page keeps what OCR read; say so and stop. */
+  const settleOnOcr = (): boolean => {
+    if (!recognised) return false;
+    emitPageIndex({ path, page, status: "done", source: "ocr" });
+    return true;
+  };
+
+  if ((policy.onlyIfUnread && recognised) || !policy.takeVision()) {
+    if (settleOnOcr()) return;
+    emitIdle(path, page);
+    return;
+  }
+
+  emitPageIndex({ path, page, status: "indexing", source: "vision" });
 
   try {
     const settings = await loadVisionSettings();
@@ -215,15 +312,17 @@ async function indexPage(
     try {
       assertApiKeyForAgent(settings);
     } catch (keyErr) {
-      // Key removed mid-sweep: abort the whole BACKGROUND queue once instead of
-      // marking every remaining page "failed" one-by-one (50 redundant store
-      // reads). An explicit agent read (enforceGeneration=false) falls through
-      // to the normal failed emit so it isn't silently cancelled.
+      // No key: the page keeps what OCR read, if anything. A BACKGROUND sweep
+      // then stops asking for vision — once, instead of marking every
+      // remaining page "failed" one by one — but keeps reading pages locally.
+      // An explicit agent read (enforceGeneration=false) falls through to the
+      // normal failed emit so it isn't silently cancelled.
       if (enforceGeneration) {
-        emitIdle(path, page);
-        cancelIndex(path);
+        stopVisionForQueue(path);
+        if (!settleOnOcr()) emitIdle(path, page);
         return;
       }
+      if (settleOnOcr()) return;
       throw keyErr;
     }
     const { bytes, mediaType } = await visionImageBytes(path, page, signal);
@@ -254,7 +353,7 @@ async function indexPage(
         rememberIndexedPage(path, indexed.stamp, indexed.totalPages, page, text.trim());
       }
       emitPageIndex({ path, page, status: "done", source: "vision" });
-    } else {
+    } else if (!settleOnOcr()) {
       recordIndexFailure(path, page, "insufficient_text");
       emitPageIndex({
         path,
@@ -273,6 +372,7 @@ async function indexPage(
       emitIdle(path, page);
       return;
     }
+    if (settleOnOcr()) return;
     const detail = formatLlmError(err, undefined, "scan");
     if (import.meta.env.DEV) {
       console.warn(`[index] page ${page}:`, detail);
@@ -296,6 +396,7 @@ async function runIndexPage(
   generation: number,
   attributeUsage = false,
   enforceGeneration = true,
+  policy: VisionPolicy = VISION_ALWAYS,
 ): Promise<void> {
   const key = pageKey(path, page);
   const existing = pageInflight.get(key);
@@ -322,6 +423,7 @@ async function runIndexPage(
     generation,
     attributeUsage,
     enforceGeneration,
+    policy,
   ).finally(() => {
     const cur = pageInflight.get(key);
     if (cur?.promise === promise) {
@@ -337,13 +439,14 @@ async function runPool(
   pages: number[],
   signal: AbortSignal,
   generation: number,
+  policy: VisionPolicy,
 ): Promise<void> {
   let cursor = 0;
   const workers = Array.from({ length: CONCURRENCY }, async () => {
     while (!signal.aborted && isCurrentGeneration(path, generation)) {
       const i = cursor++;
       if (i >= pages.length) break;
-      await runIndexPage(path, pages[i]!, signal, generation);
+      await runIndexPage(path, pages[i]!, signal, generation, false, true, policy);
     }
   });
   await Promise.all(workers);
@@ -354,11 +457,13 @@ export async function ensurePageIndexed(
   page: number,
   signal?: AbortSignal,
   attributeUsage = false,
+  policy: VisionPolicy = VISION_ALWAYS,
 ): Promise<void> {
   if (signal?.aborted) return;
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
-  if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) return;
+  const improvable = cached?.source === "ocr" && !policy.onlyIfUnread && isPoorlyRecognised(path, page);
+  if (cached && cached.text.trim().length >= MIN_INDEX_CHARS && !improvable) return;
 
   const controller = new AbortController();
   const onAbort = () => controller.abort();
@@ -370,7 +475,7 @@ export async function ensurePageIndexed(
     const generation = pathGenerations.get(path) ?? 0;
     // Explicit reads must complete even if a background reindex bumps the
     // generation mid-flight — pass enforceGeneration=false.
-    await runIndexPage(path, page, controller.signal, generation, attributeUsage, false);
+    await runIndexPage(path, page, controller.signal, generation, attributeUsage, false, policy);
   } finally {
     // A long-lived agent-run signal accumulates one listener per page read
     // without this.
@@ -378,27 +483,68 @@ export async function ensurePageIndexed(
   }
 }
 
-/** Index one page in the background (preview on-demand). */
+/**
+ * Index one page the reader is looking at. Read locally when OCR is on, and
+ * sent to vision only when OCR is off or read nothing — looking at a page is
+ * not a request to pay for a better transcription of it.
+ */
 export function indexPageInBackground(path: string, page: number): void {
-  void ensurePageIndexed(path, page);
+  void ensurePageIndexed(path, page, undefined, false, { takeVision: () => true, onlyIfUnread: true });
 }
 
-/** Cancel any in-flight queue for this path and start a new sweep. */
+/** Stop a background sweep from asking for vision; it keeps reading pages locally. */
+function stopVisionForQueue(path: string): void {
+  const entry = queues.get(path);
+  if (entry) entry.visionLeft = 0;
+}
+
+/**
+ * Cancel any in-flight queue for this path and start a new sweep.
+ *
+ * With OCR on, a sweep reads every page it is given — that costs nothing —
+ * and `visionBudget` (default: the automatic sweep budget) caps how many of
+ * them may go on to vision. With OCR off, the budget caps the pages instead,
+ * as it always has.
+ */
 export function scheduleIndex(
   doc: LoadedDocument,
-  options?: { allPages?: boolean; pages?: number[]; cap?: number | null },
+  options?: {
+    allPages?: boolean;
+    pages?: number[];
+    cap?: number | null;
+    visionBudget?: number | null;
+    skipOcr?: boolean;
+  },
 ): void {
   queues.get(doc.path)?.abort.abort();
   const generation = nextGeneration(doc.path);
   const controller = new AbortController();
-  queues.set(doc.path, { abort: controller, generation });
+  const local = ocrEnabled() && !options?.skipOcr;
+  const entry: QueueEntry = {
+    abort: controller,
+    generation,
+    visionLeft: options?.visionBudget === undefined ? autoIndexCap : options.visionBudget,
+  };
+  queues.set(doc.path, entry);
 
-  const pages = options?.pages ?? sweepPages(doc, options);
+  const pages =
+    options?.pages ??
+    sweepPages(doc, local && options?.cap === undefined ? { ...options, cap: null } : options);
   if (pages.length === 0) return;
 
-  void runPool(doc.path, pages, controller.signal, generation).finally(() => {
-    const entry = queues.get(doc.path);
-    if (entry?.abort === controller) {
+  const policy: VisionPolicy = {
+    skipOcr: options?.skipOcr,
+    takeVision: () => {
+      if (entry.visionLeft === null) return true;
+      if (entry.visionLeft <= 0) return false;
+      entry.visionLeft -= 1;
+      return true;
+    },
+  };
+
+  void runPool(doc.path, pages, controller.signal, generation, policy).finally(() => {
+    const cur = queues.get(doc.path);
+    if (cur?.abort === controller) {
       queues.delete(doc.path);
     }
   });
@@ -435,20 +581,22 @@ export function reindexDocument(path: string): number {
   // before it reaches the vision call — so the ones that kept their text cost
   // nothing but a queue slot.
   docCache.invalidateIndexedPageText(path, pages);
-  scheduleIndex(fresh, { pages });
+  // A re-scan is asked of the vision model: it does not stop at what OCR reads.
+  scheduleIndex(fresh, { pages, visionBudget: null, skipOcr: true });
   return pages.length;
 }
 
 /**
  * Index every page that still has no usable text, ignoring the automatic sweep
- * budget. Explicit only: the caller shows the page count (i.e. the number of
- * vision calls) first. Results persist, so the cost is paid once per file.
+ * budget. Explicit only: the caller shows the page count (i.e. the most vision
+ * calls this can make) first. OCR still reads each page first, so a page it
+ * reads well costs nothing. Results persist, so the cost is paid once per file.
  */
 export function indexWholeDocument(path: string): number {
   const doc = docCache.get(path);
   if (!doc) return 0;
   const pages = sparsePages(doc, null);
   if (pages.length === 0) return 0;
-  scheduleIndex(doc, { pages });
+  scheduleIndex(doc, { pages, visionBudget: null });
   return pages.length;
 }

@@ -42,14 +42,18 @@ export interface LlmSettings {
   connectionVerified?: boolean;
 }
 
+export type PageTextSource = "native" | "vision" | "ocr";
+
 export interface PageText {
   page: number;
   text: string;
   /**
    * Where the text came from. Vision text was paid for per page; native text is
    * free to recompute on every open. Merges must never let the free one win.
+   * OCR text (14.0) is local and free, but costs seconds per page and is the
+   * least faithful of the three: native text outranks it, vision text too.
    */
-  source?: "native" | "vision";
+  source?: PageTextSource;
 }
 
 /** A rectangle in PDF points. Bottom-left origin, as the Rust side documents. */

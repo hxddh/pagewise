@@ -20,6 +20,7 @@ import {
   consumeIndexFailure,
   DEFAULT_AGENT_SCAN_PAGES,
   ensurePageIndexed,
+  isPoorlyRecognised,
 } from "./../../document/index-queue";
 import type { LoadedDocument, DocHeading } from "./../types";
 import { MIN_INDEX_CHARS } from "./../page-text-merge";
@@ -230,39 +231,56 @@ export async function readPageText(path: string, page: number, budget?: ReadBudg
   throwIfAborted(signal);
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
-  if (cached && cached.text.trim().length >= MIN_INDEX_CHARS) {
-    return { page, text: cached.text, source: "cache" as const };
+  const settled = cached && cached.text.trim().length >= MIN_INDEX_CHARS;
+  if (settled && !(cached.source === "ocr" && isPoorlyRecognised(path, page))) {
+    return { page, text: cached.text, source: cached.source === "ocr" ? ("ocr" as const) : ("cache" as const) };
   }
 
   // Opening the document extracted every page it could, so a page still empty
-  // here has no text layer to re-read — only a vision call can produce one.
+  // here has no text layer to re-read. Local OCR reads it for nothing; only
+  // what OCR cannot read — or reads poorly — goes to a (billed) vision call.
   emitAgentProgress(`Indexing page ${page}…`, "index", {
     key: "agent.activityIndexPage",
     params: { page },
   });
 
-  // Reaching here means the page has no usable text and only a (billed) vision
-  // call can produce any — so this is the point where the run's scan allowance
-  // is spent. Refuse instead of scanning once it's gone: without this, a
-  // question about a large scan walks the document one billed page at a time.
-  if (budget && budget.scans >= budget.maxScans) {
-    return { page, text: "", source: "vision" as const, indexFailure: null, scanLimit: true };
-  }
-  if (budget) budget.scans += 1;
+  // The run's scan allowance is spent at the vision call and only there, so a
+  // page OCR reads well costs none of it. Refused once it's gone: without
+  // this, a question about a large scan walks the document one billed page at
+  // a time.
+  let refused = false;
+  const takeVision = () => {
+    if (!budget) return true;
+    if (budget.scans >= budget.maxScans) {
+      refused = true;
+      return false;
+    }
+    budget.scans += 1;
+    return true;
+  };
 
   // Agent tool read: attribute this vision indexing to the current run's usage.
-  await ensurePageIndexed(path, page, signal, true);
+  await ensurePageIndexed(path, page, signal, true, { takeVision });
   throwIfAborted(signal);
   const after = docCache.getPages(path).find((p) => p.page === page);
   const text = after?.text ?? "";
+  const source = after?.source === "ocr" ? ("ocr" as const) : ("vision" as const);
+  if (text.trim().length < MIN_INDEX_CHARS && refused) {
+    return { page, text: "", source, indexFailure: null, scanLimit: true };
+  }
   // Distinguish a genuinely empty page from an index FAILURE (missing key,
   // vision error, timeout): without this the model sees "" and concludes the
   // page has no content, and may re-read it (each read re-triggers a billed,
   // up-to-60s vision call).
   const indexFailure =
     text.trim().length < MIN_INDEX_CHARS ? consumeIndexFailure(path, page) : null;
-  return { page, text, source: "vision" as const, indexFailure };
+  return { page, text, source, indexFailure };
 }
+
+/** Said with a page whose words were recognised from a scan, not extracted. */
+export const OCR_TEXT_NOTE =
+  "This page is a scan; its text was recognised by OCR and may misread a few characters. " +
+  "Quote it exactly as given here — citations are checked against these recognised words.";
 
 export const SCAN_LIMIT_NOTE =
   "This page has no extracted text and the scan allowance for this question is used up, " +

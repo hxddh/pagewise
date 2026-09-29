@@ -3,8 +3,10 @@ import {
   DEFAULT_PREFERENCES,
   loadPreferences,
   patchPreferences,
+  resolveOcrLanguages,
   type AppPreferences,
 } from "../lib/preferences";
+import { configureOcr } from "../lib/ocr/ocr-service";
 import { setAgentScanCap, setAutoIndexCap } from "../document/index-queue";
 
 export function useWorkbenchPrefs() {
@@ -25,6 +27,7 @@ export function useWorkbenchPrefs() {
         // stored value has to be pushed into the queue rather than pulled.
         setAutoIndexCap(p.autoIndexPages);
         setAgentScanCap(p.agentScanPages);
+        configureOcr({ enabled: p.localOcr, languages: resolveOcrLanguages(p) });
       })
       // A store that rejects outright (corrupt JSON) must not become an
       // unhandled rejection — defaults are already in state.
@@ -38,6 +41,7 @@ export function useWorkbenchPrefs() {
     setIncludeViewingPage(p.includeViewingPageDefault);
     setAutoIndexCap(p.autoIndexPages);
     setAgentScanCap(p.agentScanPages);
+    configureOcr({ enabled: p.localOcr, languages: resolveOcrLanguages(p) });
     setPrefsRevision((r) => r + 1);
     return p;
   }, []);

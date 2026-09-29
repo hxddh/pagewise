@@ -310,6 +310,8 @@ function MessageAssistantFooterInner({
             {tally.unlocated + tally.outOfRange > 0 &&
               ` · ${t("cite.tallyUnlocated", { count: String(tally.unlocated + tally.outOfRange) })}`}
             {tally.unreadable > 0 && ` · ${t("cite.tallyUnreadable", { count: String(tally.unreadable) })}`}
+            {tally.unconfirmed > 0 &&
+              ` · ${t("cite.tallyUnconfirmed", { count: String(tally.unconfirmed) })}`}
           </p>
         )}
       </div>

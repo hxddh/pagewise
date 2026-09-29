@@ -122,8 +122,12 @@ export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
  *
  * Takes its data as one argument because `addInitScript` passes exactly one.
  */
-export function installTauriMock({ pdfB64, doc, apiKey, settings, runs, runsByPage }) {
+export function installTauriMock({ pdfB64, doc, apiKey, settings, runs, runsByPage, identity }) {
   const store = new Map(Object.entries(settings ?? {}));
+  // What local OCR wrote, per document fingerprint (14.0). Exposed so a
+  // harness can read back what would have reached the disk.
+  const ocrCache = new Map();
+  window.__HARNESS_OCR_CACHE__ = ocrCache;
 
   // Tauri v2 routes unlisten through its own global, not through INTERNALS.
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
@@ -176,6 +180,18 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, runs, runsByPa
           return { text: "", table: null };
         case "get_api_key":
           return apiKey ?? "";
+        case "file_identity_cmd":
+          return identity ?? "";
+        case "ocr_cache_read":
+          return ocrCache.get(args?.identity) ?? null;
+        case "ocr_cache_write":
+          ocrCache.set(args?.identity, args?.json);
+          return null;
+        case "ocr_cache_stats":
+          return [[...ocrCache.values()].reduce((n, j) => n + j.length, 0), ocrCache.size];
+        case "ocr_cache_clear":
+          ocrCache.clear();
+          return null;
         default:
           break;
       }

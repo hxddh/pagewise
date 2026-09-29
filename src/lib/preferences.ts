@@ -28,7 +28,32 @@ export interface AppPreferences {
    * "per question" and mean neither.
    */
   agentScanPages: number;
+  /**
+   * Read scanned pages on this computer (14.0). Free and private, and what
+   * makes a scan's citations checkable; off only for a reader who would rather
+   * spend the CPU on something else.
+   */
+  localOcr: boolean;
+  /** Which models local OCR reads with. "auto" follows the interface language. */
+  ocrLanguage: OcrLanguageMode;
 }
+
+export type OcrLanguageMode = "auto" | "eng" | "chi_sim+eng";
+
+/**
+ * The models local OCR should read with. "auto" follows the interface
+ * language: Chinese reads with both models (slower, and needed for Chinese
+ * print); anything else reads with English alone.
+ */
+export function resolveOcrLanguages(
+  prefs: Pick<AppPreferences, "ocrLanguage" | "locale">,
+  systemLanguage: string = typeof navigator === "undefined" ? "en" : navigator.language,
+): "eng" | "chi_sim+eng" {
+  if (prefs.ocrLanguage !== "auto") return prefs.ocrLanguage;
+  const lang = prefs.locale === "system" ? systemLanguage.toLowerCase() : prefs.locale.toLowerCase();
+  return lang.startsWith("zh") ? "chi_sim+eng" : "eng";
+}
+const OCR_LANGUAGE_MODES: OcrLanguageMode[] = ["auto", "eng", "chi_sim+eng"];
 
 /** Selectable automatic-index budgets, smallest first. */
 export const AUTO_INDEX_PAGE_CHOICES = [0, 20, 50, 200] as const;
@@ -48,6 +73,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   previewQuality: "crisp",
   autoIndexPages: 50,
   agentScanPages: 20,
+  localOcr: true,
+  ocrLanguage: "auto",
 };
 
 let store: LazyStore | null = null;
@@ -119,6 +146,8 @@ export function sanitizePreferences(raw: unknown): AppPreferences {
       DEFAULT_PREFERENCES.agentScanPages,
       AGENT_SCAN_PAGE_CHOICES,
     ),
+    localOcr: bool(saved.localOcr, DEFAULT_PREFERENCES.localOcr),
+    ocrLanguage: pick(saved.ocrLanguage, OCR_LANGUAGE_MODES, DEFAULT_PREFERENCES.ocrLanguage),
   };
 }
 

@@ -539,6 +539,12 @@ button.pages-read-chip:hover {
   border-style: dashed;
 }
 
+/* On a scan, a quote OCR did not recognise: worth a look, not an accusation. */
+.cite-unconfirmed {
+  color: var(--warning);
+  border-style: dotted;
+}
+
 .cite-pending {
   opacity: 0.6;
 }

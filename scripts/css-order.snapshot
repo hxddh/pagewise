@@ -113,6 +113,7 @@ button.pages-read-chip:hover
 .cite:hover
 .cite-located
 .cite-unlocated, .cite-outOfRange
+.cite-unconfirmed
 .cite-pending
 .cite-inert
 .citation-tally

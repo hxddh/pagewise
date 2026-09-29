@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getPageGeometry, pageTextItems } from "../../lib/pdf";
+import { getPageGeometry } from "../../lib/pdf";
+import { pageRuns } from "../../lib/finding-anchors";
 import { highlightBoxes, type HighlightBox } from "./search-highlight";
 
 interface SearchHighlightProps {
@@ -14,7 +15,8 @@ interface SearchHighlightProps {
  *
  * Jumping to page 42 and leaving the reader to find the phrase is most of the
  * work still undone. Boxes cover the line a hit is on rather than the exact
- * characters: the extractor reports runs, not glyph advances.
+ * characters: the extractor reports runs, not glyph advances. On a scan the
+ * runs are OCR's words (14.0), through the same `pageRuns` citations use.
  */
 export function SearchHighlight({ path, page, query }: SearchHighlightProps) {
   const [boxes, setBoxes] = useState<HighlightBox[]>([]);
@@ -27,11 +29,9 @@ export function SearchHighlight({ path, page, query }: SearchHighlightProps) {
     let cancelled = false;
     void (async () => {
       try {
-        const [items, geometry] = await Promise.all([
-          pageTextItems(path, page),
-          getPageGeometry(path, page),
-        ]);
+        const [runs, geometry] = await Promise.all([pageRuns(path, page), getPageGeometry(path, page)]);
         if (cancelled) return;
+        const items = runs.items;
         setBoxes(highlightBoxes(items, query, geometry));
       } catch {
         // Highlighting is an aid, not the navigation itself — the jump already

@@ -13,6 +13,17 @@ vi.mock("./pdf", () => ({
   },
 }));
 
+/** What local OCR reads per page, for pages with no text layer. */
+let recognised: Record<number, TextItemRect[]> = {};
+vi.mock("./ocr/ocr-service", () => ({
+  ocrEnabled: () => true,
+  ocrPage: async (_path: string, page: number) =>
+    recognised[page] ? { page, items: recognised[page], text: "", confidence: 90, ms: 1 } : null,
+}));
+vi.mock("./doc-cache", () => ({
+  docCache: { get: () => ({ kind: "pdf" }) },
+}));
+
 import { clearFindingAnchors } from "./finding-anchors";
 import {
   cachedCitationCheck,
@@ -28,6 +39,7 @@ const run = (text: string, y = 700): TextItemRect => ({ text, rect: { x: 72, y, 
 
 beforeEach(() => {
   pages = {};
+  recognised = {};
   reads = 0;
   clearFindingAnchors();
   clearCitationChecks();
@@ -97,13 +109,45 @@ describe("checkCitation", () => {
   });
 });
 
+describe("on a scanned page (14.0)", () => {
+  it("locates a quote among the words OCR recognised, with where they are", async () => {
+    recognised[3] = "The filter admits a newcomer only if it is popular".split(" ").map((w, i) => ({
+      text: w,
+      rect: { x: 72 + i * 40, y: 500, width: 36, height: 11 },
+    }));
+    const check = await checkCitation(PATH, 10, { pages: [3], quote: "admits a newcomer only if it is popular" });
+    expect(check.status).toBe("located");
+    expect(check.rects!.length).toBeGreaterThan(0);
+  });
+
+  it("calls a quote OCR did not recognise unconfirmed, never unlocated", async () => {
+    recognised[3] = [run("The filter admits a newcomer only if it is popular")];
+    const check = await checkCitation(PATH, 10, { pages: [3], quote: "the committee rejected every newcomer" });
+    expect(check.status).toBe("unconfirmed");
+  });
+
+  it("still says unlocated for a page with a real text layer", async () => {
+    pages[4] = [run("The filter admits a newcomer only if it is popular")];
+    recognised[4] = [run("the committee rejected every newcomer")];
+    const check = await checkCitation(PATH, 10, { pages: [4], quote: "the committee rejected every newcomer" });
+    expect(check.status).toBe("unlocated");
+  });
+
+  it("withholds the accusation when one of the named pages is a scan", async () => {
+    pages[4] = [run("Nothing relevant here at all, only other words")];
+    recognised[5] = [run("Other recognised words entirely")];
+    const check = await checkCitation(PATH, 10, { pages: [4, 5], quote: "the committee rejected every newcomer" });
+    expect(check.status).toBe("unconfirmed");
+  });
+});
+
 describe("tallyCitations", () => {
   it("counts one answer's distinct citations by status", async () => {
     pages[1] = [run("the quick brown fox jumps over")];
     const md = 'A〔p1 "quick brown fox"〕 B〔p1 "slow green turtle"〕 C〔p1〕 D〔p9 "x y z w"〕 A again〔p1 "quick brown fox"〕';
     expect(tallyCitations(PATH, md)).toMatchObject({ total: 4, pending: 4 });
     const tally = await checkAnswer(PATH, 3, md);
-    expect(tally).toEqual({ total: 4, located: 1, unlocated: 1, unreadable: 0, unchecked: 1, outOfRange: 1, pending: 0 });
+    expect(tally).toEqual({ total: 4, located: 1, unlocated: 1, unreadable: 0, unconfirmed: 0, unchecked: 1, outOfRange: 1, pending: 0 });
   });
 });
 
