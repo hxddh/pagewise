@@ -27,6 +27,7 @@ import type { LoadedDocument } from "../lib/types";
 
 import type { SendDocumentMessageOptions, RegenerateDocumentMessageOptions } from "../hooks/useDocAgent";
 import {
+  extractAssistantText,
   extractUserText,
   findLastMessage,
   getInFlightAssistantMessage,
@@ -236,9 +237,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       totalPages: activeDoc.totalPages,
       unindexedCount: unscannedPages,
       markCount: getMarks(activeDoc.path).length,
+      question: lastUser ? extractUserText(lastUser) : "",
+      answerText: extractAssistantText(lastAssistant),
+      pages: activeDoc.pages,
       t,
     });
-  }, [busy, agentBusy, activeDoc, lastAssistant, inFlightAssistant, unscannedPages, t]);
+  }, [busy, agentBusy, activeDoc, lastAssistant, lastUser, inFlightAssistant, unscannedPages, t]);
 
   const composerDraftRef = useRef(composerDraft);
   composerDraftRef.current = composerDraft;

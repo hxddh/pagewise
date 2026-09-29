@@ -288,7 +288,9 @@
     "activityReviseFinding": "Revising a finding…",
     "exportBrief": "Export brief",
     "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening.",
-    "exportAnnotatedPdf": "Export PDF with evidence"
+    "exportAnnotatedPdf": "Export PDF with evidence",
+    "followUpUnread": "Also read page {{pages}} — it matches the question but was not read — and say whether it changes the answer",
+    "followUpUnread_plural": "Also read pages {{pages}} — they match the question but were not read — and say whether they change the answer"
   },
   "empty": {
     "lead": "Ask questions about your document",

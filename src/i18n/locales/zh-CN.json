@@ -288,7 +288,9 @@
     "activityReviseFinding": "修正一条发现…",
     "exportBrief": "导出简报",
     "timedOut": "模型长时间没有响应，本次运行已停止。请重试；如果反复出现，可以换一个服务商。",
-    "exportAnnotatedPdf": "导出带证据的 PDF"
+    "exportAnnotatedPdf": "导出带证据的 PDF",
+    "followUpUnread": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论",
+    "followUpUnread_plural": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

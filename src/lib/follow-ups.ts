@@ -1,4 +1,5 @@
-import type { DocHeading } from "./types";
+import type { DocHeading, PageText } from "./types";
+import { unreadRelevantPages } from "./coverage";
 
 /**
  * What is worth asking next, derived from what the run actually did.
@@ -14,7 +15,7 @@ import type { DocHeading } from "./types";
  * worse than none: it invites a question the document cannot answer.
  */
 
-export type FollowUpKind = "nextSection" | "scanUnindexed" | "compareMarks" | "wholeDocument";
+export type FollowUpKind = "unreadRelevant" | "nextSection" | "scanUnindexed" | "compareMarks" | "wholeDocument";
 
 export interface FollowUp {
   kind: FollowUpKind;
@@ -24,6 +25,8 @@ export interface FollowUp {
   section?: string;
   /** For "scanUnindexed": how many pages are unreadable. */
   count?: number;
+  /** For "unreadRelevant": the pages not read that match the question. */
+  pages?: number[];
 }
 
 export interface FollowUpInput {
@@ -36,6 +39,11 @@ export interface FollowUpInput {
   unindexedCount: number;
   /** Passages the reader has marked in this document. */
   markCount: number;
+  /** The question this reply answered, and the reply itself (15.0). */
+  question?: string;
+  answerText?: string;
+  /** The document's page texts, to find pages the question matches. */
+  pages?: readonly PageText[];
   t: (key: string, vars?: Record<string, string | number>) => string;
 }
 
@@ -49,9 +57,25 @@ export function followUpSuggestions({
   totalPages,
   unindexedCount,
   markCount,
+  question,
+  answerText,
+  pages,
   t,
 }: FollowUpInput): FollowUp[] {
   const out: FollowUp[] = [];
+
+  // First, because it is the one that says the answer may be incomplete: the
+  // question asked for all of something, and pages matching it were not read.
+  if (question && pages) {
+    const unread = unreadRelevantPages(pages, question, readPages, answerText);
+    if (unread.length > 0) {
+      out.push({
+        kind: "unreadRelevant",
+        pages: unread,
+        text: t("agent.followUpUnread", { pages: unread.join(", "), count: unread.length }),
+      });
+    }
+  }
 
   // The section after the last page this reply read. Not the section it read —
   // the reader has just been told about that one.
