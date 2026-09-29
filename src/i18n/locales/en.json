@@ -10,7 +10,8 @@
   },
   "dialog": {
     "documentsFilter": "Documents",
-    "markdownFilter": "Markdown"
+    "markdownFilter": "Markdown",
+    "pdfFilter": "PDF"
   },
   "llm": {
     "apiKeyRequired": "API key is required",
@@ -286,7 +287,8 @@
     "activityNoteFinding": "Noting a finding…",
     "activityReviseFinding": "Revising a finding…",
     "exportBrief": "Export brief",
-    "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening."
+    "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening.",
+    "exportAnnotatedPdf": "Export PDF with evidence"
   },
   "empty": {
     "lead": "Ask questions about your document",
@@ -482,7 +484,8 @@
     "exportMarks": "Export marks",
     "walkConversation": "Previous / next message",
     "searchConversation": "Search this conversation",
-    "exportBrief": "Export brief"
+    "exportBrief": "Export brief",
+    "exportAnnotatedPdf": "Export PDF with evidence"
   },
   "toast": {
     "chatExported": "Chat exported",
@@ -510,7 +513,10 @@
     "marksExported": "Marks exported",
     "briefExported": "Brief exported",
     "noFindings": "Nothing in the record to export",
-    "resumedAt": "Back at page {{page}}"
+    "resumedAt": "Back at page {{page}}",
+    "annotatedExported": "Wrote {{count}} annotations into the PDF copy",
+    "annotatedNothing": "Nothing to write yet: no found evidence and no marks",
+    "tableExported": "Table exported with its sources"
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",
@@ -588,7 +594,12 @@
   },
   "annotations": {
     "byAuthor": "{{author}}: {{text}}",
-    "fromDocument": "Note in the document: {{text}}"
+    "fromDocument": "Note in the document: {{text}}",
+    "reader": "Reader",
+    "finding": "Finding (PageWise)",
+    "mark": "Mark",
+    "foundOnPage": "Wording found on page {{page}} by PageWise",
+    "confirmed": "Checked by the reader"
   },
   "cite": {
     "located": "Found on page {{page}}",
@@ -605,5 +616,19 @@
     "tallyNone": "No citations to check",
     "keepVerified": "Keep the verified sentences ({{count}})",
     "keptVerified": "Kept {{count}} verified sentences to the record"
+  },
+  "table": {
+    "export": "Export table as CSV, with sources",
+    "sources": "Sources",
+    "checked": "Checked",
+    "statusLocated": "found",
+    "statusUnlocated": "not found",
+    "statusUnreadable": "no readable text",
+    "statusUnconfirmed": "unconfirmed (scan)",
+    "statusUnchecked": "no quote",
+    "statusOutOfRange": "no such page",
+    "statusPending": "not checked yet",
+    "found": "{{located}} of {{total}} found",
+    "noQuote": "nothing to check"
   }
 }

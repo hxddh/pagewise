@@ -784,6 +784,15 @@ static ORIGINS: std::sync::LazyLock<std::sync::Mutex<OriginCache>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
 fn visible_origin(doc: &lopdf::Document, page: lopdf::ObjectId) -> (f32, f32) {
+    let visible = visible_box(doc, page);
+    (visible[0], visible[1])
+}
+
+/// The page's visible box, `[x0, y0, x1, y1]` in user space: the CropBox
+/// clipped to the MediaBox, as pdf.js computes `page.view`. Marks are stored
+/// relative to it (`selection-quote.ts`), so writing them back into the file
+/// needs it too (`annotate.rs`).
+pub(crate) fn visible_box(doc: &lopdf::Document, page: lopdf::ObjectId) -> [f32; 4] {
     let media = inherited_box(doc, page, b"MediaBox");
     let crop = inherited_box(doc, page, b"CropBox");
     const LETTER: [f32; 4] = [0.0, 0.0, 612.0, 792.0];
@@ -791,13 +800,12 @@ fn visible_origin(doc: &lopdf::Document, page: lopdf::ObjectId) -> (f32, f32) {
         let r = [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])];
         (r[2] > r[0] && r[3] > r[1]).then_some(r)
     };
-    let visible = match (media, crop) {
+    match (media, crop) {
         (Some(m), Some(c)) => intersect(m, c).unwrap_or(m),
         (Some(m), None) => m,
         (None, Some(c)) => intersect(LETTER, c).unwrap_or(LETTER),
         (None, None) => LETTER,
-    };
-    (visible[0], visible[1])
+    }
 }
 
 /// An inheritable box attribute, normalized so `x0 < x1` and `y0 < y1`.

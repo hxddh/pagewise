@@ -157,6 +157,7 @@ function AppContent() {
     onExportChat: () => void s.exportChat(),
     onExportDocument: () => void s.exportDocument(),
     onExportMarks: () => void s.exportMarks(),
+    onExportAnnotatedPdf: doc?.kind === "pdf" ? () => void s.exportAnnotatedPdf() : undefined,
     onScanAllPages: requestScanAll,
     canScanAllPages: unscannedPages > 0,
     showToast,
@@ -337,6 +338,7 @@ function AppContent() {
                   onExportChat={() => void s.exportChat()}
                   onExportSummary={() => void exportSummary()}
                   onExportBrief={() => void s.exportBrief()}
+                  onExportAnnotatedPdf={doc?.kind === "pdf" ? () => void s.exportAnnotatedPdf() : undefined}
                   onCollapse={() => s.setAgentOpen(false)}
                   unscannedPages={unscannedPages}
                   onScanAllPages={requestScanAll}

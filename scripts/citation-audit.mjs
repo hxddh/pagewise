@@ -98,6 +98,14 @@ await p.locator(".messages-panel, .chat-panel").first().screenshot({ path: join(
 await p.getByRole("tab", { name: /chat/i }).click().catch(() => p.getByText(/^Chat$/).first().click());
 await p.waitForTimeout(500);
 
+// 14.1: the kept sentence, written into a copy of the PDF where its words are.
+await p.evaluate(() => { window.__HARNESS_SAVE_PATH__ = "/harness/out/text-pages-annotated.pdf"; });
+await p.getByRole("button", { name: /more/i }).first().click();
+await p.getByRole("menuitem", { name: /export pdf with evidence/i }).click();
+await p.waitForTimeout(1500);
+const exported = await p.evaluate(() => window.__HARNESS_EXPORTS__ ?? []);
+const annotations = exported[0]?.annotations ?? [];
+
 await composer.click();
 await composer.fill("And the totals?");
 await p.keyboard.press("Enter");
@@ -125,9 +133,16 @@ const results = {
   "keeping verified sentences records only the located one":
     /Page two opens with the standard filler text/.test(recordText) && !/revenue fell sharply/.test(recordText),
   "the kept sentence enters the record as found on its page": /Wording found on page 2/.test(recordText),
+  "evidence export writes the kept sentence, on page 2, over its words":
+    annotations.length === 1 &&
+    annotations[0].page === 2 &&
+    annotations[0].frame === "pdf" &&
+    /Page two opens with the standard filler text/.test(annotations[0].contents) &&
+    annotations[0].rects.some((r) => Math.abs(r.y - 640) < 1),
+  "evidence export goes to a new file, not over the open one": exported[0]?.outPath === "/harness/out/text-pages-annotated.pdf",
   "the located citation is not reported": !/sed diam nonumy/.test(hint.split("In your previous answer")[1] ?? ""),
 };
-console.log(JSON.stringify({ chips, tally, recordText: recordText.slice(0, 400) }, null, 2));
+console.log(JSON.stringify({ chips, tally, recordText: recordText.slice(0, 400), annotations }, null, 2));
 let failed = 0;
 for (const [name, ok] of Object.entries(results)) {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);

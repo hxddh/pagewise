@@ -4,6 +4,43 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [14.1.0] - 2026-09-29
+
+What PageWise found can now leave PageWise with its evidence attached: in the PDF itself, for anyone with a PDF reader, and as a spreadsheet whose every row says where it came from.
+
+### Added
+
+- **Export the PDF with its evidence.** *Export PDF with evidence* (in the chat panel's menu and the command palette) writes a copy of the document with two kinds of annotations:
+  - **Located findings.** Every finding in the record whose wording PageWise found on its page becomes a highlight over those words. Its note carries the claim and how it was checked, for example *Wording found on page 12 by PageWise*.
+  - **Your marks.** Your marks go in with their notes: highlights over words, and outlines around regions, because a wash over a figure hides the figure.
+
+  Any PDF reader shows them, so a colleague or counterparty sees the evidence without PageWise.
+  - **Only what can be placed is written.** A finding whose wording was not found is left out, because a highlight claims the words are there. Marks made on an earlier version of the file are left out too.
+  - **Your file is left as it is.** The copy goes to a new file you choose, never over the open one. Exporting again replaces PageWise's previous annotations in that copy and keeps everyone else's.
+- **Tables whose every cell is cited.** Ask the assistant to list, extract, compare or tabulate something across the document, such as every payment term, all deadlines, or each party's obligations. It answers with a table: one row per item, and a citation in every cell whose value comes from the document. A value it could not find is shown as "—", never guessed. Each cell's citation is checked like any other, and the chips sit in the cells.
+- **Export a table as CSV, with its sources.** The new button under an answer with a table saves it as a spreadsheet. Each row gains two columns: the pages it cites with what the check found there (*p. 3 found; p. 5 not found*), and how many of its quotes were found. Chinese opens correctly in Excel.
+- **Keeping a verified table row keeps the row.** *Keep the verified sentences* on a table answer records each row as one claim, for example *Payment: Deposit · Amount: 30% · When: On signing*. A row is kept only when every quote in it was found, because keeping it puts every value in it into the record.
+
+### Changed
+
+- **The system prompt now asks for cited tables** when a question lists or compares items across the document.
+- **The system prompt describes scanned pages correctly:** they are read locally first. The 14.0 prompt still said vision indexed them. Because the prompt changed, every reader's cached prompt prefix misses once, on the first question after upgrading.
+
+### Internal
+
+- **`eval/annotate.eval.ts`: does exported evidence land on its words?** It locates the corpus quotes and writes them with the app's own export code, through `eval/extract --annotate`. It then reopens the file with pdf.js and reads the annotations back through the same code PageWise uses to read other people's notes.
+  - **Read back:** 629 of 629 annotations.
+  - **The quote is the text under the highlight:** 626 of 629 (99.5%). The three exceptions are subscripts and a two-column signature block, whose words a reader copies in a different order.
+  - **Found by measuring:** a highlight that starts exactly on the text baseline reads back as covering nothing in pdf.js. Highlights now reach a quarter of a line below the baseline, as any reader's own do.
+- **`npm run audit:tables`** follows a scripted table answer through the chips, the CSV and the record (9 of 9 checks pass). **`audit:citations`** now also exports the kept sentence as evidence and checks that it is written on page 2 over its words, into a new file.
+- **Saving files now shares one write-authorization check.** The save-as check behind `write_text_file` is shared with the new export command, with its rules unchanged.
+
+### Notes
+
+- **Signatures:** writing annotations rewrites the file, so a digitally signed PDF's signature does not survive in the copy. The original is untouched.
+- **Encrypted PDFs** cannot be annotated, and the export says so.
+- **Not measured here:** how reliably a real model fills a table completely and cites every cell. The format, the checks and the exports are verified end to end with a scripted model. Measuring real models is what `npm run eval:live` is for, and it needs an API key.
+
 ## [14.0.0] - 2026-09-29
 
 Every page can be checked. 13.0 checked the assistant's citations, but only on pages with a text layer. On a scanned page every citation stayed grey, the quoted words could not be lit, search could not point at them, and reading the page cost a vision call. PageWise now reads scanned pages on your computer, with the position of every word, so a scan works like any other PDF.

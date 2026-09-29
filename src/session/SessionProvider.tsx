@@ -17,7 +17,7 @@ import {
   loadDocument,
 } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
-import { flushMarkStore, forgetMarks, loadMarks } from "../lib/mark-store";
+import { flushMarkStore, forgetMarks, getMarks, loadMarks } from "../lib/mark-store";
 import { flushFindingStore, forgetFindings, loadFindings, subscribeFindings } from "../lib/finding-store";
 import { clearFindingAnchors, prewarmPlacements } from "../lib/finding-anchors";
 import { trustedFindings } from "../lib/agent-record-context";
@@ -35,6 +35,7 @@ import {
 import { restoreAllowedPaths } from "../lib/allowed-paths";
 import { cancelIndex, reindexDocument } from "../document/index-queue";
 import { forgetOcr } from "../lib/ocr/ocr-service";
+import { evidenceAnnotations, saveAnnotatedPdf, type AnnotationLabels } from "../lib/export-annotated";
 import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
@@ -86,6 +87,8 @@ interface SessionContextValue {
   exportMarks: () => Promise<void>;
   /** The record, filed by trust, as one Markdown file. */
   exportBrief: () => Promise<void>;
+  /** A copy of the PDF with located findings and marks written in as annotations (14.1). */
+  exportAnnotatedPdf: () => Promise<void>;
   isDragging: boolean;
 }
 
@@ -599,6 +602,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [locale, showToast, t]);
 
+  const exportAnnotatedPdf = useCallback(async () => {
+    const doc = documentRef.current;
+    if (!doc || doc.kind !== "pdf") return;
+    const labels: AnnotationLabels = {
+      assistant: "PageWise",
+      reader: t("annotations.reader"),
+      finding: t("annotations.finding"),
+      mark: t("annotations.mark"),
+      foundOnPage: (page) => t("annotations.foundOnPage", { page }),
+      confirmed: t("annotations.confirmed"),
+    };
+    try {
+      const entries = trustedFindings(doc.path);
+      const annotations = await evidenceAnnotations(doc.path, doc.stamp ?? "", entries, getMarks(doc.path), labels);
+      if (annotations.length === 0) {
+        showToast(t("toast.annotatedNothing"), "error");
+        return;
+      }
+      const name = doc.name.replace(/\.[^.]+$/, "") + "-annotated.pdf";
+      const written = await saveAnnotatedPdf(doc.path, annotations, name, t("dialog.pdfFilter"));
+      if (written !== null) showToast(t("toast.annotatedExported", { count: written }), "success");
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn("[export] annotated PDF failed", e);
+      showToast(t("toast.exportFailed"), "error");
+    }
+  }, [showToast, t]);
+
   const value = useMemo<SessionContextValue>(
     () => ({
       phase,
@@ -631,6 +661,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       exportDocument,
       exportMarks,
       exportBrief,
+      exportAnnotatedPdf,
       isDragging,
     }),
     [
@@ -657,6 +688,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       exportDocument,
       exportMarks,
       exportBrief,
+      exportAnnotatedPdf,
       isDragging,
     ],
   );
