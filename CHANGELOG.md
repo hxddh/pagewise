@@ -4,6 +4,44 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [13.0.0] - 2026-09-29
+
+The answer is the evidence. Since 10.0 a claim in the record could be checked against its page; the answer a reader actually reads could not. Its "page 12" was a link and nothing more. Now every fact the assistant takes from the document carries the words it rests on, PageWise looks those words up on the page it names, and the answer shows what it found.
+
+### Added
+
+- **Citations are checked, in every answer.** The assistant cites each fact from the document with the page and a short verbatim quote. Each citation is drawn as a small page number beside the sentence, in the colour of what the check found. The assistant's violet means the words are on that page. Red means the page has text and not these words, or the document has no such page. Muted means there was nothing to check: no quote, or a page with no text layer. The quote and the verdict are the chip's title. The check runs locally, costs nothing and needs no model call.
+- **Clicking a citation lights the quoted words on the page.** It turns to the page and highlights the passage where it really is, not just the page it is on.
+- **Each answer says how its citations fared.** *3 of 4 citations found on the page · 1 not found* appears under the answer, in red when something was not found.
+- **The assistant is told which citations were not found.** On the next question it hears which of its last answer's quotes were not on their pages, and is asked to read the page before repeating them. Until now the one party that could not see a red citation was the one that wrote it.
+- **Keep only what checked out.** Beside "Keep this" there is "Keep the verified sentences". Each sentence whose citation was found becomes its own record entry, with the confirming words as its evidence. It enters the record already *found on page N*, where a kept answer arrives as a claim still to be checked.
+- **Search finds the page when the question is not in the document's words.** `search_in_document` was an exact substring match and nothing else, so "late payment penalty" found nothing in a contract that says "overdue amount". When the phrase is on no page, the pages are ranked by the query's terms. Those hits are marked as term matches, so the model can tell them from a phrase match. A phrase that is on a page returns exactly what it did before.
+
+### Fixed
+
+- **Quotes from two-column pages were found 40% of the time.** A page's text runs are listed top to bottom across the whole page, which interleaves the columns line by line. A sentence that wraps inside one column was therefore broken by the other column's lines. When the listed order fails, the matcher now follows the page's reading order. It moves to the next run on the same line, else the start of the line below in the same column, else the top of the next column. It never moves anywhere else, so it cannot reorder words.
+- **A quote with straight quotation marks did not match the page's curly ones.** The same held for a ligature on the page against the letters typed for it, and for full-width against half-width punctuation. Quotation marks are now ignored on both sides, and both sides are NFKC-folded, before comparing.
+- **Renaming a scanned document re-billed every page of it.** The vision cache was the one store 12.0 did not teach to follow a file by its content fingerprint, and the one whose loss costs money.
+
+### Internal
+
+- **`eval/`: the first thing in this repository that measures instead of asserts.** Every design note since 9.2 ended with "cannot be verified here". `npm run eval` runs three suites:
+  - **The corpus.** Two typesetters, Chinese and English, two columns, tables, running headers and words hyphenated across lines, all from redistributable text. It also includes real third-party PDFs, fetched by hash and not committed.
+  - **Where the ground truth comes from.** The app's own extractor produces it, via `eval/extract`, a Rust binary that includes `inspect.rs` by path.
+  - **Citation location.** Quotes cut from exactly the text the model reads are located on their pages: **98.0% of 1,041**. On the generated corpus the rate was 78.5% before the reading-order fix and 99.4% after.
+  - **False positives.** The same quotes, altered the way a careless or fabricating model would alter them, must be refused: **2 of 2,040** were wrongly found. One was a quote cut off mid-word, which is still a substring of the page. The other was on a UML diagram whose labels the extractor lists out of reading order.
+  - **Search.** 36 questions are asked in the reader's words. The right page came first for **1 of 36 before, 27 after**, and was in the first three for **1 before, 32 after**.
+- **`npm run eval:live`** asks a real model the evaluation's questions through the app as it ships. It drives the real UI in Chromium with the Tauri shell mocked from the extractor's output, and forwards the model requests to the provider named in the environment. `npm run eval` then scores the recordings offline. With no key it runs a scripted model, so the path can be checked without spending anything.
+- **`npm run audit:citations`** follows one scripted answer through the stream, the Markdown plugin, the chips, the page highlight, the record and the next request. It found a freeze before release: a loop over a shared `/g` regex whose `lastIndex` a helper reset on every iteration.
+
+### Notes
+
+- **Not measured: how well any real model follows the citation format.** No model is reachable from where this was built. The format, the checks and the feedback are verified end to end with a scripted model. What a given model makes of them is what `eval:live` is for, and a model that ignores the format still answers as before, with no chips.
+- **The system prompt changed**, so every reader's cached prompt prefix misses once, on the first question after upgrading. The tool definitions did not change.
+- **Copied answers, the exported chat and the brief spell markers out as `[p. 12: “…”]`.** Outside the app, the quote is the only way back to the passage.
+- **The citation format reserves a document handle, `〔d2 p12 "…"〕`.** It is parsed and ignored today. Citing across documents later will extend the format without changing it.
+- **Term search is lexical, not semantic.** Nothing leaves the machine and nothing is a guess. The questions it still misses need a synonym it does not know: 保修 for 质保, or "hurts" for "defeats".
+
 ## [12.0.0] - 2026-09-05
 
 One reading, one thing to take away. A reader opens a long document, asks, keeps what is worth keeping, comes back tomorrow to the page they were on, and leaves with a brief that stands on its own — every conclusion traceable to a page, every doubt named. Each of the four steps had a break in it; this release is the four repairs.

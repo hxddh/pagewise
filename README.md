@@ -10,6 +10,7 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 - **Preview** — Page navigation, thumbnails, zoom, in-document search (⌘F)
 - **Indexing** — PDF text layer plus optional vision model indexing for scans and images
 - **Agent** — Streaming chat with tool calls (`document_outline`, `read_pdf_page`, `search_in_document`, …)
+- **Checked citations** — Every fact in an answer cites its page and the words it rests on; PageWise looks the words up on that page and shows whether they are there. Click a citation to see the passage lit on the page
 - **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
 - **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one trust state (*checked*, *found on the page*, *re-check*) that the panel, the model and the export all read
 - **Brief** — Export the record as one Markdown file: conclusions, evidence, and what still needs re-checking
@@ -59,6 +60,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 | `npm test` | Unit tests (Vitest) |
 | `npm run check:secrets` | Pre-release credential scan |
 | `npm run version:sync` | Sync `VERSION` → package / Tauri / Cargo |
+| `npm run eval` | Measure citation location and search on the evaluation corpus (see [eval/README.md](eval/README.md)) |
 
 ## Versioning
 

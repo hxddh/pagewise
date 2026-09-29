@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "12.0.0",
+  "version": "13.0.0",
   "description": "Local desktop PDF agent — page-wise AI analysis",
   "license": "MIT",
   "type": "module",
@@ -27,7 +27,8 @@
     "audit:citations": "node scripts/citation-audit.mjs",
     "eval": "vitest run --config eval/vitest.config.ts",
     "eval:fetch": "node eval/corpus/fetch.mjs",
-    "eval:corpus": "node eval/corpus/build.mjs && python3 eval/corpus/build_reportlab.py"
+    "eval:corpus": "node eval/corpus/build.mjs && python3 eval/corpus/build_reportlab.py",
+    "eval:live": "node eval/live/run.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.37",

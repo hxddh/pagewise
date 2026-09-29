@@ -17,57 +17,8 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { searchForAgent, searchInDocument } from "../src/document/search";
 import { corpusFiles, loadDoc, OUT, type DumpDoc } from "./lib/corpus";
+import { QUESTIONS, type Question } from "./questions";
 
-interface Question {
-  doc: string;
-  query: string;
-  /** Wording that is on the page(s) that answer the question. */
-  answer: string;
-}
-
-const QUESTIONS: Question[] = [
-  // The Chinese contract, asked the way a reader asks.
-  { doc: "contract-zh", query: "逾期付款 违约金", answer: "甲方逾期付款的" },
-  { doc: "contract-zh", query: "延迟交货 违约责任", answer: "乙方逾期交货的" },
-  { doc: "contract-zh", query: "保修期限", answer: "质保期为最终验收合格之日起三十六个月" },
-  { doc: "contract-zh", query: "付款分几期", answer: "本合同价款分三期支付" },
-  { doc: "contract-zh", query: "故障维修响应时间", answer: "响应时间不超过两小时" },
-  { doc: "contract-zh", query: "患者隐私 数据", answer: "不得复制、存储、传输" },
-  { doc: "contract-zh", query: "争议 起诉 法院", answer: "有管辖权的人民法院提起诉讼" },
-  { doc: "contract-zh", query: "操作人员培训学时", answer: "不少于十六学时" },
-  { doc: "contract-zh", query: "验收不合格 解除合同", answer: "第二次验收仍不合格的" },
-  { doc: "contract-zh", query: "合同总金额", answer: "合同总价为人民币肆佰叁拾陆万捌仟元整" },
-  { doc: "contract-zh", query: "不可抗力 通知期限", answer: "在事件发生后七日内书面通知对方" },
-  { doc: "contract-zh", query: "开机率", answer: "设备年度开机率应不低于百分之九十五" },
-  // The same contract set by the other typesetter: the ranking must not depend on layout.
-  { doc: "contract-zh-rl", query: "逾期付款 违约金", answer: "甲方逾期付款的" },
-  { doc: "contract-zh-rl", query: "保修期限", answer: "质保期为最终验收合格之日起三十六个月" },
-  { doc: "contract-zh-rl", query: "争议 起诉 法院", answer: "有管辖权的人民法院提起诉讼" },
-  // The paper.
-  { doc: "paper-en", query: "memory overhead of the filter", answer: "Memory use is fixed" },
-  { doc: "paper-en", query: "how the sampling rate adapts", answer: "is doubled (up to 1/8)" },
-  { doc: "paper-en", query: "cases where admission control hurts", answer: "Two situations defeat the filter" },
-  { doc: "paper-en", query: "workloads traces used", answer: "We use four traces" },
-  { doc: "paper-en", query: "withdrawn result", answer: "has been withdrawn" },
-  { doc: "paper-en", query: "throughput cost per request", answer: "per request on the test machine" },
-  { doc: "paper-en", query: "main results comparison", answer: "Table 1 summarises the main result" },
-  // The licences.
-  { doc: "gpl-3.0", query: "patent grant from contributors", answer: "royalty-free patent license under the contributor" },
-  { doc: "gpl-3.0", query: "warranty disclaimer", answer: "THERE IS NO WARRANTY FOR THE PROGRAM" },
-  { doc: "gpl-3.0", query: "anti-circumvention laws DRM", answer: "Protecting Users' Legal Rights From Anti-Circumvention Law" },
-  { doc: "gpl-3.0", query: "Affero network use", answer: "Use with the GNU Affero General Public License" },
-  { doc: "gpl-3.0", query: "installation information user products", answer: "for a User Product means any methods" },
-  { doc: "gpl-3.0", query: "terminating the license reinstated", answer: "your license from a particular copyright holder is reinstated" },
-  { doc: "mpl-2.0", query: "license termination breach", answer: "will terminate automatically if You fail to comply" },
-  { doc: "mpl-2.0", query: "who publishes new license versions", answer: "Mozilla Foundation is the license steward" },
-  { doc: "mpl-2.0", query: "liability limits damages", answer: "Limitation of Liability" },
-  { doc: "mpl-2.0", query: "distributing source form obligations", answer: "Distribution of Source Form" },
-  // Real documents, when fetched.
-  { doc: "vicksburg-ocr", query: "shell crater bury a horse", answer: "big enough to bury a horse" },
-  { doc: "vicksburg-ocr", query: "sewing buttons camp chores", answer: "sew on buttons" },
-  { doc: "geobase-data-model", query: "document revisions history", answer: "REVISION HISTORY" },
-  { doc: "geobase-data-model", query: "abbreviation list", answer: "ABBREVIATIONS" },
-];
 
 const squash = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[\s\-­‐-—'"‘’“”]/g, "");
 
