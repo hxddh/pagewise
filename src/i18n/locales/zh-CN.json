@@ -280,7 +280,8 @@
     "searchNext": "下一个匹配",
     "activityNoteFinding": "记下一条发现…",
     "activityReviseFinding": "修正一条发现…",
-    "exportBrief": "导出简报"
+    "exportBrief": "导出简报",
+    "timedOut": "模型长时间没有响应，本次运行已停止。请重试；如果反复出现，可以换一个服务商。"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",

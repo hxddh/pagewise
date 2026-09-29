@@ -1,4 +1,4 @@
-import { safeValidateUIMessages, type UIMessage } from "ai";
+import { safeValidateUIMessages, type UIMessage, isToolUIPart } from "ai";
 import type { ProviderId } from "./types";
 import {
   dropEmptyPartMessages,
@@ -28,7 +28,9 @@ function dropTrailingEmptyAssistant(messages: UIMessage[]): UIMessage[] {
     if (part.type === "text" || part.type === "reasoning") {
       return (part.text?.trim().length ?? 0) > 0;
     }
-    if (part.type.startsWith("tool-")) return true;
+    // `isToolUIPart`, not a "tool-" prefix: since AI SDK 7.0.83 a stored call
+    // whose tool schema has since changed loads as a `dynamic-tool` part.
+    if (isToolUIPart(part)) return true;
     return false;
   });
 

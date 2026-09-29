@@ -15,7 +15,7 @@ import type { ProviderId } from "./types";
 import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
-import { setAgentRunAbortSignal, clearAgentRunAbortSignal } from "./agent-abort";
+import { setAgentRunAbortSignal, clearAgentRunAbortSignal, isTimeoutReason, noteRunTimedOut, consumeRunTimedOut } from "./agent-abort";
 import { setWebSearchForRun } from "./llm";
 import { consumePendingAgentContext } from "./agent-view-context";
 import { buildRuntimeContext } from "./agent-runtime-context";
@@ -103,6 +103,7 @@ export class PagewiseChatTransport<
 
     let result;
     try {
+      consumeRunTimedOut();
       setAgentRunAbortSignal(abortSignal);
       const viewCtx = consumePendingAgentContext();
       setWebSearchForRun(viewCtx?.webSearch === true);
@@ -113,6 +114,11 @@ export class PagewiseChatTransport<
         runtimeContext,
         experimental_transform: resolveStreamingTransform(),
         onStepEnd: tracker.onStepEnd,
+        // A deadline and the Stop button both abort the run; only the reason
+        // tells them apart. See `noteRunTimedOut`.
+        onAbort: ({ reason }: { reason?: unknown }) => {
+          if (isTimeoutReason(reason)) noteRunTimedOut();
+        },
       } as Parameters<Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>["stream"]>[0]);
 
       const uiStream = toUIMessageStream({

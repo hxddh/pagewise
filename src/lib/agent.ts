@@ -96,6 +96,9 @@ const AGENT_STOP_WHEN = [stepCountIs(DEFAULT_MAX_AGENT_STEPS), stopMetaToolLoop]
  */
 const MAX_OUTPUT_TOKENS = 8_000;
 
+/** Retries of one step whose stream failed partway. See `streamRetries` below. */
+export const STREAM_RETRIES = 1;
+
 /**
  * Reasoning effort for the steps that only fetch. Deliberation is billed output
  * and "read page 14 next" does not need any; the step that has to turn twelve
@@ -210,6 +213,16 @@ export function createDocAgent() {
     // the run streaming with no end and no error. See agent-timeouts.ts for why
     // each number is as generous as it is.
     timeout: AGENT_TIMEOUT,
+    // A provider error that arrives after the step's stream has started — an
+    // OpenRouter upstream hiccup, a DeepSeek overload at step 12 — used to end
+    // the whole run, and the retry the reader then pressed paid for every page
+    // again. AI SDK 7.0.91 can rerun just the failed step, keeping the steps
+    // and tool results before it. One retry: a second failure is not a hiccup.
+    // Text the failed attempt already streamed cannot be taken back, so a
+    // retried answering step may repeat its opening; a repeated sentence is a
+    // smaller cost than a discarded run. `ToolLoopAgent` forwards the setting
+    // to `streamText` but its settings type does not declare it yet.
+    ...({ streamRetries: STREAM_RETRIES } as object),
     // The order tools are offered in nudges which one gets picked, without
     // spending prompt on saying so: locate, then read, then the survey.
     toolOrder: [

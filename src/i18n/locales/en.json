@@ -280,7 +280,8 @@
     "searchNext": "Next match",
     "activityNoteFinding": "Noting a finding…",
     "activityReviseFinding": "Revising a finding…",
-    "exportBrief": "Export brief"
+    "exportBrief": "Export brief",
+    "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening."
   },
   "empty": {
     "lead": "Ask questions about your document",
