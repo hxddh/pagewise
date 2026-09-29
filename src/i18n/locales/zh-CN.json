@@ -590,7 +590,8 @@
     "saveClaim": "保存",
     "cancelEdit": "取消",
     "claimLabel": "结论",
-    "bodyOf": "这条结论所来自的完整回答"
+    "bodyOf": "这条结论所来自的完整回答",
+    "trustMismatch": "原文找到了，但结论里的数字不在那段原文里，请核对"
   },
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",
@@ -615,7 +616,9 @@
     "tallyUnconfirmed": "{{count}} 条在扫描页上未能确认",
     "tallyNone": "没有可核对的引用",
     "keepVerified": "只留下已核对的句子（{{count}}）",
-    "keptVerified": "已将 {{count}} 句已核对内容留到记录"
+    "keptVerified": "已将 {{count}} 句已核对内容留到记录",
+    "mismatch": "已在第 {{page}} 页找到原文，但句中的 {{numbers}} 不在该段原文里，请核对",
+    "tallyMismatch": "{{count}} 条的数字不在原文段落里"
   },
   "table": {
     "export": "导出表格为 CSV（含出处）",
@@ -629,6 +632,7 @@
     "statusOutOfRange": "无此页",
     "statusPending": "尚未核对",
     "found": "{{located}}/{{total}} 条已找到",
-    "noQuote": "无可核对内容"
+    "noQuote": "无可核对内容",
+    "statusMismatch": "已找到，但数字不符"
   }
 }

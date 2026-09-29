@@ -539,6 +539,13 @@ button.pages-read-chip:hover {
   border-style: dashed;
 }
 
+/* Found, but the sentence states a number the passage does not: solid, in the
+   warning red — the words are there, the claim about them is in doubt. */
+.cite-mismatch {
+  color: var(--danger);
+  border-width: 2px;
+}
+
 /* On a scan, a quote OCR did not recognise: worth a look, not an accusation. */
 .cite-unconfirmed {
   color: var(--warning);

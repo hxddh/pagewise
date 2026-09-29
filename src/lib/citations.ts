@@ -33,6 +33,8 @@ export interface Citation {
   quote: string | null;
   /** The marker exactly as written, brackets included. */
   raw: string;
+  /** Where the marker starts in the text it was read from. */
+  index: number;
 }
 
 /** Most pages one citation may name; a wider range is not a citation of a passage. */
@@ -60,7 +62,7 @@ const PAGES_RE = /^(?:d\d+\s*)?(?:p|P|pp?\.?\s*)\s*(\d{1,5})(?:\s*[-–—~]\s*(
 const QUOTE_RE = /^["“「『'‘]([\s\S]+)["”」』'’]$/;
 
 /** Parse the inside of one marker, or null when it is not a citation. */
-export function parseCitation(inner: string): Omit<Citation, "raw"> | null {
+export function parseCitation(inner: string): Omit<Citation, "raw" | "index"> | null {
   const text = inner.trim();
   const pages = PAGES_RE.exec(text);
   if (!pages) return null;
@@ -89,7 +91,7 @@ export function extractCitations(markdown: string): Citation[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(markdown)) !== null) {
     const parsed = parseCitation(m[1]!);
-    if (parsed) out.push({ ...parsed, raw: m[0] });
+    if (parsed) out.push({ ...parsed, raw: m[0], index: m.index });
   }
   return out;
 }

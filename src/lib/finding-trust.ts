@@ -30,6 +30,8 @@ export type Trust =
   | "unverified"
   /** The page has text and the quoted wording is not in it. */
   | "unlocated"
+  /** The wording is on the page, but the claim states a number the passage around it does not. */
+  | "mismatch"
   /** The cited page has no text layer, or could not be read. */
   | "unreadable"
   /** The cited page is a scan, and the wording is not among the words OCR recognised on it. */
@@ -54,7 +56,13 @@ export interface TrustContext {
 export const TRUST_KNOWN: ReadonlySet<Trust> = new Set(["confirmed", "located", "unverified"]);
 
 /** States the model is told to re-check before relying on. */
-export const TRUST_DOUBTFUL: ReadonlySet<Trust> = new Set(["unlocated", "unreadable", "unconfirmed", "stale"]);
+export const TRUST_DOUBTFUL: ReadonlySet<Trust> = new Set([
+  "unlocated",
+  "mismatch",
+  "unreadable",
+  "unconfirmed",
+  "stale",
+]);
 
 export function trustOf(finding: Finding, ctx: TrustContext): Trust {
   if (finding.struck) return "retracted";
@@ -71,6 +79,8 @@ export function trustOf(finding: Finding, ctx: TrustContext): Trust {
       return "located";
     case "absent":
       return "unlocated";
+    case "mismatch":
+      return "mismatch";
     case "unreadable":
       return "unreadable";
     case "unconfirmed":

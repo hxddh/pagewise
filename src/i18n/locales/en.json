@@ -590,7 +590,8 @@
     "saveClaim": "Save",
     "cancelEdit": "Cancel",
     "claimLabel": "Claim",
-    "bodyOf": "The whole answer this was kept from"
+    "bodyOf": "The whole answer this was kept from",
+    "trustMismatch": "Wording found, but a number in the claim is not in that passage — check the page"
   },
   "annotations": {
     "byAuthor": "{{author}}: {{text}}",
@@ -615,7 +616,9 @@
     "tallyUnconfirmed": "{{count}} on scanned pages, unconfirmed",
     "tallyNone": "No citations to check",
     "keepVerified": "Keep the verified sentences ({{count}})",
-    "keptVerified": "Kept {{count}} verified sentences to the record"
+    "keptVerified": "Kept {{count}} verified sentences to the record",
+    "mismatch": "Found on page {{page}}, but {{numbers}} in this sentence is not in that passage — check the page",
+    "tallyMismatch": "{{count}} with a number not in the passage"
   },
   "table": {
     "export": "Export table as CSV, with sources",
@@ -629,6 +632,7 @@
     "statusOutOfRange": "no such page",
     "statusPending": "not checked yet",
     "found": "{{located}} of {{total}} found",
-    "noQuote": "nothing to check"
+    "noQuote": "nothing to check",
+    "statusMismatch": "found, but a number differs"
   }
 }

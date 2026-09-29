@@ -232,6 +232,7 @@ function MessageAssistantFooterInner({
         unlocated: t("table.statusUnlocated"),
         unreadable: t("table.statusUnreadable"),
         unconfirmed: t("table.statusUnconfirmed"),
+        mismatch: t("table.statusMismatch"),
         unchecked: t("table.statusUnchecked"),
         outOfRange: t("table.statusOutOfRange"),
         pending: t("table.statusPending"),
@@ -346,13 +347,14 @@ function MessageAssistantFooterInner({
         </div>
         {tally && tally.total > 0 && (
           <p
-            className={`citation-tally${tally.unlocated > 0 || tally.outOfRange > 0 ? " citation-tally-warn" : ""}`}
+            className={`citation-tally${tally.unlocated > 0 || tally.outOfRange > 0 || tally.mismatch > 0 ? " citation-tally-warn" : ""}`}
             aria-live="polite"
           >
             {t("cite.tally", { located: String(tally.located), total: String(tally.total) })}
             {tally.unlocated + tally.outOfRange > 0 &&
               ` · ${t("cite.tallyUnlocated", { count: String(tally.unlocated + tally.outOfRange) })}`}
             {tally.unreadable > 0 && ` · ${t("cite.tallyUnreadable", { count: String(tally.unreadable) })}`}
+            {tally.mismatch > 0 && ` · ${t("cite.tallyMismatch", { count: String(tally.mismatch) })}`}
             {tally.unconfirmed > 0 &&
               ` · ${t("cite.tallyUnconfirmed", { count: String(tally.unconfirmed) })}`}
           </p>

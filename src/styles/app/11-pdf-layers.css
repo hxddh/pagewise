@@ -395,6 +395,15 @@
   background: color-mix(in srgb, var(--finding) 10%, transparent);
 }
 
+/* The words are here; a number in the claim about them is not. */
+.pdf-finding-doubted::after {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--danger) 0 4px,
+    transparent 4px 7px
+  );
+}
+
 .pdf-finding-selected {
   background: color-mix(in srgb, var(--finding) 18%, transparent);
 }
