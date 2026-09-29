@@ -14,6 +14,8 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 - **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
 - **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one trust state (*checked*, *found on the page*, *re-check*) that the panel, the model and the export all read
 - **Brief** — Export the record as one Markdown file: conclusions, evidence, and what still needs re-checking
+- **Evidence in the PDF** — Export a copy of the document with located findings and your marks written in as standard highlights and notes, readable in any PDF reader
+- **Cited tables** — Ask for a list or comparison and get a table with a checked citation in every cell; export it as CSV with each row's sources and whether they were found
 - **Chat** — One thread per document, persisted locally; a renamed or moved file finds its own chat, marks and record by content fingerprint
 - **Library** — Recent files, each reopening at the page you left and saying how much of the record is waiting on you
 - **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint
@@ -61,6 +63,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 | `npm run check:secrets` | Pre-release credential scan |
 | `npm run version:sync` | Sync `VERSION` → package / Tauri / Cargo |
 | `npm run eval` | Measure citation location (text layers and scanned pages) and search on the evaluation corpus (see [eval/README.md](eval/README.md)) |
+| `npm run audit:tables` | With `npm run dev` running: follow a cited table answer through its chips, the CSV export and the record |
 | `npm run audit:ocr` | After `npm run build`: open a scanned document in Chromium under the app's CSP and follow one cited answer end to end |
 
 ## Versioning
