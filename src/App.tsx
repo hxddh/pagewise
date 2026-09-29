@@ -15,6 +15,7 @@ import { RecentFilesDrawer } from "./components/RecentFilesDrawer";
 import { ClearChatConfirm } from "./components/overlays/ClearChatConfirm";
 import { ConfirmOverlay } from "./components/overlays/ConfirmOverlay";
 import { indexWholeDocument, pendingIndexPages } from "./document/index-queue";
+import { ocrEnabled } from "./lib/ocr/ocr-service";
 import { getVisionCallCount } from "./lib/usage-tracker";
 import { CommandPalette } from "./components/CommandPalette";
 import { useAppCommands } from "./hooks/useAppCommands";
@@ -124,6 +125,8 @@ function AppContent() {
     [doc?.path, doc?.pages],
   );
   const [scanAllPrompt, setScanAllPrompt] = useState<number | null>(null);
+  // With local OCR on, "scan all" reads locally first and bills only the rest.
+  const scanAllKey = ocrEnabled() ? "preview.scanAllConfirmLocal" : "preview.scanAllConfirm";
 
   const requestScanAll = useCallback(() => {
     if (!doc) return;
@@ -193,11 +196,11 @@ function AppContent() {
         open={scanAllPrompt !== null}
         message={
           doc && getVisionCallCount(doc.path) > 0
-            ? `${t("preview.scanAllConfirm", { count: scanAllPrompt ?? 0 })} ${t(
+            ? `${t(scanAllKey, { count: scanAllPrompt ?? 0 })} ${t(
                 "preview.scanAllUsed",
                 { used: getVisionCallCount(doc.path) },
               )}`
-            : t("preview.scanAllConfirm", { count: scanAllPrompt ?? 0 })
+            : t(scanAllKey, { count: scanAllPrompt ?? 0 })
         }
         confirmLabel={t("preview.scanAllAction")}
         onConfirm={() => {

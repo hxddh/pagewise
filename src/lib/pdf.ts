@@ -1108,7 +1108,7 @@ export async function renderPageToJpegBytes(
 }
 
 
-/** Resolution a page is rendered at for local OCR (14.0). 300 dpi measured no better in the spike. */
+/** Resolution a page is rendered at for local OCR (14.0), unless the caller says otherwise — see `ocrDpiFor`. */
 export const OCR_DPI = 200;
 
 /**
@@ -1122,8 +1122,9 @@ export async function renderPageForOcr(
   path: string,
   pageNumber: number,
   signal?: AbortSignal,
+  dpi: number = OCR_DPI,
 ): Promise<{ canvas: HTMLCanvasElement; toPdf: (x: number, y: number) => [number, number] }> {
-  const renderScale = OCR_DPI / 72;
+  const renderScale = dpi / 72;
   // paintPage multiplies by the output scale; divide it back out so the
   // image is OCR_DPI on every display.
   const { canvas, page } = await paintDetached(

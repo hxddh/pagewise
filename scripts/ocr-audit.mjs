@@ -132,7 +132,11 @@ await p.addInitScript(installTauriMock, {
   doc,
   runsByPage: {},
   identity: "fnv1a64:0123456789abcdef:4242",
-  settings: { llm: { provider: "openai", model: "gpt-4o", connectionVerified: true, apiKeys: { openai: "sk-harness" } } },
+  settings: {
+    llm: { provider: "openai", model: "gpt-4o", connectionVerified: true, apiKeys: { openai: "sk-harness" } },
+    // PW_AUDIT_OCR=chi_sim+eng loads the Chinese model too (and renders at 300 dpi).
+    ...(process.env.PW_AUDIT_OCR ? { app: { ocrLanguage: process.env.PW_AUDIT_OCR } } : {}),
+  },
 });
 await p.addInitScript((x) => { window.__HARNESS_OPEN_PATH__ = x; }, scan);
 
@@ -211,7 +215,7 @@ log(`chips: ${chips.map((c) => c.cls.replace("cite ", "")).join(", ")}`);
 log(`tally: ${tally}`);
 if (stored) {
   const ms = stored.pages.map((pg) => pg.ms).sort((a, c) => a - c);
-  log(`cached ${stored.pages.length} page(s), confidence ${stored.pages.map((pg) => pg.c).join(" / ")}, ` +
+  log(`cached ${stored.pages.length} page(s) read with ${stored.langs}, confidence ${stored.pages.map((pg) => pg.c).join(" / ")}, ` +
     `per-page ms ${ms.join(" / ")} (median ${ms[Math.floor(ms.length / 2)]})`);
 }
 if (external.length) log(`external requests: ${external.join(", ")}`);

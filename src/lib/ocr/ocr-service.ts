@@ -19,6 +19,7 @@ import { docCache } from "../doc-cache";
 import { readAuthorizedFileBytes, renderPageForOcr } from "../pdf";
 import { recognizeCanvas, terminateOcr, type OcrLanguages } from "./ocr-engine";
 import { readOcrDoc, writeOcrDoc, type StoredOcrPage } from "./ocr-store";
+import { ocrDpiFor } from "./ocr-result";
 import type { PageText } from "../types";
 
 export const OCR_SLOTS = 2;
@@ -156,7 +157,7 @@ async function recognize(path: string, page: number, slot: number, signal?: Abor
       bitmap.close();
     }
   }
-  const { canvas, toPdf } = await renderPageForOcr(path, page, signal);
+  const { canvas, toPdf } = await renderPageForOcr(path, page, signal, ocrDpiFor(langs));
   const read = await recognizeCanvas(canvas, toPdf, langs, slot);
   // Release the page image now rather than when the collector gets to it.
   canvas.width = 0;

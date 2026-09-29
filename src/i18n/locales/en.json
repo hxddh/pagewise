@@ -119,6 +119,8 @@
     "askAboutSelection": "Ask about this",
     "scanAllConfirm": "Scan the 1 page that has no text yet? It is one billed call to the scan model, cached afterwards.",
     "scanAllConfirm_plural": "Scan the {{count}} pages that have no text yet? That is {{count}} billed calls to the scan model, cached afterwards.",
+    "scanAllConfirmLocal": "Read the 1 page that has no text yet? It is read on this computer first; only if that fails or reads poorly is it one billed call to the scan model.",
+    "scanAllConfirmLocal_plural": "Read the {{count}} pages that have no text yet? Each is read on this computer first; only the pages it cannot read, or reads poorly, become billed calls to the scan model — at most {{count}}.",
     "scanAllUsed": "This document has used {{used}} scan calls so far this session.",
     "scanAllAction": "Scan pages",
     "outline": "Outline",

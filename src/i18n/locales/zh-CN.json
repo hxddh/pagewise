@@ -119,6 +119,8 @@
     "askAboutSelection": "就这段提问",
     "scanAllConfirm": "扫描这 1 个尚无文字的页面？这是一次计费的扫页模型调用，之后会被缓存。",
     "scanAllConfirm_plural": "扫描这 {{count}} 个尚无文字的页面？这是 {{count}} 次计费的扫页模型调用，之后会被缓存。",
+    "scanAllConfirmLocal": "读取这 1 个尚无文字的页面？会先在本机识别；只有识别失败或质量低时，才会成为一次计费的扫页模型调用。",
+    "scanAllConfirmLocal_plural": "读取这 {{count}} 个尚无文字的页面？每页都先在本机识别；只有识别失败或质量低的页才会成为计费的扫页模型调用，最多 {{count}} 次。",
     "scanAllUsed": "本次会话中，该文档已使用 {{used}} 次扫页调用。",
     "scanAllAction": "开始扫描",
     "outline": "大纲",

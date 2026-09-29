@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flatPixelToPdf, ocrPageFrom, type OcrWordIn } from "./ocr-result";
+import { flatPixelToPdf, ocrDpiFor, ocrPageFrom, type OcrWordIn } from "./ocr-result";
 import { locateQuote } from "../quote-locate";
 
 const word = (text: string, x0: number, y0: number, x1: number, y1: number, confidence = 90): OcrWordIn => ({
@@ -51,13 +51,37 @@ describe("ocrPageFrom", () => {
     expect(page.text).toBe("甲方有权 PW-1");
   });
 
-  it("drops words recognised with too little confidence to mean anything", () => {
+  it("drops low-confidence noise, but keeps a real word tesseract doubted", () => {
     const page = ocrPageFrom(
-      { blocks: [{ paragraphs: [{ lines: [{ words: [word("real", 0, 0, 30, 10, 95), word("~,", 40, 0, 45, 10, 12)] }] }] }] },
+      {
+        blocks: [
+          {
+            paragraphs: [
+              {
+                lines: [
+                  {
+                    words: [
+                      word("real", 0, 0, 30, 10, 95),
+                      word("~,", 40, 0, 45, 10, 12),
+                      // Read correctly, scored 0: tesseract on a curly apostrophe.
+                      word("developers’", 50, 0, 120, 10, 0),
+                      word("存储、", 130, 0, 160, 10, 0),
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
       toPdf,
     );
-    expect(page.items.map((i) => i.text)).toEqual(["real"]);
-    expect(page.confidence).toBe(95);
+    expect(page.items.map((i) => i.text)).toEqual(["real", "developers’", "存储、"]);
+  });
+
+  it("reads Chinese at a higher resolution than English", () => {
+    expect(ocrDpiFor("eng")).toBe(200);
+    expect(ocrDpiFor("chi_sim+eng")).toBe(300);
   });
 
   it("yields runs a citation can be located among", () => {

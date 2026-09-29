@@ -56,8 +56,26 @@ export type PixelToPdf = (x: number, y: number) => [number, number];
 
 const CJK = /[　-〿㐀-䶿一-鿿豈-﫿＀-￯]/;
 
-/** Below this a word is noise: a speck, a rule, a smudge read as punctuation. */
+/**
+ * Below this a word with no letter or digit in it is noise: a speck, a rule,
+ * a smudge read as punctuation. Only such words are dropped. tesseract's
+ * confidence is badly calibrated on real words — `developers’` and `存储、`
+ * both came back at 0, correctly read — and dropping them cost 9 points of
+ * Chinese and 2 of English in the 14.0 evaluation, at no gain in false
+ * positives.
+ */
 export const MIN_WORD_CONFIDENCE = 30;
+
+/**
+ * The resolution a page is rendered at for these models. Chinese glyphs are
+ * dense: at 200 dpi a 10.5 pt character is under 30 px and strokes merge, and
+ * 300 dpi read 9 points more Chinese quotes correctly in the evaluation. It
+ * read English no better and two-column pages slightly worse, and costs half
+ * again the pixels, so English stays at 200.
+ */
+export function ocrDpiFor(langs: string): number {
+  return langs.includes("chi_sim") ? 300 : 200;
+}
 
 function rectOf(box: PixelBox, toPdf: PixelToPdf) {
   const [ax, ay] = toPdf(box.x0, box.y0);
@@ -101,7 +119,7 @@ export function ocrPageFrom(page: OcrPageIn, toPdf: PixelToPdf): OcrPage {
         let text = "";
         for (const word of line.words) {
           const w = word.text.trim();
-          if (!w || word.confidence < MIN_WORD_CONFIDENCE) continue;
+          if (!w || (word.confidence < MIN_WORD_CONFIDENCE && !/[\p{L}\p{N}]/u.test(w))) continue;
           const rect = rectOf(word.bbox, toPdf);
           if (rect.width <= 0 || rect.height <= 0) continue;
           items.push({ text: w, rect });
