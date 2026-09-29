@@ -16,6 +16,7 @@ npm run eval         # builds eval/extract (Rust) on first run, then measures
 | `location.eval.ts` | A quote copied verbatim from the page text the assistant reads — is it found among the page's text runs, where a citation is checked? | ≥ 90% located |
 | `location.eval.ts` | The same quotes, each altered the way a careless or fabricating model would (a digit, two words swapped, a "not", a letter) — are they refused? | ≤ 1% wrongly located |
 | `search.eval.ts` | Asked in the reader's words rather than the document's, does `search_in_document` put the right page in its first three? | ≥ 80%, and never worse than exact search on any question |
+| `ocr.eval.ts` | Every page rendered to an image and read by the local OCR the app ships (14.0) — are the same quotes found among the recognised words? | English single-column ≥ 95%, Chinese prose ≥ 85%, generated corpus ≥ 80%, altered quotes ≤ 1% wrongly located, median ≤ 5 s a page |
 | `live-score.eval.ts` | Recorded answers from real models (below): how many cite, how many quotes are on their pages, how many cite a right page. | none — it measures models, not this repository |
 
 No model is called by the gated suites. The quotes are cut from exactly the text
@@ -32,6 +33,25 @@ Results at 13.0.0:
 | altered quotes wrongly located (2,040) | — | 0.1% |
 | search: right page first (36 questions) | 1 | 27 |
 | search: right page in first three | 1 | 32 |
+
+Results at 14.0.0, on scanned pages (`ocr.eval.ts`; pages rendered by
+`corpus/build_scans.py` at the app's resolution, 200 dpi for English and 300
+for Chinese; recognition cached in `eval/out/ocr*/`):
+
+| kind of page | quotes | located |
+|---|---:|---:|
+| single-column English | 231 | 99.1% |
+| Chinese prose | 90 | 87.8% |
+| two-column (reported) | 159 | 78.0% |
+| table cells (reported) | 182 | 68.7% |
+| **generated corpus** | 662 | **84.1%** |
+| fetched, incl. the real Vicksburg scan (reported) | 360 | 65.6% |
+| altered quotes wrongly located | 1,997 | 1 |
+
+Median 2.2 s a page on one Linux core. `PW_OCR_DPI=300 npm run eval` measures
+every page at another resolution; that is how Chinese came to be read at 300.
+A miss on a scanned page is shown to the reader as *unconfirmed*, never as
+*not on the page*.
 
 ## Real models
 

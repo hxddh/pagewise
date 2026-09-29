@@ -4,6 +4,61 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [14.0.0] - 2026-09-29
+
+Every page can be checked. 13.0 checked the assistant's citations, but only on pages with a text layer. On a scanned page every citation stayed grey, the quoted words could not be lit, search could not point at them, and reading the page cost a vision call. PageWise now reads scanned pages on your computer, with the position of every word, so a scan works like any other PDF.
+
+### Added
+
+- **Scanned pages are read on this computer.** A page with no text layer is recognised locally: free, private, and without an API key. The page on screen is read first, then the rest of the document in the background, two pages at a time. A page takes one to three seconds. What was read is kept per file, so reopening a scan (renamed or moved, too) starts where it left off. The page's hint says *Read on this computer · 96% confidence*.
+- **Citations on scanned pages are checked.** A quote found among the recognised words is violet like any other, and clicking it lights the words on the scan. A quote *not* found gets a separate verdict. It is an amber chip that reads *Not found in the text recognised on page 12 — recognition may have misread it; look at the page*. It never shows the red *not on this page*: recognition can be wrong, and that sentence must not be. The assistant is not told such a citation failed. Findings in the record get the same treatment.
+- **Search hits and region marks work on scans.** A search hit on a scanned page is highlighted where the words are. A rectangle drawn on a scan carries the recognised words inside it.
+- **Settings → Scanning** gains *Read scanned pages on this computer* (on by default), the recognition language, and the size of what has been recognised, with a button to clear it. The recognition language can follow the interface, or be English, or Chinese + English. Chinese is read at a higher resolution, because at the usual one its strokes merge.
+
+### Changed
+
+- **The vision model is now the fallback, not the default, for scans.** Only a page local recognition could not read, or read with low confidence (under 70%), is offered to it, and still only within the budgets you set. A scan whose pages read well costs nothing. The automatic budget and the per-question allowance now count only vision calls. *Scan all unscanned pages* reads each page locally first and bills only the pages that still need it.
+- **Without an API key the background reading carries on.** Before, a missing key stopped the scan sweep. Now only the vision fallback stops.
+- **Looking at a page no longer pays to improve it.** Turning to a page that local recognition read poorly does not send it to vision; asking the assistant about it can, within the question's allowance.
+- **The assistant is told when a page's words were recognised from a scan**, and asked to quote them exactly as given, since that is what its citations are checked against.
+
+### Fixed
+
+- **A page rendered for the vision model while a document was opening could hang forever.** The document it was drawn from was replaced underneath it, and pdf.js leaves a render on a replaced document pending. Such a render now notices and starts again, for vision and for local recognition alike.
+
+### Internal
+
+- **`eval/ocr.eval.ts`: citations on scanned pages, measured.**
+  - **Setup.** Every corpus page is rendered to an image and read by the same engine, models and word mapping the app ships. The quotes are the ones the text-layer suite uses.
+  - **Gates:**
+
+    | Kind of page | Located | Gate |
+    |---|---:|---:|
+    | Single-column English | 99.1% | ≥ 95% |
+    | Chinese prose | 87.8% | ≥ 85% |
+    | Whole generated corpus | 84.1% | ≥ 80% |
+    | Altered quotes wrongly located | 1 of 1,997 | ≤ 1% |
+
+    The median time per page is 2.2 s (gate ≤ 5 s).
+  - **Reported, not gated.** Two-column pages locate 78.0%, table cells 68.7%, and the fetched documents 65.6%, including a real 1860s scan. A quote missed there is shown as unconfirmed, never as absent.
+  - **Two decisions came out of measuring.** The first was to keep words the engine doubts. Its confidence is badly calibrated: `developers’` and `存储、` both came back at 0, read correctly, and dropping such words cost 9 points in Chinese. Only doubtful words with no letter or digit in them are dropped now. The second was to read Chinese at 300 dpi, which gained 9 points.
+- **`npm run audit:ocr`** re-makes the harness document as a scan and opens it in the production build, with the app's Content-Security-Policy on every response. It follows one answer end to end, and checks each of these:
+  - the recognition engine loads from the app's own files, with no network;
+  - the assistant's read of the page is answered by local recognition, with no vision call;
+  - the chips come out *found* and *unconfirmed*;
+  - the highlight falls on the scanned words;
+  - what was read reaches the cache.
+
+  It passes with English and with Chinese + English.
+- **Recognised pages are cached on disk** by four new commands. The cache holds one file per document, named from its content fingerprint (validated, never trusted as a path), and is pruned to 256 MB.
+
+### Notes
+
+- **The app carries about 10 MB more.** It ships the recognition engine, in builds with and without WebAssembly SIMD (macOS 12's WebKit has none), and the English and Simplified Chinese models. Nothing is downloaded at run time.
+- **Other languages, handwriting and vertical Chinese are not recognised.** Such pages go to the vision model as before, if you have one.
+- **Not measured here: recognition time on macOS and Windows.** Linux Chromium reads a page in 1–3 s. WKWebView and WebView2 are covered by the release builds and a manual check of one scanned document.
+- **Still pending: a baseline with a real model** (`npm run eval:live`), which needs an API key.
+
 ## [13.1.0] - 2026-09-29
 
 Every dependency at its newest version, and what the new versions can do put to use. Two of those upgrades would have broken things quietly, and were caught by measuring rather than by reading changelogs.

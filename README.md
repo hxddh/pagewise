@@ -1,6 +1,6 @@
 # PageWise
 
-Local desktop document agent for **PDF text extraction**, **vision indexing**, and **page-wise AI analysis**.
+Local desktop document agent for **PDF text extraction**, **local OCR of scanned pages**, and **page-wise AI analysis**.
 
 Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev). Documents are processed on your machine; only extracted text (and optional vision payloads) are sent to the LLM you configure.
 
@@ -8,9 +8,9 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 
 - **Documents** — Open PDFs and images via file picker or drag & drop
 - **Preview** — Page navigation, thumbnails, zoom, in-document search (⌘F)
-- **Indexing** — PDF text layer plus optional vision model indexing for scans and images
+- **Indexing** — PDF text layer; scanned pages are read on your machine (English and Simplified Chinese), with a vision model as an optional fallback for pages that do not read well
 - **Agent** — Streaming chat with tool calls (`document_outline`, `read_pdf_page`, `search_in_document`, …)
-- **Checked citations** — Every fact in an answer cites its page and the words it rests on; PageWise looks the words up on that page and shows whether they are there. Click a citation to see the passage lit on the page
+- **Checked citations** — Every fact in an answer cites its page and the words it rests on; PageWise looks the words up on that page and shows whether they are there. Click a citation to see the passage lit on the page — on scanned pages too
 - **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
 - **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one trust state (*checked*, *found on the page*, *re-check*) that the panel, the model and the export all read
 - **Brief** — Export the record as one Markdown file: conclusions, evidence, and what still needs re-checking
@@ -45,7 +45,7 @@ npm run tauri dev
 
 **OpenRouter:** Use a **tool-capable** model (e.g. `openai/gpt-4o-mini`) for the document agent. Some DeepSeek routes on OpenRouter do not support tool calling.
 
-**Vision / scans:** Pick a multimodal model (e.g. `gpt-4o-mini`, Qwen2.5-VL) for image-heavy documents.
+**Scans:** Scanned pages are read on your machine with no key and no cost (Settings → Scanning). A multimodal model (e.g. `gpt-4o-mini`, Qwen2.5-VL) is optional, for pages local recognition cannot read or reads poorly, and other languages.
 
 See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 
@@ -60,7 +60,8 @@ See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 | `npm test` | Unit tests (Vitest) |
 | `npm run check:secrets` | Pre-release credential scan |
 | `npm run version:sync` | Sync `VERSION` → package / Tauri / Cargo |
-| `npm run eval` | Measure citation location and search on the evaluation corpus (see [eval/README.md](eval/README.md)) |
+| `npm run eval` | Measure citation location (text layers and scanned pages) and search on the evaluation corpus (see [eval/README.md](eval/README.md)) |
+| `npm run audit:ocr` | After `npm run build`: open a scanned document in Chromium under the app's CSP and follow one cited answer end to end |
 
 ## Versioning
 
@@ -76,7 +77,8 @@ Release notes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ```
 React UI  →  PagewiseChatTransport + ToolLoopAgent (AI SDK)
-          →  Tauri invoke  →  Rust (pdf-inspector, file I/O, keychain)
+          →  Web Worker    →  tesseract.js (local OCR of scanned pages)
+          →  Tauri invoke  →  Rust (pdf-inspector, file I/O, OCR cache, keychain)
           →  OS Keychain   →  API keys (per provider)
 ```
 
