@@ -147,6 +147,19 @@ describe("the record panel, 12.0", () => {
     expect(revealed).toEqual(["m7"]);
   });
 
+  it("B20: offers no way back once the answer is gone (16.0)", () => {
+    addFinding(PATH, {
+      pages: [1],
+      claim: "Kept.",
+      stamp: "s",
+      author: "reader",
+      body: "Kept.",
+      source: { messageId: "m7" },
+    });
+    trusted(1, { onRevealMessage: () => {}, hasMessage: () => false });
+    expect(screen.queryByText("record.backToAnswer")).toBeNull();
+  });
+
   it("says an entry was written on an earlier version of the file, and lets the reader settle it", () => {
     addFinding(PATH, { pages: [1], claim: "Old.", stamp: "older-stamp" });
     const { container, rerender } = trusted();

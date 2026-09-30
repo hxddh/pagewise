@@ -11,6 +11,7 @@ import { recordCommand } from "../lib/onboarding-hints";
 import { previewNextPage, previewPrevPage } from "../lib/preview-actions";
 import { modKey } from "../lib/shortcut-display";
 import { isOverlayOpen } from "../lib/overlay-state";
+import { isTypingTarget } from "../lib/shortcut-guards";
 
 interface UseAppCommandsOptions {
   activeDocName: string | null;
@@ -311,6 +312,19 @@ export function useAppCommands({
         e.preventDefault();
         recordCommand("settings");
         onOpenSettings();
+      }
+      // Listed in the shortcuts and on the palette since they were added, and
+      // handled nowhere until 16.0 (B18).
+      if (mod && !e.shiftKey && !e.altKey && (e.key === "[" || e.key === "]")) {
+        if (overlayOpen || !activeDocName || isTypingTarget(e.target)) return;
+        e.preventDefault();
+        if (e.key === "[") {
+          recordCommand("prev-page");
+          previewPrevPage();
+        } else {
+          recordCommand("next-page");
+          previewNextPage();
+        }
       }
     };
 

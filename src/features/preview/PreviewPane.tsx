@@ -82,7 +82,7 @@ function PreviewPaneInner({
   // What the reader searched for when they jumped here, so the hit can be
   // marked on the page. Forgotten as soon as they navigate away from it — see
   // `useSearchHit`, which is where that rule lives.
-  const [searchHit, setSearchHit] = useSearchHit(page);
+  const [searchHit, setSearchHit] = useSearchHit(page, doc.path);
   const citation = useRevealedCitation(page, revealedCitation);
   // A link the reader clicked, held until they confirm. Document URLs are
   // untrusted input, so nothing opens the browser on its own.

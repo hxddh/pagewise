@@ -1,6 +1,7 @@
 mod annotate;
 mod inspect;
 mod ocr_cache;
+mod open_path;
 mod secrets;
 
 use std::collections::HashSet;
@@ -405,7 +406,7 @@ pub fn run() {
         // A reader who double-clicks a second PDF wants it in the window they
         // already have, not a second copy of the app with its own empty
         // conversation and its own idea of which document is open.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             let Some(window) = app.get_webview_window("main") else {
                 return;
             };
@@ -419,8 +420,10 @@ pub fn run() {
             // Anything that looks like a file on the second command line is
             // what they double-clicked. The front end decides whether it can
             // open it; this only carries it across.
-            if let Some(path) = argv.iter().skip(1).find(|a| !a.starts_with('-')) {
-                let _ = window.emit("pagewise://open-path", path.clone());
+            // Resolved against the second launch's directory, not ours: a
+            // relative path typed in a terminal names a file there (16.0).
+            if let Some(path) = open_path::path_from_args(&argv, Path::new(&cwd)) {
+                let _ = window.emit("pagewise://open-path", path);
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -428,6 +431,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AllowedPaths::default())
+        // The file this launch was started with (16.0, B15). Before, only a
+        // second launch's file was opened: double-clicking a PDF with the app
+        // closed started it empty.
+        .manage(open_path::PendingOpen::from_launch())
         .manage(FileReadCancel::default())
         .invoke_handler(tauri::generate_handler![
             register_allowed_path,
@@ -447,11 +454,22 @@ pub fn run() {
             ocr_cache::ocr_cache_write,
             ocr_cache::ocr_cache_stats,
             ocr_cache::ocr_cache_clear,
+            open_path::take_pending_open,
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(e) = result {
-        eprintln!("error while running tauri application: {e}");
-        std::process::exit(1);
+    match result {
+        Ok(app) => app.run(|_app, _event| {
+            // macOS hands a double-clicked file to the running app as an
+            // event, at launch as well as later — never on the command line.
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            if let tauri::RunEvent::Opened { urls } = &_event {
+                open_path::opened(_app, urls);
+            }
+        }),
+        Err(e) => {
+            eprintln!("error while running tauri application: {e}");
+            std::process::exit(1);
+        }
     }
 }

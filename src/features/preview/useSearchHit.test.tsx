@@ -15,6 +15,17 @@ afterEach(cleanup);
  * the rest of the session, with no search running.
  */
 describe("useSearchHit", () => {
+  it("B20: forgets it when another document opens on the same page (16.0)", () => {
+    const { result, rerender } = renderHook(({ page, path }) => useSearchHit(page, path), {
+      initialProps: { page: 1, path: "/a.pdf" },
+    });
+    act(() => result.current[1]({ page: 1, query: "revenue" }));
+    rerender({ page: 1, path: "/a.pdf" });
+    expect(result.current[0]).toEqual({ page: 1, query: "revenue" });
+    rerender({ page: 1, path: "/b.pdf" });
+    expect(result.current[0]).toBeNull();
+  });
+
   it("keeps the hit while the reader stays on its page", () => {
     const { result, rerender } = renderHook(({ page }) => useSearchHit(page), {
       initialProps: { page: 7 },

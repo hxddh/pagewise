@@ -40,6 +40,12 @@ interface RecordPanelProps {
   onRevealFinding?: (id: string, page: number) => void;
   /** Show the answer an entry was kept from. */
   onRevealMessage?: (messageId: string) => void;
+  /**
+   * Whether that answer is still in the conversation. A cleared or pruned
+   * chat has no answer to go back to, and a button that does nothing is
+   * worse than none (16.0, B20).
+   */
+  hasMessage?: (messageId: string) => boolean;
 }
 
 /**
@@ -74,6 +80,7 @@ export const RecordPanel = memo(function RecordPanel({
   onJumpToPage,
   onRevealFinding,
   onRevealMessage,
+  hasMessage,
 }: RecordPanelProps) {
   const { t } = useI18n();
   const [filter, setFilter] = useState("");
@@ -149,6 +156,7 @@ export const RecordPanel = memo(function RecordPanel({
               onJumpToPage={onJumpToPage}
               onRevealFinding={onRevealFinding}
               onRevealMessage={onRevealMessage}
+              hasMessage={hasMessage}
             />
           ))}
         </ul>
@@ -174,6 +182,7 @@ function RecordEntry({
   onJumpToPage,
   onRevealFinding,
   onRevealMessage,
+  hasMessage,
 }: {
   path: string;
   finding: Finding;
@@ -184,6 +193,7 @@ function RecordEntry({
   onJumpToPage: (page: number) => void;
   onRevealFinding?: (id: string, page: number) => void;
   onRevealMessage?: (messageId: string) => void;
+  hasMessage?: (messageId: string) => boolean;
 }) {
   const { t } = useI18n();
   const placement = useFindingPlacement(path, finding);
@@ -322,7 +332,7 @@ function RecordEntry({
             {page}
           </button>
         ))}
-        {finding.source && onRevealMessage && (
+        {finding.source && onRevealMessage && (hasMessage?.(finding.source.messageId) ?? true) && (
           /* raw-button: sits in the chip row and has to match the chips beside it */
           <button
             type="button"

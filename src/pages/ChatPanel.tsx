@@ -168,6 +168,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // From an entry in the record back to the answer it was kept from: switch
   // to the transcript, then scroll and focus once it has rendered.
   const pendingRevealRef = useRef<string | null>(null);
+  const hasMessage = useCallback((messageId: string) => messages.some((m) => m.id === messageId), [messages]);
   const revealMessage = useCallback((messageId: string) => {
     pendingRevealRef.current = messageId;
     setPanelTab("chat");
@@ -588,6 +589,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           onJumpToPage={(page) => onJumpToPage?.(page)}
           onRevealFinding={onRevealFinding}
           onRevealMessage={revealMessage}
+          hasMessage={hasMessage}
         />
       ) : (
       <div className="messages messages-panel" ref={messagesRef} onScroll={onMessagesScroll}>
