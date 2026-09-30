@@ -113,12 +113,13 @@ const hint = textOf(users[users.length - 1]?.content);
 
 const results = {
   "the sentence without a stray number is found": /cite-located/.test(chips[0]?.cls ?? ""),
-  "the sentence with '5 times' is found but doubted": /cite-mismatch/.test(chips[1]?.cls ?? ""),
+  "the sentence with '5 times' is found but doubted": /cite-mismatch/.test(chips[1]?.cls ?? "") && /cite-level-check/.test(chips[1]?.cls ?? ""),
   "its title names the number": /but 5 in this sentence is not in that passage/.test(chips[1]?.title ?? ""),
-  "the tally counts it": /1 with a number not in the passage/.test(tally ?? ""),
+  "the tally counts it (16.0: in levels)": /1 verified/.test(tally ?? "") && /1 to check/.test(tally ?? ""),
   "keep-verified offers only the sound sentence": /\(1\)/.test(keepLabel ?? ""),
   "one review call per citation, each with its passage": reviews.length === 2 && reviews.every((r) => r.includes("Passage (page 2)")),
   "the chips carry the model's verdicts": /cite-review-supports/.test(reviewed[0]?.cls ?? "") && /cite-review-contradicts/.test(reviewed[1]?.cls ?? ""),
+  "a contradicting verdict lowers the chip to not found (16.0)": /cite-level-notFound/.test(reviewed[1]?.cls ?? "") && /cite-level-verified/.test(reviewed[0]?.cls ?? ""),
   "the verdict's reason is in the title": /it gives no count/.test(reviewed[1]?.title ?? ""),
   "the next question names the number to the model": /5 in your sentence is not in that passage/.test(hint),
 };

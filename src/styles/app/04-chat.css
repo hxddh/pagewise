@@ -529,49 +529,37 @@ button.pages-read-chip:hover {
   background: var(--bg-hover);
 }
 
-.cite-located {
+/*
+ * Three levels, not eight statuses (16.0). The precise reason is the chip's
+ * title; what the reader sees is whether to trust it, look at the page, or
+ * not trust it. The glyph says the level without the colour: at this size
+ * dotted, dashed and a heavier border were not told apart.
+ */
+.cite-level-verified {
   color: var(--finding);
 }
 
-.cite-unlocated,
-.cite-outOfRange {
+.cite-level-check {
+  color: var(--warning);
+}
+
+.cite-level-notFound {
   color: var(--danger);
   border-style: dashed;
 }
 
-/* Found, but the sentence states a number the passage does not: solid, in the
-   warning red — the words are there, the claim about them is in doubt. */
-.cite-mismatch {
-  color: var(--danger);
-  border-width: 2px;
-}
-
-/* On a scan, a quote OCR did not recognise: worth a look, not an accusation. */
-.cite-unconfirmed {
-  color: var(--warning);
-  border-style: dotted;
-}
-
-/* The model's reading, when the reader asked for one: a mark after the page
-   number, beside the local verdict's colour rather than instead of it. */
-.cite-review-supports::after,
-.cite-review-contradicts::after,
-.cite-review-insufficient::after {
+.cite-level-check::after,
+.cite-level-notFound::after {
   margin-left: 1px;
   font-size: 0.9em;
 }
 
-.cite-review-supports::after {
-  content: "✓";
+.cite-level-check::after {
+  content: "!";
 }
 
-.cite-review-contradicts::after {
+.cite-level-notFound::after {
   content: "✗";
-  color: var(--danger);
-}
-
-.cite-review-insufficient::after {
-  content: "?";
 }
 
 .cite-pending {
@@ -588,7 +576,17 @@ button.pages-read-chip:hover {
   color: var(--text-muted);
 }
 
-.citation-tally-warn {
+/* Each part in its level's ink, so one citation not found does not turn the
+   whole line red (16.0). */
+.citation-tally-verified {
+  color: var(--finding);
+}
+
+.citation-tally-check {
+  color: var(--warning);
+}
+
+.citation-tally-notFound {
   color: var(--danger);
 }
 
@@ -875,8 +873,17 @@ button.pages-read-chip:hover {
  * be sound and the page reference merely wrong, which is for the reader to
  * judge once they know.
  */
-.record-locate-absent {
+.record-locate-check {
   color: var(--warning);
+}
+
+/* Not on the page at all, or struck: the chips' ✗. */
+.record-locate-notFound {
+  color: var(--danger);
+}
+
+.record-level {
+  font-weight: 600;
 }
 
 /* Nothing to check against. Not a warning: the claim was never in doubt, it was never checked. */

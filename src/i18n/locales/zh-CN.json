@@ -629,6 +629,11 @@
       "supports": "模型复核：原文支持",
       "contradicts": "模型复核：原文说的不是这样",
       "insufficient": "模型复核：原文不足以判断"
+    },
+    "tallyLevel": {
+      "verified": "{{count}} 处已核对",
+      "check": "{{count}} 处请看原页",
+      "notFound": "{{count}} 处未找到"
     }
   },
   "table": {
@@ -645,5 +650,10 @@
     "found": "{{located}}/{{total}} 条已找到",
     "noQuote": "无可核对内容",
     "statusMismatch": "已找到，但数字不符"
+  },
+  "level": {
+    "verified": "已核对",
+    "check": "请看原页",
+    "notFound": "未找到"
   }
 }

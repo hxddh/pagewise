@@ -11,6 +11,7 @@ import {
   Undo2,
   User,
 } from "lucide-react";
+import { recordLevel } from "../lib/trust-level";
 import { useI18n } from "../i18n";
 import {
   confirmFinding,
@@ -215,6 +216,7 @@ function RecordEntry({
     <li
       className={`record-entry ${inactive ? "record-entry-inactive" : ""}`}
       data-trust={trust}
+      data-level={recordLevel(trust)}
     >
       <div className="record-entry-head">
         <span className={`record-byline ${byReader ? "record-byline-reader" : ""}`}>
@@ -399,12 +401,10 @@ function TrustLine({
     );
   }
   if (trust === "retracted") return null;
-  const doubtful =
-    trust === "unlocated" ||
-    trust === "mismatch" ||
-    trust === "unreadable" ||
-    trust === "unconfirmed" ||
-    trust === "stale";
+  // The level first, the reason after it — the same three words as the chips
+  // in the answer (16.0).
+  const level = recordLevel(trust);
+  const doubtful = level === "check" || level === "notFound";
   const text =
     trust === "unlocated"
       ? t("record.trustUnlocated")
@@ -418,8 +418,9 @@ function TrustLine({
           ? t("record.trustStale")
           : t("record.trustUnverified");
   return (
-    <p className={`record-locate ${doubtful ? "record-locate-absent" : "record-locate-unverified"}`}>
+    <p className={`record-locate ${doubtful ? `record-locate-${level}` : "record-locate-unverified"}`}>
       {doubtful && <AlertTriangle size={11} aria-hidden />}
+      {doubtful && <span className="record-level">{t(`level.${level}`)}</span>}
       {text}
       {trustNeedsReader(trust) && (
         /* raw-button: an inline affordance at the end of a status line */

@@ -629,6 +629,11 @@
       "supports": "Model review: supported",
       "contradicts": "Model review: the passage says otherwise",
       "insufficient": "Model review: the passage does not settle it"
+    },
+    "tallyLevel": {
+      "verified": "{{count}} verified",
+      "check": "{{count}} to check",
+      "notFound": "{{count}} not found"
     }
   },
   "table": {
@@ -645,5 +650,10 @@
     "found": "{{located}} of {{total}} found",
     "noQuote": "nothing to check",
     "statusMismatch": "found, but a number differs"
+  },
+  "level": {
+    "verified": "Verified",
+    "check": "Check the page",
+    "notFound": "Not found"
   }
 }

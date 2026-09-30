@@ -199,23 +199,26 @@ const readByOcr = /\\"source\\":\\"ocr\\"/.test(toolMsg) || /"source":"ocr"/.tes
 await p.waitForTimeout(8_000);
 const cache = await p.evaluate(() => [...window.__HARNESS_OCR_CACHE__.entries()]);
 const stored = cache.length ? JSON.parse(cache[0][1]) : null;
+// 16.0: one section per set of language models.
+const storedPages = stored ? Object.values(stored.sections ?? {}).flat() : [];
 
 const results = {
   located: chips.some((c) => c.cls.includes("cite-located")),
   highlighted: lit,
-  unconfirmed: chips.some((c) => c.cls.includes("cite-unconfirmed")),
+  unconfirmed: chips.some((c) => c.cls.includes("cite-unconfirmed") && c.cls.includes("cite-level-check")),
   neverUnlocated: !chips.some((c) => c.cls.includes("cite-unlocated")),
   readByOcr,
   noVision: !reqs.some((r) => !r.tools),
   noExternalFetch: external.length === 0,
   noCspViolation: violations.length === 0,
-  cached: !!stored && stored.pages.length >= 2,
+  // 16.0: one section per set of language models.
+  cached: storedPages.length >= 2,
 };
 log(`chips: ${chips.map((c) => c.cls.replace("cite ", "")).join(", ")}`);
 log(`tally: ${tally}`);
 if (stored) {
-  const ms = stored.pages.map((pg) => pg.ms).sort((a, c) => a - c);
-  log(`cached ${stored.pages.length} page(s) read with ${stored.langs}, confidence ${stored.pages.map((pg) => pg.c).join(" / ")}, ` +
+  const ms = storedPages.map((pg) => pg.ms).sort((a, c) => a - c);
+  log(`cached ${storedPages.length} page(s) read with ${Object.keys(stored.sections ?? {}).join(", ")}, confidence ${storedPages.map((pg) => pg.c).join(" / ")}, ` +
     `per-page ms ${ms.join(" / ")} (median ${ms[Math.floor(ms.length / 2)]})`);
 }
 if (external.length) log(`external requests: ${external.join(", ")}`);

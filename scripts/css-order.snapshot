@@ -111,18 +111,18 @@ button.pages-read-chip:hover
 .page-ref-link:hover
 .cite
 .cite:hover
-.cite-located
-.cite-unlocated, .cite-outOfRange
-.cite-mismatch
-.cite-unconfirmed
-.cite-review-supports::after, .cite-review-contradicts::after, .cite-review-insufficient::after
-.cite-review-supports::after
-.cite-review-contradicts::after
-.cite-review-insufficient::after
+.cite-level-verified
+.cite-level-check
+.cite-level-notFound
+.cite-level-check::after, .cite-level-notFound::after
+.cite-level-check::after
+.cite-level-notFound::after
 .cite-pending
 .cite-inert
 .citation-tally
-.citation-tally-warn
+.citation-tally-verified
+.citation-tally-check
+.citation-tally-notFound
 .markdown-stream-caret
 @keyframes markdown-caret-blink
   50%
@@ -160,7 +160,9 @@ button.pages-read-chip:hover
 .record-locate
 .record-locate-found
 .record-locate-found:hover
-.record-locate-absent
+.record-locate-check
+.record-locate-notFound
+.record-level
 .record-locate-unverified
 .record-locate-confirmed
 .record-trust-action

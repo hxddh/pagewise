@@ -1,10 +1,12 @@
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { UIMessage } from "ai";
 import { Copy, Gauge, RotateCcw, BookmarkPlus, BookmarkCheck, Sheet, ScanSearch } from "lucide-react";
 import { cachedCitationCheck, withClaim } from "../lib/citation-check";
 import { claimBefore } from "../lib/answer-tables";
 import { extractCitations } from "../lib/citations";
-import { cachedReview, reviewAll } from "../lib/claim-review";
+import { cachedReview, reviewAll, reviewRevision, subscribeReviews } from "../lib/claim-review";
+import { answerLevels } from "../lib/answer-levels";
+import { TRUST_LEVELS } from "../lib/trust-level";
 import { CitationContext } from "./CitationChip";
 import {
   checkAnswer,
@@ -241,6 +243,7 @@ function MessageAssistantFooterInner({
         outOfRange: t("table.statusOutOfRange"),
         pending: t("table.statusPending"),
       },
+      level: { verified: t("level.verified"), check: t("level.check"), notFound: t("level.notFound") },
       found: (located, total) => t("table.found", { located: String(located), total: String(total) }),
       none: t("table.noQuote"),
     };
@@ -303,6 +306,14 @@ function MessageAssistantFooterInner({
       counts.contradicts > 0 ? "error" : "success",
     );
   }, [citationEnv, reviewing, reviewable, showToast, t]);
+  // The line under the answer, in the chips' three levels (16.0).
+  const reviewRev = useSyncExternalStore(subscribeReviews, reviewRevision);
+  const levels = useMemo(
+    () => (citationEnv && tally ? answerLevels(citationEnv.path, markdownText) : null),
+    // `tally` and `reviewRev` are what change when a check or review lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [citationEnv, tally, reviewRev, markdownText],
+  );
   const reviewedAll =
     reviewable.length > 0 && citationEnv
       ? reviewable.every((r) => cachedReview(citationEnv.path, r.claim, r.quote))
@@ -422,18 +433,16 @@ function MessageAssistantFooterInner({
           <Gauge size={14} />
         </Button>
         </div>
-        {tally && tally.total > 0 && (
-          <p
-            className={`citation-tally${tally.unlocated > 0 || tally.outOfRange > 0 || tally.mismatch > 0 ? " citation-tally-warn" : ""}`}
-            aria-live="polite"
-          >
-            {t("cite.tally", { located: String(tally.located), total: String(tally.total) })}
-            {tally.unlocated + tally.outOfRange > 0 &&
-              ` · ${t("cite.tallyUnlocated", { count: String(tally.unlocated + tally.outOfRange) })}`}
-            {tally.unreadable > 0 && ` · ${t("cite.tallyUnreadable", { count: String(tally.unreadable) })}`}
-            {tally.mismatch > 0 && ` · ${t("cite.tallyMismatch", { count: String(tally.mismatch) })}`}
-            {tally.unconfirmed > 0 &&
-              ` · ${t("cite.tallyUnconfirmed", { count: String(tally.unconfirmed) })}`}
+        {levels && levels.total > 0 && (
+          <p className="citation-tally" aria-live="polite">
+            {levels.verified + levels.check + levels.notFound === 0
+              ? t("cite.tallyNone")
+              : TRUST_LEVELS.filter((l) => levels[l] > 0).map((l, i) => (
+                  <span key={l} className={`citation-tally-${l}`}>
+                    {i > 0 ? " · " : ""}
+                    {t(`cite.tallyLevel.${l}`, { count: String(levels[l]) })}
+                  </span>
+                ))}
           </p>
         )}
       </div>

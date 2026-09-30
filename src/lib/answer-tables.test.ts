@@ -37,6 +37,7 @@ const labels: CsvLabels = {
     outOfRange: "no such page",
     pending: "pending",
   },
+  level: { verified: "Verified", check: "Check the page", notFound: "Not found" },
   found: (a, b) => `${a} of ${b} found`,
   none: "no quote",
 };
@@ -81,9 +82,15 @@ describe("tables leave as CSV with their evidence", () => {
     expect(csv.startsWith("﻿")).toBe(true);
     const lines = csv.slice(1).trim().split("\r\n");
     expect(lines[0]).toBe("Payment,Amount,When,Sources,Checked");
-    expect(lines[1]).toBe("Deposit,30%,On signing,p. 3 found; p. 3 found,2 of 2 found");
-    expect(lines[2]).toBe("Delivery,60%,After acceptance,p. 3 not found,0 of 1 found");
-    expect(lines[3]).toBe("Warranty | retention,10%,—,p. 4 not found,0 of 1 found");
+    expect(lines[1]).toBe("Deposit,30%,On signing,p. 3 Verified (found); p. 3 Verified (found),2 of 2 found");
+    expect(lines[2]).toBe("Delivery,60%,After acceptance,p. 3 Not found (not found),0 of 1 found");
+    expect(lines[3]).toBe("Warranty | retention,10%,—,p. 4 Not found (not found),0 of 1 found");
+  });
+
+  it("writes a cell a spreadsheet would run as a formula as text (16.0)", () => {
+    const csv = tablesToCsv(PATH, "| A |\n|---|\n| =HYPERLINK(1) |\n| -5% |", labels);
+    expect(csv).toContain("'=HYPERLINK(1)");
+    expect(csv).toContain("'-5%");
   });
 
   it("quotes fields a spreadsheet would split", () => {

@@ -40,6 +40,17 @@ const MAX_REASON = 400;
 
 const reviews = new Map<string, ClaimReview>();
 const listeners = new Set<() => void>();
+let revision = 0;
+
+/** Changes whenever a review lands or is cleared — a snapshot for `useSyncExternalStore`. */
+export function reviewRevision(): number {
+  return revision;
+}
+
+function notifyReviews(): void {
+  revision += 1;
+  for (const l of listeners) l();
+}
 
 function key(path: string, claim: string, quote: string): string {
   return `${path}\n${claim}\n${quote}`;
@@ -58,7 +69,7 @@ export function subscribeReviews(listener: () => void): () => void {
 export function clearReviews(path?: string): void {
   if (path === undefined) reviews.clear();
   else for (const k of [...reviews.keys()]) if (k.startsWith(`${path}\n`)) reviews.delete(k);
-  for (const l of listeners) l();
+  notifyReviews();
 }
 
 export function reviewPrompt(claim: string, quote: string, passage: string, page: number): string {
@@ -108,7 +119,7 @@ export async function reviewClaim(
   // Asked for a document that has since closed: not kept for it (16.0).
   if (signal?.aborted) throw new DOMException("Review cancelled", "AbortError");
   reviews.set(key(path, claim, quote), review);
-  for (const l of listeners) l();
+  notifyReviews();
   return review;
 }
 
