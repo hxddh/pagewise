@@ -297,7 +297,7 @@ export const SCAN_LIMIT_NOTE =
   "This page has no extracted text and the scan allowance for this question is used up, " +
   "so it cannot be read. Do not retry it. Answer from the pages you could read and tell the " +
   "user plainly that some pages are unscanned — they can scan the rest from the command " +
-  "palette (\"Scan all unscanned pages\") or raise the limit in Settings.";
+  "palette (\"Read the unscanned pages\") or raise the limit in Settings.";
 
 /**
  * Stands in for a page this run already returned in full. Short by design: the

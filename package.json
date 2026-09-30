@@ -30,6 +30,7 @@
     "audit:ocr": "node scripts/ocr-audit.mjs",
     "audit:tables": "node scripts/table-audit.mjs",
     "audit:claims": "node scripts/claims-audit.mjs",
+    "ui:inventory": "node scripts/ui-inventory.mjs",
     "eval": "vitest run --config eval/vitest.config.ts",
     "eval:fetch": "node eval/corpus/fetch.mjs",
     "eval:corpus": "node eval/corpus/build.mjs && python3 eval/corpus/build_reportlab.py",

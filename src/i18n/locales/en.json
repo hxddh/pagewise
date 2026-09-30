@@ -94,7 +94,7 @@
     "scanAllConfirmLocal": "Read the 1 page that has no text yet? It is read on this computer first; only if that fails or reads poorly is it one billed call to the scan model.",
     "scanAllConfirmLocal_plural": "Read the {{count}} pages that have no text yet? Each is read on this computer first; only the pages it cannot read, or reads poorly, become billed calls to the scan model — at most {{count}}.",
     "scanAllUsed": "This document has used {{used}} scan calls so far this session.",
-    "scanAllAction": "Scan pages",
+    "scanAllAction": "Read these pages",
     "outline": "Outline",
     "openLinkConfirm": "Open {{url}} in your browser?",
     "openLinkAction": "Open link",
@@ -232,7 +232,6 @@
     "steer": "Send instead",
     "placeholderSteer": "Send to redirect this answer…",
     "followUpNextSection": "What does “{{section}}” say?",
-    "followUpScan": "Scan the {{count}} unreadable pages",
     "followUpMarks": "How does this relate to what I marked?",
     "followUpWholeDoc": "Summarize the whole document",
     "followUpLabel": "Next",
@@ -246,7 +245,7 @@
     "followUpUnread": "Also read page {{pages}} — it matches the question but was not read — and say whether it changes the answer",
     "followUpUnread_plural": "Also read pages {{pages}} — they match the question but were not read — and say whether they change the answer",
     "export": "Export…",
-    "moreActions": "More actions"
+    "moreActions": "More for this answer"
   },
   "empty": {
     "agentLead": "Set up AI to analyze documents",
@@ -383,7 +382,7 @@
     "switchLang": "Switch language",
     "recent": "Recent",
     "firstOpenHint": "Tip: type to filter commands",
-    "scanAllPages": "Scan all unscanned pages",
+    "scanAllPages": "Read the unscanned pages",
     "walkConversation": "Previous / next message",
     "searchConversation": "Search this conversation",
     "export": "Export…"

@@ -11,7 +11,7 @@ const outline: DocHeading[] = [
   { title: "Three", page: 30, level: 1 },
 ];
 
-const base = { readPages: [], outline, totalPages: 100, unindexedCount: 0, markCount: 0, t };
+const base = { readPages: [], outline, totalPages: 100, markCount: 0, t };
 
 describe("followUpSuggestions", () => {
   it("points at the section after the pages this reply read", () => {
@@ -25,12 +25,9 @@ describe("followUpSuggestions", () => {
     expect(out.some((f) => f.kind === "nextSection")).toBe(false);
   });
 
-  it("offers a scan only when pages are actually unreadable, and says how many", () => {
-    expect(followUpSuggestions(base).some((f) => f.kind === "scanUnindexed")).toBe(false);
-    const out = followUpSuggestions({ ...base, unindexedCount: 12 });
-    const scan = out.find((f) => f.kind === "scanUnindexed")!;
-    expect(scan.count).toBe(12);
-    expect(scan.text).toContain("12");
+  it("leaves reading unscanned pages to the banner (16.0)", () => {
+    const kinds = followUpSuggestions(base).map((f) => f.kind as string);
+    expect(kinds).not.toContain("scanUnindexed");
   });
 
   it("offers the marks only when there are marks", () => {
@@ -56,7 +53,7 @@ describe("followUpSuggestions", () => {
     const out = followUpSuggestions({
       ...base,
       readPages: [1],
-      unindexedCount: 5,
+
       markCount: 2,
     });
     expect(out).toHaveLength(3);

@@ -94,7 +94,7 @@
     "scanAllConfirmLocal": "读取这 1 个尚无文字的页面？会先在本机识别；只有识别失败或质量低时，才会成为一次计费的扫页模型调用。",
     "scanAllConfirmLocal_plural": "读取这 {{count}} 个尚无文字的页面？每页都先在本机识别；只有识别失败或质量低的页才会成为计费的扫页模型调用，最多 {{count}} 次。",
     "scanAllUsed": "本次会话中，该文档已使用 {{used}} 次扫页调用。",
-    "scanAllAction": "开始扫描",
+    "scanAllAction": "读取这些页",
     "outline": "大纲",
     "openLinkConfirm": "在浏览器中打开 {{url}}？",
     "openLinkAction": "打开链接",
@@ -232,7 +232,6 @@
     "steer": "改问这个",
     "placeholderSteer": "输入以改变这次回答的方向…",
     "followUpNextSection": "“{{section}}”讲了什么？",
-    "followUpScan": "扫描无法识别的 {{count}} 页",
     "followUpMarks": "这和我标记的内容有什么关系？",
     "followUpWholeDoc": "总结整份文档",
     "followUpLabel": "接着问",
@@ -246,7 +245,7 @@
     "followUpUnread": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论",
     "followUpUnread_plural": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论",
     "export": "导出…",
-    "moreActions": "更多操作"
+    "moreActions": "此回答的更多操作"
   },
   "empty": {
     "agentLead": "配置 AI 后即可分析文档",
@@ -383,7 +382,7 @@
     "switchLang": "切换语言",
     "recent": "最近使用",
     "firstOpenHint": "提示：输入关键词可筛选命令",
-    "scanAllPages": "扫描所有未扫描页面",
+    "scanAllPages": "读取未扫描的页面",
     "walkConversation": "上一条 / 下一条消息",
     "searchConversation": "在本次会话中搜索",
     "export": "导出…"

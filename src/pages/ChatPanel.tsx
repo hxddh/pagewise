@@ -236,14 +236,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       readPages: collectReadPages(lastAssistant.parts),
       outline: usableOutline(activeDoc.outline, activeDoc.totalPages),
       totalPages: activeDoc.totalPages,
-      unindexedCount: unscannedPages,
       markCount: getMarks(activeDoc.path).length,
       question: lastUser ? extractUserText(lastUser) : "",
       answerText: extractAssistantText(lastAssistant),
       pages: activeDoc.pages,
       t,
     });
-  }, [busy, agentBusy, activeDoc, lastAssistant, lastUser, inFlightAssistant, unscannedPages, t]);
+  }, [busy, agentBusy, activeDoc, lastAssistant, lastUser, inFlightAssistant, t]);
 
   const composerDraftRef = useRef(composerDraft);
   composerDraftRef.current = composerDraft;

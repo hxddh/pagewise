@@ -77,7 +77,7 @@ const cells = await p.$$eval("table button.cite", (els) => els.map((e) => e.clas
 await p.locator(".messages").screenshot({ path: join(shots, "tables-answer.png") });
 
 // 16.0: the table's CSV is in the answer's More menu.
-await p.getByRole("button", { name: /more actions/i }).last().click();
+await p.getByRole("button", { name: /more for this answer/i }).last().click();
 await p.getByRole("menuitem", { name: /export table as csv/i }).click();
 await p.waitForTimeout(1500);
 const writes = await p.evaluate(() => window.__HARNESS_WRITES__ ?? []);
