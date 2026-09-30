@@ -253,8 +253,6 @@ function AppContent() {
         onPreferencesSaved={async () => {
           await prefs.refreshPrefs();
         }}
-        followAgentDefault={prefs.followAgent}
-        onFollowAgentDefaultChange={(value) => void prefs.setFollowAgentDefault(value)}
         includeViewingPageDefault={prefs.includeViewingPage}
         onIncludeViewingPageDefaultChange={(value) => void prefs.setIncludeViewingPageDefault(value)}
         onTestResult={(message, ok) => showToast(message, ok ? "success" : "error")}

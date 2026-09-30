@@ -49,7 +49,9 @@ export function resolveOcrLanguages(
   prefs: Pick<AppPreferences, "ocrLanguage" | "locale">,
   systemLanguage: string = typeof navigator === "undefined" ? "en" : navigator.language,
 ): "eng" | "chi_sim+eng" {
-  if (prefs.ocrLanguage !== "auto") return prefs.ocrLanguage;
+  // Always from the interface language since 16.0: the setting is gone, and a
+  // choice stored before would otherwise stick with no way to change it.
+  void prefs.ocrLanguage;
   const lang = prefs.locale === "system" ? systemLanguage.toLowerCase() : prefs.locale.toLowerCase();
   return lang.startsWith("zh") ? "chi_sim+eng" : "eng";
 }

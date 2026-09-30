@@ -7,9 +7,7 @@ import {
   loadPreferences,
   patchPreferences,
   resolveOcrLanguages,
-  type OcrLanguageMode,
   type LocaleMode,
-  type PreviewQuality,
 } from "../../lib/preferences";
 import { clearIndexCache, getIndexCacheStats, type IndexCacheStats } from "../../lib/index-store";
 import { setAgentScanCap, setAutoIndexCap } from "../../document/index-queue";
@@ -18,8 +16,6 @@ import { clearOcrCache, getOcrCacheStats } from "../../lib/ocr/ocr-store";
 import { Button } from "../ui/Button";
 
 interface GeneralSettingsProps {
-  followAgentDefault: boolean;
-  onFollowAgentDefaultChange: (value: boolean) => void;
   includeViewingPageDefault: boolean;
   onIncludeViewingPageDefaultChange: (value: boolean) => void;
   onPreferencesSaved?: () => Promise<void>;
@@ -58,37 +54,26 @@ function PillRow<T extends string>({
 }
 
 export function GeneralSettings({
-  followAgentDefault,
-  onFollowAgentDefaultChange,
   includeViewingPageDefault,
   onIncludeViewingPageDefaultChange,
   onPreferencesSaved,
 }: GeneralSettingsProps) {
   const { t, localeMode, setLocaleMode } = useI18n();
   const { theme, setTheme } = useTheme();
-  const [previewQuality, setPreviewQuality] = useState<PreviewQuality>("auto");
-  const [localFollowAgent, setLocalFollowAgent] = useState(followAgentDefault);
   const [localIncludeViewingPage, setLocalIncludeViewingPage] = useState(
     includeViewingPageDefault,
   );
   const [autoIndexPages, setAutoIndexPages] = useState<number | null>(null);
-  const [agentScanPages, setAgentScanPages] = useState<number | null>(null);
   const [cacheStats, setCacheStats] = useState<IndexCacheStats | null>(null);
   const [localOcr, setLocalOcr] = useState<boolean | null>(null);
-  const [ocrLanguage, setOcrLanguage] = useState<OcrLanguageMode>("auto");
   const [ocrStats, setOcrStats] = useState<{ bytes: number; docs: number } | null>(null);
-  const [clearingOcr, setClearingOcr] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
 
   useEffect(() => {
     loadPreferences().then((p) => {
-      setPreviewQuality(p.previewQuality);
-      setLocalFollowAgent(p.followAgentDefault);
       setLocalIncludeViewingPage(p.includeViewingPageDefault);
       setAutoIndexPages(p.autoIndexPages);
-      setAgentScanPages(p.agentScanPages);
       setLocalOcr(p.localOcr);
-      setOcrLanguage(p.ocrLanguage);
     });
   }, []);
 
@@ -109,23 +94,6 @@ export function GeneralSettings({
     await onPreferencesSaved?.();
   }
 
-  async function onOcrLanguage(next: OcrLanguageMode) {
-    setOcrLanguage(next);
-    const p = await patchPreferences({ ocrLanguage: next });
-    configureOcr({ enabled: p.localOcr, languages: resolveOcrLanguages(p) });
-    await onPreferencesSaved?.();
-  }
-
-  async function onClearOcr() {
-    setClearingOcr(true);
-    try {
-      await clearOcrCache();
-      setOcrStats({ bytes: 0, docs: 0 });
-    } finally {
-      setClearingOcr(false);
-    }
-  }
-
   useEffect(() => {
     let alive = true;
     // Stats are best-effort: a failed read leaves the row on its placeholder
@@ -140,48 +108,40 @@ export function GeneralSettings({
     };
   }, []);
 
-  async function onAutoIndexPages(next: number) {
+  /**
+   * One control for reading pages in the cloud (16.0): how many pages of a
+   * document may be read in the background, and — at the same step — how many
+   * the assistant may send while answering one question. Two settings that
+   * always moved together are one.
+   */
+  async function onCloudReading(next: number) {
+    const step = Math.max(0, AUTO_INDEX_PAGE_CHOICES.indexOf(next as (typeof AUTO_INDEX_PAGE_CHOICES)[number]));
+    const agent = AGENT_SCAN_PAGE_CHOICES[step] ?? 0;
     setAutoIndexPages(next);
-    // Push into the queue immediately — the sweep budget is read synchronously
+    // Pushed into the queue at once — the sweep budget is read synchronously
     // when a document schedules its pages.
     setAutoIndexCap(next);
-    await patchPreferences({ autoIndexPages: next });
+    setAgentScanCap(agent);
+    await patchPreferences({ autoIndexPages: next, agentScanPages: agent });
     await onPreferencesSaved?.();
   }
 
-  async function onAgentScanPages(next: number) {
-    setAgentScanPages(next);
-    setAgentScanCap(next);
-    await patchPreferences({ agentScanPages: next });
-    await onPreferencesSaved?.();
-  }
-
+  /** Both stores of text read from pages — by OCR and by the cloud — cleared together. */
   async function onClearCache() {
     setClearingCache(true);
     try {
-      await clearIndexCache();
+      await Promise.all([clearIndexCache(), clearOcrCache()]);
       setCacheStats({ docs: 0, pages: 0, chars: 0 });
+      setOcrStats({ bytes: 0, docs: 0 });
     } finally {
       setClearingCache(false);
     }
-  }
-
-  async function onFollowChange(checked: boolean) {
-    setLocalFollowAgent(checked);
-    onFollowAgentDefaultChange(checked);
-    await patchPreferences({ followAgentDefault: checked });
   }
 
   async function onIncludeViewingPageChange(checked: boolean) {
     setLocalIncludeViewingPage(checked);
     onIncludeViewingPageDefaultChange(checked);
     await patchPreferences({ includeViewingPageDefault: checked });
-  }
-
-  async function onPreviewQuality(next: PreviewQuality) {
-    setPreviewQuality(next);
-    await patchPreferences({ previewQuality: next });
-    await onPreferencesSaved?.();
   }
 
   return (
@@ -214,17 +174,6 @@ export function GeneralSettings({
 
       <section className="settings-card">
         <h4 className="settings-card-title">{t("settings.documentAndAgent")}</h4>
-        <PillRow
-          label={t("settings.previewQuality")}
-          value={previewQuality}
-          options={[
-            { id: "auto", label: t("settings.qualityAuto") },
-            { id: "crisp", label: t("settings.qualityCrisp") },
-            { id: "performance", label: t("settings.qualityPerformance") },
-          ]}
-          onChange={(id) => void onPreviewQuality(id as PreviewQuality)}
-        />
-        <div className="settings-card-divider" />
         <label className="settings-row-toggle">
           <div>
             <span className="settings-row-title">{t("settings.includeViewingPage")}</span>
@@ -234,17 +183,6 @@ export function GeneralSettings({
             type="checkbox"
             checked={localIncludeViewingPage}
             onChange={(e) => void onIncludeViewingPageChange(e.target.checked)}
-          />
-        </label>
-        <label className="settings-row-toggle">
-          <div>
-            <span className="settings-row-title">{t("settings.followAgentDefault")}</span>
-            <span className="settings-row-hint">{t("settings.followAgentHint")}</span>
-          </div>
-          <input
-            type="checkbox"
-            checked={localFollowAgent}
-            onChange={(e) => void onFollowChange(e.target.checked)}
           />
         </label>
       </section>
@@ -263,83 +201,38 @@ export function GeneralSettings({
             onChange={(e) => void onLocalOcr(e.target.checked)}
           />
         </label>
-        {localOcr !== false && (
-          <>
-            <PillRow
-              label={t("settings.ocrLanguage")}
-              value={ocrLanguage}
-              options={[
-                { id: "auto", label: t("settings.ocrLanguageAuto") },
-                { id: "eng", label: t("settings.ocrLanguageEng") },
-                { id: "chi_sim+eng", label: t("settings.ocrLanguageChi") },
-              ]}
-              onChange={(id) => void onOcrLanguage(id as OcrLanguageMode)}
-            />
-            <span className="settings-row-hint">{t("settings.ocrLanguageHint")}</span>
-          </>
-        )}
         <div className="settings-card-divider" />
         <PillRow
-          label={t("settings.autoScanBudget")}
+          label={t("settings.cloudReading")}
           value={String(autoIndexPages ?? "")}
           options={AUTO_INDEX_PAGE_CHOICES.map((pages) => ({
             id: String(pages),
             label: pages === 0 ? t("settings.autoScanOff") : String(pages),
           }))}
-          onChange={(id) => void onAutoIndexPages(Number(id))}
+          onChange={(id) => void onCloudReading(Number(id))}
         />
-        <span className="settings-row-hint">{t("settings.autoScanHint")}</span>
-        <PillRow
-          label={t("settings.agentScanBudget")}
-          value={String(agentScanPages ?? "")}
-          options={AGENT_SCAN_PAGE_CHOICES.map((pages) => ({
-            id: String(pages),
-            label: pages === 0 ? t("settings.autoScanOff") : String(pages),
-          }))}
-          onChange={(id) => void onAgentScanPages(Number(id))}
-        />
-        <span className="settings-row-hint">{t("settings.agentScanHint")}</span>
+        <span className="settings-row-hint">{t("settings.cloudReadingHint")}</span>
         <div className="settings-card-divider" />
         <div className="settings-row-toggle">
           <div>
-            <span className="settings-row-title">{t("settings.scanCache")}</span>
+            <span className="settings-row-title">{t("settings.readPagesCache")}</span>
             <span className="settings-row-hint">
-              {cacheStats === null
+              {cacheStats === null || ocrStats === null
                 ? t("settings.scanCacheLoading")
-                : cacheStats.pages === 0
+                : cacheStats.pages === 0 && ocrStats.docs === 0
                   ? t("settings.scanCacheEmpty")
-                  : t("settings.scanCacheStats", {
-                      docs: cacheStats.docs,
-                      pages: cacheStats.pages,
-                      size: formatChars(cacheStats.chars),
+                  : t("settings.readPagesCacheStats", {
+                      docs: Math.max(cacheStats.docs, ocrStats.docs),
+                      size: formatChars(cacheStats.chars + ocrStats.bytes),
                     })}
             </span>
           </div>
           <Button
             variant="ghost" size="md"
-            disabled={clearingCache || !cacheStats || cacheStats.pages === 0}
+            disabled={clearingCache || !cacheStats || !ocrStats || (cacheStats.pages === 0 && ocrStats.docs === 0)}
             onClick={() => void onClearCache()}
           >
             {clearingCache ? t("settings.scanCacheClearing") : t("settings.scanCacheClear")}
-          </Button>
-        </div>
-        <div className="settings-row-toggle">
-          <div>
-            <span className="settings-row-title">{t("settings.ocrCache")}</span>
-            <span className="settings-row-hint">
-              {ocrStats === null
-                ? t("settings.scanCacheLoading")
-                : ocrStats.docs === 0
-                  ? t("settings.ocrCacheEmpty")
-                  : t("settings.ocrCacheStats", { docs: ocrStats.docs, size: formatChars(ocrStats.bytes) })}
-            </span>
-          </div>
-          <Button
-            variant="ghost" size="md"
-            disabled={clearingOcr || !ocrStats || ocrStats.docs === 0}
-            onClick={() => void onClearOcr()}
-          >
-            {clearingOcr ? t("settings.scanCacheClearing") : t("settings.scanCacheClear")}
           </Button>
         </div>
       </section>
