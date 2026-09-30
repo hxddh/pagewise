@@ -201,7 +201,9 @@ function collectSources(
 function PagesReadTrail({ pages }: { pages: number[] }) {
   const { t } = useI18n();
   const onJump = useContext(PageRefContext);
-  if (pages.length === 0) return null;
+  // One page is already named by the step that read it ("Read page 1") and,
+  // usually, by the answer; a trail of one said it a third time (16.0).
+  if (pages.length < 2) return null;
   const MAX = 12;
   const shown = pages.slice(0, MAX);
   const extra = pages.length - shown.length;

@@ -62,33 +62,29 @@ export function EmptyState({
     );
   }
 
+  // Three suggestions, no heading (16.0). "Ready to ask / type below or pick a
+  // suggestion" described the panel to the reader instead of letting them
+  // start; five examples, two of them the same summary, were a menu to read.
+  const examples = [
+    totalPages && totalPages > 1 ? t("empty.exampleWholeDoc", { count: totalPages }) : t("empty.example1"),
+    t("empty.example3"),
+    t("empty.example2"),
+  ];
   return (
     <div className="empty-state empty-state-minimal">
-      <p className="empty-lead">{t("empty.askLead")}</p>
-      <p className="empty-hint">{t("empty.composerHint")}</p>
       {onExamplePrompt && (
         <div className="empty-examples">
-          {[
-            totalPages && totalPages > 1
-              ? t("empty.exampleWholeDoc", { count: totalPages })
-              : null,
-            t("empty.example1"),
-            t("empty.example2"),
-            t("empty.example3"),
-            t("empty.example4"),
-          ]
-            .filter((e): e is string => !!e)
-            .map((example) => (
-              // raw-button: a text chip that reads as a suggestion, not as a control with a height
-              <button
-                key={example}
-                type="button"
-                className="empty-example-chip"
-                onClick={() => onExamplePrompt(example)}
-              >
-                {example}
-              </button>
-            ))}
+          {examples.map((example) => (
+            // raw-button: a text chip that reads as a suggestion, not as a control with a height
+            <button
+              key={example}
+              type="button"
+              className="empty-example-chip"
+              onClick={() => onExamplePrompt(example)}
+            >
+              {example}
+            </button>
+          ))}
         </div>
       )}
     </div>

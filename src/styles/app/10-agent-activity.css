@@ -39,12 +39,6 @@
   transition: opacity var(--transition-slow);
 }
 
-.empty-hint {
-  margin: var(--space-sm) 0 0;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
 /* Sidebar tabs: pages / outline, shown only when the document has headings. */
 .sidebar-tabs {
   display: flex;
@@ -127,5 +121,15 @@
 .outline-page {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* An empty sidebar list says so inside the sidebar's margins (16.0): the
+   text ran to the panel's edge. */
+.outline-empty {
+  margin: 0;
+  padding: var(--space-md);
+  font-size: var(--text-sm);
+  line-height: 1.5;
   color: var(--text-muted);
 }

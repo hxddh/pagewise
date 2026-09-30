@@ -35,7 +35,8 @@
     "title": "欢迎使用 PageWise",
     "subtitle": "配置 AI 后打开文档，即可开始提问。",
     "apiHint": "配置 AI 后即可开始对话。",
-    "toolsHint": "当前模型不支持助手工具调用，请换用支持工具的模型。"
+    "toolsHint": "当前模型不支持助手工具调用，请换用支持工具的模型。",
+    "subtitleReady": "打开文档即可提问，每个回答都注明出自哪一页。"
   },
   "sidebar": {
     "openDocument": "打开文档",
@@ -48,15 +49,10 @@
     "settingsHint": "未配置 AI · 点击配置"
   },
   "preview": {
-    "dropHintShort": "点击「打开文档」或拖放文件到此处",
-    "indexing": "正在建立文本索引…",
-    "indexedVision": "已索引 · 多模态模型",
-    "recognising": "正在本机识别扫描页…",
-    "indexedOcr": "已在本机识别 · 置信度 {{confidence}}%",
-    "indexedOcrPoor": "已在本机识别 · 置信度 {{confidence}}%，部分文字可能识别有误",
-    "indexFailedNeedVision": "索引失败 · 请在设置中选择扫页模型",
-    "indexFailedInsufficient": "索引失败 · 视觉扫页返回的文本过少",
-    "indexFailedUnknown": "索引失败 · 无法提取文本",
+    "dropHintShort": "或将文件拖到这里",
+    "indexFailedNeedVision": "本页读不出 · 请在设置中选择能看图的模型",
+    "indexFailedInsufficient": "本页读不出 · 返回的文字太少",
+    "indexFailedUnknown": "本页读不出",
     "retryIndex": "重试",
     "searching": "搜索中…",
     "indexError": {
@@ -72,7 +68,6 @@
     "zoom125": "125%",
     "zoom150": "150%",
     "zoom200": "200%",
-    "rasterHint": "图片型 PDF，清晰度取决于源文件",
     "search": "搜索",
     "searchPlaceholder": "在文档中搜索…",
     "noMatches": "无匹配结果",
@@ -103,7 +98,9 @@
     "outline": "大纲",
     "openLinkConfirm": "在浏览器中打开 {{url}}？",
     "openLinkAction": "打开链接",
-    "marks": "标记"
+    "marks": "标记",
+    "reading": "正在读取本页…",
+    "readPoorly": "从扫描件识别（把握 {{confidence}}%）— 个别文字可能有误，请看原页"
   },
   "marks": {
     "markSelection": "标记",
@@ -255,13 +252,10 @@
     "agentLead": "配置 AI 后即可分析文档",
     "agentToolsLead": "当前模型不支持助手工具调用，请换用支持工具的模型。",
     "configureInline": "前往设置",
-    "askLead": "可以开始提问",
     "waitingDoc": "打开文档后即可向助手提问。",
-    "composerHint": "在下方输入，或选择示例问题",
     "example1": "总结第一页",
     "example2": "文中有哪些日期？",
     "example3": "关键术语有哪些？",
-    "example4": "列出要点",
     "exampleWholeDoc": "总结全部 {{count}} 页"
   },
   "settings": {
@@ -464,7 +458,9 @@
     "claimLabel": "结论",
     "bodyOf": "这条结论所来自的完整回答",
     "trustMismatch": "原文找到了，但结论里的数字不在那段原文里，请核对",
-    "keepWhole": "留存整条回答"
+    "keepWhole": "留存整条回答",
+    "keepShort": "留存",
+    "keptShort": "已留存"
   },
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",

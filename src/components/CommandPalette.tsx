@@ -39,10 +39,18 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
 
   const filtered = useMemo(() => filterCommands(commands, query), [commands, query]);
   const showRecent = !query.trim() && recentCommands.length > 0;
-  const listItems = showRecent ? recentCommands : filtered;
+  // With nothing typed: the recent ones first, then everything else — before
+  // 16.0 an empty query showed only the recent ones, so a palette opened for
+  // the first time after one command offered that one command and nothing to
+  // discover.
+  const rest = useMemo(
+    () => (showRecent ? filtered.filter((c) => !recentCommands.includes(c)) : filtered),
+    [showRecent, filtered, recentCommands],
+  );
+  const listItems = useMemo(() => (showRecent ? [...recentCommands, ...rest] : rest), [showRecent, recentCommands, rest]);
   const sections = useMemo(
-    () => (showRecent ? ["Recent"] : [...new Set(filtered.map((c) => c.section))]),
-    [showRecent, filtered],
+    () => [...(showRecent ? ["Recent"] : []), ...new Set(rest.map((c) => c.section))],
+    [showRecent, rest],
   );
 
   const [showFirstHint, setShowFirstHint] = useState(false);
@@ -153,7 +161,7 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
                 <p className="palette-section-label">
                   {section === "Recent" ? t("commands.recent") : sectionLabel(section as never, t)}
                 </p>
-                {(showRecent ? recentCommands : filtered.filter((cmd) => cmd.section === section)).map(
+                {(section === "Recent" ? recentCommands : rest.filter((cmd) => cmd.section === section)).map(
                   (cmd) => {
                     const idx = listItems.indexOf(cmd);
                     const isActive = idx === activeIndex;

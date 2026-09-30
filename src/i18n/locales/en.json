@@ -35,7 +35,8 @@
     "title": "Welcome to PageWise",
     "subtitle": "Connect AI, then open a document to ask questions.",
     "apiHint": "Connect an AI provider to start chatting.",
-    "toolsHint": "The current model cannot use tools, which the assistant needs — pick another model in Settings."
+    "toolsHint": "The current model cannot use tools, which the assistant needs — pick another model in Settings.",
+    "subtitleReady": "Open a document and ask about it — every answer says which page it came from."
   },
   "sidebar": {
     "openDocument": "Open document",
@@ -48,15 +49,10 @@
     "settingsHint": "AI not configured · Tap to set up"
   },
   "preview": {
-    "dropHintShort": "Use Open document or drag a file here",
-    "indexing": "Building text index…",
-    "indexedVision": "Indexed · vision model",
-    "recognising": "Reading the scan on this computer…",
-    "indexedOcr": "Read on this computer · {{confidence}}% confidence",
-    "indexedOcrPoor": "Read on this computer · {{confidence}}% confidence — some words may be misread",
-    "indexFailedNeedVision": "Indexing failed · pick a scan model in Settings",
-    "indexFailedInsufficient": "Indexing failed · vision scan returned too little text",
-    "indexFailedUnknown": "Indexing failed · could not extract text",
+    "dropHintShort": "or drop a file here",
+    "indexFailedNeedVision": "Could not read this page · pick a model that reads images in Settings",
+    "indexFailedInsufficient": "Could not read this page · too little text came back",
+    "indexFailedUnknown": "Could not read this page",
     "retryIndex": "Retry",
     "searching": "Searching…",
     "indexError": {
@@ -72,7 +68,6 @@
     "zoom125": "125%",
     "zoom150": "150%",
     "zoom200": "200%",
-    "rasterHint": "Image-based PDF — clarity depends on the source file",
     "search": "Search",
     "searchPlaceholder": "Search in document…",
     "noMatches": "No matches",
@@ -103,7 +98,9 @@
     "outline": "Outline",
     "openLinkConfirm": "Open {{url}} in your browser?",
     "openLinkAction": "Open link",
-    "marks": "Marks"
+    "marks": "Marks",
+    "reading": "Reading this page…",
+    "readPoorly": "Read from a scan ({{confidence}}% sure) — some words may be misread; check the page"
   },
   "marks": {
     "markSelection": "Mark",
@@ -255,13 +252,10 @@
     "agentLead": "Set up AI to analyze documents",
     "agentToolsLead": "The current model cannot use tools, which the assistant needs — pick another model in Settings.",
     "configureInline": "Configure in Settings →",
-    "askLead": "Ready to ask",
     "waitingDoc": "Open a document to start asking questions.",
-    "composerHint": "Type below or pick a suggestion",
     "example1": "Summarize the first page",
     "example2": "What dates are mentioned?",
     "example3": "What are the key terms?",
-    "example4": "List the main points",
     "exampleWholeDoc": "Summarize all {{count}} pages"
   },
   "settings": {
@@ -464,7 +458,9 @@
     "claimLabel": "Claim",
     "bodyOf": "The whole answer this was kept from",
     "trustMismatch": "Wording found, but a number in the claim is not in that passage — check the page",
-    "keepWhole": "Keep the whole answer"
+    "keepWhole": "Keep the whole answer",
+    "keepShort": "Keep",
+    "keptShort": "Kept"
   },
   "annotations": {
     "byAuthor": "{{author}}: {{text}}",

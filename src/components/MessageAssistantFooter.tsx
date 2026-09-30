@@ -354,26 +354,29 @@ function MessageAssistantFooterInner({
     <div className="message-assistant-footer">
       <div className="message-assistant-toolbar">
         <div className="message-assistant-actions" role="toolbar" aria-label={t("agent.messageActions")}>
+        {/* The two used most carry their word, not only an icon (16.0). */}
         <Button
-          variant="ghost" size="sm" icon className="message-action-btn"
+          variant="ghost" size="sm" className="message-action-btn message-action-labelled"
           onClick={() => void handleCopy()}
           disabled={!hasCopyable}
           title={copied ? t("agent.copied") : t("agent.copy")}
           aria-label={copied ? t("agent.copied") : t("agent.copy")}
         >
-          <Copy size={14} />
+          <Copy size={14} aria-hidden />
+          {copied ? t("agent.copied") : t("agent.copy")}
         </Button>
         {/* Keep: the verified sentences when there are some — the record is
             for what holds — else the whole answer. The other is in More (16.0). */}
         {keepAction && (
           <Button
-            variant="ghost" size="sm" icon className="message-action-btn"
+            variant="ghost" size="sm" className="message-action-btn message-action-labelled"
             onClick={keepAction.run}
             disabled={keepAction.done}
             title={keepAction.label}
             aria-label={keepAction.label}
           >
-            {keepAction.verified ? <BookmarkCheck size={14} /> : <BookmarkPlus size={14} />}
+            {keepAction.verified ? <BookmarkCheck size={14} aria-hidden /> : <BookmarkPlus size={14} aria-hidden />}
+            {keepAction.done ? t("record.keptShort") : t("record.keepShort")}
           </Button>
         )}
         {canRegenerate && onRegenerate && (

@@ -20,7 +20,7 @@ import { PageRefContext } from "../components/Markdown";
 import { CitationContext, type CitationEnv } from "../components/CitationChip";
 import type { PdfRect } from "../lib/types";
 import { RecordPanel } from "../components/RecordPanel";
-import { addFinding, findingsAreStale, subscribeFindings } from "../lib/finding-store";
+import { activeFindings, addFinding, findingsAreStale, subscribeFindings } from "../lib/finding-store";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
@@ -154,6 +154,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // look again — the same shape as useMarkRevision, kept local because the
   // assistant column is the only thing that reads it.
   const [recordRevision, setRecordRevision] = useState(0);
+  // How much the record holds, on its tab (16.0): a reader on the chat tab
+  // otherwise has no sign that anything was kept.
+  const recordCount = useMemo(
+    () => (activeDoc ? (void recordRevision, activeFindings(activeDoc.path).length) : 0),
+    [activeDoc, recordRevision],
+  );
   useEffect(() => {
     setRecordRevision((n) => n + 1);
     return subscribeFindings(() => setRecordRevision((n) => n + 1));
@@ -466,6 +472,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 onClick={() => setPanelTab(tab)}
               >
                 {t(tab === "chat" ? "record.tabChat" : "record.tabRecord")}
+                {tab === "record" && recordCount > 0 && <span className="panel-tab-count">{recordCount}</span>}
               </button>
             ))}
           </div>
@@ -712,7 +719,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                     <MessageContent message={m} />
                     {editUserMessage && !interactionBusy && m.id === lastUser?.id && (
                       <Button
-                        variant="secondary" size="sm"
+                        variant="ghost" size="sm"
+                        className="message-edit-trigger"
                         onClick={() => {
                           setEditingUserId(m.id);
                           setEditError(null);

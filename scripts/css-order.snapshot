@@ -40,7 +40,6 @@ body
 .pdf-text-layer[data-main-rotation="180"]
 .pdf-text-layer[data-main-rotation="270"]
 .pdf-text-layer ::selection
-.preview-raster-hint
 .preview-image
 .panel-loading
 # 04-chat.css
@@ -238,6 +237,8 @@ button.pages-read-chip:hover
 .doc-search-hit:hover
 .hit-page
 .hit-snippet
+.doc-search-input::-webkit-search-cancel-button
+.hit-term
 # 08-recents-toasts.css
 .loading-overlay
 .loading-card
@@ -294,7 +295,6 @@ button.pages-read-chip:hover
 .message-in-progress
 .message-parts--settling
 .tool-fold-wrap--settling
-.empty-hint
 .sidebar-tabs
 .sidebar-tab
 .sidebar-tab:hover
@@ -303,6 +303,7 @@ button.pages-read-chip:hover
 .outline-item:hover
 .outline-title
 .outline-page
+.outline-empty
 # 11-pdf-layers.css
 .search-highlight-layer
 .search-highlight
@@ -438,8 +439,6 @@ button.pages-read-chip:hover
 .app.v3 .composer-hint
 # 13-chat-late.css
 .empty-state-minimal
-.empty-state-minimal .empty-lead
-.empty-state-minimal .empty-hint
 .empty-examples
 .empty-example-chip
 .empty-example-chip:hover
@@ -484,6 +483,13 @@ button.pages-read-chip:hover
 .follow-ups
 .follow-up-chip
 .follow-up-chip:hover:not(:disabled)
+.message .message-edit-trigger
+.message:hover .message-edit-trigger, .message:focus-within .message-edit-trigger
+@media (hover: none)
+  .message .message-edit-trigger
+.message-action-labelled
+.panel-tabs .sidebar-tab
+.panel-tab-count
 # 14-states.css
 .outline-item.active, .thumb-item.active, .palette-item.active, .zoom-menu-item.active, .model-select-option.active, .anchored-popover button.active, .settings-nav-item.active, .library-list li.active .library-item
 .palette-item:hover:not(.active), .zoom-menu-item:hover:not(.active), .model-select-option:hover:not(.active), .outline-item:hover:not(.active)

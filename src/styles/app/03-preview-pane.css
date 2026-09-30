@@ -148,22 +148,6 @@
   background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-.preview-raster-hint {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  padding: var(--space-xs) var(--space-md);
-  font-size: var(--text-xs);
-  /* Always sits on a dark scrim, so keep the text light in both themes */
-  color: rgba(255, 255, 255, 0.85);
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: var(--radius);
-  z-index: 2;
-  pointer-events: none;
-}
-
 .preview-image {
   max-width: 100%;
   max-height: calc(100vh - 80px);
