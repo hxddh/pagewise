@@ -4,6 +4,80 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [16.0.0] - 2026-09-30
+
+Half the interface, the same evidence. 13.0–15.0 made every answer checkable; this release makes the checking readable and fixes twenty defects a deep review found. Five of them gave a wrong verdict, and three could lose the reader's own work.
+
+### Changed
+
+- **Three levels instead of eight states.** A citation chip, the line under an answer, the record and a table's CSV now say one of three things: **verified** (the words are on the page), **check the page** (a number the passage does not state, a scan that may be misread, a page with no text), or **not found** (not on the page, or no such page). A glyph (! or ✗) says it without colour. The precise reason stays in the chip's title, the record line and the CSV. A model review that reads the passage as saying otherwise lowers a chip to *not found*; agreeing never raises one.
+- **One way to export.** *Export…*, in the chat menu and the palette, opens a dialog of three: **Report** (the record and your marks, with the document's text on request), **PDF with evidence**, and **Conversation**. This replaces seven exports spread across three surfaces. *Export summary*, a billed regeneration of what the brief already said, is gone. A table's CSV stays under its answer.
+- **Four buttons under an answer:** Copy · Keep · Regenerate · More. *Keep* keeps the verified sentences when there are some, else the whole answer. Keeping the whole answer, the table's CSV, asking the model to review and usage details are in *More*.
+- **Eleven settings instead of twenty-one.** *Read pages in the cloud* is one control that sets both the background budget and the per-question allowance. *Text read from pages* is one row that clears both caches. PDF clarity is automatic, *follow the assistant* remembers its last state, and the OCR language follows the interface language.
+- **The screens.**
+  - Toasts appear at the bottom left, no longer over the panel's buttons.
+  - The welcome text matches your state.
+  - *Edit* on the last question shows on hover.
+  - Copy and Keep carry their word.
+  - The chat and record tabs are body size, and the record shows its count.
+  - An empty conversation offers three suggestions.
+  - Search has one close button and marks the words it found.
+  - The palette lists every command, recent ones first.
+  - The page status line says only *reading*, *check the page* or *could not read*, and nothing when the page is fine.
+- **One word per concept:**
+  - *assistant*, never *agent*;
+  - 结论 for a finding throughout the Chinese interface;
+  - one name for reading the unscanned pages, which is the banner's alone.
+
+### Fixed
+
+- **Wrong verdicts**
+  - A decimal point ended the sentence: in `罚款为999.99万元` only 万元 was checked, so a wrong amount showed as verified.
+  - A number opening a sentence was stripped as a list marker.
+  - With two markers in one sentence, the second checked both halves and flagged a correct sentence.
+  - `一亿五千万` was read as a trillion, and `二〇二五` as 5.
+  - 万分之三 and 0.03% did not match, and neither did *30 percent* and 30%, a bare 万 or 亿, 半年 and 6 个月, or 每季度 and 3 个月.
+  - Clause and section numbers were read as quantities.
+- **Lost work**
+  - A failed save followed by a document switch deleted the closed document's stored marks and findings.
+  - Switching the OCR language overwrote the other language's recognised pages. The cache now keeps one section per language; 14.0 files are still read.
+  - Old conversations were pruned in no order at all, because the store has none. They are now pruned by when they were saved.
+- **OCR and checks**
+  - One page timing out stopped both OCR workers and set off a timeout every 90 s. Only the hung worker is restarted now.
+  - A citation found unreadable was never checked again, even after OCR was turned on or had read the page.
+- **Assistant**
+  - A read from a stopped run could tell the next run it already had a page it never saw.
+  - A page range sent an already-read page again when it did not fit.
+  - Reviewing citations kept making billed calls after the document changed.
+- **Interface**
+  - A chip on screen when a document opened crashed React (hook order).
+  - Double-clicking a PDF with PageWise closed opened nothing. The launch's own file and macOS's open event are now handled, and a relative path from a terminal is resolved correctly.
+  - A finding you had confirmed was left out of the evidence PDF when its number was doubted.
+  - The brief could not be exported with an empty conversation.
+  - ⌘[ and ⌘] were listed but did nothing.
+  - The saved zoom never applied, and arrow keys on the divider also turned the page.
+  - A search highlight followed into the next document.
+  - *Back to answer* was offered for an answer that no longer existed.
+  - A CSV cell starting with = + - @ could run as a spreadsheet formula.
+
+### Internal
+
+- **`eval/numbers.eval.ts`**
+  - A new set of 17 answers is cut into claims exactly as the app cuts them, covering decimals, 亿/万, Chinese years, per mille, *percent*, a bare 万, halves, quarters, and clause and section numbers. 0 false alarms, 0 misses.
+  - On the corpus: 0 of 179 honest claims and 0 of 32 reworded ones are flagged; 138 of 138 changed numbers are caught.
+  - A changed clause or section number is no longer counted as a quantity.
+- **`scripts/ui-inventory.mjs` (`npm run ui:inventory`)** counts what the running app shows: 4 buttons under an answer, 1 export entry each in the chat menu and the palette, a dialog of 3, 9 settings rows, and 3 citation levels.
+- **`scripts/check-i18n-keys.mjs` (run by `prebuild`)** fails on a translation key no source uses, or one missing from a locale. 137 unused keys were removed.
+- **Tests:** every fixed defect has a regression test that fails on 15.0.0's code (B1–B20 in `docs/reviews/2026-09-30-pagewise-v16-evaluation.md`).
+- **Audits:**
+  - `audit:citations` 15/15, `audit:tables` 9/9, `audit:claims` 10/10 and `audit:ocr` 9/9 pass with the three levels.
+  - `audit:claims` also checks that a contradicting review lowers the chip.
+
+### Notes
+
+- **Not verified here:** file opening on a real macOS and Windows install (B15). The code path is unit-tested; the operating systems' own hand-off is not reachable from this environment.
+- **Not measured here:** how the new wording reads to a model. `npm run eval:live` still needs an API key.
+
 ## [15.0.0] - 2026-09-29
 
 A citation that holds, not only one that exists. Since 13.0, PageWise checks that the words an answer quotes are on the page it names. That leaves the most dangerous error unflagged: a real quote under a wrong claim. Examples are 24 months for 三十六个月, or 千分之三 for 万分之三. Such a citation was shown violet, as verified, which is exactly what makes a reader stop checking. Now it is caught.
