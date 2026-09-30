@@ -8,7 +8,6 @@ import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
 import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
 import { sanitizeIndexErrorDetail } from "../../lib/index-error-display";
 import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
-import { isRasterHeavyPage } from "../../lib/pdf";
 import { indexPageInBackground, OCR_TRUSTED_CONFIDENCE } from "../../document/index-queue";
 import { cachedOcrPage } from "../../lib/ocr/ocr-service";
 import { useSettled } from "../../lib/use-settled";
@@ -82,7 +81,7 @@ function PreviewPaneInner({
   // What the reader searched for when they jumped here, so the hit can be
   // marked on the page. Forgotten as soon as they navigate away from it — see
   // `useSearchHit`, which is where that rule lives.
-  const [searchHit, setSearchHit] = useSearchHit(page);
+  const [searchHit, setSearchHit] = useSearchHit(page, doc.path);
   const citation = useRevealedCitation(page, revealedCitation);
   // A link the reader clicked, held until they confirm. Document URLs are
   // untrusted input, so nothing opens the browser on its own.
@@ -247,24 +246,20 @@ function PreviewPaneInner({
   }, [doc.path, doc.kind, indexPage, indexState?.status, indexState?.error, indexState?.failureReason]);
 
   const indexHint = useMemo(() => {
+    // Three things to say about a page, and silence when it is fine (16.0):
+    // being read, read but worth checking, could not be read. "Indexed ·
+    // vision model" and "Read on this computer · 96% confidence" on every
+    // readable page told the reader how, when all they needed was whether.
     const hasText = pageHasIndexableText(doc.path, indexPage, doc.pages);
     if (hasText) {
-      if (indexState?.status === "done" && indexState.source === "vision") {
-        return t("preview.indexedVision");
-      }
       const pageSource = doc.pages.find((p) => p.page === indexPage)?.source;
       const read = pageSource === "ocr" ? cachedOcrPage(doc.path, indexPage) : undefined;
-      if (read) {
-        const confidence = String(Math.round(read.confidence));
-        return read.confidence < OCR_TRUSTED_CONFIDENCE
-          ? t("preview.indexedOcrPoor", { confidence })
-          : t("preview.indexedOcr", { confidence });
+      if (read && read.confidence < OCR_TRUSTED_CONFIDENCE) {
+        return t("preview.readPoorly", { confidence: String(Math.round(read.confidence)) });
       }
       return null;
     }
-    if (indexState?.status === "indexing") {
-      return indexState.source === "ocr" ? t("preview.recognising") : t("preview.indexing");
-    }
+    if (indexState?.status === "indexing") return t("preview.reading");
     if (indexState?.status === "failed") {
       let hint: string;
       switch (indexState.failureReason) {
@@ -283,7 +278,7 @@ function PreviewPaneInner({
       }
       return hint;
     }
-    if (pageTextLen === 0) return t("preview.indexing");
+    if (pageTextLen === 0) return t("preview.reading");
     return null;
   }, [doc.path, doc.pages, indexPage, indexState, pageTextLen, t]);
 
@@ -302,9 +297,6 @@ function PreviewPaneInner({
     indexPageInBackground(doc.path, indexPage);
   };
 
-  const rasterHeavy =
-    doc.kind === "pdf" && isRasterHeavyPage(doc.pages[page - 1]?.text.trim().length ?? 0);
-  const rasterHint = rasterHeavy ? t("preview.rasterHint") : null;
   const totalPages = doc.kind === "pdf" ? doc.totalPages : 1;
 
   // One function for every page rather than a closure per page: the scroller
@@ -430,7 +422,6 @@ function PreviewPaneInner({
             {indexHint}
           </div>
         ))}
-      {rasterHint && <p className="preview-raster-hint">{rasterHint}</p>}
       {doc.kind === "pdf" ? (
         <PageScroller
           doc={doc}

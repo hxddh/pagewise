@@ -47,6 +47,11 @@ const CN = "零〇一二两三四五六七八九十百千万亿壹贰叁肆伍�
 
 /** A Chinese numeral as a number, or null when it is not one. */
 export function chineseNumeral(s: string): number | null {
+  // Digits one by one, as years are written (二〇二五): 2025, not 5 (16.0).
+  const chars = [...s];
+  if (chars.length > 1 && chars.every((ch) => ch in DIGIT)) {
+    return Number(chars.map((ch) => DIGIT[ch]).join(""));
+  }
   let total = 0;
   let section = 0;
   let digit = 0;
@@ -78,6 +83,7 @@ const UNITS: Array<[RegExp, Dimension, number]> = [
   [/^(?:months?)\b/i, "month", 1],
   [/^年/, "month", 12],
   [/^(?:years?)\b/i, "month", 12],
+  [/^个?季度/, "month", 3],
   [/^(?:周|星期|weeks?\b)/i, "day", 7],
   [/^(?:日|天|days?\b)/i, "day", 1],
   [/^(?:个?小时|hours?\b)/i, "hour", 1],
@@ -88,7 +94,7 @@ const UNITS: Array<[RegExp, Dimension, number]> = [
 ];
 
 /** Units after which a Chinese numeral is certainly a number. */
-const CN_FOLLOW = /^(?:个?工作日|个月|年|周|星期|日|天|个?小时|学时|分钟|亿元|万元|元|份|次|期|倍|名|台|套|项|人|页|条|款|%)/;
+const CN_FOLLOW = /^(?:个?工作日|个月|个?季度|年|周|星期|日|天|个?小时|学时|分钟|亿元|万元|元|份|次|期|倍|名|台|套|项|人|页|条|款|%)/;
 
 function unitAfter(rest: string): [Dimension, number] {
   const r = rest.replace(/^\s+/, "");
@@ -103,11 +109,28 @@ function unitAfter(rest: string): [Dimension, number] {
 function withoutReferences(text: string): string {
   return text
     .replace(/第\s*[\d一二三四五六七八九十百]+\s*页/g, " ")
+    // Clause and section numbers too (16.0): 第9.2款 is where, not how much.
+    .replace(/第\s*[\d零〇一二三四五六七八九十百.]+\s*(?:条款|条|款|项|章|节|部分)/g, " ")
+    .replace(
+      /(?:\b(?:sections?|clauses?|articles?|sec\.)|§)\s*\d+(?:\.\d+)*(?:\s*(?:,|and|or|to|through|[-–])\s*(?:and\s+)?\d+(?:\.\d+)*)*/gi,
+      " ",
+    )
     .replace(/\bpp?\.\s*\d+(?:\s*[-–]\s*\d+)?/gi, " ")
     .replace(/\bpages?\s+\d+(?:\s*(?:[-–]|and|to)\s*\d+)?/gi, " ");
 }
 
-export function quantities(input: string): Quantity[] {
+/**
+ * Amounts a passage states without a numeral: 每季度 is every three months.
+ * Read only in the passage — a claim saying 每年 against a passage saying
+ * "annually" must not be flagged for a 1 it never wrote (16.0).
+ */
+const IMPLICIT: Array<[RegExp, number]> = [
+  [/每个?季度|按季度?/g, 3],
+  [/每个?月|按月/g, 1],
+  [/每一?年|按年/g, 12],
+];
+
+export function quantities(input: string, options: { implicit?: boolean } = {}): Quantity[] {
   const text = withoutReferences(input.normalize("NFKC"));
   const out: Quantity[] = [];
   const taken: Array<[number, number]> = [];
@@ -115,49 +138,74 @@ export function quantities(input: string): Quantity[] {
   const push = (start: number, end: number, value: number, kind: QuantityKind, rest: string) => {
     if (!Number.isFinite(value) || overlaps(start, end)) return;
     taken.push([start, end]);
+    // Per mille and per ten thousand are percentages at another scale:
+    // 万分之三 and 0.03% are the same rate (16.0).
+    if (kind === "‰") [value, kind] = [value / 10, "%"];
+    else if (kind === "‱") [value, kind] = [value / 100, "%"];
     const [dimension, factor] = kind ? [null, 1] : unitAfter(rest);
     out.push({ value, kind, dimension, base: value * factor, text: text.slice(start, end).trim() });
   };
 
+  if (options.implicit) {
+    for (const [re, months] of IMPLICIT) {
+      for (const m of text.matchAll(re)) {
+        out.push({ value: months, kind: "", dimension: "month", base: months, text: m[0] });
+      }
+    }
+  }
   // 百分之三 / 千分之3 — fractions spelled out.
   for (const m of text.matchAll(new RegExp(`(百|千|万)分之\\s*([${CN}]+|\\d+(?:\\.\\d+)?)`, "g"))) {
     const v = /\d/.test(m[2]!) ? Number(m[2]) : chineseNumeral(m[2]!);
     const kind = ({ 百: "%", 千: "‰", 万: "‱" } as const)[m[1] as "百" | "千" | "万"];
     if (v !== null) push(m.index!, m.index! + m[0].length, v, kind, "");
   }
-  // Arabic numbers, with a following % or unit.
-  for (const m of text.matchAll(/(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*(%|‰|‱)?/g)) {
-    const value = Number(m[1]!.replace(/,/g, "") + (m[2] ?? ""));
+  // 半年, 一年半, 3年半 — halves (16.0).
+  for (const m of text.matchAll(new RegExp(`(\\d+|[${CN}]+)?\\s*(个月|年)半|半\\s*(个月|年)`, "g"))) {
+    const whole = m[1] ? (/\d/.test(m[1]) ? Number(m[1]) : chineseNumeral(m[1])) : 0;
+    if (whole === null) continue;
+    const unit = m[2] ?? m[3]!;
+    push(m.index!, m.index! + m[0].length, whole + 0.5, "", unit);
+  }
+  // Arabic numbers, with a following % or unit. A bare 万 or 亿 scales the
+  // number (131.04万 is 1,310,400); before 元 it is part of the unit.
+  for (const m of text.matchAll(
+    /(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*([万亿])(?!元))?\s*(%|‰|‱|percent\b|per\s+cent\b)?/gi,
+  )) {
+    const scale = m[3] === "亿" ? 1e8 : m[3] === "万" ? 1e4 : 1;
+    const value = Number(m[1]!.replace(/,/g, "") + (m[2] ?? "")) * scale;
     const end = m.index! + m[0].length;
-    push(m.index!, end, value, (m[3] ?? "") as QuantityKind, text.slice(end, end + 8));
+    const kind = (m[4] ? (/^p/i.test(m[4]) ? "%" : m[4]) : "") as QuantityKind;
+    push(m.index!, end, value, kind, text.slice(end, end + 8));
   }
   // Chinese numerals, where what follows makes them numbers.
   for (const m of text.matchAll(new RegExp(`[${CN}]+`, "g"))) {
     const start = m.index!;
     const end = start + m[0].length;
     const rest = text.slice(end, end + 8);
-    // 万元 / 亿元 end a number rather than being part of it when a unit follows.
-    let word = m[0];
-    let tail = rest;
-    const money = /[万亿]$/.test(word) && tail.startsWith("元");
-    if (money) {
-      tail = word.slice(-1) + tail;
-      word = word.slice(0, -1);
-    }
-    if (!CN_FOLLOW.test(tail) || /分之$/.test(text.slice(Math.max(0, start - 2), start))) continue;
-    const value = chineseNumeral(word);
-    if (value !== null && value > 0) push(start, start + word.length, value, "", tail);
+    // 万 and 亿 stay part of the numeral: 一亿五千万元 is 150,000,000 元.
+    // Splitting 万元 off as the unit read it as (一亿五千) 万元 (16.0).
+    if (!CN_FOLLOW.test(rest) || /分之$/.test(text.slice(Math.max(0, start - 2), start))) continue;
+    const value = chineseNumeral(m[0]);
+    if (value !== null && value > 0) push(start, end, value, "", rest);
   }
   return out;
 }
 
 /** Whether `q` is stated, in any spelling or unit, among `context`. */
+function same(a: number, b: number): boolean {
+  return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+}
+
 export function statedIn(q: Quantity, context: readonly Quantity[]): boolean {
   return context.some((c) => {
     if (c.kind !== q.kind) return false;
-    if (c.value === q.value) return true;
+    if (same(c.value, q.value)) return true;
     // The same amount in another unit of the same dimension: 三年 and 36 个月.
-    return q.dimension !== null && c.dimension === q.dimension && Math.abs(c.base - q.base) < 1e-6 * Math.max(1, q.base);
+    if (q.dimension !== null && c.dimension === q.dimension) return same(c.base, q.base);
+    // An amount of money written once with its unit and once without:
+    // 5万元 and 50,000.
+    const money = (x: Quantity, y: Quantity) => x.dimension === "yuan" && y.dimension === null;
+    return (money(q, c) || money(c, q)) && same(c.base, q.base);
   });
 }
 
@@ -166,6 +214,6 @@ export function statedIn(q: Quantity, context: readonly Quantity[]): boolean {
  * number in the claim is in the passage — including when the claim has none.
  */
 export function unstatedQuantities(claim: string, context: string): Quantity[] {
-  const ctx = quantities(context);
+  const ctx = quantities(context, { implicit: true });
   return quantities(claim).filter((q) => !statedIn(q, ctx));
 }

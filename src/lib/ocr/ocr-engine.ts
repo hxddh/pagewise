@@ -37,13 +37,25 @@ function resolveCorePath(): Promise<string> {
  * Workers run one page at a time each, so parallelism is one worker per slot.
  * The service decides how many slots there are.
  */
-const workers = new Map<string, Promise<Worker>>();
+interface Slot {
+  worker: Promise<Worker>;
+  /**
+   * Rejects when the worker is stopped. tesseract.js's `terminate()` never
+   * settles the job the worker was running, so a page in progress would wait
+   * forever — and, before 16.0, time out, restart every worker, and leave the
+   * page in the other slot to time out in turn (B9).
+   */
+  stopped: Promise<never>;
+  stop: () => void;
+}
 
-function workerFor(langs: OcrLanguages, slot: number): Promise<Worker> {
+const workers = new Map<string, Slot>();
+
+function workerFor(langs: OcrLanguages, slot: number): Slot {
   const key = `${langs}#${slot}`;
   let w = workers.get(key);
   if (!w) {
-    w = resolveCorePath().then((core) =>
+    const worker = resolveCorePath().then((core) =>
       createWorker(langs, OEM.LSTM_ONLY, {
         workerPath: pdfAssetUrl("ocr/worker.min.js"),
         corePath: core,
@@ -53,9 +65,18 @@ function workerFor(langs: OcrLanguages, slot: number): Promise<Worker> {
         cacheMethod: "none",
       }),
     );
+    let stop = () => {};
+    const stopped = new Promise<never>((_, reject) => {
+      stop = () => reject(new Error("OCR worker stopped"));
+    });
+    stopped.catch(() => {});
+    const entry: Slot = { worker, stopped, stop };
     // A worker that failed to start must not poison every later request.
-    w.catch(() => workers.delete(key));
-    workers.set(key, w);
+    worker.catch(() => {
+      if (workers.get(key) === entry) workers.delete(key);
+    });
+    workers.set(key, entry);
+    w = entry;
   }
   return w;
 }
@@ -67,14 +88,29 @@ export async function recognizeCanvas(
   langs: OcrLanguages,
   slot = 0,
 ): Promise<OcrPage> {
-  const worker = await workerFor(langs, slot);
-  const { data } = await worker.recognize(canvas, {}, { blocks: true, text: false });
+  const { worker, stopped } = workerFor(langs, slot);
+  const w = await Promise.race([worker, stopped]);
+  const { data } = await Promise.race([w.recognize(canvas, {}, { blocks: true, text: false }), stopped]);
   return ocrPageFrom(data as unknown as OcrPageIn, toPdf);
 }
 
+function stopEntries(keys: string[]): Promise<void> {
+  const entries = keys.map((k) => workers.get(k)!).filter(Boolean);
+  for (const k of keys) workers.delete(k);
+  return Promise.all(
+    entries.map((e) => {
+      e.stop();
+      return e.worker.then((x) => x.terminate()).catch(() => undefined);
+    }),
+  ).then(() => undefined);
+}
+
+/** Stop the worker of one slot — the one a page hung in — and no other. */
+export function terminateOcrSlot(slot: number): Promise<void> {
+  return stopEntries([...workers.keys()].filter((k) => k.endsWith(`#${slot}`)));
+}
+
 /** Stop every worker — on app shutdown, or when OCR is switched off. */
-export async function terminateOcr(): Promise<void> {
-  const all = [...workers.values()];
-  workers.clear();
-  await Promise.all(all.map((w) => w.then((x) => x.terminate()).catch(() => undefined)));
+export function terminateOcr(): Promise<void> {
+  return stopEntries([...workers.keys()]);
 }

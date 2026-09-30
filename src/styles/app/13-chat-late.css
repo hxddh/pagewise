@@ -27,18 +27,6 @@
   padding: var(--space-xl) var(--space-lg) var(--space-md);
 }
 
-.empty-state-minimal .empty-lead {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.empty-state-minimal .empty-hint {
-  margin: var(--space-2xs) 0 0;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
 /*
  * Suggestions read down, not across.
  *
@@ -52,7 +40,6 @@
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-2xs);
-  margin-top: var(--space-lg);
 }
 
 /* A row in that list. No border: five outlined boxes stacked would out-shout
@@ -346,4 +333,50 @@
 
 .follow-up-chip:hover:not(:disabled) {
   color: var(--text);
+}
+
+/*
+ * Edit on the last question appears where the reader points (16.0). Always
+ * on, it read as part of every question; hidden rather than removed, it stays
+ * in the tab order and shows on focus.
+ */
+.message .message-edit-trigger {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.message:hover .message-edit-trigger,
+.message:focus-within .message-edit-trigger {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .message .message-edit-trigger {
+    opacity: 1;
+  }
+}
+
+.message-action-labelled {
+  gap: var(--space-2xs);
+  font-size: var(--text-xs);
+}
+
+/* The assistant panel's two tabs have room the sidebar's three do not (16.0). */
+.panel-tabs .sidebar-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-sm);
+}
+
+.panel-tab-count {
+  min-width: 1.4em;
+  padding: 0 var(--space-2xs);
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text-muted);
 }

@@ -11,6 +11,7 @@ import {
   Undo2,
   User,
 } from "lucide-react";
+import { recordLevel } from "../lib/trust-level";
 import { useI18n } from "../i18n";
 import {
   confirmFinding,
@@ -40,6 +41,12 @@ interface RecordPanelProps {
   onRevealFinding?: (id: string, page: number) => void;
   /** Show the answer an entry was kept from. */
   onRevealMessage?: (messageId: string) => void;
+  /**
+   * Whether that answer is still in the conversation. A cleared or pruned
+   * chat has no answer to go back to, and a button that does nothing is
+   * worse than none (16.0, B20).
+   */
+  hasMessage?: (messageId: string) => boolean;
 }
 
 /**
@@ -74,6 +81,7 @@ export const RecordPanel = memo(function RecordPanel({
   onJumpToPage,
   onRevealFinding,
   onRevealMessage,
+  hasMessage,
 }: RecordPanelProps) {
   const { t } = useI18n();
   const [filter, setFilter] = useState("");
@@ -149,6 +157,7 @@ export const RecordPanel = memo(function RecordPanel({
               onJumpToPage={onJumpToPage}
               onRevealFinding={onRevealFinding}
               onRevealMessage={onRevealMessage}
+              hasMessage={hasMessage}
             />
           ))}
         </ul>
@@ -174,6 +183,7 @@ function RecordEntry({
   onJumpToPage,
   onRevealFinding,
   onRevealMessage,
+  hasMessage,
 }: {
   path: string;
   finding: Finding;
@@ -184,6 +194,7 @@ function RecordEntry({
   onJumpToPage: (page: number) => void;
   onRevealFinding?: (id: string, page: number) => void;
   onRevealMessage?: (messageId: string) => void;
+  hasMessage?: (messageId: string) => boolean;
 }) {
   const { t } = useI18n();
   const placement = useFindingPlacement(path, finding);
@@ -205,6 +216,7 @@ function RecordEntry({
     <li
       className={`record-entry ${inactive ? "record-entry-inactive" : ""}`}
       data-trust={trust}
+      data-level={recordLevel(trust)}
     >
       <div className="record-entry-head">
         <span className={`record-byline ${byReader ? "record-byline-reader" : ""}`}>
@@ -322,7 +334,7 @@ function RecordEntry({
             {page}
           </button>
         ))}
-        {finding.source && onRevealMessage && (
+        {finding.source && onRevealMessage && (hasMessage?.(finding.source.messageId) ?? true) && (
           /* raw-button: sits in the chip row and has to match the chips beside it */
           <button
             type="button"
@@ -389,12 +401,10 @@ function TrustLine({
     );
   }
   if (trust === "retracted") return null;
-  const doubtful =
-    trust === "unlocated" ||
-    trust === "mismatch" ||
-    trust === "unreadable" ||
-    trust === "unconfirmed" ||
-    trust === "stale";
+  // The level first, the reason after it — the same three words as the chips
+  // in the answer (16.0).
+  const level = recordLevel(trust);
+  const doubtful = level === "check" || level === "notFound";
   const text =
     trust === "unlocated"
       ? t("record.trustUnlocated")
@@ -408,8 +418,9 @@ function TrustLine({
           ? t("record.trustStale")
           : t("record.trustUnverified");
   return (
-    <p className={`record-locate ${doubtful ? "record-locate-absent" : "record-locate-unverified"}`}>
+    <p className={`record-locate ${doubtful ? `record-locate-${level}` : "record-locate-unverified"}`}>
       {doubtful && <AlertTriangle size={11} aria-hidden />}
+      {doubtful && <span className="record-level">{t(`level.${level}`)}</span>}
       {text}
       {trustNeedsReader(trust) && (
         /* raw-button: an inline affordance at the end of a status line */

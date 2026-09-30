@@ -339,15 +339,16 @@ describe("CSS hygiene", () => {
       expect(start, `${selector} not found`).toBeGreaterThan(-1);
       return text.slice(start, text.indexOf("}", start));
     };
-    for (const [file, selector] of [
-      ["app/13-chat-late.css", ".file-error-banner"],
-      ["app/08-recents-toasts.css", ".toast-viewport"],
-    ]) {
-      const decl = rule(css(file), selector);
-      expect(decl, `${selector} is why the two collide`).toContain("position: fixed");
-      expect(decl).toMatch(/top:\s*\d+px/);
-      expect(decl).toMatch(/right:\s*\d+px/);
-    }
+    // 16.0 moved toasts to the bottom left, so the two no longer share a
+    // corner — asserted too, so a toast moving back to the top right is seen.
+    const banner = rule(css("app/13-chat-late.css"), ".file-error-banner");
+    expect(banner).toContain("position: fixed");
+    expect(banner).toMatch(/top:\s*\d+px/);
+    expect(banner).toMatch(/right:\s*\d+px/);
+    const toasts = rule(css("app/08-recents-toasts.css"), ".toast-viewport");
+    expect(toasts).toContain("position: fixed");
+    expect(toasts).toMatch(/bottom:\s*\d+px/);
+    expect(toasts).not.toMatch(/\btop:/);
 
     const src = readFileSync(join(ROOT, "src/session/SessionProvider.tsx"), "utf8");
     const at = src.indexOf("setFileError(msg)");

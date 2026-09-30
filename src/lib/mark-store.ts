@@ -250,6 +250,10 @@ function sortMarks(marks: Mark[]): Mark[] {
  * and are re-keyed to where it is now. See `loadFindings`.
  */
 export async function loadMarks(path: string, identity?: string): Promise<Mark[]> {
+  // Reopened before its unsaved changes were written: those are newer than
+  // anything the store holds.
+  forgetAfterFlush.delete(path);
+  if (dirty.has(path) && marksByPath.has(path)) return marksByPath.get(path)!;
   if (identity) identityByPath.set(path, identity);
   else identityByPath.delete(path);
   try {
@@ -303,7 +307,10 @@ export async function flushMarkStore(): Promise<void> {
     const docs = await readDocs();
     const byPath = new Map(docs.map((d) => [d.path, d] as const));
     for (const path of paths) {
-      const marks = marksByPath.get(path) ?? [];
+      // Not in memory: nothing here to write, and an empty list would read as
+      // "the reader removed them all" (16.0).
+      if (!marksByPath.has(path)) continue;
+      const marks = marksByPath.get(path)!;
       if (marks.length === 0) byPath.delete(path);
       else {
         const identity = identityByPath.get(path) ?? byPath.get(path)?.identity;
@@ -322,6 +329,7 @@ export async function flushMarkStore(): Promise<void> {
       kept.push(doc);
     }
     await writeDocs(kept);
+    for (const path of paths) if (!dirty.has(path)) forgetNow(path);
   }).catch(() => {
     // A failed write must not lose the marks — they stay in memory and in
     // `dirty` for the next attempt.
@@ -385,9 +393,23 @@ export function removeMark(path: string, id: string): void {
 }
 
 /** Drop a document's marks from memory. The stored copy is untouched. */
-export function forgetMarks(path: string): void {
+/** Closed documents whose unsaved changes must be written before they go. */
+const forgetAfterFlush = new Set<string>();
+
+function forgetNow(path: string): void {
+  if (!forgetAfterFlush.delete(path)) return;
   marksByPath.delete(path);
   identityByPath.delete(path);
+}
+
+/**
+ * Drop a closed document's in-memory copy. While it has changes a write has
+ * not yet stored — the last one failed — the copy stays until one does: it is
+ * the only copy of them (16.0).
+ */
+export function forgetMarks(path: string): void {
+  forgetAfterFlush.add(path);
+  if (!dirty.has(path)) forgetNow(path);
 }
 
 export interface MarkStoreStats {
@@ -416,6 +438,7 @@ if (typeof window !== "undefined") {
 }
 
 export function __resetMarkStoreForTests(): void {
+  forgetAfterFlush.clear();
   marksByPath.clear();
   identityByPath.clear();
   dirty.clear();

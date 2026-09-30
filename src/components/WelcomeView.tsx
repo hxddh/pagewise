@@ -43,7 +43,8 @@ function WelcomeViewInner({
           */}
           <h1 className="welcome-title">{t("welcome.title")}</h1>
         </div>
-        <p className="welcome-subtitle">{t("welcome.subtitle")}</p>
+        {/* Said as it is: "connect AI first" to a reader who already has (16.0). */}
+        <p className="welcome-subtitle">{t(canUseAgent ? "welcome.subtitleReady" : "welcome.subtitle")}</p>
 
         <Button
           variant="primary"

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { searchDocumentPages, type SearchHit } from "../lib/document-search";
@@ -169,7 +170,7 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
                         }}
                       >
                         <span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>
-                        <span className="hit-snippet">{hit.snippet}</span>
+                        <span className="hit-snippet">{highlightTerms(hit.snippet, query)}</span>
                       </button>
                     </li>
                   ))}
@@ -181,4 +182,19 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
       </div>
     </div>
   );
+}
+
+/**
+ * The snippet with the searched words marked (16.0). A list of results that
+ * all begin "Section 1 Lorem ipsum…" said nothing about where in each the
+ * words were.
+ */
+export function highlightTerms(snippet: string, query: string): ReactNode {
+  const terms = [...new Set(query.trim().split(/\s+/).filter((w) => w.length > 0))]
+    .sort((a, b) => b.length - a.length)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (terms.length === 0) return snippet;
+  const re = new RegExp(`(${terms.join("|")})`, "gi");
+  const parts = snippet.split(re);
+  return parts.map((part, i) => (i % 2 === 1 ? <mark key={i} className="hit-term">{part}</mark> : part));
 }

@@ -116,26 +116,65 @@ export function hideOpenCitation(text: string): string {
   return text.slice(0, open);
 }
 
+/** Sentence ends. A full stop between two digits is a decimal point, not an end (16.0). */
+const SENTENCE_END = /(?<!\d)\.|\.(?!\d)|[!?。！？\n]/g;
+/** Stands in for an earlier marker when a claim starts after it. */
+const MARKER_STOP = "\u0001";
+
+/**
+ * Where the text a citation stands behind starts in `cleaned`: just after the
+ * last stop that is not its final character.
+ */
+function startAfterLastStop(cleaned: string, stops: RegExp): number {
+  const last = cleaned.trimEnd().length - 1;
+  let start = 0;
+  let m: RegExpExecArray | null;
+  stops.lastIndex = 0;
+  while ((m = stops.exec(cleaned)) !== null) {
+    if (m.index < last) start = m.index + m[0].length;
+  }
+  return start;
+}
+
+/**
+ * List markers and headings are not words of the sentence; a number opening
+ * it is ("36 months is the term"), so only a number followed by `.` `)` or `、`
+ * and a space counts as a list marker.
+ */
+function withoutLeadingMarkers(s: string): string {
+  let out = s.replace(/^\s+/, "");
+  for (;;) {
+    const next = out.replace(/^(?:[>#*+\-]+|\d+[.)、])\s+/, "");
+    if (next === out) return out;
+    out = next;
+  }
+}
+
+function tidy(s: string): string {
+  return withoutLeadingMarkers(s).replace(/\*\*|__|`/g, "").trim();
+}
+
 /**
  * The sentence a citation stands behind: the text from the previous sentence
  * end up to the marker. Used to keep a verified sentence as a record entry.
  */
 export function sentenceBefore(markdown: string, markerIndex: number): string {
-  const before = markdown.slice(0, markerIndex);
   // Earlier markers are not part of this sentence's words.
-  const cleaned = before.replace(citationRe(), "");
-  const stops = /[.!?。！？\n]/g;
-  let start = 0;
-  let m: RegExpExecArray | null;
-  // The last terminal punctuation that is not the final character.
-  while ((m = stops.exec(cleaned)) !== null) {
-    if (m.index < cleaned.trimEnd().length - 1) start = m.index + 1;
-  }
-  return cleaned
-    .slice(start)
-    .replace(/^[\s>*#\-\d.)]+/, "")
-    .replace(/\*\*|__|`/g, "")
-    .trim();
+  const cleaned = markdown.slice(0, markerIndex).replace(citationRe(), "");
+  return tidy(cleaned.slice(startAfterLastStop(cleaned, SENTENCE_END)));
+}
+
+/**
+ * What one citation is evidence for: like `sentenceBefore`, but starting after
+ * an earlier marker in the same sentence (16.0). In "the deposit is 30%〔p2〕
+ * and the balance 70%〔p3〕", page 3 stands behind the balance, not the
+ * deposit — checking 30% against it would flag a correct sentence. Markers
+ * side by side stand behind the same words.
+ */
+export function claimSpanBefore(markdown: string, markerIndex: number): string {
+  const cleaned = markdown.slice(0, markerIndex).replace(citationRe(), MARKER_STOP);
+  const stops = new RegExp(`${SENTENCE_END.source}|${MARKER_STOP}`, "g");
+  return tidy(cleaned.slice(startAfterLastStop(cleaned, stops)).split(MARKER_STOP).join(""));
 }
 
 /**

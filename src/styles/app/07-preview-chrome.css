@@ -212,3 +212,16 @@
   color: var(--text-secondary);
   line-height: 1.35;
 }
+
+/* One way to close (16.0): the browser's own clear button sat beside ours,
+   two × one field apart, doing different things. */
+.doc-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.hit-term {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--accent-muted);
+  color: var(--text);
+}

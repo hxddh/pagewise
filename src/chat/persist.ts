@@ -11,6 +11,24 @@ const STORE_PATH = "pagewise-v3-chats.json";
  */
 const IDENTITY_INDEX_KEY = "pagewise:identity-index";
 
+/**
+ * Path → when its chat was last saved (16.0). The store's `keys()` has no
+ * order — the plugin keeps a hash map — so pruning "the oldest" needs its own
+ * record of age (B8).
+ */
+const SAVED_AT_KEY = "pagewise:saved-at";
+const RESERVED_KEYS = new Set([IDENTITY_INDEX_KEY, SAVED_AT_KEY]);
+
+async function readSavedAt(store: Store): Promise<Record<string, number>> {
+  const raw = await store.get<unknown>(SAVED_AT_KEY);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
 function chatKey(path: string): string {
   return path;
 }
@@ -92,6 +110,7 @@ export async function saveChat(
   return withStoreLock(async () => {
     const store = await getStore();
     await store.set(chatKey(path), prepareMessagesForPersist(messages));
+    await store.set(SAVED_AT_KEY, { ...(await readSavedAt(store)), [chatKey(path)]: Date.now() });
     if (identity) {
       const index = await readIdentityIndex(store);
       if (index[identity] !== path) {
@@ -106,6 +125,11 @@ export async function clearChat(path: string): Promise<void> {
   return withStoreLock(async () => {
     const store = await getStore();
     await store.delete(chatKey(path));
+    const savedAt = await readSavedAt(store);
+    if (chatKey(path) in savedAt) {
+      delete savedAt[chatKey(path)];
+      await store.set(SAVED_AT_KEY, savedAt);
+    }
     await store.save();
   });
 }
@@ -132,16 +156,21 @@ export async function pruneOrphanedChats(
   try {
     await withStoreLock(async () => {
       const store = await getStore();
-      const keys = await store.keys();
+      const keys = (await store.keys()).filter((k) => !RESERVED_KEYS.has(k));
       if (keys.length <= maxChats) return;
-      const keep = new Set(keepPaths);
-      keep.add(IDENTITY_INDEX_KEY);
-      // keys() preserves insertion order → oldest first. Drop the oldest keys
-      // that aren't in recents until we're under the cap.
-      const droppable = keys.filter((k) => !keep.has(k));
+      const keep = new Set(keepPaths.map(chatKey));
+      // Oldest save first; a chat saved before 16.0 recorded ages counts as
+      // oldest of all. Drop those outside the recents until under the cap.
+      const savedAt = await readSavedAt(store);
+      const recorded = Object.keys(savedAt).length > 0;
+      const droppable = keys.filter((k) => !keep.has(k)).sort((a, b) => (savedAt[a] ?? 0) - (savedAt[b] ?? 0));
       const dropCount = Math.min(droppable.length, keys.length - maxChats);
       if (dropCount <= 0) return;
-      for (const k of droppable.slice(0, dropCount)) await store.delete(k);
+      for (const k of droppable.slice(0, dropCount)) {
+        await store.delete(k);
+        delete savedAt[k];
+      }
+      if (recorded) await store.set(SAVED_AT_KEY, savedAt);
       await store.save();
     });
   } catch {

@@ -11,7 +11,12 @@ const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 
 function loadZoom(): ZoomMode {
-  const raw = localStorage.getItem(ZOOM_KEY);
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(ZOOM_KEY);
+  } catch {
+    // Storage refused (private mode): the default.
+  }
   if (raw === "fit-width") return "fit-width";
   const n = raw ? parseFloat(raw) : NaN;
   if (!Number.isFinite(n)) return "fit-width";
@@ -55,8 +60,14 @@ export function usePdfViewer({
     loadPreferences().then((p) => setQuality(p.previewQuality));
   }, [prefsRevision]);
 
+  // A newly opened document starts at the reader's saved zoom. Until 16.0
+  // this reset to fit-width — on mount too, so the saved zoom never applied
+  // at all (B19).
+  const zoomPathRef = useRef(doc.path);
   useEffect(() => {
-    setZoom("fit-width");
+    if (zoomPathRef.current === doc.path) return;
+    zoomPathRef.current = doc.path;
+    setZoom(loadZoom());
   }, [doc.path]);
 
   useEffect(() => {
@@ -150,6 +161,8 @@ export function usePdfViewer({
   useEffect(() => {
     if (doc.kind !== "pdf") return;
     const onKey = (e: KeyboardEvent) => {
+      // Already handled — the resize handle's arrows, say — is not a page turn (B19).
+      if (e.defaultPrevented) return;
       if (isTypingTarget(e.target) || isOverlayOpen()) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       switch (e.key) {

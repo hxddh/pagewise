@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDocumentTools, newReadBudget, type ReadBudget } from "./index";
 import { docCache } from "../doc-cache";
-import { addMark, forgetMarks } from "../mark-store";
+import { addMark, __resetMarkStoreForTests } from "../mark-store";
 import type { LoadedDocument } from "../types";
 
 /**
@@ -58,7 +58,8 @@ describe("attachments beside a read", () => {
 
   beforeEach(() => {
     loadDoc();
-    forgetMarks(PATH);
+    // Not forgetMarks: since 16.0 it keeps marks a write has not yet stored.
+    __resetMarkStoreForTests();
     addMark(PATH, {
       page: 2,
       rects: [{ x: 0, y: 0, width: 10, height: 10 }],
@@ -71,7 +72,7 @@ describe("attachments beside a read", () => {
   });
 
   afterEach(() => {
-    forgetMarks(PATH);
+    __resetMarkStoreForTests();
     docCache.clear();
   });
 

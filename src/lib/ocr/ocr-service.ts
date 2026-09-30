@@ -17,7 +17,7 @@
  */
 import { docCache } from "../doc-cache";
 import { readAuthorizedFileBytes, renderPageForOcr } from "../pdf";
-import { recognizeCanvas, terminateOcr, type OcrLanguages } from "./ocr-engine";
+import { recognizeCanvas, terminateOcr, terminateOcrSlot, type OcrLanguages } from "./ocr-engine";
 import { readOcrDoc, writeOcrDoc, type StoredOcrPage } from "./ocr-store";
 import { ocrDpiFor } from "./ocr-result";
 import type { PageText } from "../types";
@@ -41,12 +41,23 @@ let languages: OcrLanguages =
 export function configureOcr(options: { enabled: boolean; languages: OcrLanguages }): void {
   const changed = options.enabled !== enabled || options.languages !== languages;
   enabled = options.enabled;
-  if (options.languages !== languages) {
-    // Pages read with other models stay valid for what they are, but the
-    // store is keyed by models; drop the in-memory copies with them.
-    for (const state of docs.values()) state.pages.clear();
-  }
+  const previous = languages;
   languages = options.languages;
+  if (previous !== languages) {
+    // What was read with the other models stays valid for them: written to
+    // their section of the file before the pages leave memory, and this set's
+    // section read back in (16.0, B7).
+    for (const [path, state] of docs) {
+      if (state.flushTimer) {
+        clearTimeout(state.flushTimer);
+        state.flushTimer = null;
+      }
+      if (state.dirty && state.identity) void writeOcrDoc(state.identity, previous, state.pages.values()).catch(() => {});
+      state.dirty = false;
+      state.pages.clear();
+      if (enabled && state.identity) void restoreOcr(path, state.identity);
+    }
+  }
   if (changed) void terminateOcr();
 }
 
@@ -208,7 +219,9 @@ export function ocrPage(
           ]);
         } catch (err) {
           if (import.meta.env.DEV) console.warn(`[ocr] page ${page}:`, err);
-          if (err instanceof Error && err.message === "OCR timed out") void terminateOcr();
+          // Restart only the worker this page hung in; the other slot's page
+          // is fine and keeps going (16.0, B9).
+          if (err instanceof Error && err.message === "OCR timed out") void terminateOcrSlot(slot);
         } finally {
           clearTimeout(timer);
         }

@@ -1,10 +1,12 @@
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { UIMessage } from "ai";
-import { Copy, Gauge, RotateCcw, BookmarkPlus, BookmarkCheck, Sheet, ScanSearch } from "lucide-react";
+import { Copy, RotateCcw, BookmarkPlus, BookmarkCheck, MoreHorizontal } from "lucide-react";
 import { cachedCitationCheck, withClaim } from "../lib/citation-check";
 import { claimBefore } from "../lib/answer-tables";
 import { extractCitations } from "../lib/citations";
-import { cachedReview, reviewClaim } from "../lib/claim-review";
+import { cachedReview, reviewAll, reviewRevision, subscribeReviews } from "../lib/claim-review";
+import { answerLevels } from "../lib/answer-levels";
+import { TRUST_LEVELS } from "../lib/trust-level";
 import { CitationContext } from "./CitationChip";
 import {
   checkAnswer,
@@ -133,6 +135,7 @@ function MessageAssistantFooterInner({
   const { t } = useI18n();
   const { showToast } = useToast();
   const [statsOpen, setStatsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
   // Kept once. The record is append-and-revise, so a second click would write a
@@ -241,6 +244,7 @@ function MessageAssistantFooterInner({
         outOfRange: t("table.statusOutOfRange"),
         pending: t("table.statusPending"),
       },
+      level: { verified: t("level.verified"), check: t("level.check"), notFound: t("level.notFound") },
       found: (located, total) => t("table.found", { located: String(located), total: String(total) }),
       none: t("table.noQuote"),
     };
@@ -270,20 +274,26 @@ function MessageAssistantFooterInner({
     });
   }, [citationEnv, tally, live, markdownText]);
   const [reviewing, setReviewing] = useState(false);
+  // Aborted when the document changes or the answer leaves the screen: a
+  // review in progress then makes no further billed call (16.0, B12).
+  const reviewAbort = useRef<AbortController | null>(null);
+  const reviewPath = citationEnv?.path;
+  useEffect(
+    () => () => {
+      reviewAbort.current?.abort();
+      reviewAbort.current = null;
+    },
+    [reviewPath],
+  );
   const reviewCitations = useCallback(async () => {
     if (!citationEnv || reviewing) return;
+    const controller = new AbortController();
+    reviewAbort.current = controller;
     setReviewing(true);
-    const counts = { supports: 0, contradicts: 0, insufficient: 0 };
-    let failed = 0;
-    for (const r of reviewable) {
-      try {
-        const verdict = await reviewClaim(citationEnv.path, r.claim, r.quote, r.passage, r.page);
-        counts[verdict.verdict] += 1;
-      } catch {
-        failed += 1;
-      }
-    }
+    const { counts, failed, cancelled } = await reviewAll(citationEnv.path, reviewable, controller.signal);
     setReviewing(false);
+    if (cancelled) return;
+    reviewAbort.current = null;
     if (failed === reviewable.length) {
       showToast(t("cite.reviewFailed"), "error");
       return;
@@ -297,10 +307,40 @@ function MessageAssistantFooterInner({
       counts.contradicts > 0 ? "error" : "success",
     );
   }, [citationEnv, reviewing, reviewable, showToast, t]);
+  // The line under the answer, in the chips' three levels (16.0).
+  const reviewRev = useSyncExternalStore(subscribeReviews, reviewRevision);
+  const levels = useMemo(
+    () => (citationEnv && tally ? answerLevels(citationEnv.path, markdownText) : null),
+    // `tally` and `reviewRev` are what change when a check or review lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [citationEnv, tally, reviewRev, markdownText],
+  );
   const reviewedAll =
     reviewable.length > 0 && citationEnv
       ? reviewable.every((r) => cachedReview(citationEnv.path, r.claim, r.quote))
       : false;
+
+  const keepWhole = () => {
+    if (!onKeep) return;
+    onKeep(claimFromAnswer(claimText), keepPages, { body: markdownText, messageId: message.id });
+    setKept(true);
+  };
+  const keepAction =
+    onKeepVerified && verified.length > 0
+      ? {
+          verified: true,
+          done: keptVerified,
+          label: keptVerified
+            ? t("cite.keptVerified", { count: String(verified.length) })
+            : t("cite.keepVerified", { count: String(verified.length) }),
+          run: () => {
+            onKeepVerified(verified, message.id);
+            setKeptVerified(true);
+          },
+        }
+      : onKeep && keepPages.length > 0
+        ? { verified: false, done: kept, label: kept ? t("record.kept") : t("record.keep"), run: keepWhole }
+        : null;
 
   if (!showFooter) return null;
 
@@ -314,81 +354,29 @@ function MessageAssistantFooterInner({
     <div className="message-assistant-footer">
       <div className="message-assistant-toolbar">
         <div className="message-assistant-actions" role="toolbar" aria-label={t("agent.messageActions")}>
+        {/* The two used most carry their word, not only an icon (16.0). */}
         <Button
-          variant="ghost" size="sm" icon className="message-action-btn"
+          variant="ghost" size="sm" className="message-action-btn message-action-labelled"
           onClick={() => void handleCopy()}
           disabled={!hasCopyable}
           title={copied ? t("agent.copied") : t("agent.copy")}
           aria-label={copied ? t("agent.copied") : t("agent.copy")}
         >
-          <Copy size={14} />
+          <Copy size={14} aria-hidden />
+          {copied ? t("agent.copied") : t("agent.copy")}
         </Button>
-        {onKeep && keepPages.length > 0 && (
+        {/* Keep: the verified sentences when there are some — the record is
+            for what holds — else the whole answer. The other is in More (16.0). */}
+        {keepAction && (
           <Button
-            variant="ghost" size="sm" icon className="message-action-btn"
-            onClick={() => {
-              onKeep(claimFromAnswer(claimText), keepPages, {
-                body: markdownText,
-                messageId: message.id,
-              });
-              setKept(true);
-            }}
-            disabled={kept}
-            title={kept ? t("record.kept") : t("record.keep")}
-            aria-label={kept ? t("record.kept") : t("record.keep")}
+            variant="ghost" size="sm" className="message-action-btn message-action-labelled"
+            onClick={keepAction.run}
+            disabled={keepAction.done}
+            title={keepAction.label}
+            aria-label={keepAction.label}
           >
-            <BookmarkPlus size={14} />
-          </Button>
-        )}
-        {onKeepVerified && verified.length > 0 && (
-          <Button
-            variant="ghost" size="sm" icon className="message-action-btn"
-            onClick={() => {
-              onKeepVerified(verified, message.id);
-              setKeptVerified(true);
-            }}
-            disabled={keptVerified}
-            title={
-              keptVerified
-                ? t("cite.keptVerified", { count: String(verified.length) })
-                : t("cite.keepVerified", { count: String(verified.length) })
-            }
-            aria-label={
-              keptVerified
-                ? t("cite.keptVerified", { count: String(verified.length) })
-                : t("cite.keepVerified", { count: String(verified.length) })
-            }
-          >
-            <BookmarkCheck size={14} />
-          </Button>
-        )}
-        {citationEnv && reviewable.length > 0 && (
-          <Button
-            variant="ghost" size="sm" icon className="message-action-btn"
-            onClick={() => void reviewCitations()}
-            disabled={reviewing || reviewedAll}
-            title={
-              reviewedAll
-                ? t("cite.reviewed")
-                : t("cite.reviewAction", { count: String(reviewable.length) })
-            }
-            aria-label={
-              reviewedAll
-                ? t("cite.reviewed")
-                : t("cite.reviewAction", { count: String(reviewable.length) })
-            }
-          >
-            <ScanSearch size={14} />
-          </Button>
-        )}
-        {citationEnv && hasTable && (
-          <Button
-            variant="ghost" size="sm" icon className="message-action-btn"
-            onClick={() => void exportTable()}
-            title={t("table.export")}
-            aria-label={t("table.export")}
-          >
-            <Sheet size={14} />
+            {keepAction.verified ? <BookmarkCheck size={14} aria-hidden /> : <BookmarkPlus size={14} aria-hidden />}
+            {keepAction.done ? t("record.keptShort") : t("record.keepShort")}
           </Button>
         )}
         {canRegenerate && onRegenerate && (
@@ -407,30 +395,64 @@ function MessageAssistantFooterInner({
           size="sm"
           icon
           className="message-action-btn"
-          aria-pressed={statsOpen}
-          onClick={() => setStatsOpen((o) => !o)}
-          title={t("agent.usageStats")}
-          aria-label={t("agent.usageStats")}
-          aria-expanded={statsOpen}
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen((o) => !o)}
+          title={t("agent.moreActions")}
+          aria-label={t("agent.moreActions")}
         >
-          <Gauge size={14} />
+          <MoreHorizontal size={14} />
         </Button>
         </div>
-        {tally && tally.total > 0 && (
-          <p
-            className={`citation-tally${tally.unlocated > 0 || tally.outOfRange > 0 || tally.mismatch > 0 ? " citation-tally-warn" : ""}`}
-            aria-live="polite"
-          >
-            {t("cite.tally", { located: String(tally.located), total: String(tally.total) })}
-            {tally.unlocated + tally.outOfRange > 0 &&
-              ` · ${t("cite.tallyUnlocated", { count: String(tally.unlocated + tally.outOfRange) })}`}
-            {tally.unreadable > 0 && ` · ${t("cite.tallyUnreadable", { count: String(tally.unreadable) })}`}
-            {tally.mismatch > 0 && ` · ${t("cite.tallyMismatch", { count: String(tally.mismatch) })}`}
-            {tally.unconfirmed > 0 &&
-              ` · ${t("cite.tallyUnconfirmed", { count: String(tally.unconfirmed) })}`}
+        {levels && levels.total > 0 && (
+          <p className="citation-tally" aria-live="polite">
+            {levels.verified + levels.check + levels.notFound === 0
+              ? t("cite.tallyNone")
+              : TRUST_LEVELS.filter((l) => levels[l] > 0).map((l, i) => (
+                  <span key={l} className={`citation-tally-${l}`}>
+                    {i > 0 ? " · " : ""}
+                    {t(`cite.tallyLevel.${l}`, { count: String(levels[l]) })}
+                  </span>
+                ))}
           </p>
         )}
       </div>
+
+      <AnchoredMenu
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        anchorRef={statsBtnRef}
+        className="anchored-popover"
+        align="start"
+      >
+        {keepAction?.verified && onKeep && keepPages.length > 0 && (
+          /* raw-button: role="menuitem" in the answer's overflow menu — a menu row, not a button */
+          <button type="button" role="menuitem" disabled={kept} onClick={() => { setMoreOpen(false); keepWhole(); }}>
+            {kept ? t("record.kept") : t("record.keepWhole")}
+          </button>
+        )}
+        {citationEnv && hasTable && (
+          /* raw-button: role="menuitem" in the same menu; it has to match the rows around it */
+          <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); void exportTable(); }}>
+            {t("table.export")}
+          </button>
+        )}
+        {citationEnv && reviewable.length > 0 && (
+          /* raw-button: role="menuitem" in the same menu; it has to match the rows around it */
+          <button
+            type="button"
+            role="menuitem"
+            disabled={reviewing || reviewedAll}
+            onClick={() => { setMoreOpen(false); void reviewCitations(); }}
+          >
+            {reviewedAll ? t("cite.reviewed") : t("cite.reviewAction", { count: String(reviewable.length) })}
+          </button>
+        )}
+        {/* raw-button: role="menuitem" in the same menu; it has to match the rows around it */}
+        <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); setStatsOpen(true); }}>
+          {t("agent.usageStats")}
+        </button>
+      </AnchoredMenu>
 
       <AnchoredMenu
         open={statsOpen}

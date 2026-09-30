@@ -40,7 +40,6 @@ describe("the follow-up", () => {
       readPages: [4],
       outline: [],
       totalPages: 5,
-      unindexedCount: 0,
       markCount: 0,
       question: "列出所有违约金条款",
       pages,

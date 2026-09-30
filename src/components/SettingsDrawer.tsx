@@ -28,8 +28,6 @@ interface SettingsDrawerProps {
   onReindexDoc?: () => void;
   onApiReady?: () => void;
   onPreferencesSaved?: () => Promise<void>;
-  followAgentDefault: boolean;
-  onFollowAgentDefaultChange: (value: boolean) => void;
   includeViewingPageDefault: boolean;
   onIncludeViewingPageDefaultChange: (value: boolean) => void;
   onTestResult?: (message: string, ok: boolean) => void;
@@ -55,8 +53,6 @@ function SettingsDrawerInner({
   onReindexDoc,
   onApiReady,
   onPreferencesSaved,
-  followAgentDefault,
-  onFollowAgentDefaultChange,
   includeViewingPageDefault,
   onIncludeViewingPageDefaultChange,
   onTestResult,
@@ -253,8 +249,6 @@ function SettingsDrawerInner({
                   className="settings-pane"
                 >
                   <GeneralSettings
-                    followAgentDefault={followAgentDefault}
-                    onFollowAgentDefaultChange={onFollowAgentDefaultChange}
                     includeViewingPageDefault={includeViewingPageDefault}
                     onIncludeViewingPageDefaultChange={onIncludeViewingPageDefaultChange}
                     onPreferencesSaved={onPreferencesSaved}

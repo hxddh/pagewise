@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { UIMessage } from "ai";
-import { findLastMessage } from "../lib/messages-utils";
 import { useI18n } from "../i18n";
-import { ExportSummaryError, streamExportSummary } from "../lib/export-summary";
-import { saveMarkdownFile } from "../lib/save-markdown";
 import type { CommandItem } from "../lib/commands";
 import { requestOpenDocSearch } from "../lib/events";
 import type { LocaleMode } from "../lib/preferences";
@@ -11,11 +8,10 @@ import { recordCommand } from "../lib/onboarding-hints";
 import { previewNextPage, previewPrevPage } from "../lib/preview-actions";
 import { modKey } from "../lib/shortcut-display";
 import { isOverlayOpen } from "../lib/overlay-state";
+import { isTypingTarget } from "../lib/shortcut-guards";
 
 interface UseAppCommandsOptions {
   activeDocName: string | null;
-  /** Whether the open document has any marks, so the export can be gated. */
-  hasMarks: boolean;
   messages: UIMessage[];
   busy: boolean;
   followAgent: boolean;
@@ -29,16 +25,12 @@ interface UseAppCommandsOptions {
   onClearChat: () => void;
   onStop: () => void;
   onCycleTheme: () => void;
-  onExportChat: () => void | Promise<void>;
-  onExportDocument: () => void | Promise<void>;
-  onExportMarks: () => void | Promise<void>;
-  /** Absent when the open document is not a PDF. */
-  onExportAnnotatedPdf?: () => void | Promise<void>;
+  /** Open the one export dialog (16.0). */
+  onOpenExport: () => void;
   /** Prompt to send every still-unscanned page to the vision model. */
   onScanAllPages: () => void;
   /** False when the document has no pages left to scan (or none can be). */
   canScanAllPages: boolean;
-  showToast: (msg: string, tone?: "default" | "success" | "error") => void;
 }
 
 const LOCALE_CYCLE: LocaleMode[] = ["system", "en", "zh-CN"];
@@ -65,53 +57,13 @@ export function useAppCommands({
   onClearChat,
   onStop,
   onCycleTheme,
-  onExportChat,
-  onExportDocument,
-  onExportMarks,
-  onExportAnnotatedPdf,
-  hasMarks,
+  onOpenExport,
   onScanAllPages,
   canScanAllPages,
-  showToast,
 }: UseAppCommandsOptions) {
   const { t, localeMode, setLocaleMode } = useI18n();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const mod = modKey();
-
-  const exportChat = useCallback(async () => {
-    await onExportChat();
-  }, [onExportChat]);
-
-  const exportDocument = useCallback(async () => {
-    await onExportDocument();
-  }, [onExportDocument]);
-
-  const exportMarks = useCallback(async () => {
-    await onExportMarks();
-  }, [onExportMarks]);
-
-  const exportSummary = useCallback(async () => {
-    const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
-    if (!lastAssistant) {
-      showToast(t("toast.noSummary"), "error");
-      return;
-    }
-    showToast(t("toast.exportSummaryProgress"), "default");
-    const name = (activeDocName ?? "summary").replace(/\.[^.]+$/, "") + "-summary.md";
-    try {
-      const md = await streamExportSummary(messages, {
-        docName: activeDocName ?? undefined,
-      });
-      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
-      if (ok) showToast(t("toast.summaryExported"), "success");
-    } catch (error) {
-      if (error instanceof ExportSummaryError && error.message === "NO_SUMMARY") {
-        showToast(t("toast.noSummary"), "error");
-        return;
-      }
-      showToast(t("toast.exportFailed"), "error");
-    }
-  }, [messages, activeDocName, showToast, t]);
 
   const cycleLanguage = useCallback(async () => {
     const next = LOCALE_CYCLE[(LOCALE_CYCLE.indexOf(localeMode) + 1) % LOCALE_CYCLE.length];
@@ -162,45 +114,12 @@ export function useAppCommands({
         run: wrapRun("scan-all", onScanAllPages),
       },
       {
-        id: "export-chat",
-        label: t("commands.exportChat"),
+        id: "export",
+        label: t("commands.export"),
         section: "export",
-        // Busy-gated like the chat-panel menu: exporting mid-stream would
-        // capture a half-streamed answer.
-        disabled: messages.length === 0 || busy,
-        run: wrapRun("export-chat", exportChat),
-      },
-      {
-        id: "export-document",
-        label: t("commands.exportDocument"),
-        section: "export",
-        // The document's own text, not the conversation — available whenever a
-        // document is open, streaming or not.
+        keywords: ["report", "pdf", "chat", "markdown", "save", "brief", "marks"],
         disabled: !activeDocName,
-        run: wrapRun("export-document", exportDocument),
-      },
-      {
-        id: "export-marks",
-        label: t("commands.exportMarks"),
-        section: "export",
-        // Nothing marked means nothing to write; offering it would export an
-        // empty file.
-        disabled: !activeDocName || !hasMarks,
-        run: wrapRun("export-marks", exportMarks),
-      },
-      {
-        id: "export-annotated-pdf",
-        label: t("commands.exportAnnotatedPdf"),
-        section: "export",
-        disabled: !activeDocName || !onExportAnnotatedPdf,
-        run: wrapRun("export-annotated-pdf", () => onExportAnnotatedPdf?.()),
-      },
-      {
-        id: "export-summary",
-        label: t("commands.exportSummary"),
-        section: "export",
-        disabled: messages.length === 0 || busy,
-        run: wrapRun("export-summary", exportSummary),
+        run: wrapRun("export", onOpenExport),
       },
       {
         id: "clear-chat",
@@ -256,15 +175,13 @@ export function useAppCommands({
       busy,
       canScanAllPages,
       cycleLanguage,
-      exportChat,
-      exportDocument,
-      exportSummary,
       followAgent,
       messages.length,
       mod,
       onClearChat,
       onCycleTheme,
       onOpenDocument,
+      onOpenExport,
       onOpenSettings,
       onScanAllPages,
       onStop,
@@ -312,11 +229,24 @@ export function useAppCommands({
         recordCommand("settings");
         onOpenSettings();
       }
+      // Listed in the shortcuts and on the palette since they were added, and
+      // handled nowhere until 16.0 (B18).
+      if (mod && !e.shiftKey && !e.altKey && (e.key === "[" || e.key === "]")) {
+        if (overlayOpen || !activeDocName || isTypingTarget(e.target)) return;
+        e.preventDefault();
+        if (e.key === "[") {
+          recordCommand("prev-page");
+          previewPrevPage();
+        } else {
+          recordCommand("next-page");
+          previewNextPage();
+        }
+      }
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [paletteOpen, activeDocName, onOpenDocument, onToggleAgent, onOpenSettings]);
 
-  return { commands, paletteOpen, setPaletteOpen, exportChat, exportSummary };
+  return { commands, paletteOpen, setPaletteOpen };
 }

@@ -116,7 +116,13 @@ export function alreadyDelivered(budget: ReadBudget, path: string, page: number)
   return budget.delivered.has(`${path}#${page}`);
 }
 
-export function markDelivered(budget: ReadBudget, path: string, page: number): void {
+/**
+ * `runGen` is the run the read was dispatched in. A read from a run that was
+ * stopped and replaced finishes after the new run reset the budget; recording
+ * it there would tell the new run it has a page it never saw (16.0, B13).
+ */
+export function markDelivered(budget: ReadBudget, path: string, page: number, runGen?: number): void {
+  if (runGen !== undefined && budget.gen !== runGen) return;
   budget.delivered.add(`${path}#${page}`);
 }
 
@@ -226,7 +232,7 @@ export function assertPageInBounds(doc: LoadedDocument, page: number): void {
   }
 }
 
-export async function readPageText(path: string, page: number, budget?: ReadBudget) {
+export async function readPageText(path: string, page: number, budget?: ReadBudget, runGen?: number) {
   const signal = getAgentRunAbortSignal();
   throwIfAborted(signal);
 
@@ -251,6 +257,11 @@ export async function readPageText(path: string, page: number, budget?: ReadBudg
   let refused = false;
   const takeVision = () => {
     if (!budget) return true;
+    // A stopped run's read spends nothing of the run that replaced it (B13).
+    if (runGen !== undefined && budget.gen !== runGen) {
+      refused = true;
+      return false;
+    }
     if (budget.scans >= budget.maxScans) {
       refused = true;
       return false;
@@ -286,7 +297,7 @@ export const SCAN_LIMIT_NOTE =
   "This page has no extracted text and the scan allowance for this question is used up, " +
   "so it cannot be read. Do not retry it. Answer from the pages you could read and tell the " +
   "user plainly that some pages are unscanned — they can scan the rest from the command " +
-  "palette (\"Scan all unscanned pages\") or raise the limit in Settings.";
+  "palette (\"Read the unscanned pages\") or raise the limit in Settings.";
 
 /**
  * Stands in for a page this run already returned in full. Short by design: the
@@ -448,7 +459,7 @@ export async function readPageRange(
             break;
           }
 
-          const { text, indexFailure, scanLimit } = await readPageText(path, page, budget);
+          const { text, indexFailure, scanLimit } = await readPageText(path, page, budget, runGen);
           // The allowance is gone: keep walking the range so already-indexed
           // pages further in are still returned, but record what was skipped
           // instead of letting it read as "these pages are blank".
@@ -464,6 +475,17 @@ export async function readPageRange(
           const remainingText = text.slice(pageOffset);
           const header = `--- Page ${page}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
           const separator = parts.length > 0 ? 2 : 0;
+
+          // Already handed over in this run: point at it instead of paying for
+          // a second copy — before any room is measured, or a page
+          // too long for what is left is sent again in part (16.0, B14). Only whole, untruncated deliveries count, so a page
+          // that was cut short can still be continued with an offset.
+          if (pageOffset === 0 && alreadyDelivered(budget, path, page)) {
+            parts.push(`${header}${ALREADY_READ_NOTE}`);
+            charCount += separator + header.length + ALREADY_READ_NOTE.length;
+            lastPage = page;
+            continue;
+          }
 
           const maxRoom = maxChars - charCount - separator - header.length;
           const budgetRoom = budget.max - budget.used - separator - header.length;
@@ -492,21 +514,11 @@ export async function readPageRange(
             break;
           }
 
-          // Already handed over in this run: point at it instead of paying for
-          // a second copy. Only whole, untruncated deliveries count, so a page
-          // that was cut short can still be continued with an offset.
-          if (pageOffset === 0 && alreadyDelivered(budget, path, page)) {
-            parts.push(`${header}${ALREADY_READ_NOTE}`);
-            charCount += separator + header.length + ALREADY_READ_NOTE.length;
-            lastPage = page;
-            continue;
-          }
-
           parts.push(header + remainingText);
           charCount += separator + header.length + remainingText.length;
           chargeBudget(runGen, remainingText.length);
           deliveredPages.push(page);
-          if (pageOffset === 0) markDelivered(budget, path, page);
+          if (pageOffset === 0) markDelivered(budget, path, page, runGen);
           lastPage = page;
         }
 

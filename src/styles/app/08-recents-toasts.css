@@ -52,15 +52,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Bottom left, beside the rail (16.0). At the top right a toast sat over the
+ * assistant panel's own buttons — the moment a document opened, "Opened
+ * paper.pdf" covered Collapse and More.
+ */
 .toast-viewport {
   position: fixed;
-  top: 16px;
-  right: 16px;
+  bottom: 16px;
+  left: calc(var(--rail-w) + 16px);
   z-index: var(--z-toast);
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: var(--space-md);
-  align-items: flex-end;
+  align-items: flex-start;
   pointer-events: none;
   max-width: min(360px, calc(100vw - 32px));
 }

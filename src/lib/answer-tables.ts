@@ -16,7 +16,8 @@
  * Plain GFM tables only: a header row, a delimiter row, body rows. A `|`
  * inside a citation marker's quote does not split a cell.
  */
-import { citationRe, extractCitations, sentenceBefore, stripCitations, type Citation } from "./citations";
+import { citationRe, claimSpanBefore, extractCitations, stripCitations, type Citation } from "./citations";
+import { citationLevel, type TrustLevel } from "./trust-level";
 import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
 import { markdownToPlainText } from "./markdown-text";
 
@@ -118,12 +119,16 @@ export interface CsvLabels {
   sources: string;
   checked: string;
   status: Record<CitationStatus | "pending", string>;
+  /** The three words the chips use (16.0); the status follows in parentheses. */
+  level: Record<Exclude<TrustLevel, "none">, string>;
   /** "2 of 3 found". */
   found: (located: number, total: number) => string;
   none: string;
 }
 
-function csvField(value: string): string {
+function csvField(raw: string): string {
+  // A cell a spreadsheet would run as a formula is written as text (16.0).
+  const value = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
@@ -146,7 +151,11 @@ export function tablesToCsv(path: string, markdown: string, labels: CsvLabels): 
       // Read against its cell, so a number the passage does not state shows here too.
       const statusOf = (c: Citation) =>
         withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote)?.status ?? "pending";
-      const sources = citations.map((c) => `${pagesOf(c)} ${labels.status[statusOf(c)]}`);
+      const sources = citations.map((c) => {
+        const level = citationLevel(statusOf(c));
+        const said = labels.status[statusOf(c)];
+        return level === "none" ? `${pagesOf(c)} ${said}` : `${pagesOf(c)} ${labels.level[level]} (${said})`;
+      });
       const quoted = citations.filter((c) => c.quote);
       const located = quoted.filter((c) => statusOf(c) === "located").length;
       const values = table.headers.map((_, i) => plain(row.cells[i] ?? ""));
@@ -174,7 +183,7 @@ export function hasAnswerTable(markdown: string): boolean {
  */
 export function claimBefore(markdown: string, index: number): string {
   const inRow = rowAt(markdown, index);
-  if (!inRow) return sentenceBefore(markdown, index);
+  if (!inRow) return claimSpanBefore(markdown, index);
   // Earlier markers in the row go first, so a pipe inside one of their quotes
   // cannot be mistaken for the cell's start.
   const line = markdown.slice(inRow.row.start, index).replace(citationRe(), "");

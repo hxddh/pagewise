@@ -20,7 +20,7 @@ import { PageRefContext } from "../components/Markdown";
 import { CitationContext, type CitationEnv } from "../components/CitationChip";
 import type { PdfRect } from "../lib/types";
 import { RecordPanel } from "../components/RecordPanel";
-import { addFinding, findingsAreStale, subscribeFindings } from "../lib/finding-store";
+import { activeFindings, addFinding, findingsAreStale, subscribeFindings } from "../lib/finding-store";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
 import { EmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
@@ -79,11 +79,8 @@ interface ChatPanelProps {
   /** Turn to a cited page; with `rects`, light up where the quoted words are. */
   onRevealCitation?: (page: number, rects: PdfRect[] | null) => void;
   onClearChat: () => void;
-  onExportBrief?: () => void;
-  /** Write located findings and marks into a copy of the PDF. Absent for image documents. */
-  onExportAnnotatedPdf?: () => void;
-  onExportChat: () => void;
-  onExportSummary: () => void;
+  /** Open the export dialog: report, PDF with evidence, conversation (16.0). */
+  onOpenExport: () => void;
   onCollapse?: () => void;
   /** Pages in the active document that still have no text (each costs a scan). */
   unscannedPages?: number;
@@ -125,10 +122,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onRevealFinding,
     onRevealCitation,
     onClearChat,
-    onExportBrief,
-    onExportAnnotatedPdf,
-    onExportChat,
-    onExportSummary,
+    onOpenExport,
     onCollapse,
     unscannedPages = 0,
     onScanAllPages,
@@ -160,6 +154,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // look again — the same shape as useMarkRevision, kept local because the
   // assistant column is the only thing that reads it.
   const [recordRevision, setRecordRevision] = useState(0);
+  // How much the record holds, on its tab (16.0): a reader on the chat tab
+  // otherwise has no sign that anything was kept.
+  const recordCount = useMemo(
+    () => (activeDoc ? (void recordRevision, activeFindings(activeDoc.path).length) : 0),
+    [activeDoc, recordRevision],
+  );
   useEffect(() => {
     setRecordRevision((n) => n + 1);
     return subscribeFindings(() => setRecordRevision((n) => n + 1));
@@ -168,6 +168,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // From an entry in the record back to the answer it was kept from: switch
   // to the transcript, then scroll and focus once it has rendered.
   const pendingRevealRef = useRef<string | null>(null);
+  const hasMessage = useCallback((messageId: string) => messages.some((m) => m.id === messageId), [messages]);
   const revealMessage = useCallback((messageId: string) => {
     pendingRevealRef.current = messageId;
     setPanelTab("chat");
@@ -235,14 +236,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       readPages: collectReadPages(lastAssistant.parts),
       outline: usableOutline(activeDoc.outline, activeDoc.totalPages),
       totalPages: activeDoc.totalPages,
-      unindexedCount: unscannedPages,
       markCount: getMarks(activeDoc.path).length,
       question: lastUser ? extractUserText(lastUser) : "",
       answerText: extractAssistantText(lastAssistant),
       pages: activeDoc.pages,
       t,
     });
-  }, [busy, agentBusy, activeDoc, lastAssistant, lastUser, inFlightAssistant, unscannedPages, t]);
+  }, [busy, agentBusy, activeDoc, lastAssistant, lastUser, inFlightAssistant, t]);
 
   const composerDraftRef = useRef(composerDraft);
   composerDraftRef.current = composerDraft;
@@ -471,6 +471,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 onClick={() => setPanelTab(tab)}
               >
                 {t(tab === "chat" ? "record.tabChat" : "record.tabRecord")}
+                {tab === "record" && recordCount > 0 && <span className="panel-tab-count">{recordCount}</span>}
               </button>
             ))}
           </div>
@@ -494,14 +495,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             aria-pressed={menuOpen}
             onClick={() => setMenuOpen((o) => !o)}
             aria-label={t("agent.more")}
-            title={messages.length === 0 ? t("agent.moreDisabledHint") : t("agent.more")}
+            title={t("agent.more")}
             aria-expanded={menuOpen}
-            disabled={messages.length === 0}
           >
             <MoreHorizontal size={16} />
           </Button>
           <AnchoredMenu
-            open={menuOpen && messages.length > 0}
+            open={menuOpen}
             onClose={() => setMenuOpen(false)}
             anchorRef={moreBtnRef}
             className="anchored-popover"
@@ -512,52 +512,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               role="menuitem"
               onClick={() => {
                 setMenuOpen(false);
-                void onExportChat();
+                onOpenExport();
               }}
-              disabled={interactionBusy}
             >
-              {t("agent.exportChat")}
+              {t("agent.export")}
             </button>
-            {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                void onExportSummary();
-              }}
-              disabled={interactionBusy}
-            >
-              {t("agent.exportSummary")}
-            </button>
-            {onExportBrief && (
-              /* raw-button: role="menuitem" in the same menu; it has to match the rows above it */
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onExportBrief();
-                }}
-                disabled={interactionBusy}
-              >
-                {t("agent.exportBrief")}
-              </button>
-            )}
-            {onExportAnnotatedPdf && (
-              /* raw-button: role="menuitem" in the same menu; it has to match the rows above it */
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onExportAnnotatedPdf();
-                }}
-                disabled={interactionBusy}
-              >
-                {t("agent.exportAnnotatedPdf")}
-              </button>
-            )}
             {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}
             <button
               type="button"
@@ -567,7 +526,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 setMenuOpen(false);
                 onClearChat();
               }}
-              disabled={interactionBusy}
+              disabled={interactionBusy || messages.length === 0}
             >
               {t("agent.clear")}
             </button>
@@ -588,6 +547,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           onJumpToPage={(page) => onJumpToPage?.(page)}
           onRevealFinding={onRevealFinding}
           onRevealMessage={revealMessage}
+          hasMessage={hasMessage}
         />
       ) : (
       <div className="messages messages-panel" ref={messagesRef} onScroll={onMessagesScroll}>
@@ -758,7 +718,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                     <MessageContent message={m} />
                     {editUserMessage && !interactionBusy && m.id === lastUser?.id && (
                       <Button
-                        variant="secondary" size="sm"
+                        variant="ghost" size="sm"
+                        className="message-edit-trigger"
                         onClick={() => {
                           setEditingUserId(m.id);
                           setEditError(null);

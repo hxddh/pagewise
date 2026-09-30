@@ -22,8 +22,14 @@ export interface SearchHit {
  * further down is a rule anyone can drop by accident, and — as the marks bug
  * in 9.2.3 showed — a mis-wiring that type-checks is one nothing catches.
  */
-export function useSearchHit(page: number) {
+export function useSearchHit(page: number, docPath?: string) {
   const [hit, setHit] = useState<SearchHit | null>(null);
+
+  // Another document: the words of the last one's search are not on it, even
+  // when it opens on the same page number (16.0, B20).
+  useEffect(() => {
+    setHit(null);
+  }, [docPath]);
 
   useEffect(() => {
     // Functional update, and `page` as the only dependency: this must run when

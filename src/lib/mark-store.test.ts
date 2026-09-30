@@ -7,6 +7,11 @@ vi.mock("@tauri-apps/plugin-store", () => ({
       return this.data.get(key) as T | undefined;
     }
     async set(key: string, value: unknown): Promise<void> {
+      const g = globalThis as { __failStoreSets?: number };
+      if (g.__failStoreSets) {
+        g.__failStoreSets -= 1;
+        throw new Error("disk full");
+      }
       this.data.set(key, value);
     }
     async save(): Promise<void> {}
@@ -15,6 +20,9 @@ vi.mock("@tauri-apps/plugin-store", () => ({
 
 import {
   addMark,
+  flushMarkStore,
+  forgetMarks,
+  loadMarks,
   getMarks,
   MAX_MARK_TEXT,
   MAX_MARKS_PER_DOC,
@@ -179,5 +187,30 @@ describe("mark-store", () => {
       expect(sanitizeStoredMarks(null)).toEqual([]);
       expect(sanitizeStoredMarks({ version: 1 })).toEqual([]);
     });
+  });
+});
+
+describe("B6: a failed write, then a document switch (16.0)", () => {
+  beforeEach(() => {
+    __resetMarkStoreForTests();
+  });
+
+  it("keeps the closed document's marks on disk", async () => {
+    const g = globalThis as { __failStoreSets?: number };
+    await loadMarks(PATH);
+    add(1, "saved");
+    await flushMarkStore();
+    add(2, "unsaved");
+    g.__failStoreSets = 1;
+    await flushMarkStore();
+    forgetMarks(PATH);
+    await loadMarks("/docs/other.pdf");
+    addMark("/docs/other.pdf", { page: 1, rects: [RECT], text: "elsewhere", stamp: "s1" });
+    await flushMarkStore();
+
+    // Nothing of PATH left in memory; what comes back is what the disk holds.
+    forgetMarks(PATH);
+    expect(getMarks(PATH)).toEqual([]);
+    expect((await loadMarks(PATH)).map((m) => m.text)).toEqual(["saved", "unsaved"]);
   });
 });

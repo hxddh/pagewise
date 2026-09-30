@@ -101,7 +101,9 @@ await p.waitForTimeout(500);
 // 14.1: the kept sentence, written into a copy of the PDF where its words are.
 await p.evaluate(() => { window.__HARNESS_SAVE_PATH__ = "/harness/out/text-pages-annotated.pdf"; });
 await p.getByRole("button", { name: /more/i }).first().click();
-await p.getByRole("menuitem", { name: /export pdf with evidence/i }).click();
+// 16.0: every export goes through one dialog.
+await p.getByRole("menuitem", { name: /export/i }).click();
+await p.getByRole("button", { name: /pdf with evidence/i }).click();
 await p.waitForTimeout(1500);
 const exported = await p.evaluate(() => window.__HARNESS_EXPORTS__ ?? []);
 const annotations = exported[0]?.annotations ?? [];
@@ -123,10 +125,10 @@ const results = {
   "system prompt carries the citation rule": /〔p12 "words copied exactly from page 12"〕/.test(sys),
   "three chips rendered": chips.length === 3,
   "no raw marker left in the answer": !rawLeft,
-  "chip 1 located": /cite-located/.test(chips[0]?.cls ?? ""),
-  "chip 2 unlocated": /cite-unlocated/.test(chips[1]?.cls ?? ""),
+  "chip 1 located": /cite-located/.test(chips[0]?.cls ?? "") && /cite-level-verified/.test(chips[0]?.cls ?? ""),
+  "chip 2 unlocated": /cite-unlocated/.test(chips[1]?.cls ?? "") && /cite-level-notFound/.test(chips[1]?.cls ?? ""),
   "chip 3 out of range": /cite-outOfRange/.test(chips[2]?.cls ?? ""),
-  "tally reads 1 of 3": /1 of 3/.test(tally ?? ""),
+  "tally reads in levels (16.0)": /1 verified/.test(tally ?? "") && /2 not found/.test(tally ?? ""),
   "located chip lights the words": lit > 0,
   "next question tells the model p1 was not found": /p1 'revenue fell by twelve percent' — these words are not on that page/.test(hint),
   "next question tells the model p9 does not exist": /p9 'totals for the year' — that page does not exist/.test(hint),

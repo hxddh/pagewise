@@ -86,6 +86,29 @@ describe("a chat follows its file", () => {
     expect(store.has("/old/paper.pdf")).toBe(true);
   });
 
+  it("B8: drops the least recently saved, not the first key the store lists (16.0)", async () => {
+    const { pruneOrphanedChats, saveChat } = await import("./persist");
+    vi.useFakeTimers();
+    try {
+      // Saved in this order, but the store lists keys in another: the real
+      // plugin keeps a hash map, so keys() has no order at all.
+      for (const [i, name] of ["/a.pdf", "/b.pdf", "/c.pdf", "/d.pdf"].entries()) {
+        vi.setSystemTime(1_000 + i);
+        await saveChat(name, [{ id: "m" } as never]);
+      }
+      const shuffled = new Map([...store.entries()].reverse());
+      store.clear();
+      for (const [k, v] of shuffled) store.set(k, v);
+      await pruneOrphanedChats([], 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(store.has("/a.pdf")).toBe(false);
+    expect(store.has("/b.pdf")).toBe(false);
+    expect(store.has("/c.pdf")).toBe(true);
+    expect(store.has("/d.pdf")).toBe(true);
+  });
+
   it("keeps the fingerprint index out of the prune", async () => {
     const { pruneOrphanedChats, saveChat } = await import("./persist");
     await saveChat("/doc-0.pdf", [{ id: "m" }] as never, "id-0");

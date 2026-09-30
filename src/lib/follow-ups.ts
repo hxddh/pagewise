@@ -15,7 +15,7 @@ import { unreadRelevantPages } from "./coverage";
  * worse than none: it invites a question the document cannot answer.
  */
 
-export type FollowUpKind = "unreadRelevant" | "nextSection" | "scanUnindexed" | "compareMarks" | "wholeDocument";
+export type FollowUpKind = "unreadRelevant" | "nextSection" | "compareMarks" | "wholeDocument";
 
 export interface FollowUp {
   kind: FollowUpKind;
@@ -23,8 +23,6 @@ export interface FollowUp {
   text: string;
   /** For "nextSection": the section it points at. */
   section?: string;
-  /** For "scanUnindexed": how many pages are unreadable. */
-  count?: number;
   /** For "unreadRelevant": the pages not read that match the question. */
   pages?: number[];
 }
@@ -35,8 +33,6 @@ export interface FollowUpInput {
   /** The document's section list, if one was recovered. */
   outline: DocHeading[];
   totalPages: number;
-  /** Pages with too little text to search — a scan would be needed. */
-  unindexedCount: number;
   /** Passages the reader has marked in this document. */
   markCount: number;
   /** The question this reply answered, and the reply itself (15.0). */
@@ -55,7 +51,6 @@ export function followUpSuggestions({
   readPages,
   outline,
   totalPages,
-  unindexedCount,
   markCount,
   question,
   answerText,
@@ -92,15 +87,10 @@ export function followUpSuggestions({
     }
   }
 
-  // Pages no search can reach. This is the one suggestion that costs money to
-  // act on, so it says how many pages before it is taken.
-  if (unindexedCount > 0) {
-    out.push({
-      kind: "scanUnindexed",
-      count: unindexedCount,
-      text: t("agent.followUpScan", { count: unindexedCount }),
-    });
-  }
+  // Pages no search can reach are not suggested here since 16.0: the banner
+  // above the composer offers to read them — one action, one place. As a
+  // suggestion it only put "Scan the 12 unreadable pages" in the composer, as
+  // a question for the model, which is not what reading them is.
 
   // What the reader singled out is what they care about; an answer that did not
   // touch it is worth pointing at it.

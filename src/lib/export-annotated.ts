@@ -65,7 +65,10 @@ export function findingAnnotations(
   for (const { finding, trust } of entries) {
     if (!WRITABLE.has(trust)) continue;
     const placement = placements.get(finding.id);
-    if (placement?.status !== "located") continue;
+    // The wording is on the page either way. A doubted number stops the
+    // machine vouching for it, not the reader who checked it (16.0, B16).
+    const placed = placement?.status === "located" || (trust === "confirmed" && placement?.status === "mismatch");
+    if (!placement || !placed) continue;
     const { page, rects } = placement.anchor;
     const how = trust === "confirmed" ? labels.confirmed : labels.foundOnPage(page);
     out.push({

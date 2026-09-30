@@ -23,16 +23,27 @@ vi.mock("@tauri-apps/api/event", () => ({
     }),
 }));
 
-const { useOpenPathEvent, OPEN_PATH_EVENT } = await import("./useOpenPathEvent");
+/** What Rust holds from this launch's own command line, taken once. */
+let pending: string | null = null;
+vi.mock("../lib/invoke-cmd", () => ({
+  invokeCmd: async (cmd: string) => {
+    if (cmd !== "take_pending_open") return null;
+    const p = pending;
+    pending = null;
+    return p;
+  },
+}));
+
+const { useOpenPathEvent, OPEN_PATH_EVENT, OPEN_PENDING_EVENT } = await import("./useOpenPathEvent");
 
 function Harness({ onPath }: { onPath: (p: string) => void }) {
   useOpenPathEvent(onPath);
   return null;
 }
 
-const emit = (payload: unknown) =>
+const emit = (payload: unknown, name = OPEN_PATH_EVENT) =>
   act(() => {
-    for (const h of handlers) h.fn({ payload });
+    for (const h of handlers) if (h.name === name) h.fn({ payload });
   });
 
 beforeEach(() => {
@@ -40,6 +51,7 @@ beforeEach(() => {
   released = 0;
   deferred = [];
   defer = false;
+  pending = null;
 });
 afterEach(cleanup);
 
@@ -55,8 +67,8 @@ describe("useOpenPathEvent", () => {
   it("hands over the path a second launch carried", async () => {
     const onPath = vi.fn();
     render(<Harness onPath={onPath} />);
-    await waitFor(() => expect(handlers).toHaveLength(1));
-    expect(handlers[0]!.name).toBe(OPEN_PATH_EVENT);
+    await waitFor(() => expect(handlers).toHaveLength(2));
+    expect(handlers.map((h) => h.name)).toContain(OPEN_PATH_EVENT);
 
     emit("/docs/paper.pdf");
     expect(onPath).toHaveBeenCalledWith("/docs/paper.pdf");
@@ -65,7 +77,7 @@ describe("useOpenPathEvent", () => {
   it("ignores a payload that is not a usable path", async () => {
     const onPath = vi.fn();
     render(<Harness onPath={onPath} />);
-    await waitFor(() => expect(handlers).toHaveLength(1));
+    await waitFor(() => expect(handlers).toHaveLength(2));
 
     emit("");
     emit("   ");
@@ -79,9 +91,9 @@ describe("useOpenPathEvent", () => {
     // build it again on every render — and a launch landing in the gap is a
     // document that silently fails to open.
     const { rerender } = render(<Harness onPath={() => {}} />);
-    await waitFor(() => expect(handlers).toHaveLength(1));
+    await waitFor(() => expect(handlers).toHaveLength(2));
     for (let i = 0; i < 5; i += 1) rerender(<Harness onPath={() => {}} />);
-    expect(handlers).toHaveLength(1);
+    expect(handlers).toHaveLength(2);
     expect(released).toBe(0);
   });
 
@@ -91,7 +103,7 @@ describe("useOpenPathEvent", () => {
     const first = vi.fn();
     const second = vi.fn();
     const { rerender } = render(<Harness onPath={first} />);
-    await waitFor(() => expect(handlers).toHaveLength(1));
+    await waitFor(() => expect(handlers).toHaveLength(2));
     rerender(<Harness onPath={second} />);
 
     emit("/docs/paper.pdf");
@@ -109,6 +121,23 @@ describe("useOpenPathEvent", () => {
     await act(async () => {
       for (const d of deferred) d();
     });
-    expect(released).toBe(1);
+    expect(released).toBe(2);
+  });
+
+  it("B15: opens the file this launch was started with (16.0)", async () => {
+    pending = "/docs/double-clicked.pdf";
+    const onPath = vi.fn();
+    render(<Harness onPath={onPath} />);
+    await waitFor(() => expect(onPath).toHaveBeenCalledWith("/docs/double-clicked.pdf"));
+    expect(onPath).toHaveBeenCalledTimes(1);
+  });
+
+  it("B15: takes a file macOS hands over later", async () => {
+    const onPath = vi.fn();
+    render(<Harness onPath={onPath} />);
+    await waitFor(() => expect(handlers).toHaveLength(2));
+    pending = "/docs/opened-later.pdf";
+    emit(null, OPEN_PENDING_EVENT);
+    await waitFor(() => expect(onPath).toHaveBeenCalledWith("/docs/opened-later.pdf"));
   });
 });

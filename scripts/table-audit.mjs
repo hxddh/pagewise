@@ -76,7 +76,9 @@ log("answered");
 const cells = await p.$$eval("table button.cite", (els) => els.map((e) => e.className.replace("cite ", "")));
 await p.locator(".messages").screenshot({ path: join(shots, "tables-answer.png") });
 
-await p.getByRole("button", { name: /export table as csv/i }).click();
+// 16.0: the table's CSV is in the answer's More menu.
+await p.getByRole("button", { name: /more for this answer/i }).last().click();
+await p.getByRole("menuitem", { name: /export table as csv/i }).click();
 await p.waitForTimeout(1500);
 const writes = await p.evaluate(() => window.__HARNESS_WRITES__ ?? []);
 const csv = writes.find((w) => w.path === "/harness/out/table.csv")?.content ?? "";
@@ -92,10 +94,10 @@ const lines = csv.replace(/^﻿/, "").trim().split("\r\n");
 const results = {
   "system prompt asks for cited tables": /answer with a Markdown table: one row per item/.test(sys),
   "a chip in each cited cell": cells.length === 4,
-  "three found, one not": cells.filter((c) => c === "cite-located").length === 3 && cells.includes("cite-unlocated"),
+  "three found, one not": cells.filter((c) => c.includes("cite-located")).length === 3 && cells.some((c) => c.includes("cite-unlocated")),
   "CSV header adds sources and checked": lines[0] === "Page,Opens with,Ends with,Sources,Checked",
-  "CSV row 1: both quotes found": lines[1] === "1,Lorem ipsum,labore,p. 1 found; p. 1 found,2 of 2 found",
-  "CSV row 2: one not found": lines[2] === "2,Lorem ipsum,a decline,p. 2 found; p. 2 not found,1 of 2 found",
+  "CSV row 1: both quotes found": lines[1] === "1,Lorem ipsum,labore,p. 1 Verified (found); p. 1 Verified (found),2 of 2 found",
+  "CSV row 2: one not found": lines[2] === "2,Lorem ipsum,a decline,p. 2 Verified (found); p. 2 Not found (not found),1 of 2 found",
   "CSV carries a byte-order mark for spreadsheets": csv.startsWith("﻿"),
   "the verified row is kept as its row": /Page: 1 · Opens with: Lorem ipsum · Ends with: labore/.test(recordText),
   "the row with a quote not found is not kept": !/a decline/.test(recordText),

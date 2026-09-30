@@ -71,8 +71,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     waitForStreamIdle: vi.fn(async () => true),
     steerRun: steer,
     onClearChat: vi.fn(),
-    onExportChat: vi.fn(),
-    onExportSummary: vi.fn(),
+    onOpenExport: vi.fn(),
     ...overrides,
   };
   const view = render(<ChatPanel {...(props as unknown as React.ComponentProps<typeof ChatPanel>)} />);

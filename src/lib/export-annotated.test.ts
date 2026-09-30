@@ -52,6 +52,22 @@ describe("findingAnnotations", () => {
     expect(out[1]).toMatchObject({ author: "Reader", contents: "claim c\n\nChecked by the reader" });
   });
 
+  it("B16: writes a confirmed finding whose number the check doubted (16.0)", () => {
+    const placements = new Map<string, FindingPlacement>([
+      ["m", { status: "mismatch", anchor: located.status === "located" ? located.anchor : (null as never), unstated: ["30%"] }],
+      ["n", { status: "mismatch", anchor: located.status === "located" ? located.anchor : (null as never), unstated: ["30%"] }],
+    ]);
+    const out = findingAnnotations(
+      [
+        { finding: finding("m", { author: "reader" }), trust: "confirmed" },
+        { finding: finding("n"), trust: "mismatch" as never },
+      ],
+      placements,
+      labels,
+    );
+    expect(out.map((a) => a.id)).toEqual(["f-m"]);
+  });
+
   it("does not write a confirmed finding it cannot place", () => {
     const out = findingAnnotations([{ finding: finding("x"), trust: "confirmed" }], new Map(), labels);
     expect(out).toEqual([]);

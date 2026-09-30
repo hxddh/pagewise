@@ -84,10 +84,12 @@ interface SessionContextValue {
   setSettingsOpen: (open: boolean) => void;
   clearChat: () => Promise<void>;
   exportChat: () => Promise<void>;
-  exportDocument: () => Promise<void>;
-  exportMarks: () => Promise<void>;
-  /** The record, filed by trust, as one Markdown file. */
-  exportBrief: () => Promise<void>;
+  /**
+   * The report (16.0): the record — each finding with its page and how it was
+   * checked — and the reader's marks, with the document's text appended on
+   * request. Replaces the separate brief, marks and document exports.
+   */
+  exportReport: (options?: { includeText?: boolean }) => Promise<void>;
   /** A copy of the PDF with located findings and marks written in as annotations (14.1). */
   exportAnnotatedPdf: () => Promise<void>;
   isDragging: boolean;
@@ -558,51 +560,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [agent.messages, showToast, t]);
 
-  const exportDocument = useCallback(async () => {
-    const doc = documentRef.current;
-    if (!doc) return;
-    const md = documentToMarkdown(doc);
-    const name = doc.name.replace(/\.[^.]+$/, "") + ".md";
-    try {
-      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
-      if (ok) showToast(t("toast.documentExported"), "success");
-    } catch {
-      showToast(t("toast.exportFailed"), "error");
-    }
-  }, [showToast, t]);
-
-  const exportMarks = useCallback(async () => {
-    const doc = documentRef.current;
-    if (!doc) return;
-    const md = marksToMarkdown(doc);
-    // The command is disabled without marks; this guards the keyboard path.
-    if (!md) return;
-    const name = doc.name.replace(/\.[^.]+$/, "") + "-marks.md";
-    try {
-      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
-      if (ok) showToast(t("toast.marksExported"), "success");
-    } catch {
-      showToast(t("toast.exportFailed"), "error");
-    }
-  }, [showToast, t]);
-
-  const exportBrief = useCallback(async () => {
-    const doc = documentRef.current;
-    if (!doc) return;
-    const entries = trustedFindings(doc.path).filter((e) => e.trust !== "retracted");
-    if (entries.length === 0) {
-      showToast(t("toast.noFindings"), "error");
-      return;
-    }
-    const md = briefToMarkdown(doc, entries, locale === "zh-CN" ? BRIEF_LABELS_ZH : BRIEF_LABELS_EN);
-    const name = doc.name.replace(/\.[^.]+$/, "") + "-brief.md";
-    try {
-      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
-      if (ok) showToast(t("toast.briefExported"), "success");
-    } catch {
-      showToast(t("toast.exportFailed"), "error");
-    }
-  }, [locale, showToast, t]);
+  const exportReport = useCallback(
+    async (options: { includeText?: boolean } = {}) => {
+      const doc = documentRef.current;
+      if (!doc) return;
+      const entries = trustedFindings(doc.path).filter((e) => e.trust !== "retracted");
+      const parts: string[] = [];
+      if (entries.length > 0) {
+        parts.push(briefToMarkdown(doc, entries, locale === "zh-CN" ? BRIEF_LABELS_ZH : BRIEF_LABELS_EN).trimEnd());
+      }
+      const marks = marksToMarkdown(doc);
+      if (marks) parts.push(marks.trimEnd());
+      if (parts.length === 0) {
+        showToast(t("toast.noFindings"), "error");
+        return;
+      }
+      if (options.includeText) parts.push(documentToMarkdown(doc).trimEnd());
+      const md = `${parts.join("\n\n---\n\n")}\n`;
+      const name = doc.name.replace(/\.[^.]+$/, "") + "-report.md";
+      try {
+        const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
+        if (ok) showToast(t("toast.reportExported"), "success");
+      } catch {
+        showToast(t("toast.exportFailed"), "error");
+      }
+    },
+    [locale, showToast, t],
+  );
 
   const exportAnnotatedPdf = useCallback(async () => {
     const doc = documentRef.current;
@@ -660,9 +644,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setSettingsOpen,
       clearChat,
       exportChat,
-      exportDocument,
-      exportMarks,
-      exportBrief,
+      exportReport,
       exportAnnotatedPdf,
       isDragging,
     }),
@@ -687,9 +669,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       settingsOpen,
       clearChat,
       exportChat,
-      exportDocument,
-      exportMarks,
-      exportBrief,
+      exportReport,
       exportAnnotatedPdf,
       isDragging,
     ],
