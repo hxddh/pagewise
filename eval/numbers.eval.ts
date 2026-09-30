@@ -29,6 +29,8 @@ import { locateQuote } from "../src/lib/quote-locate";
 import { passageAround } from "../src/lib/passage";
 import { chineseNumeral, quantities, unstatedQuantities } from "../src/lib/quantities";
 import { markdownToPlainText } from "../src/lib/markdown-text";
+import { claimBefore } from "../src/lib/answer-tables";
+import { extractCitations } from "../src/lib/citations";
 import { corpusFiles, loadDoc, OUT, type DumpDoc } from "./lib/corpus";
 import { rng } from "./lib/quotes";
 
@@ -96,6 +98,7 @@ describe("numbers in a claim, read against the passage it cites", () => {
     let wrong = 0;
     let caught = 0;
     let wrongElsewhere = 0;
+    let notQuantity = 0;
     const alarms: string[] = [];
     const misses: string[] = [];
     const rows: string[] = [];
@@ -132,7 +135,13 @@ describe("numbers in a claim, read against the passage it cites", () => {
           // The changed value, if it happens to be in the passage anyway,
           // cannot be caught by a check that asks "is it in the passage".
           const changed = quantities(w).filter((q) => !quantities(c.sentence).some((o) => o.value === q.value && o.kind === q.kind));
-          if (changed.length > 0 && unstatedQuantities(changed.map((q) => q.text).join(" "), passage).length === 0) {
+          // The changed digits were a clause or section number, not a
+          // quantity: the check does not read those, by design (16.0).
+          if (changed.length === 0) {
+            notQuantity += 1;
+            continue;
+          }
+          if (unstatedQuantities(changed.map((q) => q.text).join(" "), passage).length === 0) {
             wrongElsewhere += 1;
             continue;
           }
@@ -159,18 +168,65 @@ describe("numbers in a claim, read against the passage it cites", () => {
         `| reworded (numerals, units), flagged | ${rewordedFlagged} of ${reworded} (${pct(rewordedFlagged, reworded)}) |`,
         `| changed number, caught | ${caught} of ${wrong} (${pct(caught, wrong)}) |`,
         `| changed to a number the passage has anyway (not counted) | ${wrongElsewhere} |`,
+        `| changed a clause or section number (not a quantity, not counted) | ${notQuantity} |`,
       ].join("\n"),
     );
     for (const a of alarms) console.log(`  ALARM ${a}`);
     for (const m of misses) console.log(`  MISSED ${m}`);
     writeFileSync(
       join(OUT, "numbers.json"),
-      JSON.stringify({ located, honest, honestFlagged, reworded, rewordedFlagged, wrong, caught, wrongElsewhere, alarms, misses }, null, 2),
+      JSON.stringify({ located, honest, honestFlagged, reworded, rewordedFlagged, wrong, caught, wrongElsewhere, notQuantity, alarms, misses }, null, 2),
     );
 
     expect(honest).toBeGreaterThan(150);
     expect(reworded).toBeGreaterThan(30);
     expect((honestFlagged + rewordedFlagged) / (honest + reworded)).toBeLessThanOrEqual(NUMBER_GATES.falseAlarms);
     expect(caught / wrong).toBeGreaterThanOrEqual(NUMBER_GATES.caught);
+  });
+});
+
+/**
+ * How answers write the numbers a document states (16.0). Each case is an
+ * answer, with markers, and the passage of each page it cites. The claim is
+ * cut from the answer exactly as the app cuts it (`claimBefore`), so a claim
+ * cut short by a decimal point, or run on across an earlier marker, fails
+ * here as it would on screen. `wrong` changes one number of the answer:
+ * that one must be caught.
+ */
+const VARIANTS: Array<{ name: string; answer: string; pages: Record<number, string>; wrong: string }> = [
+  { name: "decimal amount", answer: '罚款为1,310,400.00元〔p2 "罚款"〕。', pages: { 2: "应支付罚款人民币1,310,400.00元。" }, wrong: '罚款为1,310,500.00元〔p2 "罚款"〕。' },
+  { name: "decimal 万元", answer: '合同总价436.8万元〔p1 "总价"〕。', pages: { 1: "合同总价为人民币肆佰叁拾陆万捌仟元整。" }, wrong: '合同总价463.8万元〔p1 "总价"〕。' },
+  { name: "decimal percent (en)", answer: 'Intro. The late fee is 3.5% of the overdue amount〔p4 "late fee"〕.', pages: { 4: "a late fee of 3.5% of the overdue amount applies" }, wrong: 'Intro. The late fee is 5.5% of the overdue amount〔p4 "late fee"〕.' },
+  { name: "number opens the sentence", answer: '36 months is the warranty term〔p3 "warranty"〕.', pages: { 3: "The warranty term is thirty-six (36) months." }, wrong: '24 months is the warranty term〔p3 "warranty"〕.' },
+  { name: "two markers, one sentence", answer: '定金为30%〔p2 "定金"〕，尾款为70%〔p3 "尾款"〕。', pages: { 2: "定金为合同价款的30%。", 3: "尾款为合同价款的70%，验收后支付。" }, wrong: '定金为30%〔p2 "定金"〕，尾款为60%〔p3 "尾款"〕。' },
+  { name: "亿 and 万", answer: '注册资本一亿五千万元〔p1 "注册资本"〕。', pages: { 1: "注册资本：150,000,000元" }, wrong: '注册资本一亿三千万元〔p1 "注册资本"〕。' },
+  { name: "1.5亿", answer: '注册资本1.5亿元〔p1 "注册资本"〕。', pages: { 1: "注册资本为人民币壹亿伍仟万元" }, wrong: '注册资本2.5亿元〔p1 "注册资本"〕。' },
+  { name: "Chinese year", answer: '协议于二〇二五年生效〔p1 "生效"〕。', pages: { 1: "本协议自2025年1月1日起生效。" }, wrong: '协议于二〇二四年生效〔p1 "生效"〕。' },
+  { name: "万分之 as percent", answer: '违约金为每日0.03%〔p5 "违约金"〕。', pages: { 5: "每逾期一日按逾期金额的万分之三支付违约金。" }, wrong: '违约金为每日0.3%〔p5 "违约金"〕。' },
+  { name: "千分之 as percent", answer: 'The penalty is 0.3% per day〔p5 "penalty"〕.', pages: { 5: "按日千分之三计收滞纳金" }, wrong: 'The penalty is 0.03% per day〔p5 "penalty"〕.' },
+  { name: "percent as a word", answer: 'A 30 percent deposit is due〔p2 "deposit"〕.', pages: { 2: "买方应支付30%的定金。" }, wrong: 'A 20 percent deposit is due〔p2 "deposit"〕.' },
+  { name: "bare 万", answer: '罚款131.04万〔p2 "罚款"〕。', pages: { 2: "罚款金额1,310,400元。" }, wrong: '罚款113.04万〔p2 "罚款"〕。' },
+  { name: "半年", answer: '保修期为6个月〔p3 "保修"〕。', pages: { 3: "保修期为半年，自验收之日起算。" }, wrong: '保修期为9个月〔p3 "保修"〕。' },
+  { name: "一年半", answer: '租期18个月〔p1 "租期"〕。', pages: { 1: "租赁期限为一年半。" }, wrong: '租期12个月〔p1 "租期"〕。' },
+  { name: "季度", answer: '每3个月结算一次〔p4 "结算"〕。', pages: { 4: "双方每季度结算一次。" }, wrong: '每2个月结算一次〔p4 "结算"〕。' },
+  { name: "clause number", answer: '依据第9.2款，乙方承担30%〔p6 "乙方承担"〕。', pages: { 6: "乙方承担损失的30%。" }, wrong: '依据第9.2款，乙方承担40%〔p6 "乙方承担"〕。' },
+  { name: "section number", answer: 'Under Section 12.3, notice is due within 30 days〔p7 "notice"〕.', pages: { 7: "notice must be given within thirty (30) days" }, wrong: 'Under Section 12.3, notice is due within 60 days〔p7 "notice"〕.' },
+];
+
+function flagsOf(answer: string, pages: Record<number, string>): string[] {
+  return extractCitations(answer).flatMap((c) =>
+    unstatedQuantities(claimBefore(answer, c.index), `${pages[c.pages[0]!] ?? ""}\n${c.quote ?? ""}`).map((q) => q.text),
+  );
+}
+
+describe("numbers as answers write them (16.0)", () => {
+  it("never flags a correct answer, and catches each changed number", () => {
+    const alarms = VARIANTS.filter((v) => flagsOf(v.answer, v.pages).length > 0).map((v) => `${v.name}: ${flagsOf(v.answer, v.pages).join(", ")}`);
+    const missed = VARIANTS.filter((v) => flagsOf(v.wrong, v.pages).length === 0).map((v) => v.name);
+    console.log(`| variants | ${VARIANTS.length} | false alarms | ${alarms.length} | missed | ${missed.length} |`);
+    for (const a of alarms) console.log(`  ALARM ${a}`);
+    for (const m of missed) console.log(`  MISSED ${m}`);
+    expect(alarms).toEqual([]);
+    expect(missed).toEqual([]);
   });
 });

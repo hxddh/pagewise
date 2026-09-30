@@ -16,7 +16,7 @@
  * Plain GFM tables only: a header row, a delimiter row, body rows. A `|`
  * inside a citation marker's quote does not split a cell.
  */
-import { citationRe, extractCitations, sentenceBefore, stripCitations, type Citation } from "./citations";
+import { citationRe, claimSpanBefore, extractCitations, stripCitations, type Citation } from "./citations";
 import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
 import { markdownToPlainText } from "./markdown-text";
 
@@ -174,7 +174,7 @@ export function hasAnswerTable(markdown: string): boolean {
  */
 export function claimBefore(markdown: string, index: number): string {
   const inRow = rowAt(markdown, index);
-  if (!inRow) return sentenceBefore(markdown, index);
+  if (!inRow) return claimSpanBefore(markdown, index);
   // Earlier markers in the row go first, so a pipe inside one of their quotes
   // cannot be mistaken for the cell's start.
   const line = markdown.slice(inRow.row.start, index).replace(citationRe(), "");

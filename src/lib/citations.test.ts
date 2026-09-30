@@ -4,6 +4,7 @@ import {
   hideOpenCitation,
   parseCitation,
   sentenceBefore,
+  claimSpanBefore,
   MAX_CITATION_PAGES,
 } from "./citations";
 import { citationUrl, parseCitationUrl, citationLabel } from "./remark-citations";
@@ -71,6 +72,37 @@ describe("sentenceBefore", () => {
   it("drops earlier markers and Markdown emphasis", () => {
     const md = 'First point〔p1 "a b c"〕 and **second** point〔p2 "d e f"〕.';
     expect(sentenceBefore(md, md.lastIndexOf("〔"))).toBe("First point and second point");
+  });
+
+  it("B1: a decimal point does not end the sentence", () => {
+    const md = '罚款为999.99万元〔p2 "罚款"〕';
+    expect(sentenceBefore(md, md.indexOf("〔"))).toBe("罚款为999.99万元");
+    const en = 'The total is 1,310,400.00 yuan〔p2 "total"〕';
+    expect(sentenceBefore(en, en.indexOf("〔"))).toBe("The total is 1,310,400.00 yuan");
+    const pct = 'Intro. The late fee is 3.5% of the overdue amount〔p2 "fee"〕';
+    expect(sentenceBefore(pct, pct.indexOf("〔"))).toBe("The late fee is 3.5% of the overdue amount");
+  });
+
+  it("B1: a number opening the sentence is part of it; a list marker is not", () => {
+    const md = '36 months is the warranty term〔p2 "term"〕';
+    expect(sentenceBefore(md, md.indexOf("〔"))).toBe("36 months is the warranty term");
+    const list = 'Terms:\n1. 12 months of support〔p2 "support"〕';
+    expect(sentenceBefore(list, list.indexOf("〔"))).toBe("12 months of support");
+    const bullet = '- **5%** discount〔p2 "discount"〕';
+    expect(sentenceBefore(bullet, bullet.indexOf("〔"))).toBe("5% discount");
+  });
+});
+
+describe("claimSpanBefore", () => {
+  it("B2: starts after an earlier marker in the same sentence", () => {
+    const md = 'Deposit is 30%〔p2 "x y"〕 and the balance is 70%〔p3 "z w"〕.';
+    expect(claimSpanBefore(md, md.lastIndexOf("〔"))).toBe("and the balance is 70%");
+    expect(claimSpanBefore(md, md.indexOf("〔"))).toBe("Deposit is 30%");
+  });
+
+  it("B2: markers side by side stand behind the same words", () => {
+    const md = '定金为合同价的30%〔p2 "a b"〕〔p3 "c d"〕。';
+    expect(claimSpanBefore(md, md.lastIndexOf("〔"))).toBe("定金为合同价的30%");
   });
 });
 
