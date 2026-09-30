@@ -79,11 +79,8 @@ interface ChatPanelProps {
   /** Turn to a cited page; with `rects`, light up where the quoted words are. */
   onRevealCitation?: (page: number, rects: PdfRect[] | null) => void;
   onClearChat: () => void;
-  onExportBrief?: () => void;
-  /** Write located findings and marks into a copy of the PDF. Absent for image documents. */
-  onExportAnnotatedPdf?: () => void;
-  onExportChat: () => void;
-  onExportSummary: () => void;
+  /** Open the export dialog: report, PDF with evidence, conversation (16.0). */
+  onOpenExport: () => void;
   onCollapse?: () => void;
   /** Pages in the active document that still have no text (each costs a scan). */
   unscannedPages?: number;
@@ -125,10 +122,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     onRevealFinding,
     onRevealCitation,
     onClearChat,
-    onExportBrief,
-    onExportAnnotatedPdf,
-    onExportChat,
-    onExportSummary,
+    onOpenExport,
     onCollapse,
     unscannedPages = 0,
     onScanAllPages,
@@ -495,14 +489,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             aria-pressed={menuOpen}
             onClick={() => setMenuOpen((o) => !o)}
             aria-label={t("agent.more")}
-            title={messages.length === 0 ? t("agent.moreDisabledHint") : t("agent.more")}
+            title={t("agent.more")}
             aria-expanded={menuOpen}
-            disabled={messages.length === 0}
           >
             <MoreHorizontal size={16} />
           </Button>
           <AnchoredMenu
-            open={menuOpen && messages.length > 0}
+            open={menuOpen}
             onClose={() => setMenuOpen(false)}
             anchorRef={moreBtnRef}
             className="anchored-popover"
@@ -513,52 +506,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               role="menuitem"
               onClick={() => {
                 setMenuOpen(false);
-                void onExportChat();
+                onOpenExport();
               }}
-              disabled={interactionBusy}
             >
-              {t("agent.exportChat")}
+              {t("agent.export")}
             </button>
-            {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                void onExportSummary();
-              }}
-              disabled={interactionBusy}
-            >
-              {t("agent.exportSummary")}
-            </button>
-            {onExportBrief && (
-              /* raw-button: role="menuitem" in the same menu; it has to match the rows above it */
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onExportBrief();
-                }}
-                disabled={interactionBusy}
-              >
-                {t("agent.exportBrief")}
-              </button>
-            )}
-            {onExportAnnotatedPdf && (
-              /* raw-button: role="menuitem" in the same menu; it has to match the rows above it */
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onExportAnnotatedPdf();
-                }}
-                disabled={interactionBusy}
-              >
-                {t("agent.exportAnnotatedPdf")}
-              </button>
-            )}
             {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}
             <button
               type="button"
@@ -568,7 +520,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 setMenuOpen(false);
                 onClearChat();
               }}
-              disabled={interactionBusy}
+              disabled={interactionBusy || messages.length === 0}
             >
               {t("agent.clear")}
             </button>

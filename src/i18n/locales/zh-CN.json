@@ -290,7 +290,9 @@
     "timedOut": "模型长时间没有响应，本次运行已停止。请重试；如果反复出现，可以换一个服务商。",
     "exportAnnotatedPdf": "导出带证据的 PDF",
     "followUpUnread": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论",
-    "followUpUnread_plural": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论"
+    "followUpUnread_plural": "再读第 {{pages}} 页（与问题相关但本次没读），看是否改变结论",
+    "export": "导出…",
+    "moreActions": "更多操作"
   },
   "empty": {
     "lead": "向文档提问，快速获取答案",
@@ -487,7 +489,8 @@
     "walkConversation": "上一条 / 下一条消息",
     "searchConversation": "在本次会话中搜索",
     "exportBrief": "导出简报",
-    "exportAnnotatedPdf": "导出带证据的 PDF"
+    "exportAnnotatedPdf": "导出带证据的 PDF",
+    "export": "导出…"
   },
   "toast": {
     "chatExported": "对话已导出",
@@ -518,7 +521,8 @@
     "resumedAt": "已回到第 {{page}} 页",
     "annotatedExported": "已在 PDF 副本中写入 {{count}} 条批注",
     "annotatedNothing": "暂无可写入的内容：没有已找到原文的结论，也没有标记",
-    "tableExported": "表格已连同出处导出"
+    "tableExported": "表格已连同出处导出",
+    "reportExported": "报告已导出"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",
@@ -593,7 +597,8 @@
     "cancelEdit": "取消",
     "claimLabel": "结论",
     "bodyOf": "这条结论所来自的完整回答",
-    "trustMismatch": "原文找到了，但结论里的数字不在那段原文里，请核对"
+    "trustMismatch": "原文找到了，但结论里的数字不在那段原文里，请核对",
+    "keepWhole": "留存整条回答"
   },
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",
@@ -655,5 +660,19 @@
     "verified": "已核对",
     "check": "请看原页",
     "notFound": "未找到"
+  },
+  "export": {
+    "title": "导出",
+    "report": "报告（.md）",
+    "reportDesc": "已确立的内容：每条结论及其页码、核对情况，以及你的标记。",
+    "reportEmpty": "还没有记录或标记。",
+    "pdf": "带证据的 PDF",
+    "pdfDesc": "PDF 副本，结论和你的标记高亮在各自页面上。",
+    "pdfOnly": "仅适用于 PDF 文档。",
+    "chat": "对话（.md）",
+    "chatDesc": "全部问答，引文保留为页码和原文。",
+    "chatEmpty": "还没有对话。",
+    "busy": "请等回答结束。",
+    "includeText": "附上文档全文"
   }
 }

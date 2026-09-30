@@ -94,7 +94,9 @@ const chips = await p.$$eval("button.cite", (els) => els.map((e) => ({ cls: e.cl
 const tally = await p.$eval(".citation-tally", (e) => e.textContent).catch(() => "");
 const keepLabel = await p.getByRole("button", { name: /keep the verified sentences/i }).getAttribute("aria-label").catch(() => "");
 
-await p.getByRole("button", { name: /ask your model whether each passage supports/i }).click();
+// 16.0: the review is in the answer's More menu.
+await p.getByRole("button", { name: /more actions/i }).last().click();
+await p.getByRole("menuitem", { name: /ask your model whether each passage supports/i }).click();
 await p.waitForFunction(() => document.querySelectorAll("button.cite[class*=cite-review-]").length === 2, null, { timeout: 15000 });
 const reviewed = await p.$$eval("button.cite", (els) => els.map((e) => ({ cls: e.className, title: e.title })));
 await p.locator(".messages").screenshot({ path: join(shots, "claims-review.png") });

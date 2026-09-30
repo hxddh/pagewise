@@ -101,7 +101,9 @@ await p.waitForTimeout(500);
 // 14.1: the kept sentence, written into a copy of the PDF where its words are.
 await p.evaluate(() => { window.__HARNESS_SAVE_PATH__ = "/harness/out/text-pages-annotated.pdf"; });
 await p.getByRole("button", { name: /more/i }).first().click();
-await p.getByRole("menuitem", { name: /export pdf with evidence/i }).click();
+// 16.0: every export goes through one dialog.
+await p.getByRole("menuitem", { name: /export/i }).click();
+await p.getByRole("button", { name: /pdf with evidence/i }).click();
 await p.waitForTimeout(1500);
 const exported = await p.evaluate(() => window.__HARNESS_EXPORTS__ ?? []);
 const annotations = exported[0]?.annotations ?? [];

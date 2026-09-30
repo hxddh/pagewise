@@ -17,7 +17,6 @@ function mount(activeDocName: string | null) {
   return renderHook(() =>
     useAppCommands({
       activeDocName,
-      hasMarks: false,
       messages: [],
       busy: false,
       followAgent: false,
@@ -31,12 +30,9 @@ function mount(activeDocName: string | null) {
       onClearChat: noop,
       onStop: noop,
       onCycleTheme: noop,
-      onExportChat: noop,
-      onExportDocument: noop,
-      onExportMarks: noop,
+      onOpenExport: noop,
       onScanAllPages: noop,
       canScanAllPages: false,
-      showToast: noop,
     }),
   );
 }

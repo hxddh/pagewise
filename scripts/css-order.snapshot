@@ -276,6 +276,17 @@ button.pages-read-chip:hover
 .doc-search-backdrop
 .doc-search-panel .doc-search-input
 .doc-search-panel .doc-search-results
+.export-panel
+.export-title
+.export-options
+.export-option
+.export-option:hover:not(:disabled), .export-option:focus-visible
+.export-option:disabled
+.export-option-icon
+.export-option-text
+.export-option-name
+.export-option-desc
+.export-option-extra
 # 10-agent-activity.css
 .agent-generating-line
 .agent-generating-line .typing-dots span

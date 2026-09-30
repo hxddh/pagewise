@@ -18,6 +18,8 @@ import { indexWholeDocument, pendingIndexPages } from "./document/index-queue";
 import { ocrEnabled } from "./lib/ocr/ocr-service";
 import { getVisionCallCount } from "./lib/usage-tracker";
 import { CommandPalette } from "./components/CommandPalette";
+import { ExportDialog, type ExportAvailability, type ExportChoice } from "./components/ExportDialog";
+import { activeFindings } from "./lib/finding-store";
 import { useAppCommands } from "./hooks/useAppCommands";
 import { useFollowAgent } from "./hooks/useFollowAgent";
 import { useWorkbenchOverlays } from "./hooks/useWorkbenchOverlays";
@@ -25,7 +27,6 @@ import { useTheme } from "./hooks/useTheme";
 import { useWorkbenchPrefs } from "./hooks/useWorkbenchPrefs";
 import { openableRecentFiles } from "./lib/recent-files";
 import { getMarks } from "./lib/mark-store";
-import { useMarkRevision } from "./features/preview/useMarks";
 import type { RevealedCitation } from "./features/preview/CitationHighlight";
 import "./styles/tokens.css";
 import "./styles/ui.css";
@@ -87,13 +88,6 @@ function AppContent() {
 
   const doc = s.document;
   const agent = s.agent;
-  // Recomputed when marks change so the export command enables the moment the
-  // first one is made.
-  const markRevision = useMarkRevision(doc?.path ?? "");
-  const hasMarks = useMemo(
-    () => (doc ? (void markRevision, getMarks(doc.path).length > 0) : false),
-    [doc, markRevision],
-  );
   const conn = s.connection;
   const agentBusy = agent.isAgentBusy();
 
@@ -138,9 +132,28 @@ function AppContent() {
     setScanAllPrompt(count);
   }, [doc, showToast, t]);
 
-  const { commands, paletteOpen, setPaletteOpen, exportSummary } = useAppCommands({
+  // One way out for everything the app writes (16.0). What can be written is
+  // read when the dialog opens: findings and marks change without App knowing.
+  const [exportAvailable, setExportAvailable] = useState<ExportAvailability | null>(null);
+  const openExport = useCallback(() => {
+    if (!doc) return;
+    setExportAvailable({
+      report: activeFindings(doc.path).length > 0 || getMarks(doc.path).length > 0,
+      pdf: doc.kind === "pdf",
+      chat: agent.messages.length > 0,
+    });
+  }, [doc, agent.messages.length]);
+  const runExport = useCallback(
+    (choice: ExportChoice, options: { includeText: boolean }) => {
+      if (choice === "report") void s.exportReport(options);
+      else if (choice === "pdf") void s.exportAnnotatedPdf();
+      else void s.exportChat();
+    },
+    [s],
+  );
+
+  const { commands, paletteOpen, setPaletteOpen } = useAppCommands({
     activeDocName: doc?.name ?? null,
-    hasMarks,
     messages: agent.messages,
     busy: agentBusy,
     followAgent: prefs.followAgent,
@@ -154,13 +167,9 @@ function AppContent() {
     onClearChat: overlays.openClearConfirm,
     onStop: agent.stop,
     onCycleTheme: () => void cycleTheme(),
-    onExportChat: () => void s.exportChat(),
-    onExportDocument: () => void s.exportDocument(),
-    onExportMarks: () => void s.exportMarks(),
-    onExportAnnotatedPdf: doc?.kind === "pdf" ? () => void s.exportAnnotatedPdf() : undefined,
+    onOpenExport: openExport,
     onScanAllPages: requestScanAll,
     canScanAllPages: unscannedPages > 0,
-    showToast,
   });
 
   useFollowAgent(prefs.followAgent, agent.messages, s.setPreviewPage);
@@ -171,6 +180,13 @@ function AppContent() {
         open={paletteOpen}
         commands={commands}
         onClose={() => setPaletteOpen(false)}
+      />
+      <ExportDialog
+        open={exportAvailable !== null}
+        available={exportAvailable ?? { report: false, pdf: false, chat: false }}
+        busy={agentBusy}
+        onExport={runExport}
+        onClose={() => setExportAvailable(null)}
       />
       <DropOverlay visible={s.isDragging} />
       <LoadingOverlay
@@ -335,10 +351,7 @@ function AppContent() {
                     setRevealedCitation(rects ? { page, rects, nonce: Date.now() } : null);
                   }}
                   onClearChat={overlays.openClearConfirm}
-                  onExportChat={() => void s.exportChat()}
-                  onExportSummary={() => void exportSummary()}
-                  onExportBrief={() => void s.exportBrief()}
-                  onExportAnnotatedPdf={doc?.kind === "pdf" ? () => void s.exportAnnotatedPdf() : undefined}
+                  onOpenExport={openExport}
                   onCollapse={() => s.setAgentOpen(false)}
                   unscannedPages={unscannedPages}
                   onScanAllPages={requestScanAll}

@@ -290,7 +290,9 @@
     "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening.",
     "exportAnnotatedPdf": "Export PDF with evidence",
     "followUpUnread": "Also read page {{pages}} — it matches the question but was not read — and say whether it changes the answer",
-    "followUpUnread_plural": "Also read pages {{pages}} — they match the question but were not read — and say whether they change the answer"
+    "followUpUnread_plural": "Also read pages {{pages}} — they match the question but were not read — and say whether they change the answer",
+    "export": "Export…",
+    "moreActions": "More actions"
   },
   "empty": {
     "lead": "Ask questions about your document",
@@ -487,7 +489,8 @@
     "walkConversation": "Previous / next message",
     "searchConversation": "Search this conversation",
     "exportBrief": "Export brief",
-    "exportAnnotatedPdf": "Export PDF with evidence"
+    "exportAnnotatedPdf": "Export PDF with evidence",
+    "export": "Export…"
   },
   "toast": {
     "chatExported": "Chat exported",
@@ -518,7 +521,8 @@
     "resumedAt": "Back at page {{page}}",
     "annotatedExported": "Wrote {{count}} annotations into the PDF copy",
     "annotatedNothing": "Nothing to write yet: no found evidence and no marks",
-    "tableExported": "Table exported with its sources"
+    "tableExported": "Table exported with its sources",
+    "reportExported": "Report exported"
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",
@@ -593,7 +597,8 @@
     "cancelEdit": "Cancel",
     "claimLabel": "Claim",
     "bodyOf": "The whole answer this was kept from",
-    "trustMismatch": "Wording found, but a number in the claim is not in that passage — check the page"
+    "trustMismatch": "Wording found, but a number in the claim is not in that passage — check the page",
+    "keepWhole": "Keep the whole answer"
   },
   "annotations": {
     "byAuthor": "{{author}}: {{text}}",
@@ -655,5 +660,19 @@
     "verified": "Verified",
     "check": "Check the page",
     "notFound": "Not found"
+  },
+  "export": {
+    "title": "Export",
+    "report": "Report (.md)",
+    "reportDesc": "What was established: each finding with its page and how it was checked, and your marks.",
+    "reportEmpty": "Nothing recorded or marked yet.",
+    "pdf": "PDF with evidence",
+    "pdfDesc": "A copy of the PDF with the findings and your marks highlighted on their pages.",
+    "pdfOnly": "Only for PDF documents.",
+    "chat": "Conversation (.md)",
+    "chatDesc": "Every question and answer, citations kept as page and quote.",
+    "chatEmpty": "No conversation yet.",
+    "busy": "Wait for the answer to finish.",
+    "includeText": "Append the document's text"
   }
 }

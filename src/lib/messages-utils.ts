@@ -1,4 +1,3 @@
-import { isToolUIPart } from "ai";
 import type { UIMessage } from "ai";
 import type { ProviderId } from "./types";
 import { loadSettings } from "./settings";
@@ -214,31 +213,3 @@ export function extractAssistantText(message: UIMessage): string {
   return parts.join("\n\n").trim();
 }
 
-export function extractToolExcerpts(message: UIMessage, max = 6000): string {
-  const chunks: string[] = [];
-  for (const part of message.parts) {
-    // Static and dynamic tool parts alike — see `validate-chat-messages.ts`.
-    if (isToolUIPart(part) && "output" in part && part.output) {
-      if (isPlaceholderToolOutput(part.output)) continue;
-      const out =
-        typeof part.output === "string" ? part.output : JSON.stringify(part.output);
-      if (out.trim()) chunks.push(out.trim().slice(0, 1200));
-    }
-  }
-  return chunks.join("\n---\n").slice(0, max);
-}
-
-/**
- * True for outputs that carry no document content — cancelled calls, history
- * compaction summaries, budget refusals. Feeding these to the export-summary
- * model wastes prompt budget and invites it to mention omissions.
- */
-function isPlaceholderToolOutput(output: unknown): boolean {
-  if (typeof output === "string") {
-    return output === "[cancelled]" || output.endsWith("— omitted from chat history]");
-  }
-  if (output && typeof output === "object") {
-    return (output as { budgetExceeded?: unknown }).budgetExceeded === true;
-  }
-  return false;
-}
