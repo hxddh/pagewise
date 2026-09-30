@@ -105,7 +105,49 @@ export async function reviewClaim(
   });
   addIndexUsage(usage);
   const review: ClaimReview = { verdict: object.verdict, reason: object.reason.slice(0, MAX_REASON) };
+  // Asked for a document that has since closed: not kept for it (16.0).
+  if (signal?.aborted) throw new DOMException("Review cancelled", "AbortError");
   reviews.set(key(path, claim, quote), review);
   for (const l of listeners) l();
   return review;
+}
+
+export interface ReviewItem {
+  claim: string;
+  quote: string;
+  passage: string;
+  page: number;
+}
+
+export interface ReviewOutcome {
+  counts: Record<ReviewVerdict, number>;
+  failed: number;
+  /** Stopped by `signal` before every item was asked about. */
+  cancelled: boolean;
+}
+
+/**
+ * Review each item in turn, stopping at once when `signal` aborts — the
+ * document closed or the answer went away — so no further billed call is made
+ * for it (16.0, B12).
+ */
+export async function reviewAll(
+  path: string,
+  items: readonly ReviewItem[],
+  signal: AbortSignal,
+  review: typeof reviewClaim = reviewClaim,
+): Promise<ReviewOutcome> {
+  const counts: Record<ReviewVerdict, number> = { supports: 0, contradicts: 0, insufficient: 0 };
+  let failed = 0;
+  for (const r of items) {
+    if (signal.aborted) return { counts, failed, cancelled: true };
+    try {
+      const verdict = await review(path, r.claim, r.quote, r.passage, r.page, signal);
+      counts[verdict.verdict] += 1;
+    } catch {
+      if (signal.aborted) return { counts, failed, cancelled: true };
+      failed += 1;
+    }
+  }
+  return { counts, failed, cancelled: false };
 }

@@ -54,6 +54,13 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
   }, [env?.path, env?.totalPages, pagesKey, link.quote]);
   // `link.claim` does not change what is checked, only how it is read.
 
+  // The model's reading, when the reader asked for one (15.0). Shown beside
+  // the local verdict, never in place of it. Subscribed before any early
+  // return: a hook after one breaks when the document arrives (16.0, B11).
+  const review = useSyncExternalStore(subscribeReviews, () =>
+    env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote) : null,
+  );
+
   const label = children ?? citationLabel(link.pages);
   if (!env) return <sup className="cite cite-inert">{label}</sup>;
 
@@ -67,11 +74,6 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
     pages,
     numbers: (read?.unstated ?? []).join("、"),
   });
-  // The model's reading, when the reader asked for one (15.0). Shown beside
-  // the local verdict, never in place of it.
-  const review = useSyncExternalStore(subscribeReviews, () =>
-    env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote) : null,
-  );
   const reviewLine = review ? `\n${t(`cite.review.${review.verdict}`)}: ${review.reason}` : "";
   const title = (link.quote ? `“${link.quote}”\n${verdict}` : verdict) + reviewLine;
 

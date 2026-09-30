@@ -111,8 +111,9 @@ export function pageRuns(path: string, page: number): Promise<PageRuns> {
       // on it can be checked and highlighted (14.0).
       const recognised = await recognisedRuns(path, page);
       if (recognised) return recognised;
-      // Not cached as empty while OCR is on: the page may be read later.
-      if (ocrEnabled()) itemCache.delete(cacheKey);
+      // Never cached as empty: the page may be read later — once OCR gets to
+      // it, or once the reader turns OCR on (16.0, B10).
+      itemCache.delete(cacheKey);
       return { items, reason: "ok", source: "text" };
     },
     () => {

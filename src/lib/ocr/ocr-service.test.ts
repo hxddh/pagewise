@@ -16,6 +16,7 @@ vi.mock("./ocr-engine", () => ({
     items: [{ text: langs, rect: { x: 1, y: 2, width: 3, height: 4 } }],
   })),
   terminateOcr: vi.fn(async () => {}),
+  terminateOcrSlot: vi.fn(async () => {}),
 }));
 vi.mock("../pdf", () => ({
   readAuthorizedFileBytes: vi.fn(),
@@ -75,5 +76,33 @@ describe("B7: switching the recognition language (16.0)", () => {
     disk.set(ID, JSON.stringify({ v: 1, langs: "eng", pages: [{ p: 4, c: 88, ms: 10, t: "old", w: ["old"], b: [1, 2, 3, 4] }] }));
     configureOcr({ enabled: true, languages: "eng" });
     expect((await restoreOcr(PATH, ID)).map((p) => p.text)).toEqual(["old"]);
+  });
+});
+
+describe("B9: a page that hangs (16.0)", () => {
+  it("restarts only its own slot's worker", async () => {
+    const engine = await import("./ocr-engine");
+    const recognize = vi.mocked(engine.recognizeCanvas);
+    vi.useFakeTimers();
+    try {
+      configureOcr({ enabled: true, languages: "eng" });
+      await restoreOcr(PATH, ID);
+      let calls = 0;
+      recognize.mockImplementation(async () => {
+        calls += 1;
+        if (calls === 1) return new Promise(() => {});
+        return { text: "ok", confidence: 90, items: [] };
+      });
+      const hung = ocrPage(PATH, 1);
+      const fine = ocrPage(PATH, 2);
+      await vi.advanceTimersByTimeAsync(10);
+      expect((await fine)?.text).toBe("ok");
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(await hung).toBeNull();
+      expect(vi.mocked(engine.terminateOcrSlot)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(engine.terminateOcr)).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

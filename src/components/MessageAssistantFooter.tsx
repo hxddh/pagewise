@@ -4,7 +4,7 @@ import { Copy, Gauge, RotateCcw, BookmarkPlus, BookmarkCheck, Sheet, ScanSearch 
 import { cachedCitationCheck, withClaim } from "../lib/citation-check";
 import { claimBefore } from "../lib/answer-tables";
 import { extractCitations } from "../lib/citations";
-import { cachedReview, reviewClaim } from "../lib/claim-review";
+import { cachedReview, reviewAll } from "../lib/claim-review";
 import { CitationContext } from "./CitationChip";
 import {
   checkAnswer,
@@ -270,20 +270,26 @@ function MessageAssistantFooterInner({
     });
   }, [citationEnv, tally, live, markdownText]);
   const [reviewing, setReviewing] = useState(false);
+  // Aborted when the document changes or the answer leaves the screen: a
+  // review in progress then makes no further billed call (16.0, B12).
+  const reviewAbort = useRef<AbortController | null>(null);
+  const reviewPath = citationEnv?.path;
+  useEffect(
+    () => () => {
+      reviewAbort.current?.abort();
+      reviewAbort.current = null;
+    },
+    [reviewPath],
+  );
   const reviewCitations = useCallback(async () => {
     if (!citationEnv || reviewing) return;
+    const controller = new AbortController();
+    reviewAbort.current = controller;
     setReviewing(true);
-    const counts = { supports: 0, contradicts: 0, insufficient: 0 };
-    let failed = 0;
-    for (const r of reviewable) {
-      try {
-        const verdict = await reviewClaim(citationEnv.path, r.claim, r.quote, r.passage, r.page);
-        counts[verdict.verdict] += 1;
-      } catch {
-        failed += 1;
-      }
-    }
+    const { counts, failed, cancelled } = await reviewAll(citationEnv.path, reviewable, controller.signal);
     setReviewing(false);
+    if (cancelled) return;
+    reviewAbort.current = null;
     if (failed === reviewable.length) {
       showToast(t("cite.reviewFailed"), "error");
       return;

@@ -17,7 +17,7 @@
  */
 import { docCache } from "../doc-cache";
 import { readAuthorizedFileBytes, renderPageForOcr } from "../pdf";
-import { recognizeCanvas, terminateOcr, type OcrLanguages } from "./ocr-engine";
+import { recognizeCanvas, terminateOcr, terminateOcrSlot, type OcrLanguages } from "./ocr-engine";
 import { readOcrDoc, writeOcrDoc, type StoredOcrPage } from "./ocr-store";
 import { ocrDpiFor } from "./ocr-result";
 import type { PageText } from "../types";
@@ -219,7 +219,9 @@ export function ocrPage(
           ]);
         } catch (err) {
           if (import.meta.env.DEV) console.warn(`[ocr] page ${page}:`, err);
-          if (err instanceof Error && err.message === "OCR timed out") void terminateOcr();
+          // Restart only the worker this page hung in; the other slot's page
+          // is fine and keeps going (16.0, B9).
+          if (err instanceof Error && err.message === "OCR timed out") void terminateOcrSlot(slot);
         } finally {
           clearTimeout(timer);
         }

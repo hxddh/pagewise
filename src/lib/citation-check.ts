@@ -19,6 +19,7 @@
  * read what the chips already worked out without waiting on IPC.
  */
 import { pageRuns } from "./finding-anchors";
+import { ocrEnabled } from "./ocr/ocr-service";
 import { locateQuote } from "./quote-locate";
 import {
   citationKey,
@@ -84,6 +85,8 @@ export interface CitationCheck {
 const results = new Map<string, CitationCheck>();
 /** Checks that came back `unreadable` because a read failed rather than because the page has no text. */
 const transient = new Set<string>();
+/** Unreadable because a page had no words while OCR was off (16.0). */
+const readWithoutOcr = new Set<string>();
 const pending = new Map<string, Promise<CitationCheck>>();
 
 function key(path: string, c: Pick<Citation, "pages" | "quote">): string {
@@ -96,11 +99,13 @@ export function clearCitationChecks(path?: string): void {
     results.clear();
     pending.clear();
     transient.clear();
+    readWithoutOcr.clear();
     return;
   }
   const prefix = `${path}\n`;
   for (const k of [...results.keys()]) if (k.startsWith(prefix)) results.delete(k);
   for (const k of [...transient]) if (k.startsWith(prefix)) transient.delete(k);
+  for (const k of [...readWithoutOcr]) if (k.startsWith(prefix)) readWithoutOcr.delete(k);
   for (const k of [...pending.keys()]) if (k.startsWith(prefix)) pending.delete(k);
 }
 
@@ -120,16 +125,22 @@ export function checkCitation(
 ): Promise<CitationCheck> {
   const k = key(path, c);
   const done = results.get(k);
-  if (done && !transient.has(k)) return Promise.resolve(done);
+  // Unreadable while OCR was off: turning it on is what could make it readable.
+  const stale = readWithoutOcr.has(k) && ocrEnabled();
+  if (done && !transient.has(k) && !stale) return Promise.resolve(done);
   const inFlight = pending.get(k);
   if (inFlight) return inFlight;
-  const job: Promise<CitationCheck> = resolve(path, totalPages, c).then(({ check, failedRead }) => {
+  const job: Promise<CitationCheck> = resolve(path, totalPages, c).then(({ check, failedRead, emptyPage }) => {
     if (pending.get(k) === job) {
       pending.delete(k);
       results.set(k, check);
-      // A failed read may succeed next time; asking again re-checks it.
-      if (failedRead) transient.add(k);
+      // A failed read may succeed next time; asking again re-checks it. So
+      // may a page with no words yet while OCR is on — it has not been read,
+      // or its reading timed out (16.0, B10).
+      if (failedRead || (emptyPage && ocrEnabled())) transient.add(k);
       else transient.delete(k);
+      if (emptyPage && !ocrEnabled()) readWithoutOcr.add(k);
+      else readWithoutOcr.delete(k);
     }
     return check;
   });
@@ -141,7 +152,7 @@ async function resolve(
   path: string,
   totalPages: number,
   c: Pick<Citation, "pages" | "quote">,
-): Promise<{ check: CitationCheck; failedRead: boolean }> {
+): Promise<{ check: CitationCheck; failedRead: boolean; emptyPage?: boolean }> {
   const settled = (check: CitationCheck) => ({ check, failedRead: false });
   if (totalPages > 0 && c.pages.some((p) => p > totalPages)) return settled({ status: "outOfRange" });
   if (!c.quote) return settled({ status: "unchecked" });
@@ -150,6 +161,7 @@ async function resolve(
   let sawUnreadable = false;
   let sawRecognised = false;
   let failedRead = false;
+  let emptyPage = false;
   for (const page of c.pages) {
     const runs = await pageRuns(path, page);
     if (runs.reason === "failed") {
@@ -157,6 +169,7 @@ async function resolve(
       failedRead = true;
       continue;
     }
+    if (runs.items.length === 0) emptyPage = true;
     const outcome = locateQuote(runs.items, c.quote);
     if (outcome.status === "located") {
       const passage = passageAround(runs.items, outcome.rects);
@@ -170,7 +183,7 @@ async function resolve(
     }
   }
   // One page that could not be read is enough to withhold the accusation.
-  if (sawUnreadable) return { check: { status: "unreadable" }, failedRead };
+  if (sawUnreadable) return { check: { status: "unreadable" }, failedRead, emptyPage };
   // So is one page whose only words are OCR's reading of it.
   if (sawRecognised) return settled({ status: "unconfirmed" });
   return settled({ status: sawAbsent ? "unlocated" : "unchecked" });

@@ -101,6 +101,7 @@ export function createReadPdfPageTool(
             path,
             page,
             budget,
+            runGen,
           );
           if (scanLimit) {
             return {
@@ -150,7 +151,7 @@ export function createReadPdfPageTool(
           const limitedByBudget = truncated && budget.used >= budget.max;
           // A whole page, read from the start: the next request for it is a
           // repeat. A truncated read is deliberately not recorded.
-          if (offset === 0 && !truncated) R.markDelivered(budget, path, page);
+          if (offset === 0 && !truncated) R.markDelivered(budget, path, page, runGen);
 
           return {
             page,

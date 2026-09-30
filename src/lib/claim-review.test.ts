@@ -49,3 +49,20 @@ describe("reviewPrompt", () => {
     expect(p).toContain("质保期为 24 个月");
   });
 });
+
+describe("B12: a review stops when its document closes (16.0)", () => {
+  it("makes no further call once aborted", async () => {
+    const { reviewAll } = await import("./claim-review");
+    const controller = new AbortController();
+    const asked: string[] = [];
+    const review = async (_p: string, claim: string) => {
+      asked.push(claim);
+      if (claim === "second") controller.abort();
+      return { verdict: "supports" as const, reason: "r" };
+    };
+    const items = ["first", "second", "third", "fourth"].map((claim) => ({ claim, quote: "q", passage: "p", page: 1 }));
+    const outcome = await reviewAll("/a.pdf", items, controller.signal, review);
+    expect(asked).toEqual(["first", "second"]);
+    expect(outcome.cancelled).toBe(true);
+  });
+});

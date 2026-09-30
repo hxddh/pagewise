@@ -15,8 +15,9 @@ vi.mock("./pdf", () => ({
 
 /** What local OCR reads per page, for pages with no text layer. */
 let recognised: Record<number, TextItemRect[]> = {};
+let ocrOn = true;
 vi.mock("./ocr/ocr-service", () => ({
-  ocrEnabled: () => true,
+  ocrEnabled: () => ocrOn,
   ocrPage: async (_path: string, page: number) =>
     recognised[page] ? { page, items: recognised[page], text: "", confidence: 90, ms: 1 } : null,
 }));
@@ -40,6 +41,7 @@ const run = (text: string, y = 700): TextItemRect => ({ text, rect: { x: 72, y, 
 beforeEach(() => {
   pages = {};
   recognised = {};
+  ocrOn = true;
   reads = 0;
   clearFindingAnchors();
   clearCitationChecks();
@@ -162,5 +164,25 @@ describe("verifiedSentences", () => {
       { claim: "Foxes are quick", page: 1, quote: "quick brown fox" },
       { claim: "Dogs are lazy", page: 1, quote: "the lazy dog" },
     ]);
+  });
+});
+
+describe("B10: a citation found unreadable is checked again (16.0)", () => {
+  const quote = "按逾期金额的万分之三向乙方";
+
+  it("once OCR is turned on", async () => {
+    ocrOn = false;
+    pages[2] = [];
+    recognised[2] = [run("每逾期一日按逾期金额的万分之三向乙方")];
+    expect((await checkCitation(PATH, 10, { pages: [2], quote })).status).toBe("unreadable");
+    ocrOn = true;
+    expect((await checkCitation(PATH, 10, { pages: [2], quote })).status).not.toBe("unreadable");
+  });
+
+  it("once OCR has read the page it had not read yet", async () => {
+    pages[3] = [];
+    expect((await checkCitation(PATH, 10, { pages: [3], quote })).status).toBe("unreadable");
+    recognised[3] = [run("每逾期一日按逾期金额的万分之三向乙方")];
+    expect((await checkCitation(PATH, 10, { pages: [3], quote })).status).not.toBe("unreadable");
   });
 });
