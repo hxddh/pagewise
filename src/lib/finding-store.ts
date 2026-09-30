@@ -371,6 +371,10 @@ function sortFindings(findings: Finding[]): Finding[] {
  * "my notes are gone" though nothing on disk had been touched.
  */
 export async function loadFindings(path: string, identity?: string): Promise<Finding[]> {
+  // Reopened before its unsaved changes were written: those are newer than
+  // anything the store holds.
+  forgetAfterFlush.delete(path);
+  if (dirty.has(path) && findingsByPath.has(path)) return findingsByPath.get(path)!;
   if (identity) identityByPath.set(path, identity);
   else identityByPath.delete(path);
   try {
@@ -426,7 +430,10 @@ export async function flushFindingStore(): Promise<void> {
     const docs = await readDocs();
     const byPath = new Map(docs.map((d) => [d.path, d] as const));
     for (const path of paths) {
-      const findings = findingsByPath.get(path) ?? [];
+      // Not in memory: nothing here to write, and an empty list would read as
+      // "the reader removed them all" (16.0).
+      if (!findingsByPath.has(path)) continue;
+      const findings = findingsByPath.get(path)!;
       if (findings.length === 0) byPath.delete(path);
       else {
         const identity = identityByPath.get(path) ?? byPath.get(path)?.identity;
@@ -445,6 +452,7 @@ export async function flushFindingStore(): Promise<void> {
       kept.push(doc);
     }
     await writeDocs(kept);
+    for (const path of paths) if (!dirty.has(path)) forgetNow(path);
   }).catch(() => {
     // A failed write must not lose the findings — they stay in memory and in
     // `dirty` for the next attempt.
@@ -615,13 +623,28 @@ export function removeFinding(path: string, id: string): void {
 }
 
 /** Drop a document's findings from memory. The stored copy is untouched. */
-export function forgetFindings(path: string): void {
+/** Closed documents whose unsaved changes must be written before they go. */
+const forgetAfterFlush = new Set<string>();
+
+function forgetNow(path: string): void {
+  if (!forgetAfterFlush.delete(path)) return;
   findingsByPath.delete(path);
   identityByPath.delete(path);
 }
 
+/**
+ * Drop a closed document's in-memory copy. While it has changes a write has
+ * not yet stored — the last one failed — the copy stays until one does: it is
+ * the only copy of them (16.0).
+ */
+export function forgetFindings(path: string): void {
+  forgetAfterFlush.add(path);
+  if (!dirty.has(path)) forgetNow(path);
+}
+
 /** Reset module state between tests. */
 export function __resetFindingStoreForTests(): void {
+  forgetAfterFlush.clear();
   findingsByPath.clear();
   identityByPath.clear();
   listeners.clear();
