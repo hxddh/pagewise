@@ -23,6 +23,11 @@ interface SettingsDrawerProps {
   onPreferencesSaved?: () => Promise<void>;
   includeViewingPageDefault: boolean;
   onIncludeViewingPageDefaultChange: (value: boolean) => void;
+  /** Reading follows the assistant: set in the Reading group (19.0). */
+  followAgentDefault: boolean;
+  onFollowAgentDefaultChange: (value: boolean) => void;
+  /** Read every page with no text yet (the `All` end of the cloud row). */
+  onScanAllPages?: () => void;
   onTestResult?: (message: string, ok: boolean) => void;
   onSaveError?: () => void;
   onRefreshConnection?: () => void;
@@ -62,6 +67,9 @@ function SettingsDrawerInner({
   onPreferencesSaved,
   includeViewingPageDefault,
   onIncludeViewingPageDefaultChange,
+  followAgentDefault,
+  onFollowAgentDefaultChange,
+  onScanAllPages,
   onTestResult,
   onSaveError,
   onRefreshConnection,
@@ -206,6 +214,9 @@ function SettingsDrawerInner({
                     <GeneralSettings
                       includeViewingPageDefault={includeViewingPageDefault}
                       onIncludeViewingPageDefaultChange={onIncludeViewingPageDefaultChange}
+                      followAgentDefault={followAgentDefault}
+                      onFollowAgentDefaultChange={onFollowAgentDefaultChange}
+                      onScanAllPages={onScanAllPages}
                       onPreferencesSaved={onPreferencesSaved}
                       onLlmSettingsSaved={onLlmSettingsSaved}
                       onReindexDoc={onReindexDoc}

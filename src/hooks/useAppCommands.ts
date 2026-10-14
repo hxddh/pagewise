@@ -14,13 +14,11 @@ interface UseAppCommandsOptions {
   activeDocName: string | null;
   messages: UIMessage[];
   busy: boolean;
-  followAgent: boolean;
   agentOpen: boolean;
   previewPage: number;
   totalPages: number;
   onOpenDocument: () => void;
   onOpenSettings: () => void;
-  onToggleFollowAgent: () => void;
   onToggleAgent: () => void;
   /** Zen: chrome out of the way, the page alone. */
   onToggleZen: () => void;
@@ -29,10 +27,6 @@ interface UseAppCommandsOptions {
   onCycleTheme: () => void;
   /** Open the one export dialog (16.0). */
   onOpenExport: () => void;
-  /** Prompt to send every still-unscanned page to the vision model. */
-  onScanAllPages: () => void;
-  /** False when the document has no pages left to scan (or none can be). */
-  canScanAllPages: boolean;
 }
 
 const LOCALE_CYCLE: LocaleMode[] = ["system", "en", "zh-CN"];
@@ -48,21 +42,17 @@ export function useAppCommands({
   activeDocName,
   messages,
   busy,
-  followAgent,
   agentOpen,
   previewPage,
   totalPages,
   onOpenDocument,
   onOpenSettings,
-  onToggleFollowAgent,
   onToggleAgent,
   onToggleZen,
   onClearChat,
   onStop,
   onCycleTheme,
   onOpenExport,
-  onScanAllPages,
-  canScanAllPages,
 }: UseAppCommandsOptions) {
   const { t, localeMode, setLocaleMode } = useI18n();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -109,14 +99,6 @@ export function useAppCommands({
         run: wrapRun("next-page", previewNextPage),
       },
       {
-        id: "scan-all",
-        label: t("commands.scanAllPages"),
-        section: "document",
-        keywords: ["ocr", "vision", "index", "scan"],
-        disabled: !activeDocName || !canScanAllPages,
-        run: wrapRun("scan-all", onScanAllPages),
-      },
-      {
         id: "export",
         label: t("commands.export"),
         section: "export",
@@ -146,12 +128,6 @@ export function useAppCommands({
         section: "agent",
         disabled: !busy,
         run: wrapRun("stop", onStop),
-      },
-      {
-        id: "toggle-follow",
-        label: followAgent ? t("commands.disableFollow") : t("commands.enableFollow"),
-        section: "view",
-        run: wrapRun("toggle-follow", onToggleFollowAgent),
       },
       {
         id: "toggle-agent",
@@ -185,9 +161,7 @@ export function useAppCommands({
       activeDocName,
       agentOpen,
       busy,
-      canScanAllPages,
       cycleLanguage,
-      followAgent,
       messages.length,
       mod,
       onClearChat,
@@ -195,10 +169,8 @@ export function useAppCommands({
       onOpenDocument,
       onOpenExport,
       onOpenSettings,
-      onScanAllPages,
       onStop,
       onToggleAgent,
-      onToggleFollowAgent,
       previewPage,
       t,
       totalPages,

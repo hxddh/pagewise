@@ -48,31 +48,55 @@ const messages: UIMessage[] = [
   { id: "u1", role: "user", parts: [{ type: "text", text: "what about risk?" }] } as UIMessage,
 ];
 
-function setup(overrides: Record<string, unknown> = {}) {
+interface SetupOptions {
+  status?: "ready" | "streaming";
+  steerRun?: () => boolean;
+  hasApiKey?: boolean;
+  onConfigureApi?: () => void;
+  composerDraft?: string;
+}
+
+function setup(opts: SetupOptions = {}) {
   const send = vi.fn(async () => true);
-  const steer = vi.fn(() => true);
+  const steer = opts.steerRun ?? vi.fn(() => true);
   const onDraftChange = vi.fn();
   const props = {
-    activeDoc: doc,
-    previewPage: 1,
+    doc,
+    page: 1,
     includeViewingPage: false,
-    messages,
-    sendDocumentMessage: send,
-    status: "streaming" as const,
-    error: undefined,
-    hasApiKey: true,
-    settingsReady: true,
-    loadingDoc: false,
-    activity: null,
-    composerDraft: "page 40, not 4",
+    agent: {
+      messages: { list: messages, set: vi.fn(), clear: vi.fn() },
+      run: {
+        status: opts.status ?? ("streaming" as const),
+        error: undefined,
+        errorMessage: undefined,
+        progress: null,
+        isBusy: () => false,
+        send,
+        edit: vi.fn(async () => true),
+        regenerate: vi.fn(async () => true),
+        stop: vi.fn(),
+        steer,
+        waitForIdle: vi.fn(async () => true),
+        clearError: vi.fn(),
+        reset: vi.fn(),
+        abort: vi.fn(),
+      },
+      history: { settling: false, chatId: "pagewise-local" },
+    },
+    connection: {
+      hasApiKey: opts.hasApiKey ?? true,
+      agentToolsSupported: true,
+      webSearchAvailable: false,
+      settingsReady: true,
+    },
+    session: { loading: false, chatLoading: false },
+    composerDraft: opts.composerDraft ?? "page 40, not 4",
     onComposerDraftChange: onDraftChange,
-    onConfigureApi: vi.fn(),
-    onStop: vi.fn(),
-    waitForStreamIdle: vi.fn(async () => true),
-    steerRun: steer,
-    onClearChat: vi.fn(),
-    onOpenExport: vi.fn(),
-    ...overrides,
+    panel: { tab: "chat" as const, setTab: vi.fn(), revision: 0 },
+    reveal: {},
+    scan: { count: 0 },
+    onConfigureApi: opts.onConfigureApi ?? vi.fn(),
   };
   const view = render(<ChatPanel {...(props as unknown as React.ComponentProps<typeof ChatPanel>)} />);
   const textarea = view.container.querySelector("textarea")!;

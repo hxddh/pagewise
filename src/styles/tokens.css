@@ -335,3 +335,32 @@
   --shadow-edge: 8px 0 24px rgba(60, 48, 30, 0.1);
   --scrim: rgba(40, 32, 20, 0.18);
 }
+
+/* High contrast (19.0): the same three themes with their floors pushed up —
+   7:1 on the text tokens where the base sets sit at the 4.5:1 AA floor, and
+   borders that stay visible at 3:1. A media query over the existing sets, so a
+   theme is still one thing and the platform's setting cannot be forgotten by a
+   theme that has no entry of its own (it inherits the dark values). Both sets
+   are measured in `scripts/css-hygiene.test.mjs`, ratios included. */
+@media (prefers-contrast: more) {
+  :root { --text: #ffffff; --text-secondary: #dcdce2; --text-muted: #b8b8c2; --border: #5b5b66; --border-subtle: #45454f; --border-strong: #82828f; --accent-text: #aeb7ff; --finding-text: #c0a8ff; }
+  [data-theme="light"] { --text: #09090b; --text-secondary: #3b3b43; --text-muted: #52525b; --border: #a1a1aa; --border-subtle: #d4d4d8; --border-strong: #6b6b74; --accent-text: #2f3a9e; --finding-text: #5b21b6; }
+  [data-theme="paper"] { --text: #17130d; --text-secondary: #40392a; --text-muted: #57503f; --border: #b3a993; --border-subtle: #d8cfbc; --border-strong: #7c7057; --accent-text: #2f3a9e; --finding-text: #5b21b6; }
+}
+
+/* Forced colours (19.0): the platform owns the colours, and every surface,
+   border and ink here maps to a CSS system colour rather than a value we
+   chose. The three page inks collapse to Highlight and CanvasText on purpose:
+   in this mode a reader tells them apart by position, not by hue, and
+   pretending otherwise would fight the one palette that reader trusts. */
+@media (forced-colors: active) {
+  :root {
+    --bg-base: Canvas; --bg-surface: Canvas; --bg-elevated: Canvas; --bg-hover: Highlight; --bg-canvas: Canvas; --bg-panel: Canvas;
+    --border: ButtonBorder; --border-subtle: ButtonBorder; --border-strong: CanvasText;
+    --text: CanvasText; --text-secondary: CanvasText; --text-muted: GrayText;
+    --accent: LinkText; --accent-hover: LinkText; --accent-text: LinkText; --accent-muted: Canvas;
+    --success: CanvasText; --warning: CanvasText; --danger: CanvasText;
+    --mark-highlight: Highlight; --mark-highlight-strong: Highlight; --annotation: CanvasText; --finding: CanvasText; --finding-text: CanvasText;
+    --scrim: Canvas;
+  }
+}

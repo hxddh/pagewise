@@ -11,12 +11,9 @@ import {
   resolveOcrLanguages,
   type LocaleMode,
 } from "../../lib/preferences";
-import { clearIndexCache, getIndexCacheStats, type IndexCacheStats } from "../../lib/index-store";
 import { setAgentScanCap, setAutoIndexCap } from "../../document/index-queue";
 import { configureOcr } from "../../lib/ocr/ocr-service";
-import { clearOcrCache, getOcrCacheStats } from "../../lib/ocr/ocr-store";
 import { AssistantSettings } from "./AssistantSettings";
-import { Button } from "../ui/Button";
 
 /**
  * Everything a reader can change, in three groups.
@@ -31,6 +28,11 @@ import { Button } from "../ui/Button";
 interface GeneralSettingsProps {
   includeViewingPageDefault: boolean;
   onIncludeViewingPageDefaultChange: (value: boolean) => void;
+  /** Reading follows the assistant: a preference, set from the Reading group. */
+  followAgentDefault: boolean;
+  onFollowAgentDefaultChange: (value: boolean) => void;
+  /** Read every page that still has no text (the whole-document scan). */
+  onScanAllPages?: () => void;
   onPreferencesSaved?: () => Promise<void>;
   onLlmSettingsSaved?: () => void;
   onReindexDoc?: () => void;
@@ -39,6 +41,21 @@ interface GeneralSettingsProps {
   onSaveError?: () => void;
   onRefreshConnection?: () => void;
 }
+
+/**
+ * The cloud-pages row, in words: Off / Auto / All (19.0).
+ *
+ * It was four numbers — 0, 20, 50, 200 — which asked the reader to hold a
+ * table in their head, and 50 and 200 both meant "a lot". All is the
+ * whole-document scan: it sets the widest budget and asks for confirmation the
+ * way the old scan-all command did, because every page it cannot read locally
+ * is a billed call.
+ */
+const CLOUD_READING_LABELS = [
+  "settings.autoScanOff",
+  "settings.autoScanAuto",
+  "settings.autoScanAll",
+] as const;
 
 function PillRow<T extends string>({
   label,
@@ -75,6 +92,9 @@ function PillRow<T extends string>({
 export function GeneralSettings({
   includeViewingPageDefault,
   onIncludeViewingPageDefaultChange,
+  followAgentDefault,
+  onFollowAgentDefaultChange,
+  onScanAllPages,
   onPreferencesSaved,
   onLlmSettingsSaved,
   onReindexDoc,
@@ -88,10 +108,7 @@ export function GeneralSettings({
   const [autoIndexPages, setAutoIndexPages] = useState<number | null>(null);
   const [readingScale, setReadingScale] = useState<number | null>(null);
   const [showUsageLine, setShowUsageLine] = useState(true);
-  const [cacheStats, setCacheStats] = useState<IndexCacheStats | null>(null);
   const [localOcr, setLocalOcr] = useState<boolean | null>(null);
-  const [ocrStats, setOcrStats] = useState<{ bytes: number; docs: number } | null>(null);
-  const [clearingCache, setClearingCache] = useState(false);
 
   useEffect(() => {
     void loadPreferences().then((p) => {
@@ -102,16 +119,6 @@ export function GeneralSettings({
     });
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    void getOcrCacheStats().then((stats) => {
-      if (alive) setOcrStats(stats);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   async function onLocalOcr(next: boolean) {
     setLocalOcr(next);
     const p = await patchPreferences({ localOcr: next });
@@ -119,25 +126,17 @@ export function GeneralSettings({
     await onPreferencesSaved?.();
   }
 
-  useEffect(() => {
-    let alive = true;
-    // Stats are best-effort: a failed read leaves the row on its placeholder
-    // rather than breaking the settings page.
-    getIndexCacheStats()
-      .then((stats) => {
-        if (alive) setCacheStats(stats);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   /**
    * One control for reading pages in the cloud: how many pages of a document
    * may be read in the background, and — at the same step — how many the
    * assistant may send while answering one question. Two settings that always
    * moved together are one.
+   *
+   * `All` is the whole-document scan: the standing budget and the action the
+   * reader asked for are one click, and the confirmation is where the bill is
+   * agreed to. The composer banner keeps its own scan-all action: that one is
+   * the contextual remedy, shown when a document turns out to have unscanned
+   * pages, and it is not a setting.
    */
   async function onCloudReading(next: number) {
     const step = Math.max(0, AUTO_INDEX_PAGE_CHOICES.indexOf(next as (typeof AUTO_INDEX_PAGE_CHOICES)[number]));
@@ -149,6 +148,7 @@ export function GeneralSettings({
     setAgentScanCap(agent);
     await patchPreferences({ autoIndexPages: next, agentScanPages: agent });
     await onPreferencesSaved?.();
+    if (next === AUTO_INDEX_PAGE_CHOICES[AUTO_INDEX_PAGE_CHOICES.length - 1]) onScanAllPages?.();
   }
 
   async function onReadingScale(next: number) {
@@ -162,18 +162,6 @@ export function GeneralSettings({
     setShowUsageLine(next);
     await patchPreferences({ showUsageLine: next });
     await onPreferencesSaved?.();
-  }
-
-  /** Both stores of text read from pages — by OCR and by the cloud — cleared together. */
-  async function onClearCache() {
-    setClearingCache(true);
-    try {
-      await Promise.all([clearIndexCache(), clearOcrCache()]);
-      setCacheStats({ docs: 0, pages: 0, chars: 0 });
-      setOcrStats({ bytes: 0, docs: 0 });
-    } finally {
-      setClearingCache(false);
-    }
   }
 
   return (
@@ -223,6 +211,17 @@ export function GeneralSettings({
         />
         <label className="settings-row-toggle">
           <div>
+            <span className="settings-row-title">{t("settings.followAgent")}</span>
+            <span className="settings-row-hint">{t("settings.followAgentHint")}</span>
+          </div>
+          <input
+            type="checkbox"
+            checked={followAgentDefault}
+            onChange={(e) => void onFollowAgentDefaultChange(e.target.checked)}
+          />
+        </label>
+        <label className="settings-row-toggle">
+          <div>
             <span className="settings-row-title">{t("settings.localOcr")}</span>
             <span className="settings-row-hint">{t("settings.localOcrHint")}</span>
           </div>
@@ -237,35 +236,12 @@ export function GeneralSettings({
         <PillRow
           label={t("settings.cloudReading")}
           value={String(autoIndexPages ?? "")}
-          options={AUTO_INDEX_PAGE_CHOICES.map((pages) => ({
+          options={AUTO_INDEX_PAGE_CHOICES.map((pages, step) => ({
             id: String(pages),
-            label: pages === 0 ? t("settings.autoScanOff") : String(pages),
+            label: t(CLOUD_READING_LABELS[step] ?? "settings.autoScanAuto"),
           }))}
           onChange={(id) => void onCloudReading(Number(id))}
         />
-        <div className="settings-card-divider" />
-        <div className="settings-row">
-          <div>
-            <span className="settings-row-title">{t("settings.readPagesCache")}</span>
-            <span className="settings-row-hint">
-              {cacheStats === null || ocrStats === null
-                ? t("settings.scanCacheLoading")
-                : cacheStats.pages === 0 && ocrStats.docs === 0
-                  ? t("settings.scanCacheEmpty")
-                  : t("settings.readPagesCacheStats", {
-                      docs: Math.max(cacheStats.docs, ocrStats.docs),
-                      size: formatChars(cacheStats.chars + ocrStats.bytes),
-                    })}
-            </span>
-          </div>
-          <Button
-            variant="ghost" size="md"
-            disabled={clearingCache || !cacheStats || !ocrStats || (cacheStats.pages === 0 && ocrStats.docs === 0)}
-            onClick={() => void onClearCache()}
-          >
-            {clearingCache ? t("settings.scanCacheClearing") : t("settings.scanCacheClear")}
-          </Button>
-        </div>
       </section>
 
       <AssistantSettings
@@ -282,11 +258,4 @@ export function GeneralSettings({
       />
     </div>
   );
-}
-
-/** Approximate on-disk footprint; stored text is UTF-16 in memory, ~1 byte/char as JSON ASCII. */
-function formatChars(chars: number): string {
-  const kb = chars / 1024;
-  if (kb < 1024) return `${Math.max(1, Math.round(kb))} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
 }

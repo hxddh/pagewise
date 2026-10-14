@@ -151,7 +151,7 @@ describe("steerRun", () => {
     const { agent } = mount();
 
     act(() => {
-      expect(agent().steerRun("page 40, not 4")).toBe(true);
+      expect(agent().run.steer("page 40, not 4")).toBe(true);
     });
 
     const turn = h.messages.find((m) => m.id === "u1")!;
@@ -169,7 +169,7 @@ describe("steerRun", () => {
       user("u2", "second question"),
     ];
     const { agent } = mount();
-    act(() => agent().steerRun("actually page 12"));
+    act(() => agent().run.steer("actually page 12"));
     expect(h.messages.find((m) => m.id === "u1")!.parts).toHaveLength(1);
     expect(h.messages.find((m) => m.id === "u2")!.parts).toHaveLength(2);
   });
@@ -182,7 +182,7 @@ describe("steerRun", () => {
     const { agent } = mount();
 
     act(() => {
-      expect(agent().steerRun("one too many")).toBe(false);
+      expect(agent().run.steer("one too many")).toBe(false);
     });
     expect(h.messages[0]!.parts).toHaveLength(1);
   });
@@ -190,7 +190,7 @@ describe("steerRun", () => {
   it("does nothing to a conversation with no question in it yet", () => {
     h.messages = [];
     const { agent } = mount();
-    act(() => agent().steerRun("a correction with nothing to correct"));
+    act(() => agent().run.steer("a correction with nothing to correct"));
     expect(h.messages).toEqual([]);
   });
 });
@@ -204,7 +204,7 @@ describe("switching documents", () => {
     const { agent, switchTo } = mount("doc-a");
 
     await act(async () => {
-      await agent().sendDocumentMessage({
+      await agent().run.send({
         ...OPTS,
         includeViewingPage: true,
         webSearch: true,
@@ -217,7 +217,7 @@ describe("switching documents", () => {
     h.contexts.length = 0;
 
     await act(async () => {
-      await agent().regenerateDocumentMessage({
+      await agent().run.regenerate({
         ...OPTS,
         path: "/docs/b.pdf",
         docName: "b.pdf",
@@ -238,12 +238,12 @@ describe("switching documents", () => {
     const { agent } = mount("doc-a");
 
     await act(async () => {
-      await agent().sendDocumentMessage({ ...OPTS, includeViewingPage: true, webSearch: true });
+      await agent().run.send({ ...OPTS, includeViewingPage: true, webSearch: true });
     });
     h.contexts.length = 0;
 
     await act(async () => {
-      await agent().regenerateDocumentMessage({
+      await agent().run.regenerate({
         ...OPTS,
         includeViewingPage: false,
         webSearch: false,
@@ -270,7 +270,7 @@ describe("switching documents", () => {
       onData({ type: "data-agent-progress", data: { message: "Reading page 7…" } });
     });
 
-    expect(agent().streamProgress).toBeNull();
+    expect(agent().run.progress).toBeNull();
   });
 });
 
@@ -280,7 +280,7 @@ describe("refusing to start a second run", () => {
     const { agent } = mount();
     let result: boolean | undefined;
     await act(async () => {
-      result = await agent().sendDocumentMessage(OPTS);
+      result = await agent().run.send(OPTS);
     });
     expect(result).toBe(false);
     expect(h.sendCalls).toHaveLength(0);
@@ -292,7 +292,7 @@ describe("refusing to start a second run", () => {
     const { agent } = mount();
     let result: boolean | undefined;
     await act(async () => {
-      result = await agent().editUserMessage?.("u1", OPTS);
+      result = await agent().run.edit("u1", OPTS);
     });
     expect(result).toBe(false);
     expect(h.sendCalls).toHaveLength(0);
@@ -304,7 +304,7 @@ describe("regenerate", () => {
     h.messages = [user("u1", "what about risk?"), assistant("a1", "an answer")];
     const { agent } = mount();
     await act(async () => {
-      await agent().regenerateDocumentMessage(OPTS);
+      await agent().run.regenerate(OPTS);
     });
     expect(h.sendCalls).toHaveLength(1);
     expect(h.sendCalls[0]).toMatchObject({ messageId: "u1" });
@@ -315,7 +315,7 @@ describe("regenerate", () => {
     const { agent } = mount();
     let result: boolean | undefined;
     await act(async () => {
-      result = await agent().regenerateDocumentMessage(OPTS);
+      result = await agent().run.regenerate(OPTS);
     });
     expect(result).toBe(false);
     expect(h.sendCalls).toHaveLength(0);
@@ -326,7 +326,7 @@ describe("regenerate", () => {
     const { agent } = mount();
     let result: boolean | undefined;
     await act(async () => {
-      result = await agent().regenerateDocumentMessage(OPTS);
+      result = await agent().run.regenerate(OPTS);
     });
     expect(result).toBe(false);
   });
@@ -340,7 +340,7 @@ describe("regenerate", () => {
     ];
     const { agent } = mount();
     await act(async () => {
-      await agent().regenerateDocumentMessage(OPTS);
+      await agent().run.regenerate(OPTS);
     });
     expect(h.messages.map((m) => m.id)).toEqual(["u1"]);
   });

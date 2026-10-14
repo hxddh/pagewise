@@ -439,7 +439,13 @@ async function scenarioReader(browser, ctx) {
   out.jumpToEnd = { longTasks: await page.evaluate(() => window.__perf.long.length), ...(await state(page)) };
 
   const thumbStart = Date.now();
-  await page.getByRole("button", { name: /thumbnails/i }).first().click();
+  // 19.0 merged the two header strips and moved the page sidebar into the
+  // overflow menu; the shortcut-free path to it is the menu.
+  await page.getByRole("button", { name: /more actions/i }).first().click().catch(async () => {
+    await page.locator(".workspace-header-actions button").last().click();
+  });
+  await page.waitForTimeout(250);
+  await page.getByRole("menuitem", { name: /thumbnails/i }).first().click();
   await page.waitForFunction(() => document.querySelectorAll(".thumb-item").length > 0, null, {
     timeout: 30_000,
     polling: 16,
@@ -447,7 +453,10 @@ async function scenarioReader(browser, ctx) {
   out.thumbFirstMs = Date.now() - thumbStart;
   await page.waitForTimeout(1200);
   out.thumbItems = await page.evaluate(() => document.querySelectorAll(".thumb-item").length);
-  await page.getByRole("button", { name: /thumbnails/i }).first().click();
+  // Closing goes through the same menu item.
+  await page.getByRole("button", { name: /more actions/i }).first().click();
+  await page.waitForTimeout(200);
+  await page.getByRole("menuitem", { name: /thumbnails/i }).first().click();
   await page.waitForTimeout(400);
 
   // The streamed answer, over the real transport (the local SSE server).

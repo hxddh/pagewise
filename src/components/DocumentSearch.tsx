@@ -1,7 +1,9 @@
 import type { ReactNode, RefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { searchDocumentPages, type SearchHit } from "../lib/document-search";
+import { searchMessages } from "../lib/conversation-search";
+import { useSearchScope } from "./SearchScope";
 import { docCache } from "../lib/doc-cache";
 import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { OPEN_DOC_SEARCH_EVENT } from "../lib/events";
@@ -25,8 +27,18 @@ interface DocumentSearchProps {
   containerRef?: RefObject<HTMLElement | null>;
 }
 
+/**
+ * The one search (⌘F since 19.0).
+ *
+ * It used to be two — this overlay for the document, the chat panel's own find
+ * bar for the conversation — with the same chord and a rule the reader had to
+ * hold in their head ("where is the focus?"). Now one input returns two
+ * sections: the page in front of them, and the conversation about it.
+ * Alt+Up/Down still walks the conversation (useConversationKeys).
+ */
 export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSearchProps) {
   const { t } = useI18n();
+  const scope = useSearchScope();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -38,7 +50,6 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
     setOpen(false);
     setQuery("");
   };
-
   const [cacheRevision, setCacheRevision] = useState(0);
 
   useEffect(() => {
@@ -67,11 +78,16 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
     };
   }, [query, doc.path, cacheRevision]);
 
+  // The conversation half: the same substring rule as the document half.
+  const messageMatches = useMemo(
+    () => (query.trim() && scope ? searchMessages(scope.messages, query) : []),
+    [query, scope],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // `!e.shiftKey`: ⌘⇧F is Zen (18.0). Without this the chord opened the
-      // document search *and* hid the chrome, which is how a shortcut added in
-      // one place quietly takes a key away from another.
+      // `!e.shiftKey`: ⌘⇧F is Zen (18.0) — without this the chord opened the
+      // search *and* hid the chrome.
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
         if (!open && isOverlayOpen()) return;
         e.preventDefault();
@@ -87,6 +103,8 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
     window.addEventListener(OPEN_DOC_SEARCH_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_DOC_SEARCH_EVENT, onOpen);
   }, []);
+
+  const conversation = scope && scope.messages.length > 0 ? scope : null;
 
   return (
     <Modal
@@ -116,36 +134,78 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
             <EmptyState variant="inline" className="doc-search-empty" live="polite">
               {t("preview.searching")}
             </EmptyState>
-          ) : hits.length === 0 ? (
-            <EmptyState variant="inline" className="doc-search-empty" live="polite">
-              {docCache
-                .getPages(doc.path)
-                .some((p) => p.text.trim().length < MIN_INDEX_CHARS)
-                ? t("preview.searchIndexing")
-                : t("preview.noMatches")}
-            </EmptyState>
           ) : (
             <>
-              <p className="doc-search-count">
-                {t("preview.matchCount", { count: hits.length })}
-              </p>
-              <ul>
-                {hits.map((hit, i) => (
-                  <li key={`${hit.page}-${hit.index}-${i}`}>
-                    <ListRow
-                      className="doc-search-hit"
-                      onClick={() => {
-                        // The query travels with the jump so the page can
-                        // show where the hit is, not just which page it is on.
-                        onJumpToPage(hit.page, query);
-                        close();
-                      }}
-                      label={<span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>}
-                      meta={<span className="hit-snippet">{highlightTerms(hit.snippet, query)}</span>}
-                    />
-                  </li>
-                ))}
-              </ul>
+              <section className="doc-search-section">
+                <p className="doc-search-count">
+                  {t("preview.searchDocHeading")}
+                  {hits.length > 0 && (
+                    <span className="doc-search-section-count">
+                      {t("preview.matchCount", { count: hits.length })}
+                    </span>
+                  )}
+                </p>
+                {hits.length === 0 ? (
+                  <EmptyState variant="inline" className="doc-search-empty" live="polite">
+                    {docCache
+                      .getPages(doc.path)
+                      .some((p) => p.text.trim().length < MIN_INDEX_CHARS)
+                      ? t("preview.searchIndexing")
+                      : t("preview.noMatches")}
+                  </EmptyState>
+                ) : (
+                  <ul>
+                    {hits.map((hit, i) => (
+                      <li key={`${hit.page}-${hit.index}-${i}`}>
+                        <ListRow
+                          className="doc-search-hit"
+                          onClick={() => {
+                            // The query travels with the jump so the page can
+                            // show where the hit is, not just which page.
+                            onJumpToPage(hit.page, query);
+                            close();
+                          }}
+                          label={<span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>}
+                          meta={<span className="hit-snippet">{highlightTerms(hit.snippet, query)}</span>}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+              {conversation && (
+                <section className="doc-search-section">
+                  <p className="doc-search-count">
+                    {t("preview.searchConversationHeading")}
+                    {messageMatches.length > 0 && (
+                      <span className="doc-search-section-count">
+                        {t("preview.matchCount", { count: messageMatches.length })}
+                      </span>
+                    )}
+                  </p>
+                  {messageMatches.length === 0 ? (
+                    <EmptyState variant="inline" className="doc-search-empty" live="polite">
+                      {t("preview.noMatches")}
+                    </EmptyState>
+                  ) : (
+                    <ul>
+                      {messageMatches.map((match) => (
+                        <li key={match.id}>
+                          <ListRow
+                            className="doc-search-hit"
+                            onClick={() => {
+                              // Opens the panel when it is closed.
+                              conversation.gotoMessage(match.id);
+                              close();
+                            }}
+                            label={<span className="hit-snippet">{highlightTerms(match.excerpt, query)}</span>}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              )}
             </>
           )}
         </Panel>
@@ -155,9 +215,8 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
 }
 
 /**
- * The snippet with the searched words marked (16.0). A list of results that
- * all begin "Section 1 Lorem ipsum…" said nothing about where in each the
- * words were.
+ * The snippet with the searched words marked (16.0): a list of results that
+ * all begin "Section 1 Lorem ipsum…" said nothing about where the words were.
  */
 export function highlightTerms(snippet: string, query: string): ReactNode {
   const terms = [...new Set(query.trim().split(/\s+/).filter((w) => w.length > 0))]

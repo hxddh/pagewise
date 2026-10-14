@@ -182,41 +182,10 @@
   outline-offset: 0;
 }
 
-.toolbar-zoom-trigger {
-  min-width: 64px;
-  padding: 0 var(--space-md) 0 var(--space-md);
-}
-
-.toolbar-zoom-label {
-  font-weight: 500;
-  color: var(--text);
-}
-
-.toolbar-zoom-chevron {
-  opacity: 0.55;
-  transition: transform var(--transition-fast);
-}
-
-.toolbar-zoom-trigger[aria-expanded="true"] .toolbar-zoom-chevron {
-  transform: rotate(180deg);
-}
-
 .zoom-menu-divider {
   height: 1px;
   margin: var(--space-xs) var(--space-sm);
   background: var(--border-subtle);
-}
-
-/*
- * A menu row with an icon and a label, rather than a bare label. Written with
- * the popover's own selector so it outranks `.anchored-popover button`'s
- * `display: block` by specificity — this was `display: flex !important`, which
- * is a fight the cascade can settle on its own.
- */
-.anchored-popover .zoom-menu-action {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
 }
 
 .preview-index-badge {
@@ -383,10 +352,6 @@
   color: var(--danger);
 }
 
-.zoom-presets-menu {
-  min-width: 140px;
-}
-
 .app.v3 .preview-page-frame {
   background: #fff;
   border-radius: 1px;
@@ -524,4 +489,78 @@
   color: var(--danger, #e5484d);
   font-size: var(--text-sm);
   text-align: center;
+}
+
+/*
+ * The page's outer margin (19.0): a dot per mark, finding and citing answer,
+ * beside the page rather than over it. Absolutely positioned, so the page keeps
+ * exactly the geometry `page-layout.ts` gave it — and a sibling of the page,
+ * because the page clips its own overlays on purpose. The hover note is the
+ * button's own `title`, drawn by the platform outside this box so the scroller
+ * cannot clip it.
+ */
+.page-gutter {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: var(--space-sm);
+  padding: var(--space-2xs) 0;
+  /* motion-exception: the margin arriving is its own movement (19.0) — 150ms,
+     the middle of the three token steps, and it shifts 2px out of the page. */
+  animation: gutter-in 150ms ease;
+}
+
+@keyframes gutter-in {
+  from {
+    opacity: 0;
+    transform: translateX(-2px);
+  }
+}
+
+.gutter-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
+}
+
+/* The three inks the app already draws on the page: the reader's highlighter,
+   the assistant's conclusions, and the answers that talked about this page. */
+.gutter-dot-mark { background: var(--mark-highlight-strong); }
+.gutter-dot-finding { background: var(--finding); }
+.gutter-dot-answer { background: var(--accent); }
+
+.gutter-dot:hover,
+.gutter-dot:focus-visible {
+  opacity: 1;
+  transform: scale(1.4);
+}
+
+/* The reading line (19.0): which page is being recognised, and the way to stop
+   the pass. It only exists while a sweep is running. */
+.preview-reading-line {
+  position: absolute;
+  left: var(--space-lg);
+  bottom: var(--space-lg);
+  z-index: var(--z-page-badge);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  box-shadow: var(--shadow-sm);
+}
+
+.preview-reading-cancel {
+  flex-shrink: 0;
 }

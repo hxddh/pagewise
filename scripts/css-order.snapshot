@@ -5,8 +5,6 @@ body
 #root
 # 02-shell-layout.css
 .app
-.panel-header-main
-.panel-header-main h2
 .chat-column
 .resize-handle
 .resize-handle:hover
@@ -42,14 +40,9 @@ body
 .panel-loading
 # 04-chat.css
 .chat-panel
-.panel-header
-.panel-header h2
 .sr-only
 .header-actions
 .messages
-.chat-search
-.chat-search-input
-.chat-search-count
 .message
 .message:focus-visible
 .message.user
@@ -197,6 +190,16 @@ button.pages-read-chip:hover
 .record-empty
 .record-empty-hint
 .record-none
+.record-marks
+.record-marks-title
+.record-mark-list
+.record-mark
+.record-mark-row
+.record-mark-text
+.record-mark-page
+.record-mark-here
+.record-mark-delete
+.record-mark-delete:hover
 # 05-chat-empty-composer.css
 .empty-state
 .empty-lead
@@ -223,7 +226,6 @@ button.pages-read-chip:hover
 .preview-with-thumbs
 .preview-main
 .preview-toolbar
-.preview-toolbar.image-toolbar
 .preview-toolbar-center
 .thumb-sidebar
 .thumb-sidebar-header
@@ -235,6 +237,8 @@ button.pages-read-chip:hover
 .doc-search-input
 .doc-search-results
 .doc-search-empty, .doc-search-count
+.doc-search-section + .doc-search-section
+.doc-search-section-count
 .doc-search-results ul
 .doc-search-hit
 .doc-search-hit:hover
@@ -299,7 +303,6 @@ button.pages-read-chip:hover
 .outline-item:hover
 .outline-title
 .outline-page
-.outline-empty
 # 11-pdf-layers.css
 .search-highlight-layer
 .search-highlight
@@ -332,19 +335,9 @@ button.pages-read-chip:hover
 .mark-note-quote
 .mark-note-stale, .mark-stale-note
 .mark-stale-note
-.mark-filter
 .mark-note-input
 .mark-note-actions
 .mark-note-delete
-.mark-row
-.mark-row .outline-item
-.mark-ask-btn
-.mark-row:hover .mark-ask-btn, .mark-ask-btn:focus-visible
-.mark-ask-btn:hover
-.mark-item .outline-title
-.mark-item-text
-.mark-item-note
-.mark-item-here .outline-page
 .pdf-region-layer
 .pdf-region-band
 @media (prefers-reduced-motion: reduce)
@@ -406,6 +399,8 @@ button.pages-read-chip:hover
 .library-remove:hover
 .v3-main
 .v3-workspace
+.workspace-header-slot
+.v3-columns
 .v3-workspace.agent-hidden .preview-panel
 .v3-workspace .preview-panel
 .v3-workspace .chat-column
@@ -434,8 +429,6 @@ button.pages-read-chip:hover
 .app.v3 .message-action-btn:hover:not(:disabled)
 .app.v3 .agent-generating-line
 .app.v3 .chat-panel
-.app.v3 .panel-header
-.app.v3 .panel-header h2
 .app.v3 .messages
 .app.v3 .message.user
 .app.v3 .message.assistant .message-body
@@ -488,9 +481,6 @@ button.pages-read-chip:hover
 .tool-fold-wrap--error .tool-fold-summary
 .message-edit-error
 .usage-stats-provider-meta
-.follow-ups
-.follow-up-chip
-.follow-up-chip:hover:not(:disabled)
 .message .message-edit-trigger
 .message:hover .message-edit-trigger, .message:focus-within .message-edit-trigger
 @media (hover: none)

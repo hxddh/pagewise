@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "18.0.0",
+  "version": "19.0.0",
   "description": "Local desktop PDF agent — page-wise AI analysis",
   "license": "MIT",
   "type": "module",
@@ -18,6 +18,7 @@
     "check:buttons": "node scripts/check-raw-buttons.mjs",
     "check:entitlements": "node scripts/check-entitlements.mjs",
     "check:i18n": "node scripts/check-i18n-keys.mjs",
+    "check:budget": "node scripts/complexity-budget.mjs",
     "version:sync": "node scripts/sync-version.mjs",
     "icons:sync-svg": "node scripts/generate-app-icon.mjs",
     "icons:generate": "npm run icons:sync-svg && tauri icon app-icon.svg -o src-tauri/icons",

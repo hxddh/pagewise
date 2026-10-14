@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
     /** page → what OCR reads there; absent pages read nothing. */
     pages: new Map<number, { text: string; confidence: number }>(),
     calls: [] as number[],
+    /** path → the page the OCR queue says it is recognising (19.0). */
+    current: new Map<string, number>(),
   },
 }));
 
@@ -29,6 +31,10 @@ vi.mock("../lib/ocr/ocr-service", () => ({
     const read = h.ocr.pages.get(page);
     return read ? { ...read, page, items: [], ms: 1 } : null;
   }),
+  // The queue's visible face (19.0): what the preview's reading line reads.
+  ocrQueueState: (path: string) => ({ current: h.ocr.current.get(path) ?? null, queued: 0 }),
+  subscribeOcrQueue: () => () => {},
+  cancelQueuedOcr: vi.fn(() => 0),
 }));
 
 vi.mock("../lib/doc-cache", () => ({
@@ -123,9 +129,13 @@ vi.mock("../lib/usage-tracker", () => ({
 import { docCache } from "../lib/doc-cache";
 import { renderPageToJpegBytes } from "../lib/pdf";
 import { forgetIndexedPages } from "../lib/index-store";
+import { cancelQueuedOcr } from "../lib/ocr/ocr-service";
 import { loadVisionSettings } from "../lib/settings";
 import {
   cancelIndex,
+  cancelReading,
+  readingProgress,
+  subscribeReadingProgress,
   DEFAULT_AGENT_SCAN_PAGES,
   DEFAULT_AUTO_INDEX_PAGES,
   ensurePageIndexed,
@@ -174,6 +184,7 @@ beforeEach(() => {
   h.ocr.enabled = false;
   h.ocr.pages.clear();
   h.ocr.calls.length = 0;
+  h.ocr.current.clear();
   vi.mocked(loadVisionSettings).mockImplementation(async () => ({
     provider: "openai",
     model: "gpt-4o-mini",
@@ -572,5 +583,54 @@ describe("local OCR first (14.0)", () => {
     await vi.waitFor(() => expect(statusesFor(path, 2)).toContain("done"));
     expect(h.ocr.calls).toHaveLength(0);
     expect(h.visionCalls).toHaveLength(2);
+  });
+});
+
+describe("reading progress (19.0 — OCR you can watch)", () => {
+  it("says nothing when nothing is being read", () => {
+    const path = uniquePath();
+    seed(path, 2);
+    expect(readingProgress(path)).toBeNull();
+  });
+
+  it("reports the page being read and how many the pass will read", async () => {
+    const path = uniquePath();
+    const doc = seed(path, 3);
+    h.visionMode.current = "manual";
+
+    const notified = vi.fn();
+    const unsubscribe = subscribeReadingProgress(notified);
+    scheduleIndex(doc);
+    await vi.waitFor(() => expect(readingProgress(path)).not.toBeNull());
+    expect(readingProgress(path)?.total).toBe(3);
+    expect(notified).toHaveBeenCalled();
+
+    // When OCR is the reader, the page is the one being recognised — that is
+    // the page whose words are arriving.
+    h.ocr.current.set(path, 2);
+    expect(readingProgress(path)?.page).toBe(2);
+
+    // Finish the sweep: the calls already in flight resolve, and the pages
+    // behind them are read at once rather than queued.
+    h.visionMode.current = "immediate";
+    h.pending.forEach((p) => p.resolve("y".repeat(50)));
+    await vi.waitFor(() => expect(readingProgress(path)).toBeNull());
+    unsubscribe();
+  });
+
+  it("stops both layers when the reader cancels", async () => {
+    const path = uniquePath();
+    const doc = seed(path, 2);
+    h.visionMode.current = "manual";
+
+    scheduleIndex(doc);
+    await vi.waitFor(() => expect(h.pending.length).toBeGreaterThan(0));
+    cancelReading(path);
+
+    // The OCR queue is told separately: a page already waiting for a worker
+    // cannot hear the sweep's abort signal.
+    expect(cancelQueuedOcr).toHaveBeenCalledWith(path);
+    expect(readingProgress(path)).toBeNull();
+    await vi.waitFor(() => expect(statusesFor(path, 1)).toContain("idle"));
   });
 });

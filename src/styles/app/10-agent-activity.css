@@ -123,13 +123,3 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
-
-/* An empty sidebar list says so inside the sidebar's margins (16.0): the
-   text ran to the panel's edge. */
-.outline-empty {
-  margin: 0;
-  padding: var(--space-md);
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  color: var(--text-muted);
-}

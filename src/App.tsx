@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
-import { SessionProvider, useSession } from "./session/SessionProvider";
+import { useWorkbench } from "./session/useWorkbench";
 import { useI18n } from "./i18n";
 import { DropOverlay } from "./components/DropOverlay";
 import { SettingsDrawer } from "./components/SettingsDrawer";
@@ -19,14 +19,17 @@ import { ocrEnabled } from "./lib/ocr/ocr-service";
 import { getVisionCallCount } from "./lib/usage-tracker";
 import { CommandPalette } from "./components/CommandPalette";
 import { ExportDialog, type ExportAvailability, type ExportChoice } from "./components/ExportDialog";
-import { activeFindings } from "./lib/finding-store";
+import { activeFindings, subscribeFindings } from "./lib/finding-store";
 import { useAppCommands } from "./hooks/useAppCommands";
 import { useFollowAgent } from "./hooks/useFollowAgent";
 import { useWorkbenchOverlays } from "./hooks/useWorkbenchOverlays";
 import { useTheme } from "./hooks/useTheme";
 import { useWorkbenchPrefs } from "./hooks/useWorkbenchPrefs";
 import { openableRecentFiles } from "./lib/recent-files";
-import { getMarks } from "./lib/mark-store";
+import { getMarks, subscribeMarks } from "./lib/mark-store";
+import { citationsByPage } from "./lib/page-citations";
+import { SearchScopeProvider, focusMessageRow } from "./components/SearchScope";
+import { WorkspaceChromeProvider } from "./components/WorkspaceHeader";
 import type { RevealedCitation } from "./features/preview/CitationHighlight";
 import "./styles/tokens.css";
 import "./styles/ui.css";
@@ -70,63 +73,88 @@ function PanelFallback() {
 function AppContent() {
   const { t } = useI18n();
   const { showToast } = useToast();
-  const s = useSession();
+  const s = useWorkbench();
   const { cycleTheme } = useTheme();
   const prefs = useWorkbenchPrefs();
-  const overlays = useWorkbenchOverlays(s.setSettingsOpen);
+  const overlays = useWorkbenchOverlays(s.assistant.shell.setSettingsOpen);
 
   const [composerDraft, setComposerDraft] = useState("");
   /**
-   * The recorded claim the reader asked to see.
-   *
-   * Lives here rather than in either column because it is the one piece of
-   * state both of them need: the record panel picks it, the page draws it. The
-   * page it was found on comes with it — a claim can cite several, and only one
-   * of them carries the wording.
+   * The recorded claim the reader asked to see: the one piece of state both
+   * columns need — the record panel picks it, the page draws it. The page it
+   * was found on comes with it (a claim can cite several).
    */
   const [revealedFindingId, setRevealedFindingId] = useState<string | null>(null);
+  /**
+   * The mark the reader picked — on the page, in the margin, or in the record.
+   * It lives here since 19.0 because the record panel is in the other column:
+   * a mark selected there has to reach the preview to open its note.
+   */
+  const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
   // The citation the reader last followed from an answer. PreviewPane forgets
   // it once they leave its page; the nonce lets the same one be followed twice.
   const [revealedCitation, setRevealedCitation] = useState<RevealedCitation | null>(null);
+  // Which half of the assistant column is showing, and how many entries the
+  // record holds. Both live here since 19.0: the tabs are in the workspace
+  // header, and the badge beside them is drawn from the same subscription.
+  const [panelTab, setPanelTab] = useState<"chat" | "record">("chat");
+  const [recordRevision, setRecordRevision] = useState(0);
 
-  const doc = s.document;
-  const agent = s.agent;
-  const conn = s.connection;
-  const agentBusy = agent.isAgentBusy();
+  const doc = s.document.doc;
+  const agent = s.assistant.agent;
+  const conn = s.assistant.connection;
+  const agentBusy = agent.run.isBusy();
+  const loading = s.document.phase === "switching";
 
   useEffect(() => {
     setComposerDraft("");
     setRevealedFindingId(null);
+    setSelectedMarkId(null);
     setRevealedCitation(null);
     setZen(false);
   }, [doc?.path]);
 
-  // Put something from the document into the composer and show it. The caller
-  // decides what the text says — a quoted passage, or a sentence naming the
-  // page a mark is on — because only the caller knows which it has.
-  //
-  // "Ask about this" has to end with the caret in the input (17.0): the reader
-  // selected a passage in order to ask about it, and a click that leaves focus
-  // on the page is a click that has to be followed by another one. The panel may
-  // be closed at this instant, so the focus request is queued on a counter and
-  // served after the panel has mounted.
+  useEffect(() => {
+    setRecordRevision((n) => n + 1);
+    // Both stores: the record shows the assistant's findings and the reader's
+    // marks since 19.0, and a counter that only moved for half of it would
+    // leave a deleted mark on screen.
+    const bump = () => setRecordRevision((n) => n + 1);
+    const unsubFindings = subscribeFindings(bump);
+    const unsubMarks = subscribeMarks(bump);
+    return () => {
+      unsubFindings();
+      unsubMarks();
+    };
+  }, [doc?.path]);
+
+  const recordCount = useMemo(
+    () => (doc ? (void recordRevision, activeFindings(doc.path).length) : 0),
+    [doc, recordRevision],
+  );
+
+  /**
+   * Put something from the document into the composer and show it.
+   *
+   * "Ask about this" has to end with the caret in the input (17.0): a click
+   * that leaves focus on the page is a click that has to be followed by
+   * another one. The panel may be closed at this instant, so the focus
+   * request is queued on a counter and served after the panel has mounted.
+   */
   const chatRef = useRef<ChatPanelHandle>(null);
   const [focusComposerNonce, setFocusComposerNonce] = useState(0);
-  /**
-   * Zen (18.0): the rail, the toolbar and the panel leave; the page and a
-   * progress hairline stay. Not persisted — it is a posture for this sitting,
-   * not a preference, and a reader who wants it always has the shortcut.
-   */
+  // Zen (18.0): the rail, the header and the panel leave; the page and a
+  // progress hairline stay. Not persisted — a posture for this sitting.
   const [zen, setZen] = useState(false);
   const askAboutSelection = useCallback(
     (text: string) => {
       const insert = text.trim();
       if (!insert) return;
       setComposerDraft((prev) => (prev.trim() ? `${prev.trim()} ${insert} ` : `${insert} `));
-      s.setAgentOpen(true);
+      s.assistant.setOpen(true);
       setFocusComposerNonce((n) => n + 1);
     },
-    [s],
+    [s.assistant.setOpen],
   );
 
   useEffect(() => {
@@ -140,11 +168,11 @@ function AppContent() {
   /** The pill in Zen: leave it, show the panel, put the caret in the composer. */
   const askFromZen = useCallback(() => {
     setZen(false);
-    s.setAgentOpen(true);
+    s.assistant.setOpen(true);
     setFocusComposerNonce((n) => n + 1);
-  }, [s]);
+  }, [s.assistant.setOpen]);
 
-  const openableRecents = openableRecentFiles(s.recentFiles);
+  const openableRecents = openableRecentFiles(s.library.recentFiles);
 
   // Pages with no usable text yet — i.e. what a whole-document scan would send
   // to the vision model, and therefore bill for.
@@ -166,56 +194,48 @@ function AppContent() {
     setScanAllPrompt(count);
   }, [doc, showToast, t]);
 
-  // One way out for everything the app writes (16.0). What can be written is
-  // read when the dialog opens: findings and marks change without App knowing.
+  // One way out for everything the app writes (16.0): what can be written is
+  // read when the dialog opens, since findings and marks change silently.
   const [exportAvailable, setExportAvailable] = useState<ExportAvailability | null>(null);
   const openExport = useCallback(() => {
     if (!doc) return;
     setExportAvailable({
       report: activeFindings(doc.path).length > 0 || getMarks(doc.path).length > 0,
       pdf: doc.kind === "pdf",
-      chat: agent.messages.length > 0,
+      chat: agent.messages.list.length > 0,
     });
-  }, [doc, agent.messages.length]);
+  }, [doc, agent.messages.list.length]);
   const runExport = useCallback(
     (choice: ExportChoice, options: { includeText: boolean }) => {
-      if (choice === "report") void s.exportReport(options);
-      else if (choice === "pdf") void s.exportAnnotatedPdf();
-      else void s.exportChat();
+      if (choice === "report") void s.assistant.exports.report(options);
+      else if (choice === "pdf") void s.assistant.exports.annotatedPdf();
+      else void s.assistant.exports.chat();
     },
-    [s],
+    [s.assistant.exports],
   );
 
   const { commands, paletteOpen, setPaletteOpen } = useAppCommands({
     activeDocName: doc?.name ?? null,
-    messages: agent.messages,
+    messages: agent.messages.list,
     busy: agentBusy,
-    followAgent: prefs.followAgent,
-    agentOpen: s.agentOpen,
-    previewPage: s.previewPage,
+    agentOpen: s.assistant.open,
+    previewPage: s.document.page,
     totalPages: doc?.totalPages ?? 1,
-    onOpenDocument: s.openFileDialog,
+    onOpenDocument: s.library.openFileDialog,
     onOpenSettings: overlays.openSettings,
-    onToggleFollowAgent: () => void prefs.toggleFollowAgent(),
-    onToggleAgent: () => s.setAgentOpen(!s.agentOpen),
+    onToggleAgent: () => s.assistant.setOpen(!s.assistant.open),
     onToggleZen: toggleZen,
     onClearChat: overlays.openClearConfirm,
-    onStop: agent.stop,
+    onStop: agent.run.stop,
     onCycleTheme: () => void cycleTheme(),
     onOpenExport: openExport,
-    onScanAllPages: requestScanAll,
-    canScanAllPages: unscannedPages > 0,
   });
 
-  useFollowAgent(prefs.followAgent, agent.messages, s.setPreviewPage);
+  useFollowAgent(prefs.followAgent, agent.messages.list, s.document.setPage);
 
-  /**
-   * True while the reader is dragging the divider.
-   *
-   * The panel's width transition is for opening and closing; during a drag the
-   * width changes on every pointer move, and interpolating each of those makes
-   * the divider trail the pointer.
-   */
+  // True while the reader is dragging the divider: the width transition is
+  // for opening and closing, and interpolating every pointer move would make
+  // the divider trail the pointer.
   const [panelDragging, setPanelDragging] = useState(false);
   useEffect(() => {
     if (!panelDragging) return;
@@ -227,6 +247,61 @@ function AppContent() {
       window.removeEventListener("pointercancel", end);
     };
   }, [panelDragging]);
+
+  // The one search's conversation half (⌘F): what to search, and how to bring
+  // a hit in front of the reader.
+  const gotoMessage = useCallback(
+    (id: string) => {
+      s.assistant.setOpen(true);
+      // The row exists even while the panel is closed (the column is hidden,
+      // not unmounted), so one frame is enough for its render.
+      requestAnimationFrame(() => {
+        if (!focusMessageRow(id)) requestAnimationFrame(() => focusMessageRow(id));
+      });
+    },
+    [s.assistant.setOpen],
+  );
+  const searchScope = useMemo(
+    () => ({ messages: agent.messages.list, gotoMessage }),
+    [agent.messages.list, gotoMessage],
+  );
+
+  // Which answers cite which page, for the page margin's indigo dots (19.0).
+  const citedPages = useMemo(() => citationsByPage(agent.messages.list), [agent.messages.list]);
+
+  // The header's slot, and the chrome it draws (tabs + overflow actions).
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const workspaceChrome = useMemo(
+    () => ({
+      slot: headerSlot,
+      panelTab,
+      setPanelTab,
+      recordCount,
+      agentOpen: s.assistant.open,
+      hasMessages: agent.messages.list.length > 0,
+      busy: agentBusy || loading || s.document.chatLoading,
+      canScanAll: unscannedPages > 0,
+      onScanAll: requestScanAll,
+      onOpenExport: openExport,
+      onClearChat: overlays.openClearConfirm,
+      onToggleAgent: () => s.assistant.setOpen(!s.assistant.open),
+    }),
+    [
+      headerSlot,
+      panelTab,
+      recordCount,
+      s.assistant.open,
+      s.assistant.setOpen,
+      agent.messages.list.length,
+      agentBusy,
+      loading,
+      s.document.chatLoading,
+      unscannedPages,
+      requestScanAll,
+      openExport,
+      overlays.openClearConfirm,
+    ],
+  );
 
   return (
     <div className={`app v3${zen && doc ? " zen" : ""}`}>
@@ -242,13 +317,16 @@ function AppContent() {
         onExport={runExport}
         onClose={() => setExportAvailable(null)}
       />
-      <DropOverlay visible={s.isDragging} />
+      <DropOverlay visible={s.document.dragging} />
       <LoadingOverlay
-        visible={s.loading || s.phase === "switching"}
-        progress={s.progress ?? { stage: "opening", message: "load.opening", percent: 0 }}
+        visible={loading}
+        progress={s.document.progress ?? { stage: "opening", message: "load.opening", percent: 0 }}
       />
-      {s.fileError && (
-        <FileErrorBanner message={s.fileError} onDismiss={s.clearFileError} />
+      {s.document.fileError.message && (
+        <FileErrorBanner
+          message={s.document.fileError.message}
+          onDismiss={s.document.fileError.clear}
+        />
       )}
       <ToastViewport />
 
@@ -258,7 +336,7 @@ function AppContent() {
         message={t("agent.clearConfirm")}
         confirmLabel={t("agent.clear")}
         onConfirm={() => {
-          void s.clearChat();
+          void s.assistant.clearChat();
           overlays.closeClearConfirm();
         }}
         onCancel={overlays.closeClearConfirm}
@@ -289,29 +367,32 @@ function AppContent() {
         open={overlays.libraryOpen}
         recentFiles={openableRecents}
         activePath={doc?.path ?? null}
-        opening={s.loading}
+        opening={loading}
         onClose={overlays.closeLibrary}
         onOpenFile={() => {
           overlays.closeLibrary();
-          s.openFileDialog();
+          s.library.openFileDialog();
         }}
-        onOpenRecent={(path) => void s.openPath(path)}
-        onRemoveRecent={(path) => void s.removeRecent(path)}
+        onOpenRecent={(path) => void s.library.openPath(path)}
+        onRemoveRecent={(path) => void s.library.removeRecent(path)}
       />
 
       <SettingsDrawer
-        open={s.settingsOpen}
+        open={s.assistant.shell.settingsOpen}
         onClose={overlays.closeSettings}
         assistantConfigured={conn.hasApiKey}
         settingsReady={conn.settingsReady}
         onLlmSettingsSaved={() => conn.refresh()}
         onApiReady={() => conn.refresh()}
-        onReindexDoc={s.reindexDoc}
+        onReindexDoc={s.document.reindex}
         onPreferencesSaved={async () => {
           await prefs.refreshPrefs();
         }}
         includeViewingPageDefault={prefs.includeViewingPage}
         onIncludeViewingPageDefaultChange={(value) => void prefs.setIncludeViewingPageDefault(value)}
+        followAgentDefault={prefs.followAgent}
+        onFollowAgentDefaultChange={(value) => void prefs.setFollowAgentDefault(value)}
+        onScanAllPages={requestScanAll}
         onTestResult={(message, ok) => showToast(message, ok ? "success" : "error")}
         onSaveError={() => showToast(t("settings.saveFailed"), "error")}
         onRefreshConnection={() => conn.refresh()}
@@ -319,12 +400,11 @@ function AppContent() {
 
       {zen && doc && (
         <>
-          {/* Reading progress, not scroll position: what a reader wants from a
-              margin is "how much of this is left". */}
+          {/* Reading progress, not scroll position. */}
           <div className="zen-progress" aria-hidden>
             <span
               className="zen-progress-fill"
-              style={{ height: `${Math.round((s.previewPage / Math.max(1, doc.totalPages)) * 100)}%` }}
+              style={{ height: `${Math.round((s.document.page / Math.max(1, doc.totalPages)) * 100)}%` }}
             />
           </div>
           <Button variant="ghost" size="sm" className="zen-exit" onClick={toggleZen}>
@@ -340,10 +420,10 @@ function AppContent() {
         showLibrary
         libraryOpen={overlays.libraryOpen}
         onLibrary={overlays.toggleLibrary}
-        onOpenFile={s.openFileDialog}
+        onOpenFile={s.library.openFileDialog}
         onSettings={overlays.openSettings}
         connected={conn.canUseAgent && conn.settingsReady}
-        opening={s.loading}
+        opening={loading}
       />
 
       <div className="v3-main">
@@ -353,101 +433,100 @@ function AppContent() {
             canUseAgent={conn.canUseAgent}
             hasApiKey={conn.hasApiKey}
             agentToolsSupported={conn.agentToolsSupported}
-            opening={s.loading}
-            onOpenFile={s.openFileDialog}
-            onOpenRecent={s.openPath}
+            opening={loading}
+            onOpenFile={s.library.openFileDialog}
+            onOpenRecent={s.library.openPath}
             onConfigureApi={overlays.openSettings}
           />
         ) : (
-          <div className={`v3-workspace ${s.agentOpen ? "" : "agent-hidden"}`}>
-            <Suspense fallback={<PanelFallback />}>
-              <PreviewPane
-                doc={doc}
-                page={s.previewPage}
-                onPageChange={s.setPreviewPage}
-                prefsRevision={prefs.prefsRevision}
-                onOpenAiSettings={overlays.openSettings}
-                onAskAboutSelection={askAboutSelection}
-                selectedFindingId={revealedFindingId}
-                onSelectFinding={setRevealedFindingId}
-                revealedCitation={revealedCitation}
-              />
-            </Suspense>
+          <WorkspaceChromeProvider value={workspaceChrome}>
+            <SearchScopeProvider value={searchScope}>
+              <div className={`v3-workspace ${s.assistant.open ? "" : "agent-hidden"}`}>
+                {/* The one header draws here (PreviewToolbar portals into it):
+                    it spans both columns, which is what makes it one strip. */}
+                <div className="workspace-header-slot" ref={setHeaderSlot} />
+                <div className="v3-columns">
+                  <Suspense fallback={<PanelFallback />}>
+                    <PreviewPane
+                      doc={doc}
+                      page={s.document.page}
+                      onPageChange={s.document.setPage}
+                      prefsRevision={prefs.prefsRevision}
+                      onOpenAiSettings={overlays.openSettings}
+                      onAskAboutSelection={askAboutSelection}
+                      selectedFindingId={revealedFindingId}
+                      onSelectFinding={setRevealedFindingId}
+                      selectedMarkId={selectedMarkId}
+                      onSelectMark={setSelectedMarkId}
+                      revealedCitation={revealedCitation}
+                      citations={citedPages}
+                      onRevealMessage={gotoMessage}
+                    />
+                  </Suspense>
 
-            {s.agentOpen && (
-              <ResizeHandle
-                onPointerDown={(e) => {
-                  setPanelDragging(true);
-                  s.onPointerDown(e);
-                }}
-                onNudge={s.nudgeWidth}
-                value={s.chatWidth}
-                min={s.minWidth}
-                max={s.maxWidth}
-              />
-            )}
-            <div
-              className={`chat-column ${s.agentOpen ? "" : "chat-column-hidden"}${
-                panelDragging ? " chat-column-dragging" : ""
-              }`}
-              style={s.agentOpen ? { width: s.chatWidth } : undefined}
-              aria-hidden={!s.agentOpen}
-            >
-              <Suspense fallback={<PanelFallback />}>
-                <ChatPanel
-                  ref={chatRef}
-                  activeDoc={doc}
-                  previewPage={s.previewPage}
-                  includeViewingPage={prefs.includeViewingPage}
-                  messages={agent.messages}
-                  sendDocumentMessage={agent.sendDocumentMessage}
-                  editUserMessage={agent.editUserMessage}
-                  regenerateDocumentMessage={agent.regenerateDocumentMessage}
-                  status={agent.status}
-                  error={agent.error}
-                  errorMessage={agent.errorMessage}
-                  hasApiKey={conn.hasApiKey}
-                  agentToolsSupported={conn.agentToolsSupported}
-                  webSearchAvailable={conn.webSearchAvailable}
-                  settingsReady={conn.settingsReady}
-                  loadingDoc={s.loading}
-                  chatLoading={s.chatLoading}
-                  agentBusy={agentBusy}
-                  activity={agentBusy ? agent.streamProgress : null}
-                  historySettling={agent.historySettling}
-                  composerDraft={composerDraft}
-                  onComposerDraftChange={setComposerDraft}
-                  onConfigureApi={overlays.openSettings}
-                  onStop={agent.stop}
-                  waitForStreamIdle={agent.waitForStreamIdle}
-                  steerRun={agent.steerRun}
-                  onDismissError={agent.clearError}
-                  onJumpToPage={s.setPreviewPage}
-                  onRevealFinding={(id, page) => {
-                    s.setPreviewPage(page);
-                    setRevealedFindingId(id);
-                  }}
-                  onRevealCitation={(page, rects) => {
-                    s.setPreviewPage(page);
-                    setRevealedCitation(rects ? { page, rects, nonce: Date.now() } : null);
-                  }}
-                  onClearChat={overlays.openClearConfirm}
-                  onOpenExport={openExport}
-                  onCollapse={() => s.setAgentOpen(false)}
-                  unscannedPages={unscannedPages}
-                  onScanAllPages={requestScanAll}
-                />
-              </Suspense>
-            </div>
+                  {s.assistant.open && (
+                    <ResizeHandle
+                      onPointerDown={(e) => {
+                        setPanelDragging(true);
+                        s.assistant.shell.resize.onPointerDown(e);
+                      }}
+                      onNudge={s.assistant.shell.resize.nudgeWidth}
+                      value={s.assistant.shell.resize.width}
+                      min={s.assistant.shell.resize.min}
+                      max={s.assistant.shell.resize.max}
+                    />
+                  )}
+                  <div
+                    className={`chat-column ${s.assistant.open ? "" : "chat-column-hidden"}${
+                      panelDragging ? " chat-column-dragging" : ""
+                    }`}
+                    style={s.assistant.open ? { width: s.assistant.shell.resize.width } : undefined}
+                    aria-hidden={!s.assistant.open}
+                  >
+                    <Suspense fallback={<PanelFallback />}>
+                      <ChatPanel
+                        ref={chatRef}
+                        doc={doc}
+                        page={s.document.page}
+                        includeViewingPage={prefs.includeViewingPage}
+                        agent={agent}
+                        connection={conn}
+                        session={{ loading, chatLoading: s.document.chatLoading }}
+                        composerDraft={composerDraft}
+                        onComposerDraftChange={setComposerDraft}
+                        panel={{ tab: panelTab, setTab: setPanelTab, revision: recordRevision }}
+                        reveal={{
+                          onJumpToPage: s.document.setPage,
+                          onRevealFinding: (id, target) => {
+                            s.document.setPage(target);
+                            setRevealedFindingId(id);
+                          },
+                          onRevealCitation: (target, rects) => {
+                            s.document.setPage(target);
+                            setRevealedCitation(rects ? { page: target, rects, nonce: Date.now() } : null);
+                          },
+                          onSelectMark: (target, id) => {
+                            s.document.setPage(target);
+                            setSelectedMarkId(id);
+                          },
+                        }}
+                        scan={{ count: unscannedPages, onScanAllPages: requestScanAll }}
+                        onConfigureApi={overlays.openSettings}
+                      />
+                    </Suspense>
+                  </div>
 
-            {!s.agentOpen && (
-              <AgentDock
-                onExpand={() => s.setAgentOpen(true)}
-                busy={agentBusy}
-                messageCount={agent.messages.length}
-              />
-            )}
-          </div>
+                  {!s.assistant.open && (
+                    <AgentDock
+                      onExpand={() => s.assistant.setOpen(true)}
+                      busy={agentBusy}
+                      messageCount={agent.messages.list.length}
+                    />
+                  )}
+                </div>
+              </div>
+            </SearchScopeProvider>
+          </WorkspaceChromeProvider>
         )}
       </div>
     </div>
@@ -457,9 +536,7 @@ function AppContent() {
 function App() {
   return (
     <ToastProvider>
-      <SessionProvider>
-        <AppContent />
-      </SessionProvider>
+      <AppContent />
     </ToastProvider>
   );
 }

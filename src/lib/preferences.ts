@@ -74,11 +74,19 @@ export function resolveOcrLanguages(
 }
 const OCR_LANGUAGE_MODES: OcrLanguageMode[] = ["auto", "eng", "chi_sim+eng"];
 
-/** Selectable automatic-index budgets, smallest first. */
-export const AUTO_INDEX_PAGE_CHOICES = [0, 20, 50, 200] as const;
+/**
+ * Selectable automatic-index budgets, smallest first (19.0: three, not four).
+ *
+ * The row is Off / Auto / All: don't read scans, read them in the background,
+ * or read the whole document now (which is the old scan-all command, with its
+ * confirmation). Two of the old four steps — 50 and 200 — both meant "a lot",
+ * and the reader could not tell them apart; the one that remains means the
+ * whole document and is wired to the action that says so.
+ */
+export const AUTO_INDEX_PAGE_CHOICES = [0, 20, 200] as const;
 
 /** Selectable per-question assistant scan allowances, smallest first. */
-export const AGENT_SCAN_PAGE_CHOICES = [0, 10, 20, 50] as const;
+export const AGENT_SCAN_PAGE_CHOICES = [0, 10, 50] as const;
 
 /** The answer column's text scale: small, default, large. */
 export const READING_SCALE_CHOICES = [0.95, 1, 1.1] as const;
@@ -120,8 +128,13 @@ function bool(value: unknown, fallback: boolean): boolean {
 }
 
 /**
- * Clamp a stored sweep budget into range. A corrupt or absurd value here would
- * otherwise translate directly into billed vision calls.
+ * Clamp a stored sweep budget to one of the allowed choices.
+ *
+ * A corrupt or absurd value here would otherwise translate directly into
+ * billed vision calls. Snapped to the nearest choice at or below the stored
+ * value rather than clamped to the largest: 19.0 removed the 50-page step, and
+ * a reader who had it should land on the step below (Auto), not silently on
+ * the whole-document budget.
  */
 function scanBudget(
   value: unknown,
@@ -130,9 +143,11 @@ function scanBudget(
 ): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   const floored = Math.floor(value);
-  if (floored < 0) return 0;
-  const max = choices[choices.length - 1]!;
-  return floored > max ? max : floored;
+  let best = choices[0]!;
+  for (const choice of choices) {
+    if (choice <= floored) best = choice;
+  }
+  return best;
 }
 
 /** Coerce arbitrary stored data into a valid AppPreferences, ignoring corrupt fields. */

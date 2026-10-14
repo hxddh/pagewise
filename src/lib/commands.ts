@@ -53,6 +53,11 @@ export function getShortcutRows(
     { section: "document", keys: `${mod}F`, description: t("commands.searchDoc") },
     {
       section: "document",
+      keys: `${mod}+ / ${mod}-`,
+      description: `${t("preview.zoomIn")} / ${t("preview.zoomOut")}`,
+    },
+    {
+      section: "document",
       keys: `${mod}[ / ${mod}]`,
       description: `${t("commands.prevPage")} / ${t("commands.nextPage")}`,
     },
@@ -62,7 +67,6 @@ export function getShortcutRows(
       keys: "Alt\u2191 / Alt\u2193",
       description: t("commands.walkConversation"),
     },
-    { section: "agent", keys: `${mod}F`, description: t("commands.searchConversation") },
     { section: "view", keys: `${mod}\u21e7F`, description: t("commands.zen") },
     { section: "view", keys: "Esc", description: t("commands.closeOverlay") },
   ];

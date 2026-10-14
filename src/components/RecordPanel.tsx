@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps } from "motion/react";
 import {
   AlertTriangle,
   Check,
@@ -8,6 +9,7 @@ import {
   MessageSquare,
   Pencil,
   Sparkles,
+  Trash2,
   Undo2,
   User,
 } from "lucide-react";
@@ -21,6 +23,7 @@ import {
   setFindingStruck,
   type Finding,
 } from "../lib/finding-store";
+import { getMarks, marksAreStale, removeMark, type Mark } from "../lib/mark-store";
 import { useFindingPlacement } from "../hooks/useFindingPlacement";
 import { trustNeedsReader, trustOf, type Trust } from "../lib/finding-trust";
 import { Button } from "./ui/Button";
@@ -41,6 +44,8 @@ interface RecordPanelProps {
   onJumpToPage: (page: number) => void;
   /** Show this claim where it was found: turn there and light it up. */
   onRevealFinding?: (id: string, page: number) => void;
+  /** Turn to this mark and open its note. */
+  onSelectMark?: (page: number, id: string) => void;
   /** Show the answer an entry was kept from. */
   onRevealMessage?: (messageId: string) => void;
   /**
@@ -49,6 +54,34 @@ interface RecordPanelProps {
    * worse than none (16.0, B20).
    */
   hasMessage?: (messageId: string) => boolean;
+}
+
+/**
+ * How a list entry arrives and leaves (19.0).
+ *
+ * `useReducedMotion` is read here rather than left to the stylesheet, because
+ * motion runs in JavaScript and the global reduced-motion block cannot reach
+ * it. With the reader asking for less, the entry has no arrival at all
+ * (`initial: false`) and the duration is zero — which is what "instant" means
+ * for this movement.
+ */
+function useEntryMotion(): {
+  initial: HTMLMotionProps<"li">["initial"];
+  exit: HTMLMotionProps<"li">["exit"];
+  transition: HTMLMotionProps<"li">["transition"];
+} {
+  const reduced = useReducedMotion() === true;
+  return useMemo(
+    () =>
+      reduced
+        ? { initial: false, exit: undefined, transition: { duration: 0 } }
+        : {
+            initial: { opacity: 0, y: 4 },
+            exit: { opacity: 0, y: -4 },
+            transition: { duration: 0.16, ease: "easeOut" },
+          },
+    [reduced],
+  );
 }
 
 /**
@@ -82,6 +115,7 @@ export const RecordPanel = memo(function RecordPanel({
   totalPages = 0,
   onJumpToPage,
   onRevealFinding,
+  onSelectMark,
   onRevealMessage,
   hasMessage,
 }: RecordPanelProps) {
@@ -111,62 +145,164 @@ export const RecordPanel = memo(function RecordPanel({
     return getFindings(path);
   }, [path, revision]);
 
-  if (total === 0) {
-    return (
-      <EmptyState variant="inline" className="record-panel record-empty">
-        <p>{t("record.empty")}</p>
-        <p className="record-empty-hint">{t("record.emptyHint")}</p>
-      </EmptyState>
-    );
-  }
+  // The reader's own ink, kept beside the assistant's conclusions: this panel is
+  // the document's ledger, and since 19.0 it is the one home for "everything I
+  // kept on this document". Marks left the page sidebar's tab for the page
+  // margin; the list that holds all of them belongs here, where a finding's
+  // list already lives.
+  const marks = useMemo(() => (void revision, getMarks(path)), [path, revision]);
 
   return (
     <div className="record-panel">
-      <div className="record-controls">
-        <Input
-          type="search"
-          size="sm"
-          className="record-filter"
-          value={filter}
-          placeholder={t("record.filterPlaceholder")}
-          aria-label={t("record.filterPlaceholder")}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-        <Button
-          variant={thisPageOnly ? "secondary" : "ghost"}
-          size="sm"
-          className="record-page-toggle"
-          aria-pressed={thisPageOnly}
-          onClick={() => setThisPageOnly((v) => !v)}
-        >
-          {t("record.thisPage", { page: currentPage })}
-        </Button>
-      </div>
-      {stale && <p className="mark-stale-note">{t("record.staleFile")}</p>}
-      {rows.length === 0 ? (
-        <EmptyState variant="inline" className="record-none">{t("record.noMatch")}</EmptyState>
+      {total === 0 ? (
+        <EmptyState variant="inline" className="record-empty">
+          <p>{t("record.empty")}</p>
+          <p className="record-empty-hint">{t("record.emptyHint")}</p>
+        </EmptyState>
       ) : (
-        <ul className="record-list">
-          {rows.map((finding) => (
-            <RecordEntry
-              key={finding.id}
-              path={path}
-              finding={finding}
-              all={all}
-              stamp={stamp}
-              totalPages={totalPages}
-              currentPage={currentPage}
-              onJumpToPage={onJumpToPage}
-              onRevealFinding={onRevealFinding}
-              onRevealMessage={onRevealMessage}
-              hasMessage={hasMessage}
+        <>
+          <div className="record-controls">
+            <Input
+              type="search"
+              size="sm"
+              className="record-filter"
+              value={filter}
+              placeholder={t("record.filterPlaceholder")}
+              aria-label={t("record.filterPlaceholder")}
+              onChange={(e) => setFilter(e.target.value)}
             />
-          ))}
-        </ul>
+            <Button
+              variant={thisPageOnly ? "secondary" : "ghost"}
+              size="sm"
+              className="record-page-toggle"
+              aria-pressed={thisPageOnly}
+              onClick={() => setThisPageOnly((v) => !v)}
+            >
+              {t("record.thisPage", { page: currentPage })}
+            </Button>
+          </div>
+          {stale && <p className="mark-stale-note">{t("record.staleFile")}</p>}
+          {rows.length === 0 ? (
+            <EmptyState variant="inline" className="record-none">{t("record.noMatch")}</EmptyState>
+          ) : (
+            <ul className="record-list">
+              {/* The list's own movement: an entry arrives by fading up, and
+                  leaves the same way — the reader sees what changed rather
+                  than finding the list rearranged. */}
+              <AnimatePresence initial={false}>
+                {rows.map((finding) => (
+                  <RecordEntry
+                    key={finding.id}
+                    path={path}
+                    finding={finding}
+                    all={all}
+                    stamp={stamp}
+                    totalPages={totalPages}
+                    currentPage={currentPage}
+                    onJumpToPage={onJumpToPage}
+                    onRevealFinding={onRevealFinding}
+                    onRevealMessage={onRevealMessage}
+                    hasMessage={hasMessage}
+                  />
+                ))}
+              </AnimatePresence>
+            </ul>
+          )}
+        </>
+      )}
+
+      {marks.length > 0 && (
+        <MarksSection
+          path={path}
+          marks={marks}
+          stamp={stamp}
+          currentPage={currentPage}
+          onSelectMark={onSelectMark}
+          onJumpToPage={onJumpToPage}
+        />
       )}
     </div>
   );
 });
+
+/**
+ * The reader's marks, as the document's other half of its ledger.
+ *
+ * One row per mark: what it says (or the note, which is what a region mark
+ * often has), the page, and Delete. Jumping to a mark turns to its page and
+ * opens the note card, which is where it can be written on — the same two
+ * actions the mark's own row in the page sidebar had, and the reason they were
+ * worth keeping when the sidebar tab went.
+ */
+function MarksSection({
+  path,
+  marks,
+  stamp,
+  currentPage,
+  onSelectMark,
+  onJumpToPage,
+}: {
+  path: string;
+  marks: readonly Mark[];
+  stamp: string;
+  currentPage: number;
+  onSelectMark?: (page: number, id: string) => void;
+  onJumpToPage: (page: number) => void;
+}) {
+  const { t } = useI18n();
+  const entryMotion = useEntryMotion();
+  // Marks made against a different version of this file. Unlike the page index,
+  // which is discarded when the file changes because it can be recomputed, the
+  // reader's own marks are kept — the rectangles may now point at the wrong
+  // place, but only the reader can judge that, and the snapshot still says what
+  // was marked.
+  const stale = marksAreStale(path, stamp);
+  return (
+    <section className="record-marks" aria-label={t("preview.marks")}>
+      <h3 className="record-marks-title">{t("preview.marks")}</h3>
+      {stale && <p className="mark-stale-note">{t("marks.staleFile")}</p>}
+      <ul className="record-mark-list">
+        {/* Added and deleted the same way the findings above are: the list is
+            one ledger, and both halves move alike. */}
+        <AnimatePresence initial={false}>
+          {marks.map((mark) => (
+            <motion.li key={mark.id} className="record-mark" {...entryMotion}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="record-mark-row"
+                title={mark.note || mark.text || t("marks.noText")}
+                onClick={() =>
+                  onSelectMark ? onSelectMark(mark.page, mark.id) : onJumpToPage(mark.page)
+                }
+              >
+                <span className="record-mark-text">
+                  {mark.note || mark.text || t("marks.noText")}
+                </span>
+                <span
+                  className={`record-mark-page${mark.page === currentPage ? " record-mark-here" : ""}`}
+                >
+                  {mark.page}
+                </span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon
+                className="record-mark-delete"
+                title={t("marks.delete")}
+                aria-label={t("marks.delete")}
+                onClick={() => removeMark(path, mark.id)}
+              >
+                <Trash2 size={13} />
+              </Button>
+            </motion.li>
+          ))}
+        </AnimatePresence>
+      </ul>
+    </section>
+  );
+}
 
 /**
  * One entry, and the pages it came from.
@@ -200,6 +336,7 @@ function RecordEntry({
 }) {
   const { t } = useI18n();
   const placement = useFindingPlacement(path, finding);
+  const entryMotion = useEntryMotion();
   const [showBody, setShowBody] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(finding.claim);
@@ -215,10 +352,11 @@ function RecordEntry({
   };
 
   return (
-    <li
+    <motion.li
       className={`record-entry ${inactive ? "record-entry-inactive" : ""}`}
       data-trust={trust}
       data-level={recordLevel(trust)}
+      {...entryMotion}
     >
       <div className="record-entry-head">
         <span className={`record-byline ${byReader ? "record-byline-reader" : ""}`}>
@@ -348,7 +486,7 @@ function RecordEntry({
           </Button>
         )}
       </div>
-    </li>
+    </motion.li>
   );
 }
 

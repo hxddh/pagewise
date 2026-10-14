@@ -110,12 +110,74 @@ interface Job {
   page: number;
   background: boolean;
   signal?: AbortSignal;
+  /** When a slot took this job; null while it waits in the queue. */
+  startedAt: number | null;
   run: (slot: number) => Promise<void>;
   drop: () => void;
 }
 
 const queue: Job[] = [];
 const freeSlots: number[] = Array.from({ length: OCR_SLOTS }, (_, i) => i);
+
+/**
+ * Who is watching the queue.
+ *
+ * The preview's reading line (19.0) needs to know which page is being
+ * recognised and how many are still waiting — the queue was invisible before,
+ * and "wait for it" with no indication of how long is what makes a reader
+ * think the app has stopped. Notified on every change that a watcher could
+ * draw: a job queued, started, finished or dropped.
+ */
+const queueListeners = new Set<() => void>();
+
+function notifyQueue(): void {
+  for (const listener of queueListeners) listener();
+}
+
+export function subscribeOcrQueue(listener: () => void): () => void {
+  queueListeners.add(listener);
+  return () => {
+    queueListeners.delete(listener);
+  };
+}
+
+export interface OcrQueueState {
+  /** The page of this document being recognised right now, if any. */
+  current: number | null;
+  /** Pages of this document waiting for a slot. */
+  queued: number;
+}
+
+/** What the queue is doing for one document, without reading anything. */
+export function ocrQueueState(path: string): OcrQueueState {
+  let current: number | null = null;
+  let queued = 0;
+  for (const job of queue) {
+    if (job.path !== path) continue;
+    if (job.startedAt !== null && current === null) current = job.page;
+    if (job.startedAt === null) queued += 1;
+  }
+  return { current, queued };
+}
+
+/**
+ * Drop this document's waiting jobs; the page being recognised finishes.
+ *
+ * Cancelling the middle of a recognition would throw away work already paid
+ * for in CPU, and tesseract has no way to resume — so cancel means "read no
+ * more pages", which is what a reader who wants to stop a scan wants. What is
+ * being read right now lands in the page and the cache as usual.
+ */
+export function cancelQueuedOcr(path: string): number {
+  let dropped = 0;
+  for (let i = queue.length - 1; i >= 0; i--) {
+    if (queue[i]!.path !== path) continue;
+    queue.splice(i, 1)[0]!.drop();
+    dropped += 1;
+  }
+  if (dropped > 0) notifyQueue();
+  return dropped;
+}
 
 function pump(): void {
   while (freeSlots.length > 0 && queue.length > 0) {
@@ -125,9 +187,12 @@ function pump(): void {
       job.drop();
       continue;
     }
+    job.startedAt = performance.now();
+    notifyQueue();
     const slot = freeSlots.shift()!;
     void job.run(slot).finally(() => {
       freeSlots.push(slot);
+      notifyQueue();
       pump();
     });
   }
@@ -191,6 +256,7 @@ export function ocrPage(
       page,
       background: !!options.background,
       signal: options.signal,
+      startedAt: null,
       drop: () => resolve(null),
       run: async (slot) => {
         let result: StoredOcrPage | null = null;
@@ -221,6 +287,7 @@ export function ocrPage(
       },
     };
     queue.push(job);
+    notifyQueue();
   }).finally(() => {
     if (state.inflight.get(page) === promise) state.inflight.delete(page);
   });

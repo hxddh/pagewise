@@ -4,6 +4,60 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [19.0.0] - 2026-10-14
+
+Fewer things, done deeper. 18.0 made every surface good; this release makes there be fewer of them — and it pays the structural debt that made "delete a surface" a three-file change.
+
+The complexity is now a number with a gate. `npm run check:budget` measures eight things (surfaces a reader sees, tab stops, palette commands, scan controls, settings rows, catalog keys, CSS lines, source lines) against `scripts/complexity.snapshot.json`, so a surface that comes back has to be argued for in a diff. Measured, before → after:
+
+| | 18.0 | 19.0 |
+|---|---:|---:|
+| surfaces a reader sees | 18 | **15** |
+| tab stops (sidebar / panel / settings) | 8 | **7** |
+| palette commands | 14 | **12** |
+| scan controls | 4 | **2** |
+| settings rows (Advanced closed) | 6 | **5** |
+| catalogue keys | 483 | 473 |
+| CSS lines | 6,005 | 6,003 |
+| non-test source lines | 37,680 | 38,564 |
+
+**Two of those missed their targets and the CHANGELOG says so**: the copy-key target (≤440) and the CSS target (≤5,600) were not reached — the reading surface below is net-new code, and the source count rose by 884 lines rather than falling. What fell is what a reader sees.
+
+**The structural debt, paid.** `ChatPanel` was 934 lines with 35 props; it is 245 lines with 12, and `MessageList` / `MessageRow` / `Composer` (each tested) hold what left. The 30-field session context with one consumer is gone — `SessionProvider` became `useWorkbench`, called directly, returning three groups and 20 fields, and `useSession` has zero call sites. `useDocAgent` returns three things instead of nineteen. And the eleven module-level caches that were torn down by a hand-written list — the list that had to be right in three places or the previous document's text leaked into the next — are registered with a `DocumentScope` that creates and disposes them, with the regression test this bug class has earned: open A, open B, and assert A's text, marks and findings cannot appear under B.
+
+**The subtraction.** One header instead of two: the document toolbar and the panel header were two 40px strips with nine controls; there is now one strip with the file name, the position, the panel's tabs and a single overflow (`WorkspaceHeader`). One search instead of two: the panel's own find bar is gone, and ⌘F opens one overlay with two sections — this document, and this conversation. The follow-up row under settled answers is gone, and so is the generator behind it (and `coverage.ts`, which only it reached): asking has two entries now, the composer and the selection popover. The Marks sidebar is gone — marks live in the page's margin as gutter dots and in the record, which is the document's ledger, and the page sidebar is two tabs instead of three. Scanning has two controls instead of four (local OCR, and cloud pages Off / Auto / All — All is the whole-document scan with its confirmation). Settings shows five rows with Advanced closed; the screenshot toggle and the text cache moved into Advanced, and "Reading follows the assistant" came home to the Reading group.
+
+**The reading surface.** A page gutter: marks (yellow), findings (violet) and answers citing that page (indigo) appear as dots in the page's outer margin, hover for a note, click or Enter to go there, with zero layout shift for the page. Four movements are animated now — the panel opening, an answer arriving (FLIP: the list does not jump), list rows being added and removed, and the gutter appearing — and every one of them is instant under `prefers-reduced-motion`, asserted rather than assumed. And OCR can be watched: a quiet "Reading page 3 of 12" line in the preview chrome, cancellable, with the raster never waiting on recognition (a render-idle gate keeps the reader's painting ahead of the OCR's).
+
+**Made correct rather than added.** `prefers-contrast: more` and `forced-colors: active` have real token sets in `tokens.css` — the first two contrast modes this app has ever had — and the CSS hygiene check parses both and requires every forced-colours value to be a system colour. The keyboard now reaches everything: the record's entries and their controls, the answer actions, the gutter dots, the settings groups, the search hits, and the tab strips answer arrow/Home/End keys; two focus-order tests walk the record panel and the page margin.
+
+### Added
+
+- **`scripts/complexity-budget.mjs`** (`npm run check:budget`) and `scripts/complexity.snapshot.json`: the eight-number budget above, with `--update` as the only way up.
+- **`scripts/complexity-budget.mjs`'s definitions** in its header — a metric that can be redefined is a metric that can be met.
+- **The page gutter** (`features/preview/PageGutter.tsx`, `page-gutter.ts`, `lib/page-citations.ts`).
+- **`DocumentScope`** (`src/lib/document-scope.ts`), `useWorkbench`, `useChatSend`, `useFlipRows`, `MessageList`/`MessageRow`/`Composer`, `WorkspaceHeader`, `ReadingLine`, `render-idle`.
+- **High-contrast and forced-colours token sets**, and their checks.
+
+### Changed
+
+- **⌘F searches one surface with two sections**; the conversation's own bar and its search branch are gone (`Alt+↑/↓` navigation stays exactly as it was).
+- **One header strip**; the page sidebar and the zoom presets are in its overflow, every shortcut unchanged.
+- **Cloud pages: Off / Auto / All**; the palette's scan-all entry is gone, the composer banner's contextual action stays.
+- **Marks** are read and reached from the record panel and the page margin.
+
+### Removed
+
+- `src/session/SessionProvider.tsx` (679 lines) and its context.
+- `src/components/MarkSidebar.tsx`, `src/components/ConversationSearchBar.tsx`, `src/components/ZoomStepper.tsx`, `src/lib/follow-ups.ts`, `src/lib/coverage.ts` and the panel header with them.
+
+### Notes
+
+- Perf budgets all hold with the merged header (boot 221ms, 120-page open 611/724ms, scroll and stream 16.7ms frames, thumbnails 463ms through the menu, 100-turn session 653ms), and the DOM invariants are green.
+- The forced-colours screenshot is Chromium's emulation with the system light palette, not real Windows High Contrast — the same caveat the review records.
+- The plan's own numbers that were not met are in the table above; nothing else in the 19.0 acceptance was skipped.
+
+
 ## [18.0.0] - 2026-10-14
 
 The workbench becomes a reader. 17.0 made the answer a piece of reading; this release makes the app one — a first run that asks for one decision, a settings surface of three groups, chrome that leaves when you are reading, a cost line under every answer, and the first performance budgets the project has ever had.

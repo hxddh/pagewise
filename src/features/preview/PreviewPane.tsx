@@ -21,13 +21,15 @@ import { MarkLayer } from "./MarkLayer";
 import { FindingLayer } from "./FindingLayer";
 import { RegionSelectLayer } from "./RegionSelectLayer";
 import { PageScroller } from "./PageScroller";
+import { PageGutter, type PageMarginBox } from "./PageGutter";
+import { ReadingLine } from "./ReadingLine";
 import { regionSnapshot } from "./region-snapshot";
 import { MarkNote } from "./MarkNote";
 import { useMarkRevision } from "./useMarks";
 import { useRevealedCitation, useSearchHit } from "./useSearchHit";
 import { CitationHighlight, type RevealedCitation } from "./CitationHighlight";
 import { sidebarTabState } from "./sidebar-tabs";
-import { addMark, getMarks, marksAreStale } from "../../lib/mark-store";
+import { addMark, getMarks } from "../../lib/mark-store";
 import { extractRegion } from "../../lib/pdf";
 import { pageRuns } from "../../lib/finding-anchors";
 import { wordsInRegion } from "../../lib/ocr/ocr-region";
@@ -39,10 +41,10 @@ import { Button } from "../../components/ui/Button";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
 import { OutlineSidebar } from "../../components/OutlineSidebar";
-import { MarkSidebar } from "../../components/MarkSidebar";
 import { usableOutline } from "../../lib/outline-nav";
 import { DocumentSearch } from "../../components/DocumentSearch";
 import { Tabs } from "../../components/ui/Tabs";
+import type { PageCitation } from "../../lib/page-citations";
 
 /** How long the page has to stay put before it counts as being read. */
 const INDEX_SETTLE_MS = 500;
@@ -57,8 +59,15 @@ interface PreviewPaneProps {
   /** The record entry the reader picked in the other column, if any. */
   selectedFindingId?: string | null;
   onSelectFinding?: (id: string | null) => void;
+  /** The mark the reader picked — on the page, in the margin, or in the record. */
+  selectedMarkId?: string | null;
+  onSelectMark?: (id: string | null) => void;
   /** A citation the reader followed from an answer, to light on its page. */
   revealedCitation?: RevealedCitation | null;
+  /** Answers citing each page, for the margin's indigo dots. */
+  citations?: Map<number, PageCitation[]> | null;
+  /** Bring the answer that cited a page back in front of the reader. */
+  onRevealMessage?: (messageId: string) => void;
 }
 
 function PreviewPaneInner({
@@ -70,13 +79,16 @@ function PreviewPaneInner({
   onAskAboutSelection,
   selectedFindingId = null,
   onSelectFinding,
+  selectedMarkId = null,
+  onSelectMark,
   revealedCitation = null,
+  citations = null,
+  onRevealMessage,
 }: PreviewPaneProps) {
   const { t } = useI18n();
   const { showToast } = useToast();
   const [thumbsVisible, setThumbsVisible] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"pages" | "outline" | "marks">("pages");
-  const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
   const [regionMode, setRegionMode] = useState(false);
   const markRevision = useMarkRevision(doc.path);
   // What the reader searched for when they jumped here, so the hit can be
@@ -177,7 +189,7 @@ function PreviewPaneInner({
                 text,
                 stamp: doc.stamp ?? "",
               });
-              if (mark) setSelectedMarkId(mark.id);
+              if (mark) onSelectMark?.(mark.id);
               else showToast(t("marks.capReached"), "error");
             } catch {
               // Nothing to place the mark against; leaving the page unmarked is
@@ -348,7 +360,7 @@ function PreviewPaneInner({
                   stamp: doc.stamp ?? "",
                   kind: "region",
                 });
-                if (mark) setSelectedMarkId(mark.id);
+                if (mark) onSelectMark?.(mark.id);
                 else showToast(t("marks.capReached"), "error");
               } catch {
                 // Nothing to place the mark against.
@@ -361,7 +373,7 @@ function PreviewPaneInner({
           page={slotPage}
           revision={markRevision}
           selectedId={selectedMarkId}
-          onSelect={setSelectedMarkId}
+          onSelect={(id) => onSelectMark?.(id)}
         />
         <FindingLayer
           path={doc.path}
@@ -395,9 +407,35 @@ function PreviewPaneInner({
       selectedMarkId,
       selectedFindingId,
       onSelectFinding,
+      onSelectMark,
       showToast,
       t,
     ],
+  );
+
+  // The margin, one strip per mounted page. Its dots are the three things the
+  // page carries beyond its own text: what the reader marked, what the
+  // assistant concluded, and which answers talked about it.
+  const renderGutter = useCallback(
+    (slotPage: number, box: PageMarginBox) => (
+      <PageGutter
+        path={doc.path}
+        page={slotPage}
+        box={box}
+        revision={markRevision}
+        citations={citations}
+        onSelectMark={(target, id) => {
+          onPageChange(target);
+          onSelectMark?.(id);
+        }}
+        onSelectFinding={(id, target) => {
+          onPageChange(target);
+          onSelectFinding?.(id);
+        }}
+        onRevealMessage={onRevealMessage}
+      />
+    ),
+    [doc.path, markRevision, citations, onPageChange, onSelectMark, onSelectFinding, onRevealMessage],
   );
 
   const canvasBody = (
@@ -435,12 +473,17 @@ function PreviewPaneInner({
           quality={viewer.quality}
           containerRef={bindScroller}
           renderOverlays={renderOverlays}
+          renderGutter={renderGutter}
         />
       ) : (
         <div className="preview-page-frame">
           <img src={convertFileSrc(doc.path)} alt={doc.name} className="preview-image" />
         </div>
       )}
+      {/* What the document is being read as, and the way to stop it (19.0).
+          In the chrome rather than on a page: a sweep is the document's, and
+          it outlives any one page being scrolled past. */}
+      <ReadingLine path={doc.path} />
     </>
   );
 
@@ -486,26 +529,18 @@ function PreviewPaneInner({
   // Recovered from the page text when the document was opened; a document with
   // no headings simply has no tab to switch to.
   const outline = usableOutline(doc.outline, doc.totalPages);
-  // Derived together, so the three cannot disagree — see `sidebar-tabs.ts` for
+  // Derived together, so the two cannot disagree — see `sidebar-tabs.ts` for
   // the two-tabs-selected-at-once bug that is about.
-  const { showOutline, showMarks } = sidebarTabState(sidebarTab, outline.length > 0);
+  const { showOutline } = sidebarTabState(sidebarTab, outline.length > 0);
   const marks = (void markRevision, getMarks(doc.path));
   const selectedMark = marks.find((m) => m.id === selectedMarkId) ?? null;
-  // Marks made against a different version of this file. Unlike the page index,
-  // which is discarded when the file changes because it can be recomputed, the
-  // reader's own marks are kept — the rectangles may now point at the wrong
-  // place, but only the reader can judge that, and the snapshot still says what
-  // was marked.
-  const staleMarks = marksAreStale(doc.path, doc.stamp ?? "");
   const sidebarTabs = (
     <Tabs
       items={[
         { id: "pages", label: t("preview.pages") },
-        // The tabs are always shown now that marks need reaching, so a document
-        // without a recovered outline disables this one rather than offering a
-        // tab that silently falls back to pages.
+        // A document without a recovered outline disables this tab rather than
+        // offering one that silently falls back to pages.
         { id: "outline", label: t("preview.outline"), disabled: outline.length === 0 },
-        { id: "marks", label: t("preview.marks") },
       ]}
       value={sidebarTab}
       onChange={setSidebarTab}
@@ -524,36 +559,7 @@ function PreviewPaneInner({
       />
 
       {thumbsVisible &&
-        (showMarks ? (
-          <MarkSidebar
-            path={doc.path}
-            revision={markRevision}
-            currentPage={page}
-            selectedId={selectedMarkId}
-            stale={staleMarks}
-            tabs={sidebarTabs}
-            onSelect={(target, id) => {
-              onPageChange(target);
-              setSelectedMarkId(id);
-            }}
-            onAsk={
-              onAskAboutSelection
-                ? (mark) => {
-                    // The page number goes in the text because that is what the
-                    // assistant can act on: it turns "this mark" into a page it
-                    // can read. A region mark often has no words at all, so it
-                    // says where rather than what.
-                    const text = mark.text.trim();
-                    onAskAboutSelection(
-                      text
-                        ? t("marks.askQuoted", { page: mark.page, text })
-                        : t("marks.askRegion", { page: mark.page }),
-                    );
-                  }
-                : undefined
-            }
-          />
-        ) : showOutline ? (
+        (showOutline ? (
           <OutlineSidebar
             outline={outline}
             currentPage={page}
@@ -590,7 +596,7 @@ function PreviewPaneInner({
           path={doc.path}
           mark={selectedMark}
           currentStamp={doc.stamp ?? ""}
-          onClose={() => setSelectedMarkId(null)}
+          onClose={() => onSelectMark?.(null)}
         />
       )}
 

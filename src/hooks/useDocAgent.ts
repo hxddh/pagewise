@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import type { ChatStatus } from "ai";
 import { beginAgentMessage, rollbackAgentMessage, type AgentMessageContext } from "../lib/agent-view-context";
 import { sendWithImageFallback } from "../lib/agent-send";
 import { createDocAgent } from "../lib/agent";
@@ -39,6 +40,43 @@ export interface SendDocumentMessageOptions {
 }
 
 export type RegenerateDocumentMessageOptions = Omit<SendDocumentMessageOptions, "text">;
+
+/**
+ * `useDocAgent`, grouped: the transcript, the run, the history.
+ *
+ * `run.steer` returns false when the run will not take a correction;
+ * `run.reset` clears everything a document switch must not carry over.
+ */
+export interface DocAgent {
+  messages: {
+    list: PageWiseUIMessage[];
+    set: ReturnType<typeof useChat<PageWiseUIMessage>>["setMessages"];
+    /** Stop whatever is running and empty the conversation. */
+    clear: () => void;
+  };
+  run: {
+    status: ChatStatus;
+    error: Error | undefined;
+    errorMessage: string | undefined;
+    /** The activity line while the run is working, already translated. */
+    progress: string | null;
+    /** True while a send is being prepared, or a stream is open. */
+    isBusy: () => boolean;
+    send: (opts: SendDocumentMessageOptions) => Promise<boolean>;
+    edit: (messageId: string, opts: SendDocumentMessageOptions) => Promise<boolean>;
+    regenerate: (opts: RegenerateDocumentMessageOptions) => Promise<boolean>;
+    stop: () => void;
+    steer: (text: string) => boolean;
+    waitForIdle: () => Promise<boolean>;
+    clearError: () => void;
+    reset: () => void;
+    abort: () => void;
+  };
+  history: {
+    settling: boolean;
+    chatId: string;
+  };
+}
 
 function createTransport(
   agent: ReturnType<typeof createDocAgent>,
@@ -204,13 +242,9 @@ export function useDocAgent(chatId: string | null = null) {
     setSendPhase(false);
     setHistorySettling(false);
     pendingSendContextRef.current = null;
-    // The same clear `resetForDocumentSwitch` does. It was only there, so the
-    // guarantee — document A's "send the page screenshot" and "use web search"
-    // must not apply to document B's Regenerate — held because every caller
-    // remembered to call it. A conversation id changing by any other route
-    // would have carried the options across. Clearing here as well makes it a
-    // property of the hook rather than of its callers; both paths are
-    // idempotent.
+    // The same clear `resetForDocumentSwitch` does, made a property of the
+    // hook rather than of its callers: document A's "send the page screenshot"
+    // and "use web search" must not apply to document B's Regenerate.
     lastSendOptionsRef.current = null;
     clearAgentRunAbortSignal();
     chat.stop();
@@ -285,9 +319,8 @@ export function useDocAgent(chatId: string | null = null) {
       return false;
     }
     // Only block a send on hard errors (missing model id / base URL). The
-    // tool-capability check is a heuristic guess — don't pre-block the agent on
-    // it; let the model try and surface the real provider error. Settings still
-    // shows the capability warning via validateAgentModel.
+    // tool-capability check is a heuristic guess; the provider surfaces the
+    // real error instead. Settings still warns via validateAgentModel.
     const modelError = validateModel(settings, t);
     if (modelError) {
       setSendError(new Error(modelError));
@@ -312,8 +345,7 @@ export function useDocAgent(chatId: string | null = null) {
       (prev) =>
         sanitizeMessagesForChat(
           // All history screenshots are stale here — the current turn's is
-          // added separately by sendMessage(), so keepLastUser=false. Prevents
-          // re-sending prior screenshots (linear request-body growth).
+          // added by sendMessage() — so keepLastUser=false.
           stripStaleScreenshotParts(
             stripUserFileParts(
               sanitizeDanglingToolParts(pruneToolOutputsForHistory(prev)),
@@ -361,17 +393,11 @@ export function useDocAgent(chatId: string | null = null) {
   );
 
   /**
-   * Hand a correction to the run that is already going.
-   *
-   * Two things have to happen and they are easy to separate by mistake: the note
-   * goes into the loop's next step (agent-steer), and it goes into the
-   * transcript. Without the second the reader watches their words vanish — the
-   * composer clears, the answer changes, and there is no record of why. It lands
-   * as another text part on the user turn that started the run, so it survives a
-   * reload and reads as what it was: the reader saying two things about one
-   * question.
-   *
-   * Returns false when the run would not take it, so the caller can fall back.
+   * Hand a correction to the run that is already going: the note goes into the
+   * loop's next step (agent-steer) and into the transcript — without the second
+   * the reader watches their words vanish. It lands as another text part on the
+   * user turn that started the run, so it survives a reload. Returns false when
+   * the run would not take it, so the caller can fall back.
    */
   const steerRun = useCallback(
     (text: string): boolean => {
@@ -578,11 +604,9 @@ export function useDocAgent(chatId: string | null = null) {
     [activeError, t],
   );
 
-  // User-facing Stop: aborts whichever phase is active. During an active stream,
-  // chat.stop() ends it (its finally resets send state). Before the stream starts
-  // — the send/capture phase — abort the pending send instead; calling
-  // abortPendingSend mid-stream would bump the send generation and leave
-  // sendingRef/sendPhase stuck, so gate on chat status.
+  // User-facing Stop: chat.stop() ends an active stream; before the stream
+  // starts, abort the pending send instead (calling abortPendingSend mid-stream
+  // would bump the send generation and leave sendPhase stuck).
   const stopAll = useCallback(() => {
     if (chat.status === "streaming" || chat.status === "submitted") {
       chat.stop();
@@ -607,43 +631,52 @@ export function useDocAgent(chatId: string | null = null) {
     });
   }, [chat.stop, abortPendingSend]);
 
-  return useMemo(
+  return useMemo<DocAgent>(
     () => ({
-      messages: chat.messages,
-      sendDocumentMessage,
-      editUserMessage,
-      regenerateDocumentMessage,
-      streamProgress,
-      status: chat.status,
-      error: activeError,
-      errorMessage,
-      stop: stopAll,
-      steerRun,
-      setMessages: chat.setMessages,
-      clearError: chat.clearError,
-      clearChat,
-      historySettling,
-      chatId: resolvedChatId,
-      resetForDocumentSwitch: () => {
-        agentGenRef.current += 1;
-        abortPendingSend();
-        sendGenRef.current += 1;
-        // Per-message options must not leak into the next document's
-        // Retry/Regenerate (e.g. doc A's include-page choice applied to doc B).
-        lastSendOptionsRef.current = null;
-        if (pruneTimeoutRef.current != null) {
-          window.clearTimeout(pruneTimeoutRef.current);
-          pruneTimeoutRef.current = null;
-        }
-        chat.stop();
-        clearAgentRunAbortSignal();
-        chat.clearError();
-        setSendError(undefined);
-        setStreamProgress(null);
+      // The transcript, as the app writes and reads it.
+      messages: {
+        list: chat.messages,
+        set: chat.setMessages,
+        clear: clearChat,
       },
-      isAgentBusy: () => isAgentBusyRef.current(),
-      abortPendingSend,
-      waitForStreamIdle: waitForStreamIdleFn,
+      // The run: sending, steering, stopping, and the state that describes it.
+      run: {
+        status: chat.status,
+        error: activeError,
+        errorMessage,
+        progress: streamProgress,
+        isBusy: () => isAgentBusyRef.current(),
+        send: sendDocumentMessage,
+        edit: editUserMessage,
+        regenerate: regenerateDocumentMessage,
+        stop: stopAll,
+        steer: steerRun,
+        waitForIdle: waitForStreamIdleFn,
+        clearError: chat.clearError,
+        reset: () => {
+          agentGenRef.current += 1;
+          abortPendingSend();
+          sendGenRef.current += 1;
+          // Per-message options must not leak into the next document's
+          // Retry/Regenerate (e.g. doc A's include-page choice applied to doc B).
+          lastSendOptionsRef.current = null;
+          if (pruneTimeoutRef.current != null) {
+            window.clearTimeout(pruneTimeoutRef.current);
+            pruneTimeoutRef.current = null;
+          }
+          chat.stop();
+          clearAgentRunAbortSignal();
+          chat.clearError();
+          setSendError(undefined);
+          setStreamProgress(null);
+        },
+        abort: abortPendingSend,
+      },
+      // How the transcript settles after a run, and which conversation it is.
+      history: {
+        settling: historySettling,
+        chatId: resolvedChatId,
+      },
     }),
     [
       chat.messages,

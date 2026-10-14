@@ -194,14 +194,23 @@ await page.getByRole("button", { name: /open document/i }).first().click();
 await page.waitForTimeout(4000);
 await shoot(page, "02-document");
 
-// The page/outline/marks sidebar. It only exists for a multi-page document —
-// PreviewToolbar hides the control behind `totalPages > 1` — which is why the
+// The pages/outline sidebar. It only exists for a multi-page document — the
+// thumbnails control is hidden behind `totalPages > 1` — which is why the
 // harness needed a three-page fixture before this screen could be photographed
 // at all.
-await page.getByRole("button", { name: /thumbnails/i }).first().click();
-await page.waitForTimeout(1500);
+//
+// Since 19.0 the control is a row in the header's overflow menu (the two
+// headers became one strip, and thumbnails moved in with the rest of the
+// occasional actions), so the menu has to be opened first.
+const toggleThumbnails = async () => {
+  await page.getByRole("button", { name: /more actions/i }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole("menuitem", { name: /thumbnails/i }).first().click();
+  await page.waitForTimeout(1200);
+};
+await toggleThumbnails();
 await shoot(page, "03-sidebar");
-await page.getByRole("button", { name: /thumbnails/i }).first().click();
+await toggleThumbnails();
 await page.waitForTimeout(600);
 
 // Search before settings: 8.1.0's bug lived here, and a guard that never opens
@@ -289,23 +298,25 @@ await shoot(page, "09-record");
 await page.getByRole("tab", { name: /^chat$/i }).first().click();
 await page.waitForTimeout(600);
 
-// The command palette and the marks sidebar. Neither was ever photographed,
-// and both carry a "this one is selected" treatment of their own — which is
-// the thing 11.0 is collapsing, so they have to be in the before-and-after.
+// The command palette and the page sidebar's outline tab. Both carry a "this
+// one is selected" treatment of their own — which is the thing 11.0 is
+// collapsing, so they have to be in the before-and-after.
 await page.keyboard.press("Control+k");
 await page.waitForTimeout(900);
 await shoot(page, "10-palette");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(500);
 
-await page.getByRole("button", { name: /thumbnails/i }).first().click();
-await page.waitForTimeout(1200);
+await toggleThumbnails();
 await page.getByRole("tab", { name: /outline/i }).first().click();
 await page.waitForTimeout(800);
 await shoot(page, "11-outline");
-await page.getByRole("tab", { name: /marks/i }).first().click();
-await page.waitForTimeout(800);
-await shoot(page, "12-marks");
+// 12 used to be the marks tab. 19.0 moved the marks to the page margin and to
+// the record panel's Marks section, so there is no third tab to photograph:
+// the margin shows in 08 (a finding drawn on its page) and the list in 09.
+await page.getByRole("tab", { name: /^pages$/i }).first().click();
+await page.waitForTimeout(600);
+await shoot(page, "12-pages");
 
 await browser.close();
 

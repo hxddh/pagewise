@@ -12,6 +12,7 @@ import { raceWithAbort, throwIfAborted } from "./abort-utils";
 import { ensureProviderCompatibleImage } from "./image-transcode";
 import { isTauriRuntime } from "./runtime";
 import { insertionIndex, type RenderPriority } from "./render-queue-order";
+import { createRenderIdleGate } from "./render-idle";
 import { normalizeLabels } from "./page-labels";
 import {
   MAX_ANNOTATIONS,
@@ -313,33 +314,46 @@ function storePageCache(key: string, snap: PageRenderSnapshot): void {
   evictPageCache();
 }
 
+/**
+ * The reader's own renders hold this gate; OCR and vision wait on it.
+ *
+ * See `render-idle.ts`: a detached paint is the same document and the same
+ * main thread, so a page being recognised used to compete with the page being
+ * read. The gate makes that one-directional — the raster never waits on OCR.
+ */
+const displayGate = createRenderIdleGate();
+
 function enqueueRender(priority: RenderPriority, run: () => Promise<void>): Promise<void> {
   const epoch = renderEpoch;
+  // Only what the reader is waiting for holds the gate. Thumbnails are
+  // detached work too: nobody is waiting on a thumbnail to read a page.
+  if (priority === "high") displayGate.hold();
   return new Promise((resolve, reject) => {
     let settled = false;
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (priority === "high") displayGate.release();
+      fn();
+    };
     const item: QueueItem = {
       priority,
       epoch,
       run: async () => {
         if (settled) return;
         if (item.epoch !== renderEpoch) {
-          settled = true;
-          resolve();
+          settle(resolve);
           return;
         }
         try {
           await run();
-          settled = true;
-          resolve();
+          settle(resolve);
         } catch (e) {
-          settled = true;
-          reject(e);
+          settle(() => reject(e));
         }
       },
       cancel: () => {
-        if (settled) return;
-        settled = true;
-        resolve();
+        settle(resolve);
       },
     };
 
@@ -1050,6 +1064,11 @@ async function paintDetached(
       if (pdfDocCache?.doc !== doc) throw new StalePdfLoadError(path);
       const page = await settledAcrossReset(path, epoch, doc.getPage(pageNumber));
       const canvas = document.createElement("canvas");
+      // The reader's own rendering goes first (19.0). A detached paint is the
+      // same document on the same main thread at a larger size, and a page
+      // being read must never wait on a page being recognised.
+      await displayGate.whenIdle();
+      throwIfAborted(signal);
       const paint = await settledAcrossReset(
         path,
         epoch,

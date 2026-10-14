@@ -16,22 +16,6 @@
   overflow: hidden;
 }
 
-.panel-header-main {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  min-width: 0;
-  flex: 1;
-}
-
-.panel-header-main h2 {
-  margin: 0;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-
 .chat-column {
   flex-shrink: 0;
   display: flex;

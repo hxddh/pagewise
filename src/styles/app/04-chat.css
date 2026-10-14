@@ -19,23 +19,6 @@
   position: relative;
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-md) var(--space-lg);
-  border-bottom: 1px solid var(--border-subtle);
-  min-height: 40px;
-  flex-shrink: 0;
-}
-
-.panel-header h2 {
-  margin: 0;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
 .sr-only {
   position: absolute;
   width: 1px;
@@ -62,29 +45,6 @@
   flex-direction: column;
   gap: var(--space-xl);
   min-height: 0;
-}
-
-/* Conversation search, opened with the find chord while the chat has focus. */
-.chat-search {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-lg);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-  flex-shrink: 0;
-}
-
-.chat-search-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.chat-search-count {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 .message {
@@ -1157,4 +1117,69 @@ button.pages-read-chip:hover {
 .record-none {
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+/*
+ * The reader's marks, at the foot of the document's ledger (19.0). They used to
+ * be a page-sidebar tab; the page now carries the dots (`.page-gutter`) and
+ * this is the list that holds all of them.
+ */
+.record-marks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.record-marks-title { margin: 0; font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+
+.record-mark-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.record-mark {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-xs);
+}
+
+/* Placement on the shared primitive: a row whose text fills the width. */
+.record-mark-row {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: var(--space-md);
+}
+
+.record-mark-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-mark-page {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.record-mark-here {
+  color: var(--accent);
+}
+
+.record-mark-delete {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.record-mark-delete:hover {
+  color: var(--danger);
 }

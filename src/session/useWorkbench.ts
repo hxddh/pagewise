@@ -1,14 +1,14 @@
-import { clearCitationChecks } from "../lib/citation-check";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+/**
+ * The workbench: everything one open document session needs, as a hook.
+ *
+ * This was `SessionProvider` — a context with thirty fields and exactly one
+ * consumer (`App`). With one reader the indirection bought nothing, and the
+ * body (document switching, chat persistence, the export actions) was harder
+ * to find than the code that used it. The return is three groups rather than
+ * thirty fields, and per-document module state is closed through
+ * `document-scope.ts` instead of a hand-written teardown list.
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -17,13 +17,12 @@ import {
   loadDocument,
 } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
-import { flushMarkStore, forgetMarks, getMarks, loadMarks } from "../lib/mark-store";
-import { flushFindingStore, forgetFindings, loadFindings, subscribeFindings } from "../lib/finding-store";
-import { clearFindingAnchors, prewarmPlacements } from "../lib/finding-anchors";
+import { getMarks, loadMarks } from "../lib/mark-store";
+import { loadFindings, subscribeFindings } from "../lib/finding-store";
+import { prewarmPlacements } from "../lib/finding-anchors";
 import { trustedFindings } from "../lib/agent-record-context";
 import { TRUST_DOUBTFUL } from "../lib/finding-trust";
 import { briefToMarkdown, BRIEF_LABELS_EN, BRIEF_LABELS_ZH } from "../lib/export-brief";
-import { clearPdfCache, setActivePdfPath } from "../lib/pdf";
 import {
   addRecentFile,
   getRecentFiles,
@@ -33,14 +32,13 @@ import {
   type RecentFile,
 } from "../lib/recent-files";
 import { restoreAllowedPaths } from "../lib/allowed-paths";
-import { cancelIndex, reindexDocument } from "../document/index-queue";
-import { forgetOcr } from "../lib/ocr/ocr-service";
-import { clearReviews } from "../lib/claim-review";
+import { reindexDocument } from "../document/index-queue";
 import { evidenceAnnotations, saveAnnotatedPdf, type AnnotationLabels } from "../lib/export-annotated";
 import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
-import { useDocAgent } from "../hooks/useDocAgent";
+import { createDocumentScope, type DocumentScope } from "../lib/document-scope";
+import { useDocAgent, type DocAgent } from "../hooks/useDocAgent";
 import { useConnectionStatus } from "../hooks/useConnectionStatus";
 import { useResizeWidth } from "../hooks/useResizeWidth";
 import { useTauriFileDrop } from "../hooks/useTauriFileDrop";
@@ -52,55 +50,51 @@ import { chatToMarkdown } from "../lib/export-markdown";
 import { saveMarkdownFile } from "../lib/save-markdown";
 import type { LoadedDocument } from "../lib/types";
 import type { LoadProgress } from "../lib/load-progress";
-import { clearAgentMessageContext } from "../lib/agent-view-context";
 
 export type AppPhase = "empty" | "switching" | "ready";
 
-interface SessionContextValue {
-  phase: AppPhase;
-  document: LoadedDocument | null;
-  previewPage: number;
-  setPreviewPage: (page: number) => void;
-  fileError: string | null;
-  clearFileError: () => void;
-  loading: boolean;
-  chatLoading: boolean;
-  progress: LoadProgress | null;
-  recentFiles: RecentFile[];
-  openFileDialog: () => void;
-  openPath: (path: string) => void;
-  removeRecent: (path: string) => Promise<void>;
-  reindexDoc: () => void;
-  agentOpen: boolean;
-  setAgentOpen: (open: boolean) => void;
-  agent: ReturnType<typeof useDocAgent>;
-  connection: ReturnType<typeof useConnectionStatus>;
-  chatWidth: number;
-  onPointerDown: (e: React.PointerEvent) => void;
-  nudgeWidth: (delta: number) => void;
-  minWidth: number;
-  maxWidth: number;
-  settingsOpen: boolean;
-  setSettingsOpen: (open: boolean) => void;
-  clearChat: () => Promise<void>;
-  exportChat: () => Promise<void>;
-  /**
-   * The report (16.0): the record — each finding with its page and how it was
-   * checked — and the reader's marks, with the document's text appended on
-   * request. Replaces the separate brief, marks and document exports.
-   */
-  exportReport: (options?: { includeText?: boolean }) => Promise<void>;
-  /** A copy of the PDF with located findings and marks written in as annotations (14.1). */
-  exportAnnotatedPdf: () => Promise<void>;
-  isDragging: boolean;
-}
-
-const SessionContext = createContext<SessionContextValue | null>(null);
-
-export function useSession(): SessionContextValue {
-  const ctx = useContext(SessionContext);
-  if (!ctx) throw new Error("useSession must be used within SessionProvider");
-  return ctx;
+export interface Workbench {
+  /** The open document, its load state, and the reading position. */
+  document: {
+    phase: AppPhase;
+    doc: LoadedDocument | null;
+    /** The page the reader is on. */
+    page: number;
+    setPage: (page: number) => void;
+    chatLoading: boolean;
+    progress: LoadProgress | null;
+    reindex: () => void;
+    /** The last open failure, and the way to dismiss it. */
+    fileError: { message: string | null; clear: () => void };
+    dragging: boolean;
+  };
+  /** Opening files, by any of the routes that reach them. */
+  library: {
+    recentFiles: RecentFile[];
+    openFileDialog: () => void;
+    openPath: (path: string) => void;
+    removeRecent: (path: string) => Promise<void>;
+  };
+  /** The assistant column: its run, its visibility, and what it can write out. */
+  assistant: {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+    agent: DocAgent;
+    connection: ReturnType<typeof useConnectionStatus>;
+    clearChat: () => Promise<void>;
+    /** One way out for everything the app writes (16.0). */
+    exports: {
+      chat: () => Promise<void>;
+      report: (options?: { includeText?: boolean }) => Promise<void>;
+      annotatedPdf: () => Promise<void>;
+    };
+    /** Window chrome the shell renders around the columns. */
+    shell: {
+      settingsOpen: boolean;
+      setSettingsOpen: (open: boolean) => void;
+      resize: ReturnType<typeof useResizeWidth>;
+    };
+  };
 }
 
 const DOCUMENT_FILTERS = [
@@ -112,7 +106,7 @@ const DOCUMENT_FILTERS = [
   { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"] },
 ];
 
-export function SessionProvider({ children }: { children: ReactNode }) {
+export function useWorkbench(): Workbench {
   const { t, locale } = useI18n();
   const { showToast } = useToast();
 
@@ -124,8 +118,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [chatLoading, setChatLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
-  // Read synchronously while opening, to know where the reader left off
-  // before the first page is drawn.
+  // Read synchronously while opening: where the reader left off.
   const recentFilesRef = useRef<RecentFile[]>([]);
   recentFilesRef.current = recentFiles;
   const previewPageRef = useRef(1);
@@ -142,13 +135,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   loadingRef.current = loading;
   const loadAbortRef = useRef<AbortController | null>(null);
   const chatHydrateRef = useRef<{ path: string; messages: PageWiseUIMessage[] } | null>(null);
+  // The open document's module state. Disposed when the document is left.
+  const scopeRef = useRef<DocumentScope | null>(null);
 
   const chatId = document?.path ?? "pagewise-local";
   const agent = useDocAgent(chatId);
-  const agentSetMessagesRef = useRef(agent.setMessages);
-  agentSetMessagesRef.current = agent.setMessages;
-  const messagesRef = useRef(agent.messages);
-  messagesRef.current = agent.messages;
+  const agentSetMessagesRef = useRef(agent.messages.set);
+  agentSetMessagesRef.current = agent.messages.set;
+  const messagesRef = useRef(agent.messages.list);
+  messagesRef.current = agent.messages.list;
   const connection = useConnectionStatus();
   const resize = useResizeWidth();
 
@@ -197,8 +192,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const flushChatNow = useCallback(
     () =>
       flushChat({
-        waitForStreamIdle: () => agent.waitForStreamIdle(),
-        stop: () => agent.stop(),
+        waitForStreamIdle: () => agent.run.waitForIdle(),
+        stop: () => agent.run.stop(),
         getPath: () => documentRef.current?.path,
         getMessages: () => messagesRef.current,
         clearAutosave: () => {
@@ -211,16 +206,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }),
     [agent],
   );
-  // `flushChatNow` changes identity on every streamed chunk (its dep `agent` is
-  // re-memoized per chunk). Route the close handler through a ref so its effect
-  // registers ONCE instead of tearing down / re-registering the Tauri
-  // onCloseRequested listener hundreds of times during a reply (and briefly
-  // leaving no handler installed between unlisten and re-register).
+  // `flushChatNow` changes identity on every streamed chunk, so the close
+  // handler reads it through a ref: the Tauri onCloseRequested listener
+  // registers once instead of re-registering hundreds of times per reply.
   const flushChatNowRef = useRef(flushChatNow);
   flushChatNowRef.current = flushChatNow;
 
   useEffect(() => {
-    if (!document?.path || agent.messages.length === 0) return;
+    if (!document?.path || agent.messages.list.length === 0) return;
     if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
       const path = documentRef.current?.path;
@@ -233,14 +226,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current);
     };
-  }, [document?.path, agent.messages]);
+  }, [document?.path, agent.messages.list]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    // Registration is async; if the effect is torn down (e.g. a rapid document
-    // switch recreates flushChatNow) before it resolves, `unlisten` is still
-    // undefined and the cleanup can't remove the handler. Track cancellation so
-    // the resolved listener is removed immediately instead of leaking.
+    // Registration is async: if the effect tears down before it resolves,
+    // `unlisten` is still undefined and the cleanup cannot remove the handler.
+    // Track cancellation so the resolved listener is removed instead of leaking.
     let cancelled = false;
     void (async () => {
       const win = getCurrentWindow();
@@ -267,9 +259,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // Registered once; the handler reads the latest flush via ref.
   }, []);
 
-  // What the library row says about a document: where the reader is, how many
-  // entries the record holds, and how many are waiting on them. Best-effort,
-  // and written only when it changed — `updateRecentProgress` compares.
+  // What the library row says about a document, best-effort and written only
+  // when it changed: position, entries kept, entries waiting.
   const recordProgress = useCallback(
     async (path: string, page: number, totalPages: number) => {
       try {
@@ -323,19 +314,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setProgress({ stage: "opening", message: "load.opening", percent: 0 });
       setFileError(null);
 
-      await agent.waitForStreamIdle();
-      // Stamp finishedAt deterministically: an aborted last message's onFinish
-      // setMessages may not have flushed to messagesRef before this snapshot,
-      // which would persist it without a finish time (inflated duration on
-      // reopen).
+      await agent.run.waitForIdle();
+      // Stamp finishedAt deterministically: an aborted last message's
+      // setMessages may not have flushed to messagesRef before this snapshot.
       const messagesToSave = stampMissingFinishedAt([...messagesRef.current], Date.now());
-      agent.stop();
-      agent.resetForDocumentSwitch();
-      clearAgentMessageContext();
+      agent.run.stop();
+      agent.run.reset();
 
       if (prevPath) {
-        // Where the reader was in the document being closed, before anything
-        // about it is forgotten.
         void recordProgress(prevPath, previewPageRef.current, prev?.totalPages ?? 0);
         try {
           await saveChat(prevPath, messagesToSave, prev?.identity);
@@ -361,9 +347,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         if (epochRef.current !== myEpoch) return;
 
-        // Chat-history corruption is recoverable (start with an empty thread);
-        // failing the whole document open over it is not. Never let loadChat
-        // reject bubble into the document-load catch below.
+        // Chat-history corruption is recoverable; failing the whole open over
+        // it is not.
         let messages: PageWiseUIMessage[] = [];
         try {
           messages = (await loadChat(path, staged.identity)) as PageWiseUIMessage[];
@@ -373,31 +358,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         if (epochRef.current !== myEpoch) return;
 
-        if (prevPath) {
-          cancelIndex(prevPath);
-          forgetOcr(prevPath);
-          docCache.remove(prevPath);
-          // Marks are the reader's own work, so the stored copy stays; only the
-          // in-memory copy for the document being closed goes.
-          void flushMarkStore().then(() => forgetMarks(prevPath));
-          void flushFindingStore().then(() => forgetFindings(prevPath));
-          // Where those findings were located on the page. Derived from the
-          // file, never stored, so it goes when the file is closed rather than
-          // outliving the document it describes.
-          clearFindingAnchors(prevPath);
-          clearCitationChecks(prevPath);
-          clearReviews(prevPath);
-        }
+        // Every per-document cache for the document being left, closed in one
+        // place (see `document-scope.ts`) — this used to be a hand-kept list.
+        scopeRef.current?.dispose();
+        scopeRef.current = null;
 
         const doc = commitLoadedDocument(staged);
-        clearPdfCache();
-        setActivePdfPath(doc.path);
-        // Marks are drawn synchronously from memory, so they load with the
-        // document rather than on first paint.
+        scopeRef.current = createDocumentScope(doc.path);
+        // Marks and findings are drawn synchronously from memory, so both load
+        // with the document rather than on first paint.
         await loadMarks(doc.path, doc.identity);
-        // The assistant's half of the same record. Loaded here rather than
-        // lazily, for the reason the marks are: the sidebar draws it from
-        // memory and must never await disk mid-render.
         const findings = await loadFindings(doc.path, doc.identity);
         // Where each finding's quote sits on the page, resolved once now so
         // the first question's record note can read it — see `trustOf`.
@@ -405,8 +375,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         chatHydrateRef.current = { path: doc.path, messages };
         setDocument(docCache.get(doc.path) ?? doc);
         // Back where the reader left off, when the library remembers and the
-        // page still exists. Page 1 otherwise — and page 1 for a document
-        // that was closed on page 1, which says nothing worth a toast.
+        // page still exists. Page 1 otherwise.
         const remembered = recentFilesRef.current.find((f) => f.path === doc.path)?.lastPage ?? 1;
         const resumeAt = remembered > 1 && remembered <= doc.totalPages ? remembered : 1;
         setPreviewPage(resumeAt);
@@ -428,25 +397,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
         if (e instanceof Error && e.name === "AbortError") return;
-        // Tauri rejects invoke() with a plain string, so a Rust-side load error
-        // ("Encrypted PDF requires a password", "File too large", …) arrives as
-        // a string, not an Error — read both so the real cause reaches the user
-        // instead of collapsing to the generic load.failed message.
+        // Tauri rejects invoke() with a plain string, so a Rust-side load
+        // error ("Encrypted PDF requires a password", …) arrives as a string,
+        // not an Error — read both so the real cause reaches the user.
         const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
         const msg =
           raw === "errors.unsupportedFile" || raw.startsWith("errors.")
             ? t(raw)
             : raw || t("load.failed");
-        // The banner only, not a toast as well. Both surfaces are fixed to the
-        // top-right corner — `.file-error-banner` at top:12/right:12, the toast
-        // viewport at top:16/right:16 — so reporting one failure through both
-        // drew the same sentence twice, and the toast's own close button landed
-        // exactly on top of the banner's Dismiss (measured: elementFromPoint at
-        // the banner button's centre returned `.toast-close`). The banner was
-        // literally not dismissable until the toast expired.
-        //
-        // The banner is the surface that survives: a load failure is a state the
-        // reader is left in, not an event that passed.
+        // The banner only, not a toast as well: both sat in the same top-right
+        // corner and the toast covered the banner's Dismiss (16.0 moved toasts
+        // to the bottom left; css-hygiene asserts the corners). A load failure
+        // is a state the reader is left in, not an event.
         setFileError(msg);
         setPhase(prev ? "ready" : "empty");
         setChatLoading(false);
@@ -505,14 +467,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (isSupportedDocument(path)) void switchDocument(path);
   });
 
-  const reindexDoc = useCallback(() => {
+  const reindex = useCallback(() => {
     const path = documentRef.current?.path;
     if (!path) return;
     const pages = reindexDocument(path);
     // The budget governs how many pages a re-index rescans, and it can be zero.
-    // The message used to name a hardcoded 50 either way, so it was wrong for
-    // anyone who had changed the setting and a flat untruth for anyone who had
-    // turned it off.
     if (pages === 0) {
       showToast(t("toast.reindexNothingToDo"), "default");
       return;
@@ -520,10 +479,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     showToast(t("toast.reindexStarted", { pages }), "default");
   }, [showToast, t]);
 
-  // Clamp preview jumps: models cite printed/hallucinated page numbers, and an
-  // out-of-range page would leave the canvas stuck on the old page with the
-  // toolbar showing e.g. "57 / 30".
-  const setPreviewPageClamped = useCallback((page: number) => {
+  // Clamp preview jumps: models cite printed or hallucinated page numbers, and
+  // an out-of-range page would leave the canvas stuck on the old page.
+  const setPage = useCallback((page: number) => {
     if (!Number.isFinite(page)) return;
     const total = documentRef.current?.totalPages ?? 0;
     const target = Math.max(1, Math.round(page));
@@ -534,23 +492,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const doc = documentRef.current;
     if (!doc) return;
     // Cancel any pending autosave so a queued write can't re-persist the old
-    // messages after we delete them (the store lock serializes the two calls,
-    // but cancelling the timer avoids the race entirely).
+    // messages after we delete them.
     if (saveTimerRef.current !== undefined) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = undefined;
     }
-    agent.clearChat();
+    agent.messages.clear();
     await clearChatFile(doc.path);
   }, [agent]);
 
   const exportChat = useCallback(async () => {
     const doc = documentRef.current;
-    if (!doc || agent.messages.length === 0) {
+    if (!doc || agent.messages.list.length === 0) {
       showToast(t("toast.noMessages"), "error");
       return;
     }
-    const md = chatToMarkdown(agent.messages, doc.name);
+    const md = chatToMarkdown(agent.messages.list, doc.name);
     const name = doc.name.replace(/\.[^.]+$/, "") + "-chat.md";
     try {
       const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
@@ -558,7 +515,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch {
       showToast(t("toast.exportFailed"), "error");
     }
-  }, [agent.messages, showToast, t]);
+  }, [agent.messages.list, showToast, t]);
 
   const exportReport = useCallback(
     async (options: { includeText?: boolean } = {}) => {
@@ -615,65 +572,40 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [showToast, t]);
 
-  const value = useMemo<SessionContextValue>(
-    () => ({
+  return {
+    document: {
       phase,
-      document,
-      previewPage,
-      setPreviewPage: setPreviewPageClamped,
-      fileError,
-      clearFileError: () => setFileError(null),
-      loading,
+      doc: document,
+      page: previewPage,
+      setPage,
       chatLoading,
       progress,
+      reindex,
+      fileError: { message: fileError, clear: () => setFileError(null) },
+      dragging: isDragging,
+    },
+    library: {
       recentFiles,
       openFileDialog,
       openPath,
       removeRecent,
-      reindexDoc,
-      agentOpen,
-      setAgentOpen,
+    },
+    assistant: {
+      open: agentOpen,
+      setOpen: setAgentOpen,
       agent,
       connection,
-      chatWidth: resize.width,
-      onPointerDown: resize.onPointerDown,
-      nudgeWidth: resize.nudgeWidth,
-      minWidth: resize.min,
-      maxWidth: resize.max,
-      settingsOpen,
-      setSettingsOpen,
       clearChat,
-      exportChat,
-      exportReport,
-      exportAnnotatedPdf,
-      isDragging,
-    }),
-    [
-      phase,
-      document,
-      previewPage,
-      setPreviewPageClamped,
-      agent,
-      fileError,
-      loading,
-      chatLoading,
-      progress,
-      recentFiles,
-      openFileDialog,
-      openPath,
-      removeRecent,
-      reindexDoc,
-      agentOpen,
-      connection,
-      resize,
-      settingsOpen,
-      clearChat,
-      exportChat,
-      exportReport,
-      exportAnnotatedPdf,
-      isDragging,
-    ],
-  );
-
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+      exports: {
+        chat: exportChat,
+        report: exportReport,
+        annotatedPdf: exportAnnotatedPdf,
+      },
+      shell: {
+        settingsOpen,
+        setSettingsOpen,
+        resize,
+      },
+    },
+  };
 }

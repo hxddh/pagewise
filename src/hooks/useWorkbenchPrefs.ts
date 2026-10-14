@@ -46,18 +46,6 @@ export function useWorkbenchPrefs() {
     return p;
   }, []);
 
-  const toggleFollowAgent = useCallback(async () => {
-    const prev = followAgent;
-    const next = !prev;
-    setFollowAgent(next);
-    try {
-      const p = await patchPreferences({ followAgentDefault: next });
-      setPrefs(p);
-    } catch {
-      setFollowAgent(prev);
-    }
-  }, [followAgent]);
-
   const setIncludeViewingPageDefault = useCallback(async (value: boolean) => {
     const prev = includeViewingPage;
     setIncludeViewingPage(value);
@@ -85,7 +73,6 @@ export function useWorkbenchPrefs() {
     prefsRevision,
     followAgent,
     includeViewingPage,
-    toggleFollowAgent,
     setFollowAgentDefault,
     setIncludeViewingPageDefault,
     refreshPrefs,

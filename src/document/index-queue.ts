@@ -22,7 +22,7 @@ import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { emitPageIndex } from "../lib/index-events";
 import { forgetIndexedPages, rememberIndexedPage } from "../lib/index-store";
 import { recordVisionCall } from "../lib/usage-tracker";
-import { cachedOcrPage, ocrEnabled, ocrPage } from "../lib/ocr/ocr-service";
+import { cachedOcrPage, cancelQueuedOcr, ocrEnabled, ocrPage, ocrQueueState, subscribeOcrQueue } from "../lib/ocr/ocr-service";
 import type { LoadedDocument } from "../lib/types";
 
 /**
@@ -126,11 +126,77 @@ type QueueEntry = {
   generation: number;
   /** Vision calls this sweep may still make; null for no limit. */
   visionLeft: number | null;
+  /** Every page this sweep will read, so the reader can be told the total. */
+  pages: number[];
+  /** The page of this sweep being read right now, if any. */
+  current: number | null;
 };
 
 
 const queues = new Map<string, QueueEntry>();
 const pathGenerations = new Map<string, number>();
+
+/**
+ * Who is watching what is being read (19.0).
+ *
+ * The preview shows "Reading page 3 of 12" with a Cancel while a sweep runs;
+ * before this, a scan being read was invisible, and a reader had no way to know
+ * whether the app was working or had stopped, or to stop it. The OCR queue is
+ * the page-level source (it knows which page is being recognised), the sweep is
+ * the total, and both feed this one subscription.
+ */
+const progressListeners = new Set<() => void>();
+let ocrQueueWatched = false;
+
+function notifyProgress(): void {
+  for (const listener of progressListeners) listener();
+}
+
+export function subscribeReadingProgress(listener: () => void): () => void {
+  if (!ocrQueueWatched) {
+    ocrQueueWatched = true;
+    subscribeOcrQueue(notifyProgress);
+  }
+  progressListeners.add(listener);
+  return () => {
+    progressListeners.delete(listener);
+  };
+}
+
+export interface ReadingProgress {
+  /** The page being read right now. */
+  page: number;
+  /** Pages this sweep has to read in all. */
+  total: number;
+}
+
+/**
+ * What this document is being read as, or null when nothing is.
+ *
+ * The page comes from the OCR queue when OCR is the reader — that is the page
+ * whose words are arriving — and from the sweep otherwise, so a vision-only
+ * pass still shows which page it is on.
+ */
+export function readingProgress(path: string): ReadingProgress | null {
+  const entry = queues.get(path);
+  if (!entry || entry.pages.length === 0) return null;
+  const page = ocrQueueState(path).current ?? entry.current;
+  if (page === null) return null;
+  return { page, total: entry.pages.length };
+}
+
+/**
+ * Stop reading this document's pages: the sweep, and any OCR it queued.
+ *
+ * One action for the reader, two layers underneath — the sweep's abort signal
+ * covers the vision pass, and the OCR queue is told separately because a page
+ * already waiting for a worker has no way to hear about the abort.
+ */
+export function cancelReading(path: string): void {
+  cancelIndex(path);
+  cancelQueuedOcr(path);
+  notifyProgress();
+}
 const pageInflight = new Map<
   string,
   { promise: Promise<void>; generation: number; signal: AbortSignal }
@@ -490,6 +556,13 @@ async function runPool(
     while (!signal.aborted && isCurrentGeneration(path, generation)) {
       const i = cursor++;
       if (i >= pages.length) break;
+      // Tell the reader's reading line which page this is; the OCR queue will
+      // refine it to the page actually being recognised a moment later.
+      const entry = queues.get(path);
+      if (entry && entry.abort.signal === signal) {
+        entry.current = pages[i]!;
+        notifyProgress();
+      }
       // A sweep is nobody's question and nobody's page view: its calls are
       // counted, its tokens are not booked to a message or a document.
       await runIndexPage(path, pages[i]!, signal, generation, "none", true, policy);
@@ -575,6 +648,8 @@ export function scheduleIndex(
     abort: controller,
     generation,
     visionLeft: options?.visionBudget === undefined ? autoIndexCap : options.visionBudget,
+    pages: [],
+    current: null,
   };
   queues.set(doc.path, entry);
 
@@ -582,6 +657,8 @@ export function scheduleIndex(
     options?.pages ??
     sweepPages(doc, local && options?.cap === undefined ? { ...options, cap: null } : options);
   if (pages.length === 0) return;
+  entry.pages = pages;
+  notifyProgress();
 
   const policy: VisionPolicy = {
     skipOcr: options?.skipOcr,
@@ -597,6 +674,7 @@ export function scheduleIndex(
     const cur = queues.get(doc.path);
     if (cur?.abort === controller) {
       queues.delete(doc.path);
+      notifyProgress();
     }
   });
 }

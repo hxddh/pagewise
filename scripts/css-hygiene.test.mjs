@@ -216,6 +216,163 @@ describe("CSS hygiene", () => {
     expect(block).toContain("transition-duration: 0.01ms !important");
   });
 
+  it("gives the reading surface its four movements, and stops them all for reduced motion", () => {
+    // 19.0's package 3 names four movements: the panel opening and closing, an
+    // answer being inserted, a list adding or removing a row, and the page
+    // margin appearing. Two are stylesheet movements and are asserted here.
+    // The other two run in JavaScript — motion for the record list, a FLIP in
+    // `useFlipRows` for the transcript — where a stylesheet cannot reach them,
+    // and they are asserted where they run:
+    // `RecordPanel.motion.test.tsx`, `RecordPanel.reduced-motion.test.tsx` and
+    // `MessageList.motion.test.tsx`.
+    const read = (rel) =>
+      readFileSync(join(ROOT, "src/styles", rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+
+    // The panel's width was a movement before 19.0 and stays one: both states
+    // are lengths, so the browser interpolates them, and the dragging case
+    // stands it down separately.
+    expect(read("app/02-shell-layout.css")).toMatch(
+      /\.chat-column\s*\{[^}]*transition:\s*width var\(--transition\)/s,
+    );
+
+    // The margin arriving: 150ms and a 2px shift, from the page outward.
+    const preview = read("preview.css");
+    expect(preview, "the gutter's arrival lost its keyframes").toContain("@keyframes gutter-in");
+    expect(preview).toMatch(/\.page-gutter\s*\{[^}]*animation:\s*gutter-in 150ms/s);
+    expect(preview).toMatch(/@keyframes gutter-in\s*\{\s*from\s*\{[^}]*translateX\(-2px\)/s);
+
+    // And ONE authority over all four: the global block in 11-pdf-layers.css.
+    // A second `prefers-reduced-motion` block anywhere would be a second
+    // opinion about what "instant" means.
+    const stylesheets = [];
+    const walk = (dir) => {
+      for (const entry of readdirSync(join(ROOT, "src/styles", dir), { withFileTypes: true })) {
+        if (entry.isDirectory()) walk(join(dir, entry.name));
+        else if (entry.name.endsWith(".css")) stylesheets.push(join(dir, entry.name));
+      }
+    };
+    walk(".");
+    const blocks = stylesheets.filter((rel) =>
+      readFileSync(join(ROOT, "src/styles", rel), "utf8").includes(
+        "@media (prefers-reduced-motion: reduce)",
+      ),
+    );
+    expect(blocks, "the reduced-motion block must be the only one").toEqual([
+      "app/11-pdf-layers.css",
+    ]);
+  });
+
+  it("checks both of the reader's own colour settings, ratios included (19.0)", () => {
+    /*
+     * The two token sets that are not themes: `prefers-contrast: more`, where
+     * the same three palettes get higher floors, and `forced-colors: active`,
+     * where the platform owns the palette. Both are checked here for the same
+     * reason the tokens themselves are checked at all — a token set nobody
+     * measures is a token set that drifts, and a reader who needs high contrast
+     * is the reader least able to absorb the drift.
+     */
+    const tokens = readFileSync(join(ROOT, "src/styles/tokens.css"), "utf8");
+
+    /** The text inside the braces of one `@media (…) {` block. */
+    const mediaBlock = (source, query) => {
+      const start = source.indexOf(`${query} {`);
+      expect(start, `${query} is missing from tokens.css`).toBeGreaterThan(-1);
+      let depth = 0;
+      for (let i = start + query.length + 1; i < source.length; i++) {
+        if (source[i] === "{") depth += 1;
+        else if (source[i] === "}") {
+          depth -= 1;
+          if (depth === 0) return source.slice(start, i + 1);
+        }
+      }
+      throw new Error(`unbalanced braces after ${query}`);
+    };
+
+    /** The custom properties declared in one selector's block. */
+    const declarations = (source, selector) => {
+      const start = source.indexOf(`${selector} {`);
+      expect(start, `${selector} not found`).toBeGreaterThan(-1);
+      const body = source.slice(start, source.indexOf("}", start));
+      const out = {};
+      for (const m of body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)) out[m[1]] = m[2].trim();
+      return out;
+    };
+
+    const luminance = (value) => {
+      const m = /^#([0-9a-f]{6})$/i.exec(value);
+      expect(m, `${value} is not a six-digit hex colour the ratio can be read from`).toBeTruthy();
+      const channels = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
+      const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+
+    // --- more contrast: the floors are raised, not restated ----------------
+    const more = mediaBlock(tokens, "@media (prefers-contrast: more)");
+    const base = {
+      dark: declarations(tokens, ":root"),
+      light: declarations(tokens, '[data-theme="light"]'),
+      paper: declarations(tokens, '[data-theme="paper"]'),
+    };
+    const raised = {
+      dark: declarations(more, ":root"),
+      light: declarations(more, '[data-theme="light"]'),
+      paper: declarations(more, '[data-theme="paper"]'),
+    };
+    for (const theme of ["dark", "light", "paper"]) {
+      const surface = base[theme]["--bg-surface"];
+      expect(surface, `no --bg-surface for the ${theme} set`).toBeTruthy();
+      for (const token of ["--text", "--text-secondary", "--text-muted"]) {
+        const value = raised[theme][token];
+        expect(value, `${token} is not raised for the ${theme} theme`).toBeTruthy();
+        expect(
+          ratio(value, surface),
+          `${theme} ${token} ${value} on ${surface} is below the 7:1 the raised set promises`,
+        ).toBeGreaterThanOrEqual(7);
+      }
+      // The base set's floor is AA; the raised one is measured against it, so a
+      // change that made the raised set LOOSER than the base set would fail.
+      expect(
+        ratio(raised[theme]["--text"], surface),
+        `${theme}: the raised text token is not more contrasty than the base one`,
+      ).toBeGreaterThan(ratio(base[theme]["--text"], surface));
+    }
+
+    // --- forced colours: nothing here is a colour we chose -----------------
+    const SYSTEM_COLOURS = new Set([
+      "Canvas",
+      "CanvasText",
+      "LinkText",
+      "VisitedText",
+      "ActiveText",
+      "ButtonFace",
+      "ButtonText",
+      "ButtonBorder",
+      "Field",
+      "FieldText",
+      "Highlight",
+      "HighlightText",
+      "SelectedItem",
+      "SelectedItemText",
+      "Mark",
+      "MarkText",
+      "GrayText",
+      "AccentColor",
+      "AccentColorText",
+    ]);
+    const forced = declarations(mediaBlock(tokens, "@media (forced-colors: active)"), ":root");
+    expect(Object.keys(forced).length, "the forced-colours set is empty").toBeGreaterThan(8);
+    for (const [name, value] of Object.entries(forced)) {
+      expect(
+        SYSTEM_COLOURS.has(value),
+        `${name}: ${value} is a value we chose; in forced-colors the platform owns every colour`,
+      ).toBe(true);
+    }
+  });
+
   it("keeps the in-document search panel from stretching over the document", () => {
     // Both of these shipped, and nothing in the suite could have caught them:
     // the DOM was correct throughout. Search found its matches and built the
@@ -386,7 +543,9 @@ describe("CSS hygiene", () => {
     expect(toasts).toMatch(/bottom:\s*\d+px/);
     expect(toasts).not.toMatch(/\btop:/);
 
-    const src = readFileSync(join(ROOT, "src/session/SessionProvider.tsx"), "utf8");
+    // 19.0: the provider became `useWorkbench`, called directly by App. The
+    // invariant is about the load-failure path, wherever it lives.
+    const src = readFileSync(join(ROOT, "src/session/useWorkbench.ts"), "utf8");
     const at = src.indexOf("setFileError(msg)");
     expect(at, "the document-load failure path moved").toBeGreaterThan(-1);
     const open = src.lastIndexOf("catch (", at);
@@ -416,7 +575,6 @@ describe("CSS hygiene", () => {
     for (const file of [
       "src/components/ThumbnailSidebar.tsx",
       "src/components/OutlineSidebar.tsx",
-      "src/components/MarkSidebar.tsx",
     ]) {
       expect(
         readFileSync(join(ROOT, file), "utf8"),

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { measurePages } from "../../lib/pdf";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
 import { PageSlot } from "./PageSlot";
+import type { PageMarginBox } from "./PageGutter";
 import {
   fitWidthScale,
   layoutPages,
@@ -31,6 +32,16 @@ interface PageScrollerProps {
   quality: PreviewQuality;
   /** Rendered inside each page, positioned against that page. */
   renderOverlays?: (page: number, state: { textLayerActive: boolean }) => React.ReactNode;
+  /**
+   * Rendered in the page's outer margin, beside the page box.
+   *
+   * A sibling of the page rather than a child: a page clips its own overlays
+   * (`.pdf-page-slot` is `overflow: hidden`, so a mark can never draw over the
+   * neighbouring page), and the margin is by definition outside that box. The
+   * box is handed over already computed, so the gutter draws where the layout
+   * says the page is instead of working out a second position.
+   */
+  renderGutter?: (page: number, box: PageMarginBox) => React.ReactNode;
   containerRef?: (node: HTMLDivElement | null) => void;
 }
 
@@ -50,6 +61,7 @@ export function PageScroller({
   zoom,
   quality,
   renderOverlays,
+  renderGutter,
   containerRef,
 }: PageScrollerProps) {
   const pageCount = doc.kind === "pdf" ? Math.max(1, doc.totalPages) : 1;
@@ -243,6 +255,7 @@ export function PageScroller({
   );
 
   const slots: React.ReactNode[] = [];
+  const gutters: React.ReactNode[] = [];
   for (let p = first; p <= last; p++) {
     const i = p - 1;
     slots.push(
@@ -261,6 +274,19 @@ export function PageScroller({
         renderOverlays={renderOverlays}
       />,
     );
+    if (renderGutter) {
+      // The same numbers the slot above was placed with: the page is centred
+      // in the column, so its outer edge is half the column plus half the page.
+      gutters.push(
+        <div key={`gutter-${p}`} className="page-gutter-slot">
+          {renderGutter(p, {
+            top: layout.tops[i] ?? 0,
+            left: `calc(50% + ${Math.round((layout.widths[i] ?? 0) / 2)}px)`,
+            height: layout.heights[i] ?? 0,
+          })}
+        </div>,
+      );
+    }
   }
 
   return (
@@ -270,6 +296,7 @@ export function PageScroller({
         style={{ height: layout.total, minWidth: widest + SIDE_PADDING * 2 }}
       >
         {slots}
+        {gutters}
       </div>
     </div>
   );

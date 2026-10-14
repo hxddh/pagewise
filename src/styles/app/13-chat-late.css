@@ -309,24 +309,6 @@
   word-break: break-all;
 }
 
-/* What is worth asking next, under the finished reply. */
-.follow-ups {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-md);
-  margin: var(--space-md) 0 var(--space-xl);
-}
-
-.follow-up-chip {
-  max-width: 100%;
-  border-radius: var(--radius-pill);
-  color: var(--text-secondary);
-}
-
-.follow-up-chip:hover:not(:disabled) {
-  color: var(--text);
-}
-
 /*
  * Edit on the last question appears where the reader points (16.0). Always
  * on, it read as part of every question; hidden rather than removed, it stays

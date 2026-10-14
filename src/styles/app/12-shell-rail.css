@@ -283,8 +283,24 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  flex-direction: row;
+  /* A column since 19.0: the one header is the first row, the two panes and
+     the divider are the second. It used to be a row of columns, each with a
+     strip of its own at the same height. */
+  flex-direction: column;
   position: relative;
+}
+
+/* The header strip's mount point, owned here so the strip can span both
+   columns (the preview pane portals into it). */
+.workspace-header-slot {
+  flex-shrink: 0;
+}
+
+.v3-columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
 }
 
 .v3-workspace.agent-hidden .preview-panel {
@@ -464,17 +480,6 @@
 
 .app.v3 .chat-panel {
   background: var(--bg-panel);
-}
-
-.app.v3 .panel-header {
-  height: var(--topbar-h);
-  padding: 0 var(--space-lg);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.app.v3 .panel-header h2 {
-  font-size: var(--text-base);
-  font-weight: 600;
 }
 
 .app.v3 .messages {

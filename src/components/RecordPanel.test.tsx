@@ -21,10 +21,14 @@ import {
   reviseFinding,
   setFindingStruck,
 } from "../lib/finding-store";
+import { __resetMarkStoreForTests, addMark, getMarks } from "../lib/mark-store";
 
 const PATH = "/docs/paper.pdf";
 
-beforeEach(() => __resetFindingStoreForTests());
+beforeEach(() => {
+  __resetFindingStoreForTests();
+  __resetMarkStoreForTests();
+});
 afterEach(cleanup);
 
 const view = (currentPage = 1) =>
@@ -203,5 +207,110 @@ describe("the record panel, 12.0", () => {
     const { container } = trusted();
     expect(container.querySelector(".record-entry-inactive")).not.toBeNull();
     expect(screen.getByText("trust.retracted.long")).toBeTruthy();
+  });
+});
+
+/**
+ * 19.0: the reader's marks, in the document's ledger.
+ *
+ * The marks tab left the page sidebar; this section is where the whole list
+ * lives now. What has to hold: the list shows what the reader wrote (or the
+ * note, for a region), a row turns to its mark, and Delete deletes — the same
+ * interactions the sidebar row had.
+ */
+describe("the record panel's marks", () => {
+  it("lists the marks even when nothing has been established", () => {
+    addMark(PATH, {
+      page: 3,
+      rects: [{ x: 0, y: 0, width: 10, height: 10 }],
+      text: "the passage",
+      stamp: "s",
+    });
+    const { container } = view();
+    // The findings half still says it is empty; the marks half is not.
+    expect(container.querySelector(".record-empty")).not.toBeNull();
+    expect(container.querySelectorAll(".record-mark")).toHaveLength(1);
+    expect(screen.getByText("the passage")).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
+  });
+
+  it("shows a region mark's note where it has no words", () => {
+    addMark(PATH, {
+      page: 4,
+      rects: [{ x: 0, y: 0, width: 10, height: 10 }],
+      text: "",
+      note: "the figure",
+      stamp: "s",
+      kind: "region",
+    });
+    view();
+    expect(screen.getByText("the figure")).toBeTruthy();
+  });
+
+  it("turns to a mark when its row is picked", () => {
+    const mark = addMark(PATH, {
+      page: 5,
+      rects: [{ x: 0, y: 0, width: 10, height: 10 }],
+      text: "somewhere later",
+      stamp: "s",
+    })!;
+    const picked: Array<[number, string]> = [];
+    render(
+      <RecordPanel
+        path={PATH}
+        revision={1}
+        currentPage={1}
+        stale={false}
+        onJumpToPage={() => {}}
+        onSelectMark={(page, id) => picked.push([page, id])}
+      />,
+    );
+    fireEvent.click(screen.getByText("somewhere later"));
+    expect(picked).toEqual([[5, mark.id]]);
+  });
+
+  it("deletes a mark from the list", () => {
+    addMark(PATH, {
+      page: 3,
+      rects: [{ x: 0, y: 0, width: 10, height: 10 }],
+      text: "delete me",
+      stamp: "s",
+    });
+    const { container, rerender } = view();
+    fireEvent.click(screen.getByLabelText("marks.delete"));
+    expect(getMarks(PATH)).toHaveLength(0);
+    // The store notifies; the panel re-reads on the next revision — which is
+    // what the app's own subscription to the mark store bumps.
+    rerender(
+      <RecordPanel
+        path={PATH}
+        revision={2}
+        currentPage={1}
+        stale={false}
+        onJumpToPage={() => {}}
+      />,
+    );
+    expect(container.querySelectorAll(".record-mark")).toHaveLength(0);
+  });
+
+  it("says when the marks were made against an earlier version of the file", () => {
+    addMark(PATH, {
+      page: 3,
+      rects: [{ x: 0, y: 0, width: 10, height: 10 }],
+      text: "old ink",
+      stamp: "older-stamp",
+    });
+    const { container } = render(
+      <RecordPanel
+        path={PATH}
+        revision={1}
+        currentPage={1}
+        stale={false}
+        stamp="s"
+        onJumpToPage={() => {}}
+      />,
+    );
+    expect(container.querySelector(".record-marks .mark-stale-note")).not.toBeNull();
+    expect(screen.getByText("marks.staleFile")).toBeTruthy();
   });
 });

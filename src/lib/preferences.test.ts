@@ -48,11 +48,22 @@ describe("sanitizePreferences — scan budgets", () => {
     expect(sanitizePreferences({ agentScanPages: 10.7 }).agentScanPages).toBe(10);
   });
 
+  it("snaps a stored step that no longer exists down to the one below it", () => {
+    // 19.0 removed the 50-page step from the cloud row. A reader who had it
+    // lands on Auto (20) rather than silently on the whole-document budget —
+    // and a stored 200, which is still a choice, stays one.
+    expect(sanitizePreferences({ autoIndexPages: 50 }).autoIndexPages).toBe(20);
+    expect(sanitizePreferences({ autoIndexPages: 200 }).autoIndexPages).toBe(200);
+    // The same rule on the per-question allowance, which lost its 20-page step.
+    expect(sanitizePreferences({ agentScanPages: 20 }).agentScanPages).toBe(10);
+    expect(sanitizePreferences({ agentScanPages: 50 }).agentScanPages).toBe(50);
+  });
+
   it("keeps the agent allowance independent of the automatic sweep budget", () => {
     // The whole point of two controls: turning the unprompted sweep off must
     // not silently also govern (or be governed by) assistant-triggered scans.
-    const mixed = sanitizePreferences({ autoIndexPages: 0, agentScanPages: 20 });
+    const mixed = sanitizePreferences({ autoIndexPages: 0, agentScanPages: 50 });
     expect(mixed.autoIndexPages).toBe(0);
-    expect(mixed.agentScanPages).toBe(20);
+    expect(mixed.agentScanPages).toBe(50);
   });
 });

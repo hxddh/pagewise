@@ -21,6 +21,7 @@ import {
   type ProviderProfile,
 } from "../../lib/types";
 import { ApiKeyField } from "./ApiKeyField";
+import { AdvancedRows } from "./AdvancedRows";
 import { ModelSelect } from "./ModelSelect";
 import { ProviderGrid } from "./ProviderGrid";
 import { Button } from "../ui/Button";
@@ -29,10 +30,11 @@ import { Field, Input } from "../ui/Field";
 /**
  * The assistant, once it is configured.
  *
- * Two visible rows and one disclosure. The model is chosen for the reader from
+ * One visible row and one disclosure. The model is chosen for the reader from
  * the provider's preset table — the row says so and offers "Change" for the
- * reader who wants a specific one. Provider, key, scan model and thinking are
- * real choices but not everyday ones, so they live behind Advanced, together
+ * reader who wants a specific one. Provider, key, scan model, thinking, the
+ * current-page screenshot switch and the text cache are real choices but not
+ * everyday ones, so they live behind Advanced (`AdvancedRows.tsx`), together
  * with the connection test. Switching a provider *is* using it: 18.0 removed
  * the "Set active" step that made editing and using two different things.
  */
@@ -266,18 +268,6 @@ export function AssistantSettings({
 
       <label className="settings-row-toggle">
         <div>
-          <span className="settings-row-title">{t("settings.includeViewingPage")}</span>
-          <span className="settings-row-hint">{t("settings.includeViewingPageHint")}</span>
-        </div>
-        <input
-          type="checkbox"
-          checked={includeViewingPageDefault}
-          onChange={(e) => onIncludeViewingPageDefaultChange(e.target.checked)}
-        />
-      </label>
-
-      <label className="settings-row-toggle">
-        <div>
           <span className="settings-row-title">{t("settings.showUsageLine")}</span>
           <span className="settings-row-hint">{t("settings.showUsageLineHint")}</span>
         </div>
@@ -384,19 +374,13 @@ export function AssistantSettings({
             </Field>
           )}
 
-          {showThinking && (
-            <label className="settings-row-toggle">
-              <div>
-                <span className="settings-row-title">{t("settings.thinkingMode")}</span>
-                <span className="settings-row-hint">{t("settings.thinkingHint")}</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={!!settings.thinkingEnabled}
-                onChange={(e) => patchSettings({ thinkingEnabled: e.target.checked })}
-              />
-            </label>
-          )}
+          <AdvancedRows
+            includeViewingPageDefault={includeViewingPageDefault}
+            onIncludeViewingPageDefaultChange={onIncludeViewingPageDefaultChange}
+            showThinking={showThinking}
+            thinkingEnabled={!!settings.thinkingEnabled}
+            onThinkingChange={(value) => patchSettings({ thinkingEnabled: value })}
+          />
 
           <div className="settings-row">
             <span className="settings-row-hint">

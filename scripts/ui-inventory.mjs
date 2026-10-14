@@ -136,7 +136,10 @@ const reading = await p.evaluate(() => {
 });
 
 // The chat menu: how many rows export.
-await p.locator(".panel-header").getByRole("button", { name: /^more actions$/i }).click();
+//
+// One header since 19.0: the panel's own header is gone and the overflow lives
+// in the workspace strip's right-hand group.
+await p.locator(".workspace-header-slot").getByRole("button", { name: /^more actions$/i }).click();
 const menuExports = await p.$$eval("[role=menuitem]", (els) => els.filter((e) => /export/i.test(e.textContent ?? "")).length);
 await p.keyboard.press("Escape");
 

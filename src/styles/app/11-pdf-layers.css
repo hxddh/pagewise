@@ -210,11 +210,6 @@
   padding: var(--space-md) var(--space-lg);
 }
 
-.mark-filter {
-  width: calc(100% - 24px);
-  margin: 0 var(--space-lg) var(--space-md);
-}
-
 .mark-note-input {
   min-height: 64px;
   max-height: 40vh;
@@ -233,64 +228,6 @@
   font-size: var(--text-sm);
   cursor: pointer;
 }
-
-/*
- * A mark row: the entry itself, and the action that asks about it.
- *
- * Marking a passage in order to ask about it is the reason to mark it, and the
- * only route used to be: find the page again, find the passage again, select it
- * again.
- */
-.mark-row {
-  display: flex;
-  align-items: stretch;
-}
-
-.mark-row .outline-item {
-  min-width: 0;
-}
-
-/* Placement and reveal only; the button itself is the shared primitive. */
-.mark-ask-btn {
-  flex-shrink: 0;
-  opacity: 0;
-}
-
-/* Shown on hover, and always once focused by keyboard. */
-.mark-row:hover .mark-ask-btn,
-.mark-ask-btn:focus-visible {
-  opacity: 1;
-}
-
-.mark-ask-btn:hover {
-  color: var(--text);
-}
-
-.mark-item .outline-title {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xs);
-  min-width: 0;
-}
-
-.mark-item-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mark-item-note {
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mark-item-here .outline-page {
-  color: var(--accent);
-}
-
 
 .pdf-region-layer {
   position: absolute;
