@@ -9,6 +9,12 @@
 
 /* Command palette */
 
+/*
+ * The palette's layer: where it sits, and the wash behind it. This used to be
+ * two elements — a root and a full-bleed backdrop `<button>` — because the
+ * click target had to be written by hand. Radix's overlay is the layer itself,
+ * so the wash moved onto it: same scrim, same blur, one element.
+ */
 .palette-root {
   position: fixed;
   inset: 0;
@@ -17,14 +23,8 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
-}
-
-/* Same wash as a drawer, and the same reason it is light plus blurred rather
-   than dark — see `--scrim`. */
-.palette-backdrop {
-  position: absolute;
-  inset: 0;
-  border: none;
+  /* Same wash as a drawer, and the same reason it is light plus blurred rather
+     than dark — see `--scrim`. */
   background: var(--scrim);
   backdrop-filter: blur(2px);
   cursor: default;
@@ -34,6 +34,19 @@
  * Surface, border and radius come from <Panel tone="elevated">. The shadow
  * stays: this is a centered modal, and it needs more lift than a card.
  */
+/*
+ * Arriving and leaving. `data-state` is Radix's, and its presence wrapper keeps
+ * the panel mounted for the length of the exit animation — which is why the
+ * departure can be a stylesheet rule rather than a timer in the component.
+ */
+.palette-panel[data-state="open"] {
+  animation: popover-in var(--transition);
+}
+
+.palette-panel[data-state="closed"] {
+  animation: popover-out var(--transition);
+}
+
 .palette-panel {
   position: relative;
   width: min(520px, calc(100vw - 32px));
@@ -211,17 +224,10 @@
    */
   align-items: flex-start;
   padding-top: 48px;
-  pointer-events: none;
-}
-
-.doc-search-backdrop {
-  position: absolute;
-  inset: 0;
-  border: none;
-  padding: 0;
+  /* The wash that used to be a backdrop button. Radix sets pointer-events on
+     this layer itself, so nothing here needs to. */
   background: rgba(0, 0, 0, 0.35);
   cursor: default;
-  pointer-events: auto;
 }
 
 .doc-search-panel .doc-search-input {

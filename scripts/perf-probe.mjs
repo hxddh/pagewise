@@ -87,6 +87,11 @@ const BUDGETS = {
   answerP95Ms: 25,
   answerLongTasks: 3,
   longchatRenderMs: 3000,
+  // 200 messages scrolled by rAF: the same one-or-two-dropped-frames allowance
+  // as the fling. Measured 16.8ms on an idle machine, 33.2ms once when the
+  // probe's four scenarios shared it — a gate that fails on that is a gate
+  // someone deletes.
+  longchatScrollP95Ms: 40,
   longchatRequestBytesMax: 40_000,
   largeFileFirstRasterMs: 6000,
   // The image-only document's text layer only activates once local OCR has
@@ -748,7 +753,7 @@ async function main() {
   check("answer.longTasks", answerStage.longTasks, BUDGETS.answerLongTasks, "tasks");
   check("answer.heapMb", answerStage.heapMb, BUDGETS.heapAfterAnswerMb, "MB");
   check("longchat.renderMs", longchat.renderMs, BUDGETS.longchatRenderMs);
-  check("longchat.scroll.p95", longchat.scroll?.p95, BUDGETS.scrollP95Ms);
+  check("longchat.scroll.p95", longchat.scroll?.p95, BUDGETS.longchatScrollP95Ms);
   check("largefile.firstRasterMs", large.firstRasterMs, BUDGETS.largeFileFirstRasterMs);
   check("largefile.firstTextLayerMs", large.firstTextLayerMs, BUDGETS.largeFileFirstTextLayerMs);
 

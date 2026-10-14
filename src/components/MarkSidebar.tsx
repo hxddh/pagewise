@@ -4,6 +4,8 @@ import { useI18n } from "../i18n";
 import { getMarks, type Mark } from "../lib/mark-store";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Field";
+import { EmptyState } from "./EmptyState";
+import { ListRow } from "./ui/ListRow";
 
 interface MarkSidebarProps {
   path: string;
@@ -77,7 +79,9 @@ export const MarkSidebar = memo(function MarkSidebar({
         />
       )}
       {entries.length === 0 ? (
-        <p className="outline-empty">{filter ? t("marks.noFilterMatch") : t("marks.empty")}</p>
+        <EmptyState variant="inline" className="outline-empty">
+          {filter ? t("marks.noFilterMatch") : t("marks.empty")}
+        </EmptyState>
       ) : (
         <nav className="outline-list">
           {entries.map((mark) => (
@@ -119,22 +123,21 @@ function MarkRow({
   const { t } = useI18n();
   return (
     <div className="mark-row">
-      {/* raw-button: a list row carrying page, quote and note; Button would flatten it */}
-      <button
-        type="button"
+      <ListRow
         className={`outline-item mark-item ${
-          mark.id === selectedId ? "active" : mark.page === currentPage ? "mark-item-here" : ""
+          mark.id === selectedId ? "" : mark.page === currentPage ? "mark-item-here" : ""
         }`}
-        aria-current={mark.id === selectedId ? "true" : undefined}
+        active={mark.id === selectedId}
         title={mark.note || mark.text}
         onClick={() => onSelect(mark.page, mark.id)}
-      >
-        <span className="outline-title">
-          <span className="mark-item-text">{mark.text || t("marks.noText")}</span>
-          {mark.note && <span className="mark-item-note">{mark.note}</span>}
-        </span>
-        <span className="outline-page">{mark.page}</span>
-      </button>
+        label={
+          <span className="outline-title">
+            <span className="mark-item-text">{mark.text || t("marks.noText")}</span>
+            {mark.note && <span className="mark-item-note">{mark.note}</span>}
+          </span>
+        }
+        trailing={<span className="outline-page">{mark.page}</span>}
+      />
       {onAsk && (
         <Button
           variant="ghost"

@@ -22,6 +22,8 @@ interface UseAppCommandsOptions {
   onOpenSettings: () => void;
   onToggleFollowAgent: () => void;
   onToggleAgent: () => void;
+  /** Zen: chrome out of the way, the page alone. */
+  onToggleZen: () => void;
   onClearChat: () => void;
   onStop: () => void;
   onCycleTheme: () => void;
@@ -54,6 +56,7 @@ export function useAppCommands({
   onOpenSettings,
   onToggleFollowAgent,
   onToggleAgent,
+  onToggleZen,
   onClearChat,
   onStop,
   onCycleTheme,
@@ -120,6 +123,15 @@ export function useAppCommands({
         keywords: ["report", "pdf", "chat", "markdown", "save", "brief", "marks"],
         disabled: !activeDocName,
         run: wrapRun("export", onOpenExport),
+      },
+      {
+        id: "zen",
+        label: t("commands.zen"),
+        section: "view",
+        shortcut: `${mod}\u21e7F`,
+        keywords: ["zen", "focus", "immersive", "hide chrome"],
+        disabled: !activeDocName,
+        run: wrapRun("zen", onToggleZen),
       },
       {
         id: "clear-chat",
@@ -224,6 +236,13 @@ export function useAppCommands({
           onToggleAgent();
         }
       }
+      if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
+        if (overlayOpen || !activeDocName) return;
+        e.preventDefault();
+        recordCommand("zen");
+        onToggleZen();
+        return;
+      }
       if (mod && e.key === ",") {
         e.preventDefault();
         recordCommand("settings");
@@ -246,7 +265,7 @@ export function useAppCommands({
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen, activeDocName, onOpenDocument, onToggleAgent, onOpenSettings]);
+  }, [paletteOpen, activeDocName, onOpenDocument, onToggleAgent, onToggleZen, onOpenSettings]);
 
   return { commands, paletteOpen, setPaletteOpen };
 }

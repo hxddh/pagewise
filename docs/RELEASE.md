@@ -76,6 +76,13 @@ What it does **not** do is remove the prompt. Only notarization does, and notari
 
 With those in place, `tauri build` signs and notarizes in one pass and the download opens with no prompt at all. Until then, the README's install section is the user-facing instruction, and it is the place to keep current: the "damaged" wording, the one-line `xattr -dr com.apple.quarantine` fix, and the macOS 15 change to the manual bypass are all recorded there.
 
+## Window material (18.0)
+
+The main window is `transparent: true` with `macOSPrivateApi: true`, and the app asks for a material at runtime (`setEffects`: macOS vibrancy, Windows Mica) plus a theme-matched `setBackgroundColor`. Two consequences for a release:
+
+- The capabilities file must keep `core:window:allow-set-effects` and `core:window:allow-set-background-color`. Neither is in `core:window:default`.
+- Linux has no equivalent. The app is written so that the unsupported case is the plain opaque app: `data-material` is only set when the effect took, and the translucent surfaces are gated on it. A Linux screenshot showing a solid sidebar is correct, not a bug.
+
 ## CI
 
 - **ci.yml** — secret scan, unit tests, frontend typecheck/build, version-sync

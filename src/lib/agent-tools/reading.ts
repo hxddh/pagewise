@@ -34,7 +34,7 @@ import type { ReadAttachments, ReadResult } from "./result";
 
 /** Re-exported so a tool file needs one import path for the reading layer. */
 export type ReadResultLike = ReadResult;
-import { attachmentCost, attachmentsFor } from "./attachments";
+import { attachmentTokenCost, attachmentsFor } from "./attachments";
 
 /**
  * The six document tools, and the reading layer they share.
@@ -53,11 +53,54 @@ export const DEFAULT_RANGE_MAX_CHARS = 6_000;
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
 
 /**
- * Cumulative characters a single run may read before it must synthesize. The
- * real cost rail: it caps accumulated tool output so it cannot overflow the
- * provider window, applied uniformly rather than gated on an intent heuristic.
+ * Estimated tokens a single run may read before it must synthesize. The real
+ * cost rail: it caps accumulated tool output so it cannot overflow the provider
+ * window, applied uniformly rather than gated on an intent heuristic.
+ *
+ * In tokens, not characters (18.0). It was 200,000 UTF-16 characters, which is
+ * about 50,000 tokens of English — but a CJK character is roughly one token on
+ * its own, so a Chinese document hit the same ceiling at three times the tokens.
+ * Same allowance, three times the bill; the two scripts now stop in the same
+ * place.
  */
-export const RUN_CHAR_BUDGET = 200_000;
+export const RUN_TOKEN_BUDGET = 50_000;
+
+/**
+ * CJK ideographs, kana and Hangul: the scripts that cost about one token per
+ * character, unlike ASCII's four.
+ */
+const CJK_CHAR = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/g;
+
+/**
+ * Roughly how many tokens `text` costs, without a tokenizer.
+ *
+ * Four ASCII characters to a token, one per CJK character — the usual ratios for
+ * both scripts. Coarse on purpose: this is a ceiling on spending, not a bill,
+ * and it only has to be close enough that a Chinese page and an English one of
+ * the same reading length stop a run in the same place. Both are charged by this
+ * one function, so neither script can be favoured by more than its own error.
+ */
+export function estimateTokens(text: string): number {
+  const cjk = text.match(CJK_CHAR)?.length ?? 0;
+  return Math.ceil(cjk + (text.length - cjk) / 4);
+}
+
+/**
+ * Characters of `text` the run's remaining budget can pay for.
+ *
+ * The budget is in tokens and the room a reader has to be measured in
+ * characters, so the conversion is made on the text being read — its own
+ * density. A page of English converts to about four characters per token, a
+ * page of Chinese to about one, which is the difference the old character
+ * budget could not see.
+ */
+export function affordableChars(text: string, budget: ReadBudget): number {
+  const left = budget.max - budget.used;
+  if (left <= 0) return 0;
+  const tokens = estimateTokens(text);
+  if (tokens <= 0) return text.length;
+  return Math.floor((text.length * left) / tokens);
+}
 
 /**
  * Hits a search returns unless asked for more.
@@ -77,7 +120,9 @@ export const docToolContextSchema = z.object({
 
 /** Mutable per-run read budget shared between a run's tools and prepareCall. */
 export interface ReadBudget {
+  /** Estimated tokens this run has spent (see `estimateTokens`). */
   used: number;
+  /** Ceiling on those tokens: `RUN_TOKEN_BUDGET` unless a caller says otherwise. */
   max: number;
   /** Vision calls this run has triggered by reading un-indexed pages. */
   scans: number;
@@ -145,7 +190,7 @@ export function densest(stats: ReadonlyArray<{ page: number; chars: number }>): 
 export function newReadBudget(): ReadBudget {
   return {
     used: 0,
-    max: RUN_CHAR_BUDGET,
+    max: RUN_TOKEN_BUDGET,
     scans: 0,
     maxScans: DEFAULT_AGENT_SCAN_PAGES,
     gen: 0,
@@ -271,7 +316,7 @@ export async function readPageText(path: string, page: number, budget?: ReadBudg
   };
 
   // Agent tool read: attribute this vision indexing to the current run's usage.
-  await ensurePageIndexed(path, page, signal, true, { takeVision });
+  await ensurePageIndexed(path, page, signal, "run", { takeVision });
   throwIfAborted(signal);
   const after = docCache.getPages(path).find((p) => p.page === page);
   const text = after?.text ?? "";
@@ -347,11 +392,18 @@ export function bindToolExecute<T, R>(
   };
 }
 
-export function resolvePathInput(
-  inputPath: string | undefined,
-  options: ToolExecuteOptions,
-): string {
-  return resolveDocPath(inputPath, options.context?.defaultDocPath ?? null);
+/**
+ * The document a tool reads: the one the app has active.
+ *
+ * There is no per-call path any more. Every tool schema carried an optional
+ * `path` argument "defaults to the active document", and the model spent tokens
+ * on it on every request of every run to describe a choice it never had — the
+ * app holds one document at a time, and the runtime context already says which.
+ * Dropping the argument is what makes that structural rather than a rule in the
+ * prompt.
+ */
+export function activeDocPath(options: ToolExecuteOptions): string {
+  return resolveDocPath(undefined, options.context?.defaultDocPath ?? null);
 }
 
 /**
@@ -488,7 +540,8 @@ export async function readPageRange(
           }
 
           const maxRoom = maxChars - charCount - separator - header.length;
-          const budgetRoom = budget.max - budget.used - separator - header.length;
+          const budgetRoom =
+            affordableChars(remainingText, budget) - separator - header.length;
           const room = Math.min(maxRoom, budgetRoom);
           const limitedByBudget = budgetRoom <= maxRoom;
 
@@ -504,7 +557,7 @@ export async function readPageRange(
             const slice = remainingText.slice(0, room);
             parts.push(header + slice);
             charCount += separator + header.length + slice.length;
-            chargeBudget(runGen, slice.length);
+            chargeBudget(runGen, estimateTokens(slice));
             deliveredPages.push(page);
             lastPage = page;
             truncated = true;
@@ -516,7 +569,7 @@ export async function readPageRange(
 
           parts.push(header + remainingText);
           charCount += separator + header.length + remainingText.length;
-          chargeBudget(runGen, remainingText.length);
+          chargeBudget(runGen, estimateTokens(remainingText));
           deliveredPages.push(page);
           if (pageOffset === 0) markDelivered(budget, path, page, runGen);
           lastPage = page;
@@ -586,7 +639,7 @@ export function chargedAttachments(
   chargeBudget: (runGen: number, chars: number) => void,
 ): ReadAttachments {
   const attachments = attachmentsFor(doc, path, deliveredPages);
-  chargeBudget(runGen, attachmentCost(attachments));
+  chargeBudget(runGen, attachmentTokenCost(attachments));
   return attachments;
 }
 

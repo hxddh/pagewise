@@ -1066,11 +1066,23 @@ async function paintDetached(
   }
 }
 
+/**
+ * The default render for the vision model: 1,024px long edge, JPEG q0.80.
+ *
+ * It was 1,568px q0.85 (18.0): a page image is billed per call, and the larger
+ * render measures roughly three to four times the bytes for print the model can
+ * already read at this size. `renderPageToJpegBytes` keeps the larger numbers
+ * available for the one case where they earn their cost — a page local OCR
+ * tried and read poorly (see `visionImageBytes` in `document/index-queue.ts`).
+ */
+export const VISION_MAX_EDGE = 1_024;
+export const VISION_QUALITY = 0.8;
+
 export async function renderPageToJpegBytes(
   path: string,
   pageNumber: number,
-  maxEdge = 1568,
-  quality = 0.85,
+  maxEdge = VISION_MAX_EDGE,
+  quality = VISION_QUALITY,
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
   const { canvas: offscreen } = await paintDetached(
@@ -1329,14 +1341,16 @@ export async function capturePageFilePart(
       return null;
     }
   }
-  const canvas = document.createElement("canvas");
   try {
-    const result = await renderPageToCanvas(path, page, canvas, 1, "high", "performance");
-    if (result.cancelled || canvas.width === 0) return null;
+    // JPEG through the same renderer the vision path uses (18.0). This used to
+    // paint the display canvas and encode a lossless PNG — two to four times
+    // the bytes for a page the model only has to look at, paid on every send
+    // with "attach current page" on.
+    const bytes = await renderPageToJpegBytes(path, page);
     return {
       type: "file",
-      mediaType: "image/png",
-      url: canvas.toDataURL("image/png", 0.85),
+      mediaType: "image/jpeg",
+      url: bytesToDataUrl(bytes, "image/jpeg"),
     };
   } catch {
     return null;

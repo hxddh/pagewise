@@ -12,12 +12,11 @@ export function createReadSectionTool(
   return tool({
       description:
         "Read a whole section by its heading, instead of guessing which pages it " +
-        "spans. Take the heading from document_outline. Continue exactly as with " +
-        "read_pdf_range when truncated=true: nextStart/nextOffset say where to " +
-        "resume. Section boundaries come from the document's own bookmarks when it " +
-        "has them, otherwise from headings recovered from the page text, which on " +
-        "a document whose headings are not visually distinct can be approximate — " +
-        "fall back to read_pdf_range when the result looks wrong.",
+        "spans. Take the heading from document_outline, and continue as with " +
+        "read_pdf_range when truncated=true (nextStart/nextOffset). Boundaries come " +
+        "from the document's bookmarks, or headings recovered from the page text — " +
+        "approximate when headings are not visually distinct; fall back to " +
+        "read_pdf_range when the result looks wrong.",
       inputSchema: z.object({
         title: z.string().min(1).describe("Heading text, as document_outline reported it"),
         offset: z
@@ -25,7 +24,7 @@ export function createReadSectionTool(
           .int()
           .min(0)
           .optional()
-          .describe("Character offset into the first page to resume from (a previous nextOffset)"),
+          .describe("Character offset to resume from (a nextOffset)"),
         maxChars: z
           .number()
           .int()
@@ -44,7 +43,7 @@ export function createReadSectionTool(
         "read",
         () => budget.gen,
         async ({ title, offset = 0, maxChars = R.DEFAULT_RANGE_MAX_CHARS }, options, runGen) => {
-          const path = R.resolvePathInput(undefined, options);
+          const path = R.activeDocPath(options);
           const doc = R.requireLoadedDoc(path);
           if (budget.used >= budget.max) {
             return { budgetExceeded: true, note: R.BUDGET_NOTE };

@@ -1,10 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { FileText, MessagesSquare, Highlighter } from "lucide-react";
 import { useI18n } from "../i18n";
-import { useOverlayLock } from "../hooks/useOverlayLock";
-import { useFocusTrap } from "../hooks/useFocusTrap";
-import { isTopOverlayLayer, popOverlayLayer, pushOverlayLayer } from "../lib/overlay-state";
-import { Panel } from "./ui/Panel";
+import { ListRow } from "./ui/ListRow";
+import { Modal } from "./ui/Modal";
 
 export type ExportChoice = "report" | "pdf" | "chat";
 
@@ -38,30 +36,8 @@ interface ExportDialogProps {
  */
 export function ExportDialog({ open, available, busy, onExport, onClose }: ExportDialogProps) {
   const { t } = useI18n();
-  useOverlayLock(open);
-  const panelRef = useRef<HTMLDivElement>(null);
   const firstRef = useRef<HTMLButtonElement>(null);
   const [includeText, setIncludeText] = useState(false);
-  useFocusTrap(open, panelRef);
-
-  useEffect(() => {
-    if (!open) return;
-    firstRef.current?.focus();
-    const layerId = pushOverlayLayer();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      popOverlayLayer(layerId);
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
 
   const choose = (choice: ExportChoice) => {
     onClose();
@@ -76,40 +52,43 @@ export function ExportDialog({ open, available, busy, onExport, onClose }: Expor
   const firstEnabled = rows.find((r) => r.enabled)?.id;
 
   return (
-    <div className="palette-root" role="presentation">
-      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
-      <button type="button" className="palette-backdrop" aria-label={t("settings.close")} onClick={onClose} />
-      <Panel tone="elevated" ref={panelRef} className="palette-panel export-panel" role="dialog" aria-modal="true" aria-labelledby="export-title">
-        <h2 id="export-title" className="export-title">
-          {t("export.title")}
-        </h2>
-        <div className="export-options">
-          {rows.map((row) => (
-            <div key={row.id} className="export-option-wrap">
-              {/* raw-button: a choice row with a title and a description — a list item that acts, not a toolbar button */}
-              <button
-                ref={row.id === firstEnabled ? firstRef : undefined}
-                type="button"
-                className="export-option"
-                disabled={!row.enabled}
-                onClick={() => choose(row.id)}
-              >
-                <row.icon size={18} aria-hidden className="export-option-icon" />
+    <Modal
+      open={open}
+      onClose={onClose}
+      overlayClassName="palette-root"
+      className="palette-panel export-panel"
+      tone="elevated"
+      ariaLabelledBy="export-title"
+      initialFocus={firstRef}
+    >
+      <h2 id="export-title" className="export-title">
+        {t("export.title")}
+      </h2>
+      <div className="export-options">
+        {rows.map((row) => (
+          <div key={row.id} className="export-option-wrap">
+            <ListRow
+              ref={row.id === firstEnabled ? firstRef : undefined}
+              className="export-option"
+              disabled={!row.enabled}
+              onClick={() => choose(row.id)}
+              leading={<row.icon size={18} aria-hidden className="export-option-icon" />}
+              label={
                 <span className="export-option-text">
                   <span className="export-option-name">{t(`export.${row.id}`)}</span>
                   <span className="export-option-desc">{row.enabled ? t(`export.${row.id}Desc`) : row.why}</span>
                 </span>
-              </button>
-              {row.id === "report" && row.enabled && (
-                <label className="export-option-extra">
-                  <input type="checkbox" checked={includeText} onChange={(e) => setIncludeText(e.target.checked)} />
-                  {t("export.includeText")}
-                </label>
-              )}
-            </div>
-          ))}
-        </div>
-      </Panel>
-    </div>
+              }
+            />
+            {row.id === "report" && row.enabled && (
+              <label className="export-option-extra">
+                <input type="checkbox" checked={includeText} onChange={(e) => setIncludeText(e.target.checked)} />
+                {t("export.includeText")}
+              </label>
+            )}
+          </div>
+        ))}
+      </div>
+    </Modal>
   );
 }

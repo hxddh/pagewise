@@ -51,7 +51,7 @@ export function createNoteFindingTool() {
       "tool",
       () => 0,
       async ({ pages, claim, evidence }, options) => {
-        const path = R.resolvePathInput(undefined, options);
+        const path = R.activeDocPath(options);
         const doc = R.requireLoadedDoc(path);
         const outOfRange = R.pagesOutOfRange(pages, doc);
         if (outOfRange) return { recorded: false, reason: outOfRange };

@@ -119,7 +119,7 @@
 
 .pdf-text-layer > :not(.markedContent),
 .pdf-text-layer .markedContent span:not(.markedContent) {
-  z-index: 1;
+  z-index: var(--z-page-text);
   --font-height: 0;
   font-size: calc(var(--text-scale-factor) * var(--font-height));
   --scale-x: 1;

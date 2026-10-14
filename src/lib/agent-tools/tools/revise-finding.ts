@@ -42,7 +42,7 @@ export function createReviseFindingTool() {
       "tool",
       () => 0,
       async ({ id, pages, claim, why, evidence }, options) => {
-        const path = R.resolvePathInput(undefined, options);
+        const path = R.activeDocPath(options);
         const doc = R.requireLoadedDoc(path);
         const outOfRange = R.pagesOutOfRange(pages, doc);
         if (outOfRange) return { revised: false, reason: outOfRange };

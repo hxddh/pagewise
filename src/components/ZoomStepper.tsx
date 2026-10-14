@@ -9,6 +9,7 @@ import {
 } from "../lib/zoom";
 import { AnchoredMenu } from "./AnchoredMenu";
 import { Button } from "./ui/Button";
+import { ListRow } from "./ui/ListRow";
 
 interface ZoomStepperProps {
   zoom: ZoomMode;
@@ -59,50 +60,42 @@ export function ZoomStepper({
         align="end"
       >
         {ZOOM_PRESETS.map((z) => (
-          // raw-button: role="menuitemradio" — a menu item with a checked state, not a button
-          <button
+          <ListRow
             key={z.labelKey}
-            type="button"
             role="menuitemradio"
             aria-checked={isSameZoom(zoom, z.value)}
-            className={`zoom-menu-item ${isSameZoom(zoom, z.value) ? "active" : ""}`}
+            className="zoom-menu-item"
+            active={isSameZoom(zoom, z.value)}
+            label={t(z.labelKey)}
             onClick={() => {
               onZoomChange(z.value);
               setOpen(false);
             }}
-          >
-            {t(z.labelKey)}
-          </button>
+          />
         ))}
         <div className="zoom-menu-divider" role="separator" />
-        {/* raw-button: role="menuitem" inside the same menu; it has to match the rows above it */}
-        <button
-          type="button"
+        <ListRow
           role="menuitem"
           className="zoom-menu-item zoom-menu-action"
+          leading={<Minus size={12} aria-hidden />}
+          label={t("preview.zoomOut")}
           onClick={() => {
             onZoomOut();
             setOpen(false);
           }}
           disabled={atMin}
-        >
-          <Minus size={12} aria-hidden />
-          {t("preview.zoomOut")}
-        </button>
-        {/* raw-button: role="menuitem" inside the same menu; it has to match the rows above it */}
-        <button
-          type="button"
+        />
+        <ListRow
           role="menuitem"
           className="zoom-menu-item zoom-menu-action"
+          leading={<Plus size={12} aria-hidden />}
+          label={t("preview.zoomIn")}
           onClick={() => {
             onZoomIn();
             setOpen(false);
           }}
           disabled={atMax}
-        >
-          <Plus size={12} aria-hidden />
-          {t("preview.zoomIn")}
-        </button>
+        />
       </AnchoredMenu>
     </div>
   );

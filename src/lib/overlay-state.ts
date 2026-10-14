@@ -42,6 +42,13 @@ export function setOverlayOpen(open: boolean): void {
 // Stacked overlays register a layer so only the topmost one handles the Escape
 // key. Each push returns a unique id; the overlay checks isTopOverlayLayer(id)
 // before acting on Escape and pops on unmount.
+//
+// Since 18.0 the modals themselves do not read this: Radix owns their Escape,
+// and its own stack decides which of them is on top. What still reads it is the
+// app's own handlers — the settings drawer, which is not a Radix dialog, and
+// the mark note / preview region mode, which must not act while something modal
+// is above them. `Modal` and `ConfirmDialog` push a layer on open for exactly
+// that reason.
 
 let nextLayerId = 1;
 const overlayLayerStack: number[] = [];

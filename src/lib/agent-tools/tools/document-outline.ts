@@ -15,39 +15,29 @@ export function createDocumentOutlineTool(
 ) {
   return tool({
       description:
-        "Document overview: the native section/bookmark tree (title → page) when " +
-        "the PDF has one, the document's total length, and which pages are " +
-        "densest, unreadable, or carry figures, tables, links or the reader's " +
-        "marks. Use it to jump to a section or to plan reads of a large " +
-        "document. pageStats: true adds every page's character count and " +
-        "previews: true adds a text preview per page — both are large, and the " +
-        "summary above is usually enough.",
+        "Document overview: the bookmark/section tree (title → page) when there is " +
+        "one, the total length, and which pages are densest, unreadable, or carry " +
+        "figures, tables, links or the reader's marks. Jump to a section with it, " +
+        "or plan reads of a large document. pageStats adds per-page character " +
+        "counts, previews text per page — both are large; the summary is usually " +
+        "enough.",
       inputSchema: z.object({
-        path: z
-          .string()
-          .optional()
-          .describe("Loaded document path; defaults to the active document"),
         previews: z
           .boolean()
           .optional()
-          .describe(
-            `Include a short text preview per page (first ${R.MAX_OUTLINE_PAGE_STATS} pages). Off by default.`,
-          ),
+          .describe(`A short text preview per page (first ${R.MAX_OUTLINE_PAGE_STATS} pages).`),
         pageStats: z
           .boolean()
           .optional()
-          .describe(
-            "Include the character count of every page. Off by default — the " +
-              "totals and the longest/shortest pages are already reported.",
-          ),
+          .describe("Every page's character count — large; the summary already has the totals."),
       }),
       contextSchema: R.docToolContextSchema,
       execute: R.bindToolExecute(
         () => ({ message: "Scanning document…", key: "agent.activityIndex" }),
         "tool",
         () => budget.gen,
-        async ({ path: inputPath, previews = false, pageStats = false }, options, runGen) => {
-          const path = R.resolvePathInput(inputPath, options);
+        async ({ previews = false, pageStats = false }, options, runGen) => {
+          const path = R.activeDocPath(options);
           const doc = R.requireLoadedDoc(path);
           if (budget.used >= budget.max) {
             return { budgetExceeded: true, note: R.BUDGET_NOTE };
@@ -166,7 +156,7 @@ export function createDocumentOutlineTool(
               : {}),
           };
           // Outline output lands in context like any read — count it.
-          chargeBudget(runGen, JSON.stringify(result).length);
+          chargeBudget(runGen, R.estimateTokens(JSON.stringify(result)));
           return result;
         },
       ),

@@ -1,3 +1,4 @@
+import { estimateTokens } from "./reading";
 import { linksOnPages, type PageLink } from "../page-links";
 import { marksOnPage } from "../mark-store";
 import type { LoadedDocument } from "../types";
@@ -72,11 +73,11 @@ export function attachmentsFor(
   return out;
 }
 
-/** Characters an assembled attachment set costs, for the run's read budget. */
-export function attachmentCost(attachments: ReadAttachments): number {
+/** Tokens an assembled attachment set costs, for the run's read budget. */
+export function attachmentTokenCost(attachments: ReadAttachments): number {
   if (!attachments.links && !attachments.marks) return 0;
   try {
-    return JSON.stringify(attachments).length;
+    return estimateTokens(JSON.stringify(attachments));
   } catch {
     return 0;
   }

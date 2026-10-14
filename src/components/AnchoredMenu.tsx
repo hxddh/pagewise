@@ -1,13 +1,5 @@
-import { createPortal } from "react-dom";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { Popover } from "radix-ui";
+import { useCallback, useRef, type ReactNode, type RefObject } from "react";
 
 interface AnchoredMenuProps {
   open: boolean;
@@ -24,6 +16,18 @@ interface AnchoredMenuProps {
   role?: "menu" | "listbox" | "dialog";
 }
 
+/**
+ * A small surface anchored to a control: the zoom presets, the chat's overflow
+ * menu, the answer's actions, the model list.
+ *
+ * Placement, outside-pointer dismissal and Escape were written by hand here —
+ * a layout effect with its own flip-above-the-anchor arithmetic, a document
+ * `mousedown` listener, a scroll/resize pair, a portal, a focus move and a
+ * focus restore. Radix's Popover owns all of that now, and the two things it
+ * cannot know stay in this file: which element to anchor to (the trigger lives
+ * in the caller, so the anchor is registered virtually) and the arrow-key
+ * cursor, which is a menu behaviour and not a popover one.
+ */
 export function AnchoredMenu({
   open,
   onClose,
@@ -34,8 +38,6 @@ export function AnchoredMenu({
   role = "menu",
 }: AnchoredMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
-  // Element focused before the menu opened, so we can restore focus on close.
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   const getItems = useCallback((): HTMLElement[] => {
@@ -46,86 +48,11 @@ export function AnchoredMenu({
     );
   }, []);
 
-  useLayoutEffect(() => {
-    if (!open || !anchorRef.current || !menuRef.current) return;
-
-    const position = () => {
-      if (!anchorRef.current || !menuRef.current) return;
-      const anchor = anchorRef.current.getBoundingClientRect();
-      const menu = menuRef.current.getBoundingClientRect();
-      const gap = 4;
-      let top = anchor.bottom + gap;
-      if (top + menu.height > window.innerHeight - 8) {
-        top = Math.max(8, anchor.top - menu.height - gap);
-      }
-      const left =
-        align === "end"
-          ? Math.max(8, anchor.right - menu.width)
-          : Math.max(8, Math.min(anchor.left, window.innerWidth - menu.width - 8));
-
-      setStyle({
-        position: "fixed",
-        top,
-        left,
-        right: "auto",
-        width: "max-content",
-        zIndex: "var(--z-menu)",
-        visibility: "visible",
-      });
-    };
-
-    position();
-    const raf = requestAnimationFrame(position);
-    // Keep the menu anchored while the page scrolls or the window resizes.
-    window.addEventListener("scroll", position, true);
-    window.addEventListener("resize", position);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", position, true);
-      window.removeEventListener("resize", position);
-    };
-  }, [open, anchorRef, align]);
-
-  // Move focus into the menu on open; restore it to the trigger on close.
-  useEffect(() => {
-    if (!open) return;
-    restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    const id = window.setTimeout(() => {
-      // Focus the first item, or the container itself when there are none, so the
-      // portal's onKeyDown (Escape) receives keystrokes instead of leaving focus
-      // on the trigger outside the portal.
-      (getItems()[0] ?? menuRef.current)?.focus();
-    }, 0);
-    return () => {
-      window.clearTimeout(id);
-      restoreFocusRef.current?.focus?.();
-    };
-  }, [open, getItems]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (anchorRef.current?.contains(target)) return;
-      if (menuRef.current?.contains(target)) return;
-      onClose();
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, onClose, anchorRef]);
-
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Escape / Tab must work even for item-less popovers (role="dialog"), so
-      // handle them before the item-navigation early-return below.
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-        return;
-      }
+      // Escape and outside-pointer dismissal are Radix's. What is left is the
+      // cursor: Home/End/arrows move it, and Tab leaves (WAI-ARIA menu pattern).
       if (e.key === "Tab") {
-        // Tabbing away dismisses the popover (WAI-ARIA menu pattern).
         onClose();
         return;
       }
@@ -159,22 +86,51 @@ export function AnchoredMenu({
     [getItems, onClose],
   );
 
-  if (!open) return null;
-
-  return createPortal(
-    <div
-      ref={menuRef}
-      className={className}
-      style={style}
-      role={role}
-      // Programmatically focusable (never in the tab order) so item-less popovers
-      // can receive focus and thus keyboard events; getItems() excludes it.
-      tabIndex={-1}
-      onKeyDown={onKeyDown}
-      onMouseDown={(e) => e.stopPropagation()}
+  return (
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      {children}
-    </div>,
-    document.body,
+      {/* The trigger is the caller's own button, so the anchor is virtual. */}
+      <Popover.Anchor virtualRef={anchorRef} />
+      <Popover.Portal>
+        <Popover.Content
+          ref={menuRef}
+          className={className}
+          role={role}
+          tabIndex={-1}
+          side="bottom"
+          align={align}
+          sideOffset={4}
+          collisionPadding={8}
+          style={{ zIndex: "var(--z-menu)" }}
+          onKeyDown={onKeyDown}
+          onOpenAutoFocus={(event) => {
+            restoreFocusRef.current = document.activeElement as HTMLElement | null;
+            // Radix focuses the first tabbable item, or the container when
+            // there is none — which is what this did by hand.
+            if (!event.defaultPrevented && getItems().length === 0) {
+              event.preventDefault();
+              menuRef.current?.focus();
+            }
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            restoreFocusRef.current?.focus?.();
+          }}
+          onInteractOutside={(event) => {
+            // Clicking the anchor is the caller's toggle, not a dismissal —
+            // otherwise the dismiss and the toggle cancel each other out and
+            // the menu can never be closed by its own button.
+            const target = event.target as Node | null;
+            if (target && anchorRef.current?.contains(target)) event.preventDefault();
+          }}
+        >
+          {children}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

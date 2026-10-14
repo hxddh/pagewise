@@ -27,6 +27,7 @@ function mount(activeDocName: string | null) {
       onOpenSettings: noop,
       onToggleFollowAgent: noop,
       onToggleAgent: noop,
+      onToggleZen: noop,
       onClearChat: noop,
       onStop: noop,
       onCycleTheme: noop,

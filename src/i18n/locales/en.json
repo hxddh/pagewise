@@ -199,7 +199,13 @@
     "usageSteps": "Per-step usage",
     "usageStep": "Step {{n}}",
     "usageSummary": "{{input}} in · {{output}} out",
-    "usageSummaryWithSteps": "{{input}} in · {{output}} out · {{steps}} steps",
+    "usageSummaryPages": "{{count}} page read",
+    "usageSummaryPages_plural": "{{count}} pages read",
+    "usageSummarySteps": "{{count}} step",
+    "usageSummarySteps_plural": "{{count}} steps",
+    "usageSummaryCached": "{{cached}} cached",
+    "usageSummaryScans": "{{count}} scan",
+    "usageSummaryScans_plural": "{{count}} scans",
     "regenerate": "Regenerate",
     "editMessage": "Edit",
     "resend": "Resend",
@@ -380,7 +386,8 @@
     "scanAllPages": "Read pages with no text",
     "walkConversation": "Previous / next message",
     "searchConversation": "Search this conversation",
-    "export": "Export…"
+    "export": "Export…",
+    "zen": "Zen: hide the chrome"
   },
   "toast": {
     "chatExported": "Chat exported",
@@ -552,5 +559,9 @@
     "chatEmpty": "No conversation yet.",
     "busy": "Wait for the answer to finish.",
     "includeText": "Append the document's text"
+  },
+  "zen": {
+    "exit": "Exit Zen",
+    "ask": "Ask about this document…"
   }
 }

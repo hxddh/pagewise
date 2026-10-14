@@ -8,6 +8,8 @@ const h = vi.hoisted(() => ({
   visionMode: { current: "immediate" as "immediate" | "manual" },
   visionText: { current: "x".repeat(50) },
   visionCalls: [] as string[],
+  /** Options each vision call was made with, so who pays is assertable. */
+  visionOpts: [] as Array<Record<string, unknown>>,
   ocr: {
     enabled: false,
     /** page → what OCR reads there; absent pages read nothing. */
@@ -56,6 +58,10 @@ vi.mock("../lib/doc-cache", () => ({
 vi.mock("../lib/pdf", () => ({
   readAuthorizedFileBytes: vi.fn(async () => new Uint8Array([1])),
   renderPageToJpegBytes: vi.fn(async () => new Uint8Array([2])),
+  // The render defaults the queue passes through; this mock replaces the
+  // renderer, not the numbers. A page OCR read poorly asks for the larger ones.
+  VISION_MAX_EDGE: 1_024,
+  VISION_QUALITY: 0.8,
 }));
 
 vi.mock("../lib/settings", () => ({
@@ -76,6 +82,7 @@ vi.mock("../lib/llm", () => ({
 vi.mock("../lib/vision-api", () => ({
   generateVisionText: vi.fn(
     (_s: unknown, _p: unknown, _b: unknown, opts?: { signal?: AbortSignal }) => {
+      h.visionOpts.push({ ...(opts ?? {}) });
       if (h.visionMode.current === "immediate") {
         return Promise.resolve(h.visionText.current);
       }
@@ -161,6 +168,7 @@ beforeEach(() => {
   h.events.length = 0;
   h.pending.length = 0;
   h.visionCalls.length = 0;
+  h.visionOpts.length = 0;
   h.visionMode.current = "immediate";
   h.visionText.current = "x".repeat(50);
   h.ocr.enabled = false;
@@ -196,6 +204,10 @@ describe("scheduleIndex", () => {
       const text = h.store.get(path)?.pages.find((p) => p.page === page)?.text;
       expect(text).toBe("x".repeat(50));
     }
+    // An unprompted sweep is nobody's question and nobody's page view: the
+    // calls are counted, the tokens are not booked to a message or a document.
+    expect(h.visionOpts[0]).toMatchObject({ attributeUsage: false });
+    expect(h.visionOpts[0]!.attributeToDocument).toBeUndefined();
   });
 });
 
@@ -511,6 +523,9 @@ describe("local OCR first (14.0)", () => {
     indexPageInBackground(path, 2);
     await vi.waitFor(() => expect(statusesFor(path, 2)).toContain("done"));
     expect(h.visionCalls).toHaveLength(1);
+    // And it is booked to the document, not dropped: no message is being
+    // written, but the reader is looking at the page that was billed (18.0).
+    expect(h.visionOpts[0]).toMatchObject({ attributeUsage: false, attributeToDocument: path });
   });
 
   it("lets an explicit read replace poorly read text with vision", async () => {
@@ -519,9 +534,31 @@ describe("local OCR first (14.0)", () => {
     seed(path, 1);
     h.ocr.pages.set(1, readPoorly);
 
-    await ensurePageIndexed(path, 1);
+    // The agent's read path (`readPageText`) asks for "run": the message pays.
+    await ensurePageIndexed(path, 1, undefined, "run");
     expect(h.visionCalls).toHaveLength(1);
     expect(h.store.get(path)!.pages[0]).toMatchObject({ source: "vision" });
+    expect(h.visionOpts[0]).toMatchObject({ attributeUsage: true });
+  });
+
+  it("sends the larger render only for a page OCR read poorly", async () => {
+    // 18.0 lowered the page render to 1,024px q0.80; the larger 1,568 q0.85
+    // survives for the page where the extra pixels decide between a usable
+    // transcription and a second billed call. A page OCR read nothing on gets
+    // the default — resolution does not rescue a photograph.
+    h.ocr.enabled = true;
+    const path = uniquePath();
+    seed(path, 2);
+    h.ocr.pages.set(1, readPoorly);
+
+    await ensurePageIndexed(path, 1);
+    await ensurePageIndexed(path, 2);
+
+    const render = renderPageToJpegBytes as unknown as { mock: { calls: unknown[][] } };
+    expect(render.mock.calls.map((c) => [c[1], c[2], c[3]])).toEqual([
+      [1, 1_568, 0.85],
+      [2, 1_024, 0.8],
+    ]);
   });
 
   it("re-scans with vision when asked, not with OCR", async () => {

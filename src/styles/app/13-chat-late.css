@@ -87,7 +87,7 @@
 .chat-loading-overlay {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: var(--z-chat-loading);
   background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
   min-height: 0;
 }
@@ -141,31 +141,18 @@
   transition: none;
 }
 
+/*
+ * The corner, the layer and nothing else — the surface comes from
+ * `StatusLine`'s banner role, and the × from the same component's close
+ * button. Top right, where a failed open is reported and stays: a toast in the
+ * same corner used to cover this one's Dismiss (see css-hygiene.test.mjs).
+ */
 .file-error-banner {
   position: fixed;
   top: 12px;
   left: calc(var(--rail-w) + 12px);
   right: 12px;
   z-index: var(--z-file-error);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-lg);
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-lg);
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
-  background: color-mix(in srgb, var(--danger) 10%, var(--bg-elevated));
-  color: var(--text);
-  font-size: var(--text-sm);
-  box-shadow: var(--shadow-md);
-}
-
-.file-error-dismiss {
-  flex-shrink: 0;
-  min-width: 28px;
-  padding: 0 var(--space-sm);
-  font-size: 18px;
-  line-height: 1;
 }
 
 .confirm-bar {
@@ -391,4 +378,55 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
   color: var(--text-muted);
+}
+
+/*
+ * Zen (18.0): the reader asked the chrome to leave.
+ *
+ * Not a full-screen call — the window keeps its frame — it is the rail, the
+ * toolbar and the panel going away, and the page keeping everything else. The
+ * two things that stay are the ones a reader still needs: how far through the
+ * document they are, and a way to ask.
+ */
+.app.zen .app-rail,
+.app.zen .preview-toolbar,
+.app.zen .chat-column,
+.app.zen .resize-handle,
+.app.zen .agent-dock {
+  display: none;
+}
+
+.zen-progress {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  /* Above the page's own layers (the text layer is z-index 5): the page paints
+     into the window, and these three are the only things left on top of it. */
+  z-index: var(--z-rail);
+  background: var(--border-subtle);
+}
+
+.zen-progress-fill {
+  display: block;
+  width: 100%;
+  background: var(--accent);
+  transition: height var(--transition);
+}
+
+.zen-exit {
+  position: fixed;
+  top: var(--space-lg);
+  right: var(--space-xl);
+  z-index: var(--z-rail);
+}
+
+.zen-ask {
+  position: fixed;
+  bottom: var(--space-2xl);
+  left: 50%;
+  translate: -50% 0;
+  z-index: var(--z-rail);
+  box-shadow: var(--shadow-md);
 }

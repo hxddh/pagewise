@@ -1,15 +1,9 @@
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback } from "react";
 import { X } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { RecentFile } from "../lib/recent-files";
 import { RecentFilesList } from "./RecentFilesList";
-import { useOverlayLock } from "../hooks/useOverlayLock";
-import { useFocusTrap } from "../hooks/useFocusTrap";
-import {
-  isTopOverlayLayer,
-  popOverlayLayer,
-  pushOverlayLayer,
-} from "../lib/overlay-state";
+import { Modal } from "./ui/Modal";
 import { Button } from "./ui/Button";
 
 interface RecentFilesDrawerProps {
@@ -34,29 +28,8 @@ function RecentFilesDrawerInner({
   onRemoveRecent,
 }: RecentFilesDrawerProps) {
   const { t } = useI18n();
-  useOverlayLock(open);
-  const panelRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(open, panelRef);
 
   const requestClose = useCallback(() => onClose(), [onClose]);
-
-  useEffect(() => {
-    if (!open) return;
-    const layerId = pushOverlayLayer();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
-        e.preventDefault();
-        requestClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      popOverlayLayer(layerId);
-    };
-  }, [open, requestClose]);
-
-  if (!open) return null;
 
   const handleOpenRecent = (path: string) => {
     onClose();
@@ -64,56 +37,47 @@ function RecentFilesDrawerInner({
   };
 
   return (
-    <div className="library-drawer-root" role="presentation">
-      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
-      <button
-        type="button"
-        className="library-drawer-backdrop"
-        aria-label={t("library.close")}
-        onClick={requestClose}
-      />
-      <aside
-        ref={panelRef}
-        className="library-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("sidebar.library")}
-      >
-        <header className="library-drawer-header">
-          <h2>{t("sidebar.library")}</h2>
-          <Button
-            variant="ghost" size="md" icon
-            onClick={requestClose}
-            aria-label={t("library.close")}
-          >
-            <X size={16} />
-          </Button>
-        </header>
-
+    <Modal
+      open={open}
+      onClose={requestClose}
+      overlayClassName="library-drawer-root"
+      className="library-drawer"
+      ariaLabel={t("sidebar.library")}
+    >
+      <header className="library-drawer-header">
+        <h2>{t("sidebar.library")}</h2>
         <Button
-          variant="primary" size="md" className="library-drawer-open"
-          onClick={() => {
-            onClose();
-            onOpenFile();
-          }}
-          disabled={opening}
+          variant="ghost" size="md" icon
+          onClick={requestClose}
+          aria-label={t("library.close")}
         >
-          {opening ? t("sidebar.opening") : t("sidebar.openDocument")}
+          <X size={16} />
         </Button>
+      </header>
 
-        <div className="library-drawer-body document-library">
-          <p className="library-section-label">{t("sidebar.recent")}</p>
-          <RecentFilesList
-            files={recentFiles}
-            layout="drawer"
-            activePath={activePath}
-            opening={opening}
-            onOpen={handleOpenRecent}
-            onRemove={onRemoveRecent}
-          />
-        </div>
-      </aside>
-    </div>
+      <Button
+        variant="primary" size="md" className="library-drawer-open"
+        onClick={() => {
+          onClose();
+          onOpenFile();
+        }}
+        disabled={opening}
+      >
+        {opening ? t("sidebar.opening") : t("sidebar.openDocument")}
+      </Button>
+
+      <div className="library-drawer-body document-library">
+        <p className="library-section-label">{t("sidebar.recent")}</p>
+        <RecentFilesList
+          files={recentFiles}
+          layout="drawer"
+          activePath={activePath}
+          opening={opening}
+          onOpen={handleOpenRecent}
+          onRemove={onRemoveRecent}
+        />
+      </div>
+    </Modal>
   );
 }
 

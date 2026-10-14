@@ -55,18 +55,46 @@ describe("message-metadata", () => {
     expect(formatCompactTokenCount(25000)).toBe("25k");
   });
 
-  it("formats usage summary with step count", () => {
+  it("formats the usage line from what the message recorded", () => {
+    // Every segment the reader is shown, in order: pages · steps · tokens in/out
+    // · cache hits · scans. The separator is a catalog key like the rest.
     const line = formatUsageSummaryLine(
       {
+        inputTokens: 3_100,
+        outputTokens: 170,
+        indexCalls: 2,
         stepUsage: [
-          { step: 0, inputTokens: 1000, outputTokens: 50 },
-          { step: 1, inputTokens: 2000, outputTokens: 120 },
+          { step: 0, inputTokens: 1_000, outputTokens: 50, cachedInputTokens: 900 },
+          { step: 1, inputTokens: 2_000, outputTokens: 120, cachedInputTokens: 1_500 },
         ],
       },
-      (key, vars) => `${key}:${JSON.stringify(vars)}`,
+      (key, vars) =>
+        key === "agent.toolsSummarySep"
+          ? " · "
+          : `${key}(${Object.values(vars ?? {}).join(",")})`,
+      3,
     );
-    expect(line).toContain("usageSummaryWithSteps");
-    expect(line).toContain('"steps":2');
+    expect(line).toBe(
+      "agent.usageSummaryPages(3) · agent.usageSummarySteps(2) · " +
+        "agent.usageSummary(3.0k,170) · agent.usageSummaryCached(2.4k) · " +
+        "agent.usageSummaryScans(2)",
+    );
+  });
+
+  it("leaves out the segments that did not happen", () => {
+    // A single-step answer over no pages, with nothing cached: no page, step or
+    // cache segment — but the scan count stays, because 0 is the answer to
+    // "did this answer buy page images?".
+    const line = formatUsageSummaryLine(
+      { inputTokens: 1_200, outputTokens: 40, stepUsage: [{ step: 0, inputTokens: 1_200, outputTokens: 40 }] },
+      (key, vars) =>
+        key === "agent.toolsSummarySep"
+          ? " · "
+          : `${key}(${Object.values(vars ?? {}).join(",")})`,
+    );
+    expect(line).toBe(
+      "agent.usageSummarySteps(1) · agent.usageSummary(1.2k,40) · agent.usageSummaryScans(0)",
+    );
   });
 
   it("emits live step totals on finish-step", () => {
@@ -145,7 +173,8 @@ describe("message-metadata", () => {
       { stepUsage: finish?.stepUsage },
       (key, vars) => `${key}:${JSON.stringify(vars)}`,
     );
-    expect(line).toContain('"steps":2');
+    expect(line).toContain('"count":2');
+    expect(line).toContain('"input":"350","output":"110"');
   });
 
   it("collects per-step usage via onStepEnd", () => {

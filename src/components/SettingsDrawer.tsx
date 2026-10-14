@@ -7,9 +7,7 @@ import { SetupAssistant } from "./settings/SetupAssistant";
 import { ShortcutsSettings } from "./settings/ShortcutsSettings";
 import { AboutSettings } from "./settings/AboutSettings";
 import { loadPreferences, patchPreferences, type SettingsTab } from "../lib/preferences";
-import { useOverlayLock } from "../hooks/useOverlayLock";
-import { useFocusTrap } from "../hooks/useFocusTrap";
-import { isTopOverlayLayer, popOverlayLayer, pushOverlayLayer } from "../lib/overlay-state";
+import { Modal } from "./ui/Modal";
 import { Button } from "./ui/Button";
 
 interface SettingsDrawerProps {
@@ -69,9 +67,6 @@ function SettingsDrawerInner({
   onRefreshConnection,
 }: SettingsDrawerProps) {
   const { t } = useI18n();
-  useOverlayLock(open);
-  const panelRef = useRef<HTMLElement>(null);
-  useFocusTrap(open, panelRef);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [tab, setTab] = useState<DrawerTab>("general");
   const [visited, setVisited] = useState<Set<DrawerTab>>(() => new Set(["general"]));
@@ -95,22 +90,6 @@ function SettingsDrawerInner({
   const requestClose = useCallback(() => {
     onClose();
   }, [onClose]);
-
-  useEffect(() => {
-    if (!open) return;
-    const layerId = pushOverlayLayer();
-    const onKey = (e: KeyboardEvent) => {
-      // Only the topmost overlay layer reacts to Escape.
-      if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
-        requestClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      popOverlayLayer(layerId);
-    };
-  }, [open, requestClose]);
 
   async function selectTab(next: DrawerTab) {
     setTab(next);
@@ -154,21 +133,13 @@ function SettingsDrawerInner({
   };
 
   return (
-    <div className="drawer-root" role="presentation">
-      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
-      <button
-        type="button"
-        className="drawer-backdrop"
-        aria-label={t("settings.close")}
-        onClick={requestClose}
-      />
-      <aside
-        ref={panelRef}
-        className="drawer-panel settings-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label={needsSetup ? t("settings.setupTitle") : t("settings.title")}
-      >
+    <Modal
+      open={open}
+      onClose={requestClose}
+      overlayClassName="drawer-root"
+      className="drawer-panel settings-drawer"
+      ariaLabel={needsSetup ? t("settings.setupTitle") : t("settings.title")}
+    >
         <header className="drawer-header">
           <h2>{needsSetup ? t("settings.setupTitle") : t("settings.title")}</h2>
           <Button
@@ -271,8 +242,7 @@ function SettingsDrawerInner({
             </div>
           </div>
         )}
-      </aside>
-    </div>
+    </Modal>
   );
 }
 

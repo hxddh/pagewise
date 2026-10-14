@@ -14,6 +14,7 @@ import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
 import { getPageWiseMetadata } from "../lib/message-metadata";
 import { runPlan, type PlanPhase } from "../lib/run-plan";
 import { Markdown } from "./Markdown";
+import { EmptyState } from "./EmptyState";
 
 interface MessageContentProps {
   message: UIMessage;
@@ -376,7 +377,7 @@ function MessageContentInner({
         </p>
       )}
       {showEmptyReply && (
-        <p className="message-empty-reply">{t("agent.noReply")}</p>
+        <EmptyState variant="inline" className="message-empty-reply">{t("agent.noReply")}</EmptyState>
       )}
       <PagesReadTrail pages={readPages} />
       {sources.length > 0 && (

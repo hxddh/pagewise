@@ -168,13 +168,16 @@ export function appliedClassNames(source) {
   const noteIdentifiers = (fragment) => {
     for (const m of fragment.matchAll(/[A-Za-z_$][\w$]*/g)) identifiers.add(m[0]);
   };
-  // className="a b" / class="a b"
-  for (const m of source.matchAll(/\bclass(?:Name)?\s*=\s*"([^"]*)"/g)) add(m[1]);
+  // className="a b" / class="a b" — and the suffixed spellings a component uses
+  // when it owns more than one element's classes (`overlayClassName`, on the
+  // modal primitive). The value still lands in a class attribute; only the prop
+  // name is longer.
+  for (const m of source.matchAll(/\b\w*[Cc]lass(?:[Nn]ame)?\s*=\s*"([^"]*)"/g)) add(m[1]);
   // className={…} — brace-matched, not regex-terminated. A non-greedy `\{…\}`
   // stops at the first `}`, which inside `` `a ${cond ? "b" : ""}` `` is the
   // interpolation's own closer — so everything after it, including the class
   // names, was never read. Six live names were reported dead that way.
-  for (const m of source.matchAll(/\bclass(?:Name)?\s*=\s*\{/g)) {
+  for (const m of source.matchAll(/\b\w*[Cc]lass(?:[Nn]ame)?\s*=\s*\{/g)) {
     let depth = 1;
     let i = m.index + m[0].length;
     for (; i < source.length && depth > 0; i++) {

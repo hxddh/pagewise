@@ -192,9 +192,19 @@ export function resolveAgentTokenTotals(metadata: PageWiseMessageMetadata | unde
   return { input, output };
 }
 
+/**
+ * The line under a settled answer: what this question cost.
+ *
+ * Every segment but the tokens is conditional — pages when it read any, steps
+ * when the loop recorded any, cache hits when the provider served any — and the
+ * scan count is always there, because a zero is the answer to "did this answer
+ * buy page images?". Everything comes from metadata the message already
+ * records; nothing is measured here.
+ */
 export function formatUsageSummaryLine(
   metadata: PageWiseMessageMetadata | undefined,
   t: (key: string, vars?: Record<string, string | number>) => string,
+  pagesRead = 0,
 ): string | null {
   if (!metadata) return null;
 
@@ -206,18 +216,30 @@ export function formatUsageSummaryLine(
 
   if (input == null && output == null) return null;
 
-  const inputLabel = formatCompactTokenCount(input);
-  const outputLabel = formatCompactTokenCount(output);
+  const cached = fromSteps?.cached || metadata.cachedInputTokens || 0;
+  const scans = metadata.indexCalls ?? 0;
 
-  if (steps.length > 1) {
-    return t("agent.usageSummaryWithSteps", {
-      input: inputLabel,
-      output: outputLabel,
-      steps: steps.length,
-    });
+  const segments: string[] = [];
+  if (pagesRead > 0) {
+    segments.push(t("agent.usageSummaryPages", { count: pagesRead }));
   }
+  if (steps.length > 0) {
+    segments.push(t("agent.usageSummarySteps", { count: steps.length }));
+  }
+  segments.push(
+    t("agent.usageSummary", {
+      input: formatCompactTokenCount(input),
+      output: formatCompactTokenCount(output),
+    }),
+  );
+  if (cached > 0) {
+    segments.push(
+      t("agent.usageSummaryCached", { cached: formatCompactTokenCount(cached) }),
+    );
+  }
+  segments.push(t("agent.usageSummaryScans", { count: scans }));
 
-  return t("agent.usageSummary", { input: inputLabel, output: outputLabel });
+  return segments.join(t("agent.toolsSummarySep"));
 }
 
 type StepEndEvent = {

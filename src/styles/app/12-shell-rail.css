@@ -36,7 +36,7 @@
   gap: var(--space-md);
   background: var(--bg-panel);
   border-right: 1px solid var(--border-subtle);
-  z-index: 30;
+  z-index: var(--z-rail);
 }
 
 .app-rail-brand {
@@ -100,20 +100,44 @@
 
 /* Library drawer */
 
+/* The drawer's layer: the wash behind it, and the corner it opens from. */
 .library-drawer-root {
   position: fixed;
   inset: 0;
   z-index: var(--z-library);
-  pointer-events: none;
+  background: rgba(0, 0, 0, 0.35);
+  cursor: default;
 }
 
-.library-drawer-backdrop {
-  position: absolute;
-  inset: 0;
-  border: none;
-  background: rgba(0, 0, 0, 0.35);
-  pointer-events: auto;
-  cursor: default;
+/* In from the rail it opens beside, out the same way — see `.palette-panel`. */
+.library-drawer[data-state="open"] {
+  animation: drawer-in var(--transition);
+}
+
+.library-drawer[data-state="closed"] {
+  animation: drawer-out var(--transition);
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes drawer-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
 }
 
 .library-drawer {
@@ -490,4 +514,23 @@
   color: var(--text-secondary);
   flex: 1;
   min-width: 0;
+}
+
+/*
+ * With a window material behind it (macOS vibrancy, Windows Mica), the chrome
+ * surfaces let it through — a sidebar that is a solid rectangle on top of real
+ * material is the worst of both. The document column stays opaque: a page
+ * needs a stable ground, and the canvas is the one large area the eye adapts
+ * to. `data-material` is only set when the effect actually took, so this is
+ * dead CSS on Linux and in the browser harness.
+ */
+[data-material="on"] :root {
+  background-color: transparent;
+}
+
+[data-material="on"] .app-rail,
+[data-material="on"] .chat-column,
+[data-material="on"] .drawer-panel,
+[data-material="on"] .preview-toolbar {
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
 }

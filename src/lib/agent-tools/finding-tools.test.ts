@@ -1,5 +1,5 @@
+import { asSchema } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 let disk: unknown = null;
 vi.mock("@tauri-apps/plugin-store", () => ({
@@ -60,14 +60,18 @@ describe("the writing tools", () => {
     // also refuses it, but a schema refusal is reported back to the model as a
     // validation error it can correct, rather than as a silent no-op.
     const { note_finding } = createDocumentTools(newReadBudget()) as never as {
-      note_finding: { inputSchema: z.ZodTypeAny };
+      note_finding: { inputSchema: unknown };
     };
-    const parsed = note_finding.inputSchema.safeParse({ pages: [], claim: "something" });
-    expect(parsed.success, "empty pages must not validate").toBe(false);
+    // Through the same `validate` the SDK runs before executing a call: the
+    // schema is a `jsonSchema()` wrapper since `compactToolSchemas`, so there
+    // is no `safeParse` to reach for.
+    const accepts = async (value: unknown) =>
+      (await asSchema(note_finding.inputSchema as never).validate?.(value))?.success ?? false;
+    expect(await accepts({ pages: [], claim: "something" }), "empty pages must not validate").toBe(
+      false,
+    );
 
-    expect(
-      note_finding.inputSchema.safeParse({ pages: [3], claim: "something" }).success,
-    ).toBe(true);
+    expect(await accepts({ pages: [3], claim: "something" })).toBe(true);
   });
 
   it("writes a finding without charging the read budget", async () => {

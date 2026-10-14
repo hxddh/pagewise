@@ -13,13 +13,15 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 - **Checked citations** — Every fact in an answer cites its page and the words it rests on; PageWise looks the words up on that page and shows whether they are there. Click a citation to see the passage lit on the page — on scanned pages too. A found quote under a sentence whose number the passage does not state is flagged, and your model can be asked, on demand, whether each passage supports its sentence
 - **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
 - **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one of three levels (*verified*, *check the page*, *not found*) that the panel, the model and the export all read
-- **Reading** — The answer column is a reading column: resizable from 360 to 640px, headings that step, ruled tables, and the tool steps below the answer where provenance belongs
+- **Reading** — The answer column is a reading column: resizable, headings that step, ruled tables, and the tool steps below the answer where provenance belongs. A **paper** theme (warm page, warm chrome), a reading text scale, and **Zen** (⌘⇧F): the rail, the toolbar and the panel leave, and the page, a progress hairline and one "Ask" pill stay
 - **Export** — One dialog, three things: **Report** (the record and your marks, with the document's text on request), **PDF with evidence**, and **Conversation**
 - **Evidence in the PDF** — Export a copy of the document with located findings and your marks written in as standard highlights and notes, readable in any PDF reader
 - **Cited tables** — Ask for a list or comparison and get a table with a checked citation in every cell; export it as CSV with each row's sources and whether they were found
 - **Chat** — One thread per document, persisted locally; a renamed or moved file finds its own chat, marks and record by content fingerprint
 - **Library** — Recent files, each reopening at the page you left and saying how much of the record is waiting on you
-- **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint
+- **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint. First run is one page: a provider, a key, and **Start reading** — the model is chosen from the provider's own presets and everything expert stays behind Advanced
+- **Cost, visible** — One line under every answer: pages read, steps, tokens in and out, cache hits, scan calls (turn it off in Settings → Assistant). The system prompt and tool definitions are budgeted by a test, and the read budget is charged in tokens, not characters, so a Chinese document costs what an English one does
+- **Material** — On macOS and Windows the window sits on real material (vibrancy, Mica) with a theme-matched background; where there is no equivalent, every surface stays opaque
 - **Security** — API keys stored in the **OS keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service)
 - **i18n** — English and 简体中文
 
@@ -41,14 +43,17 @@ npm run tauri dev
 
 ## Configuration
 
-1. Open **Settings → AI Provider**
-2. Choose a provider and model
-3. Enter your API key (stored in the OS keychain)
-4. Click **Set active** — settings auto-save
+First run is one page: pick a provider, paste an API key (stored in the OS keychain), click **Start reading**. The model is chosen automatically from the provider's presets; the file picker opens next.
+
+Afterwards everything lives in one Settings surface, in three groups:
+
+- **Appearance & language** — dark, light, **paper**, or follow the system
+- **Reading** — text size, local OCR for scanned pages, how many pages may be read in the cloud, and the text cache
+- **Assistant** — the model (Automatic by default), the current-page screenshot toggle, the cost line — and **Advanced** for the provider, the key, the endpoint, the scan model, extended thinking and the connection test
 
 **OpenRouter:** Use a **tool-capable** model (e.g. `openai/gpt-4o-mini`) for the document agent. Some DeepSeek routes on OpenRouter do not support tool calling.
 
-**Scans:** Scanned pages are read on your machine with no key and no cost (Settings → Scanning). A multimodal model (e.g. `gpt-4o-mini`, Qwen2.5-VL) is optional, for pages local recognition cannot read or reads poorly, and other languages.
+**Scans:** Scanned pages are read on your machine with no key and no cost. A multimodal model (e.g. `gpt-4o-mini`, Qwen2.5-VL) is optional, for pages local recognition cannot read or reads poorly, and other languages — 20 pages of a document in the background, 10 per question, both adjustable.
 
 See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 
@@ -57,6 +62,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Vite dev server only |
+| `npm run perf` | The performance probe: nine scenarios, twenty budgets (build first) |
 | `npm run tauri dev` | Desktop app (recommended) |
 | `npm run build` | Frontend production build |
 | `npm run tauri build` | Desktop installers for the current platform |

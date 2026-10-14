@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, type CSSProperties } from "react";
 import { useI18n } from "../i18n";
 import { activeHeadingIndex } from "../lib/outline-nav";
 import type { DocHeading } from "../lib/types";
+import { ListRow } from "./ui/ListRow";
 
 /**
  * How far a heading may be indented, in levels.
@@ -59,13 +60,11 @@ export const OutlineSidebar = memo(function OutlineSidebar({
       </div>
       <nav className="outline-list">
         {outline.map((heading, i) => (
-          // raw-button: a list row indented by heading level, with its own active state
-          <button
+          <ListRow
             key={`${heading.page}-${i}-${heading.title}`}
             ref={i === active ? activeRef : undefined}
-            type="button"
-            className={`outline-item level-${heading.level} ${i === active ? "active" : ""}`}
-            aria-current={i === active ? "true" : undefined}
+            className={`outline-item level-${heading.level}`}
+            active={i === active}
             /*
              * The indent has to come from the level itself. The stylesheet used
              * to carry one rule, `.level-2`, so every heading at level 3 or
@@ -85,10 +84,9 @@ export const OutlineSidebar = memo(function OutlineSidebar({
             }
             title={`${heading.title} · ${t("preview.pageHit", { page: heading.page })}`}
             onClick={() => onPageSelect(heading.page)}
-          >
-            <span className="outline-title">{heading.title}</span>
-            <span className="outline-page">{heading.page}</span>
-          </button>
+            label={<span className="outline-title">{heading.title}</span>}
+            trailing={<span className="outline-page">{heading.page}</span>}
+          />
         ))}
       </nav>
     </aside>

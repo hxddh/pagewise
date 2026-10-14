@@ -3,15 +3,10 @@ import { useI18n } from "../i18n";
 import { filterCommands, sectionLabel } from "../lib/commands";
 import type { CommandItem } from "../lib/commands";
 import { hasSeenPaletteHint, loadRecentCommandIds, markPaletteHintSeen } from "../lib/onboarding-hints";
-import { useOverlayLock } from "../hooks/useOverlayLock";
-import { useFocusTrap } from "../hooks/useFocusTrap";
-import {
-  isTopOverlayLayer,
-  popOverlayLayer,
-  pushOverlayLayer,
-} from "../lib/overlay-state";
 import { Input } from "./ui/Field";
-import { Panel } from "./ui/Panel";
+import { ListRow } from "./ui/ListRow";
+import { Modal } from "./ui/Modal";
+import { EmptyState } from "./EmptyState";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -21,14 +16,10 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, commands, onClose }: CommandPaletteProps) {
   const { t } = useI18n();
-  useOverlayLock(open);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLButtonElement>(null);
-  const layerRef = useRef<number | null>(null);
-  useFocusTrap(open, panelRef);
 
   const recentCommands = useMemo(() => {
     const ids = loadRecentCommandIds();
@@ -74,35 +65,13 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
     if (!open) {
       setQuery("");
       setActiveIndex(0);
-      return;
     }
-    inputRef.current?.focus();
   }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const layerId = pushOverlayLayer();
-    layerRef.current = layerId;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      popOverlayLayer(layerId);
-      layerRef.current = null;
-    };
-  }, [open, onClose]);
 
   // Keep the active row visible as the selection moves.
   useEffect(() => {
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
-
-  if (!open) return null;
 
   async function runCommand(cmd: CommandItem) {
     onClose();
@@ -124,77 +93,72 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
     }
   }
 
-  const showPaletteHint = showFirstHint;
-
   return (
-    <div className="palette-root" role="presentation">
-      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
-      <button type="button" className="palette-backdrop" aria-label={t("settings.close")} onClick={onClose} />
-      <Panel
-        tone="elevated"
-        ref={panelRef}
-        className="palette-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("commands.title")}
-      >
-        <Input
-          ref={inputRef}
-          className="palette-input"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onInputKeyDown}
-          placeholder={t("commands.placeholder")}
-          role="combobox"
-          aria-expanded
-          aria-controls="palette-listbox"
-          aria-activedescendant={
-            listItems[activeIndex] ? `palette-option-${activeIndex}` : undefined
-          }
-        />
-        <div className="palette-list" id="palette-listbox" role="listbox">
-          {listItems.length === 0 ? (
-            <p className="palette-empty">{t("commands.empty")}</p>
-          ) : (
-            sections.map((section) => (
-              <div key={section} className="palette-section">
-                <p className="palette-section-label">
-                  {section === "Recent" ? t("commands.recent") : sectionLabel(section as never, t)}
-                </p>
-                {(section === "Recent" ? recentCommands : rest.filter((cmd) => cmd.section === section)).map(
-                  (cmd) => {
-                    const idx = listItems.indexOf(cmd);
-                    const isActive = idx === activeIndex;
-                    return (
-                      // raw-button: role="option" in a listbox — an option is not a button, and Button would say it was
-                      <button
-                        key={cmd.id}
-                        ref={isActive ? activeItemRef : undefined}
-                        id={`palette-option-${idx}`}
-                        type="button"
-                        role="option"
-                        aria-selected={isActive}
-                        className={`palette-item ${isActive ? "active" : ""}`}
-                        onMouseEnter={() => setActiveIndex(idx)}
-                        onClick={() => void runCommand(cmd)}
-                      >
-                        <span>{cmd.label}</span>
-                        {cmd.shortcut && <kbd>{cmd.shortcut}</kbd>}
-                      </button>
-                    );
-                  },
-                )}
-              </div>
-            ))
-          )}
-        </div>
-        <div className="palette-footer">
-          <span>{t("commands.navigate")}</span>
-          <span>{t("commands.run")}</span>
-          <span>{t("commands.close")}</span>
-          {showPaletteHint && <span className="palette-first-hint">{t("commands.firstOpenHint")}</span>}
-        </div>
-      </Panel>
-    </div>
+    <Modal
+      open={open}
+      onClose={onClose}
+      overlayClassName="palette-root"
+      className="palette-panel"
+      tone="elevated"
+      ariaLabel={t("commands.title")}
+      initialFocus={inputRef}
+    >
+      <Input
+        ref={inputRef}
+        className="palette-input"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={onInputKeyDown}
+        placeholder={t("commands.placeholder")}
+        role="combobox"
+        aria-expanded
+        aria-controls="palette-listbox"
+        aria-activedescendant={
+          listItems[activeIndex] ? `palette-option-${activeIndex}` : undefined
+        }
+      />
+      <div className="palette-list" id="palette-listbox" role="listbox">
+        {listItems.length === 0 ? (
+          <EmptyState variant="inline" className="palette-empty">
+            {t("commands.empty")}
+          </EmptyState>
+        ) : (
+          sections.map((section) => (
+            <div key={section} className="palette-section">
+              <p className="palette-section-label">
+                {section === "Recent" ? t("commands.recent") : sectionLabel(section as never, t)}
+              </p>
+              {(section === "Recent" ? recentCommands : rest.filter((cmd) => cmd.section === section)).map(
+                (cmd) => {
+                  const idx = listItems.indexOf(cmd);
+                  const isActive = idx === activeIndex;
+                  return (
+                    <ListRow
+                      key={cmd.id}
+                      ref={isActive ? activeItemRef : undefined}
+                      id={`palette-option-${idx}`}
+                      role="option"
+                      aria-selected={isActive}
+                      active={isActive}
+                      className="palette-item"
+                      onMouseEnter={() => setActiveIndex(idx)}
+                      onClick={() => void runCommand(cmd)}
+                      label={<span>{cmd.label}</span>}
+                      trailing={cmd.shortcut ? <kbd>{cmd.shortcut}</kbd> : undefined}
+                    />
+                  );
+                },
+              )}
+            </div>
+          ))
+        )}
+      </div>
+      <div className="palette-footer">
+        <span>{t("commands.navigate")}</span>
+        <span>{t("commands.run")}</span>
+        <span>{t("commands.close")}</span>
+        {showFirstHint && <span className="palette-first-hint">{t("commands.firstOpenHint")}</span>}
+      </div>
+    </Modal>
   );
 }

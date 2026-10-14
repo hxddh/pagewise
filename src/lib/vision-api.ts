@@ -1,5 +1,5 @@
 import { formatLlmError, resolveBaseURL, validateModel } from "./llm";
-import { addIndexUsage } from "./usage-tracker";
+import { addDocumentVisionUsage, addIndexUsage } from "./usage-tracker";
 import type { LlmSettings } from "./types";
 
 /** Encode JPEG bytes as a data URL (OpenRouter requires this, not raw base64). */
@@ -68,7 +68,17 @@ export async function generateVisionText(
   settings: LlmSettings,
   prompt: string,
   imageJpeg: Uint8Array,
-  options: { signal?: AbortSignal; mediaType?: string; attributeUsage?: boolean } = {},
+  options: {
+    signal?: AbortSignal;
+    mediaType?: string;
+    attributeUsage?: boolean;
+    /**
+     * Book this call's tokens to a document instead of to the run. The on-view
+     * prefetch has no message to charge, and the run tracker is reset by the
+     * next question; the document keeps the total (18.0).
+     */
+    attributeToDocument?: string;
+  } = {},
 ): Promise<string> {
   const modelError = validateModel(settings);
   if (modelError) {
@@ -114,12 +124,15 @@ export async function generateVisionText(
     const usage = parseChatCompletionUsage(parsed);
     // Only count usage the caller attributes to the current agent run (a tool
     // page-read). Background sweeps, on-view prefetch, and the connection probe
-    // pass false so their tokens don't land on an unrelated chat message.
+    // pass false so their tokens don't land on an unrelated chat message — the
+    // prefetch's go to the document instead (18.0).
     if (usage && options.attributeUsage) {
       addIndexUsage({
         inputTokens: usage.inputTokens ?? 0,
         outputTokens: usage.outputTokens ?? 0,
       });
+    } else if (usage && options.attributeToDocument) {
+      addDocumentVisionUsage(options.attributeToDocument, usage);
     }
     return parseChatCompletionText(parsed);
   } catch {

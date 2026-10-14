@@ -11,17 +11,13 @@ export function createReadPdfPageTool(
 ) {
   return tool({
       description:
-        "Read text from a specific page of a loaded document (1-based page number). " +
+        "Read text from one page of the active document (1-based page number). " +
         "If the reader cited a number printed on the page rather than a position you " +
-        "worked out, pass it as `label` instead — some documents number their front " +
-        "matter separately, so the two differ. " +
-        "For very long pages the output is capped at maxChars; when truncated=true, call again " +
-        "with offset=nextOffset to continue the same page.",
+        "worked out, pass it as `label` — some documents number their front " +
+        "matter separately. " +
+        "Output is capped at maxChars; when truncated=true, call again " +
+        "with offset=nextOffset to continue the page.",
       inputSchema: z.object({
-        path: z
-          .string()
-          .optional()
-          .describe("Loaded document path; defaults to the active document"),
         page: z.number().int().min(1),
         label: z
           .string()
@@ -32,7 +28,7 @@ export function createReadPdfPageTool(
           .int()
           .min(0)
           .optional()
-          .describe("Character offset into the page to resume from (a previous nextOffset)"),
+          .describe("Character offset to resume from (a nextOffset)"),
         maxChars: z
           .number()
           .int()
@@ -56,11 +52,11 @@ export function createReadPdfPageTool(
         "read",
         () => budget.gen,
         async (
-          { path: inputPath, page: askedPage, label, offset = 0, maxChars = R.DEFAULT_PAGE_MAX_CHARS },
+          { page: askedPage, label, offset = 0, maxChars = R.DEFAULT_PAGE_MAX_CHARS },
           options,
           runGen,
         ): Promise<R.ReadResultLike> => {
-          const path = R.resolvePathInput(inputPath, options);
+          const path = R.activeDocPath(options);
           const doc = R.requireLoadedDoc(path);
           // A printed number wins when the document prints it exactly once.
           // Resolution is arithmetic the model should not be doing: it has the
@@ -142,9 +138,9 @@ export function createReadPdfPageTool(
             };
           }
           const from = Math.min(offset, text.length);
-          const room = Math.min(maxChars, budget.max - budget.used);
+          const room = Math.min(maxChars, R.affordableChars(text.slice(from), budget));
           const slice = text.slice(from, from + room);
-          chargeBudget(runGen, slice.length);
+          chargeBudget(runGen, R.estimateTokens(slice));
 
           const consumedEnd = from + slice.length;
           const truncated = consumedEnd < text.length;

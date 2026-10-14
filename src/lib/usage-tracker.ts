@@ -52,3 +52,33 @@ export function recordVisionCall(path: string): void {
 export function getVisionCallCount(path: string): number {
   return docVisionCalls.get(path) ?? 0;
 }
+
+/**
+ * Vision tokens a document accrued outside any run — the on-view prefetch.
+ *
+ * When the reader scrolls onto a page with no text, the page is sent to vision
+ * before any question is asked. It is billed like any other call, but there is
+ * no message being written to charge it to, and the per-run tracker is reset by
+ * every question — so its tokens used to be dropped on the floor. They are kept
+ * per document now, next to the call count `recordVisionCall` already keeps, so
+ * what a document has cost is the whole of it (18.0).
+ */
+const docVisionUsage = new Map<string, IndexUsageSnapshot>();
+
+export function addDocumentVisionUsage(
+  path: string,
+  usage: { inputTokens?: number; outputTokens?: number } | undefined,
+): void {
+  if (!usage) return;
+  const current = docVisionUsage.get(path) ?? { inputTokens: 0, outputTokens: 0, calls: 0 };
+  current.inputTokens += usage.inputTokens ?? 0;
+  current.outputTokens += usage.outputTokens ?? 0;
+  current.calls += 1;
+  docVisionUsage.set(path, current);
+}
+
+/** What the on-view prefetch alone has spent on this document. */
+export function getDocumentVisionUsage(path: string): IndexUsageSnapshot {
+  const usage = docVisionUsage.get(path);
+  return usage ? { ...usage } : { inputTokens: 0, outputTokens: 0, calls: 0 };
+}

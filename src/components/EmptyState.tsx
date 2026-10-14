@@ -1,7 +1,64 @@
+import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { Button } from "./ui/Button";
+import { ListRow } from "./ui/ListRow";
+
+/**
+ * What a place says when it has nothing to show.
+ *
+ * Nine of these existed in eight files — the library's recents, the record's
+ * empty list and its no-match line, the outline's, the palette's, two in the
+ * document search, a reply that produced no text, and the chat panel's own four
+ * branches. Only one was shared, and the eight were not variants of anything:
+ * they were eight answers to the same question, each written next to the thing
+ * that needed it.
+ *
+ * The shapes that differ are three, and they differ because the *place* does:
+ *
+ *   compact — a line or two at the top of a panel that is otherwise empty
+ *             (no key yet, no document open, a model that cannot call tools).
+ *   minimal — the invitation to start: suggestions against the composer, where
+ *             the first message will arrive.
+ *   inline  — one quiet line inside a list that already exists (no matches, no
+ *             marks yet). The list's own margins and type stay its own, so this
+ *             variant adds no class of its own.
+ */
+type EmptyStateVariant = "compact" | "minimal" | "inline";
 
 interface EmptyStateProps {
+  variant?: EmptyStateVariant;
+  /** The state's copy, in order. */
+  children?: ReactNode;
+  /** The host's own class — placement and type are the host's business. */
+  className?: string;
+  /**
+   * `polite` where the state arrives as the result of something the reader did
+   * (a search that found nothing); omitted where it was there all along.
+   */
+  live?: "polite" | "assertive";
+}
+
+export function EmptyState({
+  variant = "compact",
+  children,
+  className = "",
+  live,
+}: EmptyStateProps) {
+  const classes = [
+    variant === "inline" ? "" : "empty-state",
+    variant === "inline" ? "" : `empty-state-${variant}`,
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <div className={classes} aria-live={live}>
+      {children}
+    </div>
+  );
+}
+
+interface ChatEmptyStateProps {
   hasApiKey: boolean;
   agentToolsSupported?: boolean;
   settingsReady: boolean;
@@ -13,7 +70,12 @@ interface EmptyStateProps {
   onExamplePrompt?: (text: string) => void;
 }
 
-export function EmptyState({
+/**
+ * The chat panel's empty state: which of the three shapes above it gets, and
+ * with which copy. This is the policy, not a second rendering — every branch
+ * below returns the same `EmptyState`.
+ */
+export function ChatEmptyState({
   hasApiKey,
   agentToolsSupported = true,
   settingsReady,
@@ -22,12 +84,12 @@ export function EmptyState({
   previewPage,
   onConfigureApi,
   onExamplePrompt,
-}: EmptyStateProps) {
+}: ChatEmptyStateProps) {
   const { t } = useI18n();
 
   if (settingsReady && !hasApiKey) {
     return (
-      <div className="empty-state empty-state-compact">
+      <EmptyState variant="compact">
         <p className="empty-lead">{t("empty.agentLead")}</p>
         {/*
           With a document open the composer's own button becomes "Configure AI"
@@ -42,26 +104,26 @@ export function EmptyState({
             {t("empty.configureInline")}
           </Button>
         )}
-      </div>
+      </EmptyState>
     );
   }
 
   if (settingsReady && hasApiKey && !agentToolsSupported) {
     return (
-      <div className="empty-state empty-state-compact">
+      <EmptyState variant="compact">
         <p className="empty-lead">{t("empty.agentToolsLead")}</p>
         <Button variant="link" size="md" onClick={onConfigureApi}>
           {t("empty.configureInline")}
         </Button>
-      </div>
+      </EmptyState>
     );
   }
 
   if (!hasDocument) {
     return (
-      <div className="empty-state empty-state-compact">
+      <EmptyState variant="compact">
         <p className="empty-lead">{t("empty.waitingDoc")}</p>
-      </div>
+      </EmptyState>
     );
   }
 
@@ -83,22 +145,19 @@ export function EmptyState({
     t("empty.example2"),
   ];
   return (
-    <div className="empty-state empty-state-minimal">
+    <EmptyState variant="minimal">
       {onExamplePrompt && (
         <div className="empty-examples">
           {examples.map((example) => (
-            // raw-button: a text chip that reads as a suggestion, not as a control with a height
-            <button
+            <ListRow
               key={example}
-              type="button"
               className="empty-example-chip"
+              label={example}
               onClick={() => onExamplePrompt(example)}
-            >
-              {example}
-            </button>
+            />
           ))}
         </div>
       )}
-    </div>
+    </EmptyState>
   );
 }

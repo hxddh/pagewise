@@ -1,5 +1,6 @@
-import { fingerprintTools } from "ai";
+import { asSchema, fingerprintTools } from "ai";
 import { describe, expect, it } from "vitest";
+import { SYSTEM_INSTRUCTIONS } from "./agent";
 import { createDocumentTools } from "./agent-tools";
 import { newReadBudget } from "./agent-tools/reading";
 
@@ -38,8 +39,8 @@ import { newReadBudget } from "./agent-tools/reading";
  * no line endings and no path to get wrong.
  */
 const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
-  document_outline: "DlydP-BxnDOX9g_NB1vj33IsxTYjnKDe61WkVN9dIG4",
-  read_figure: "DZZNzFvpUbnTr3Gh6SSU1Nvdp82Xrg1cZAAYzFTe7dk",
+  document_outline: "xU7wy5t-7njCbASQRrJz1IY7-dFM1aKn95duDRb9Jhw",
+  read_figure: "bnyABvjquQNxLMBGuFHPyHxNwZCThbyxrB9W4ejqiLs",
   // 9.4's `label` argument, and the sentence that tells the model when to use
   // it. Deliberate, and paid on every request by every reader whether or not
   // their document numbers its pages unusually.
@@ -59,10 +60,10 @@ const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
   // book that is three hundred labels on every question. This is a fixed 345
   // characters instead of an unbounded per-document table, and the resolution
   // is exact rather than arithmetic the model has to get right.
-  read_pdf_page: "gi-TW7X_LNLzKvyF_lgHTjYdi-rcuqddUxQLlpnLRYc",
-  read_pdf_range: "TPzE6nqoYaLTzghpOJbN3V0cLUIzvp7ylyRH98enf1c",
-  read_section: "LhN3IP2pTRh09c35zhg3ieDGZBX2dAncguJkApacZYs",
-  search_in_document: "QTyUOwi1RfJ0tnrjjE3A82806M6iRRzVsHH2L9gQQ7c",
+  read_pdf_page: "etahlunPZHnesYfy-DAXKGd27vuaMOUZNVzLJBcFtY4",
+  read_pdf_range: "pT7WNbX6Zw_egBSnLLVi4cptVRY3ppk-s0NwxogI9Gw",
+  read_section: "ECqqd5W-4Bl-wypQJXG9JIzEpJHZFh4QT__TTqMKJqE",
+  search_in_document: "nFbX8pj6hTbxlxu3ZRgKeTufbBXF1BkDYEXfoaGuW9Y",
   // 9.0's two writers. Added deliberately, and they are not free: measured by
   // description + resolved input schema + name, they are 1,298 characters
   // against the six readers' 4,698 — 27.6%, or about +203 tokens on the 736
@@ -78,9 +79,41 @@ const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
   // both descriptions are the shortest in this file, and why the acceptance
   // test for 9.1 is behavioural — the second run must not re-read the first
   // run's pages — rather than a token comparison nothing here can make.
-  note_finding: "eCOw21O69qyDM683f9LNL0fFh3QHWl7Mp8_53qAecKs",
-  revise_finding: "QsRNl_RnoJld7QwR1nqlR_8Z_PBMk4TCP7ZQGouG93o",
+  note_finding: "2N6GzR1YApBzSNp6e3seNzza2SPg9RcHZaxFlUYYoPM",
+  revise_finding: "VHOxaiaEHpaMmwIn2o6lKHrCLQcMl7V_tXH5EMJKF44",
 };
+
+/**
+ * The fixed prefix as the provider reads it, in UTF-8 bytes: the system
+ * message text plus each tool's `{type: "function", function: {name,
+ * description, parameters}}` entry, exactly as the OpenAI chat model converts
+ * them (`@ai-sdk/openai`'s `prepareChatTools`).
+ *
+ * Built here rather than by calling the provider: the point is to measure what
+ * leaves the app, and a helper that shares the conversion code would not notice
+ * the conversion changing. `asSchema(...).jsonSchema` is the same conversion the
+ * SDK's `prepareTools` uses, so the schema bytes match the wire.
+ */
+async function promptPrefixBytes(): Promise<{ total: number; system: number; tools: number }> {
+  const tools = createDocumentTools(newReadBudget());
+  const wire = await Promise.all(
+    Object.entries(tools).map(async ([name, entry]) => {
+      const tool = entry as { description?: string; inputSchema?: unknown };
+      return {
+        type: "function",
+        function: {
+          name,
+          description: tool.description,
+          parameters: await asSchema(tool.inputSchema as never).jsonSchema,
+        },
+      };
+    }),
+  );
+  const encoder = new TextEncoder();
+  const system = encoder.encode(SYSTEM_INSTRUCTIONS).length;
+  const toolBytes = encoder.encode(JSON.stringify(wire)).length;
+  return { total: system + toolBytes, system, tools: toolBytes };
+}
 
 describe("prompt cache prefix", () => {
   it("has not changed the tool definitions the provider caches", async () => {
@@ -102,4 +135,22 @@ describe("prompt cache prefix", () => {
   // Removing a key to simulate that failed both tests, not one: `toEqual` on
   // the whole record already compares key sets, so the extra test guarded
   // nothing and only looked like coverage.
+
+  /**
+   * The prefix is paid on every step of every run — a twenty-step run re-sends
+   * it twenty times — and it was 11,132 bytes (about 2,650–3,180 tokens) when
+   * this budget was set. 18.0 trimmed it to fit 9,000; this is the line that
+   * keeps it there. When this fails, trim the prose (a rule reworded is worth
+   * more than a rule dropped) rather than raising the number.
+   */
+  it("keeps the fixed prefix inside its byte budget", async () => {
+    const { total, system, tools } = await promptPrefixBytes();
+    expect(
+      total,
+      `The fixed prefix is ${total} bytes: system prompt ${system}B + eight ` +
+        `tool definitions ${tools}B. The budget is 9,000B — it is re-sent on ` +
+        `every step of every run. Trim the prose (keep every rule's meaning) ` +
+        `rather than raising this number.`,
+    ).toBeLessThanOrEqual(9_000);
+  });
 });

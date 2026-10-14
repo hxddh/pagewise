@@ -16,6 +16,7 @@ import {
   type ResolvedTheme,
   type ThemeMode,
 } from "../lib/preferences";
+import { applyWindowMaterial } from "../lib/window-material";
 
 interface ThemeContextValue {
   theme: ThemeMode;
@@ -44,6 +45,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const next = resolveTheme(preferences.theme);
       setResolved(next);
       applyTheme(next);
+      // The window's own colour and material follow the theme (18.0). Best
+      // effort by design: without support nothing happens.
+      void applyWindowMaterial(next);
     };
     apply();
 

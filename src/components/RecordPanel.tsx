@@ -24,6 +24,7 @@ import {
 import { useFindingPlacement } from "../hooks/useFindingPlacement";
 import { trustNeedsReader, trustOf, type Trust } from "../lib/finding-trust";
 import { Button } from "./ui/Button";
+import { EmptyState } from "./EmptyState";
 import { Input } from "./ui/Field";
 import { Markdown } from "./Markdown";
 
@@ -112,10 +113,10 @@ export const RecordPanel = memo(function RecordPanel({
 
   if (total === 0) {
     return (
-      <div className="record-panel record-empty">
+      <EmptyState variant="inline" className="record-panel record-empty">
         <p>{t("record.empty")}</p>
         <p className="record-empty-hint">{t("record.emptyHint")}</p>
-      </div>
+      </EmptyState>
     );
   }
 
@@ -143,7 +144,7 @@ export const RecordPanel = memo(function RecordPanel({
       </div>
       {stale && <p className="mark-stale-note">{t("record.staleFile")}</p>}
       {rows.length === 0 ? (
-        <p className="record-none">{t("record.noMatch")}</p>
+        <EmptyState variant="inline" className="record-none">{t("record.noMatch")}</EmptyState>
       ) : (
         <ul className="record-list">
           {rows.map((finding) => (
@@ -295,16 +296,16 @@ function RecordEntry({
       {finding.evidence && <p className="record-evidence">{finding.evidence}</p>}
       {finding.body && (
         <>
-          {/* raw-button: a disclosure line under the claim — reads as text with a chevron, not as a control */}
-          <button
-            type="button"
+          <Button
+            variant="link"
+            size="sm"
             className="record-body-toggle"
             aria-expanded={showBody}
             onClick={() => setShowBody((v) => !v)}
           >
             {showBody ? <ChevronUp size={11} aria-hidden /> : <ChevronDown size={11} aria-hidden />}
             {showBody ? t("record.hideBody") : t("record.showBody")}
-          </button>
+          </Button>
           {showBody && (
             <div className="record-body" aria-label={t("record.bodyOf")}>
               <Markdown>{finding.body}</Markdown>
@@ -324,27 +325,27 @@ function RecordEntry({
       )}
       <div className="record-pages">
         {finding.pages.map((page) => (
-          /* raw-button: an inline page chip in a row of them; a control's padding would break the line */
-          <button
+          <Button
             key={page}
-            type="button"
+            variant="ghost"
+            size="sm"
             className={`record-page-chip ${page === currentPage ? "here" : ""}`}
             title={t("preview.pageTitle", { page })}
             onClick={() => onJumpToPage(page)}
           >
             {page}
-          </button>
+          </Button>
         ))}
         {finding.source && onRevealMessage && (hasMessage?.(finding.source.messageId) ?? true) && (
-          /* raw-button: sits in the chip row and has to match the chips beside it */
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             className="record-page-chip record-source-chip"
             onClick={() => onRevealMessage(finding.source!.messageId)}
           >
             <MessageSquare size={11} aria-hidden />
             {t("record.backToAnswer")}
-          </button>
+          </Button>
         )}
       </div>
     </li>
@@ -374,15 +375,15 @@ function TrustLine({
   const { t } = useI18n();
   if (trust === "located" && placement?.status === "located") {
     return (
-      /* raw-button: a status line that is also the control that acts on it */
-      <button
-        type="button"
+      <Button
+        variant="link"
+        size="sm"
         className="record-locate record-locate-found"
         onClick={() => onRevealFinding?.(finding.id, placement.anchor.page)}
       >
         <Crosshair size={11} aria-hidden />
         {t(longKey("located"), { page: placement.anchor.page })}
-      </button>
+      </Button>
     );
   }
   if (trust === "confirmed") {
@@ -390,14 +391,14 @@ function TrustLine({
       <p className="record-locate record-locate-confirmed">
         <Check size={11} aria-hidden />
         {t(longKey("confirmed"))}
-        {/* raw-button: an inline affordance at the end of a status line */}
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="sm"
           className="record-trust-action"
           onClick={() => confirmFinding(path, finding.id, false)}
         >
           {t("record.unconfirm")}
-        </button>
+        </Button>
       </p>
     );
   }
@@ -419,14 +420,14 @@ function TrustLine({
       {doubtful && <span className="record-level">{t(`level.${level}`)}</span>}
       {text}
       {trustNeedsReader(trust) && (
-        /* raw-button: an inline affordance at the end of a status line */
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="sm"
           className="record-trust-action"
           onClick={() => confirmFinding(path, finding.id, true, stamp || undefined)}
         >
           {t("record.confirm")}
-        </button>
+        </Button>
       )}
     </p>
   );

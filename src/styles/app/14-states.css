@@ -46,15 +46,17 @@
 
 /* --------------------------------------------------------------------------
    is-current — the row you are on
+
+   One selector for every list row in the app: a thumbnail, an outline entry, a
+   mark, a recent file, a palette item, a zoom preset, an export option, a
+   search hit, a menu row. They render through `ListRow`, so "you are here" is
+   written once — which is what this file is for. The two selectors beside it
+   are the rows that are not `ListRow`s: the settings drawer's nav (owned by
+   another surface) and the model list's options.
    -------------------------------------------------------------------------- */
-.outline-item.active,
-.thumb-item.active,
-.palette-item.active,
-.zoom-menu-item.active,
-.model-select-option.active,
-.anchored-popover button.active,
+.list-row.active,
 .settings-nav-item.active,
-.library-list li.active .library-item {
+.model-select-option.active {
   background: var(--bg-hover);
   color: var(--text);
   box-shadow: inset 2px 0 0 var(--accent);
@@ -63,10 +65,8 @@
 /* The keyboard cursor and the mouse are not the same thing. Hover gets the
    surface; only the cursor gets the bar — which is what makes it findable
    while arrowing through a list of twenty commands. */
-.palette-item:hover:not(.active),
-.zoom-menu-item:hover:not(.active),
-.model-select-option:hover:not(.active),
-.outline-item:hover:not(.active) {
+.list-row:hover:not(.active),
+.model-select-option:hover:not(.active) {
   background: var(--bg-hover);
   color: var(--text);
 }

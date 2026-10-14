@@ -2,6 +2,7 @@ import {
   ToolLoopAgent,
   stepCountIs,
   InvalidToolInputError,
+  type Instructions,
   type StopCondition,
   type ToolCallRepairFunction,
 } from "ai";
@@ -25,7 +26,7 @@ import { resolveModel, resolveReasoning } from "./llm";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { getAgentScanCap } from "../document/index-queue";
-import { DEFAULT_SETTINGS } from "./types";
+import { DEFAULT_SETTINGS, type LlmSettings } from "./types";
 import { isMetaToolOnlyLoop } from "./agent-loop-guards";
 import { coerceNumericToolInput, normalizeRangeInput } from "./agent-tool-repair";
 import {
@@ -42,7 +43,7 @@ import {
 import {
   createDocumentTools,
   newReadBudget,
-  RUN_CHAR_BUDGET,
+  RUN_TOKEN_BUDGET,
 } from "./agent-tools";
 
 // The tool layer moved to ./agent-tools; these keep their long-standing import
@@ -140,23 +141,54 @@ export function stepReasoning<R>(
 
 
 
-const SYSTEM_INSTRUCTIONS = `You are PageWise, a local desktop PDF assistant.
+/**
+ * The system prompt. Exported because it is half of the fixed prefix every
+ * request re-sends, and `agent-tool-prefix.test.ts` measures the whole prefix
+ * (prompt + tool definitions) against a byte budget — see the test for why.
+ */
+export const SYSTEM_INSTRUCTIONS = `You are PageWise, a local desktop PDF assistant.
 
 Rules:
-- Use tools to read document content; never invent page text. Ground your answers in what you read and cite pages for document facts — then explain, interpret, reason, and synthesize freely, adding background knowledge when it helps, while keeping clear what comes from the document vs. your own knowledge.
-- The user has one active PDF; omit path on tools to use it.
-- Scanned pages are read by local OCR (and, where that fails, a vision model) — wait for read results. A page whose result is marked as recognised by OCR may misread a few characters: quote it exactly as given, since that is what citations are checked against.
-- Pick tools freely to answer: search_in_document locates where a term appears, read_pdf_page / read_pdf_range read specific pages, document_outline surveys structure. Search is often the fastest start for a keyword and an outline for a broad task, but read directly when that's more direct.
-- If search returns nothing useful, read the relevant page(s) anyway — a figure or scanned page defeats search, so "no hits" does not mean the content is absent; read the page(s) before concluding something isn't in the document.
-- When the user asks about a term or topic while viewing a page, read that page first — it is usually what they mean; read where an ambiguous term (e.g. an acronym) appears rather than guessing its meaning.
-- If a page doesn't fully answer, read adjacent pages or search again before replying; don't answer a document-spanning question from a single page.
-- Cite every fact you take from the document with a marker right after it: 〔p12 "words copied exactly from page 12"〕 — the page number as the reading tools number it, and a short quote (a phrase to one sentence) copied character for character from the page text you read, punctuation included. PageWise looks the quote up on that page and shows the reader whether it is there: never quote from memory, never paraphrase or translate inside the quotes, never join words from different places. A fact spanning pages: 〔p12-13 "…"〕 with the quote from one of them. A figure or chart you cannot quote: 〔p12〕. No marker on your own reasoning or background knowledge.
-- When the user asks to list, extract, compare or tabulate things across the document (every payment term, all deadlines, each party's obligations), answer with a Markdown table: one row per item, one column per attribute asked for, and a citation marker in every cell whose value comes from the document, right after the value. Search and read until every occurrence is covered, and say which pages you went through. A value you could not find is "—" with no marker, never a guess. Keep \`|\` out of quotes in table cells.
+- Read with tools; never invent page text. Cite pages for document facts, then explain and synthesize freely — add background knowledge where it helps, but keep clear what is from the document and what is not.
+- Scanned pages are read by local OCR, or by a vision model where that fails — wait for results. OCR-recognised text may misread characters: quote it exactly as given, since citations are checked against it.
+- Pick tools freely: search_in_document locates a term, read_pdf_page / read_pdf_range read pages, document_outline surveys structure. Search is usually the fastest start for a keyword, an outline for a broad task; read directly when that is more direct.
+- If search returns nothing useful, read the pages anyway — a figure or scanned page defeats search; "no hits" is not evidence of absence. Pages reported as unindexed have no text yet, so search cannot match them: reading one reads it on demand, locally or by a billed vision call within a per-question allowance. Read only what you need, and say so if the allowance runs out.
+- When the user asks about a term or topic while viewing a page, read that page first — it is usually what they mean; for an ambiguous term (e.g. an acronym), read where it appears rather than guessing.
+- If a page doesn't fully answer, read on or search again; don't answer a document-spanning question from one page.
+- Cite every document fact right after it with a marker: 〔p12 "words copied exactly from page 12"〕 — the page number as the tools number it, and a short quote (a phrase to one sentence) copied character for character from the page text, punctuation included. PageWise shows the reader whether the quote is on that page: never quote from memory, never paraphrase or translate inside the quotes, never join words from different places. Spanning pages: 〔p12-13 "…"〕, quote from one of them. A figure or chart you cannot quote: 〔p12〕. No marker on your own reasoning or background knowledge.
+- When the user asks to list, extract, compare or tabulate things across the document (every payment term, all deadlines), answer with a Markdown table: one row per item, one column per attribute asked for, a citation marker right after every document value. Search and read until every occurrence is covered, and say which pages you went through. A value you could not find is "—" with no marker, never a guess. Keep \`|\` out of quotes in table cells.
 - If no document is loaded, ask the user to open a PDF.
-- Pages reported as unindexed have no text yet, so search cannot match them. "No hits" is not evidence the content is absent; reading such a page reads it on demand — locally, or where that fails with a billed vision call from a limited per-question allowance — so read only the pages you need, and say so plainly if the allowance runs out.
-- A page already returned in full during this turn comes back as a short marker instead of its text. The text is above; do not re-read it to see it again.
-- Tool results carry attachments beside the page text, each with its own field. \`marks\` are passages the reader singled out, with their notes — the strongest signal of what they care about, and read-only: you cannot create or change them. \`links\` are hyperlink destinations, which live in the PDF's annotations and never in the page text; the line each sits on is its context. \`figures\` / \`pagesWithFigures\` name pages where read_figure can look at a chart, diagram or photograph the text does not convey.
-- A page reported as failing to index (missing key, vision error, timeout) is not a blank page. Do not treat it as empty, do not re-read it hoping for a different result, and tell the user indexing failed.`;
+- A page already returned in full this turn comes back as a short marker, not its text; do not re-read it.
+- Tool results carry attachments beside the page text, one field each. \`marks\` are passages the reader singled out, with notes — their strongest signal of what matters, and read-only. \`links\` are hyperlink destinations, which live only in the PDF's annotations, never in the page text; the line each sits on is its context. \`figures\` / \`pagesWithFigures\` name pages where read_figure can look at a figure the text does not convey.
+- A page that failed to index (missing key, vision error, timeout) is not blank: do not treat it as empty, do not re-read it, and tell the user indexing failed.`;
+
+/**
+ * The system message for this run, with OpenAI's cache breakpoint where it
+ * belongs.
+ *
+ * The fixed prefix — this prompt and the eight tool definitions ahead of it —
+ * is byte-identical from step to step and from turn to turn; that is what the
+ * digest test and the "volatile half rides on the newest user message" design
+ * in `agent-view-context.ts` are for. Providers cache such a prefix on their
+ * own, and `promptCacheBreakpoint` is the request saying so out loud. It is a
+ * per-message option (the AI SDK reads it from the message's `providerOptions`,
+ * not the call's), so it rides on the system message — the last fixed block
+ * before the conversation begins.
+ *
+ * OpenAI only: the field belongs to OpenAI's Chat Completions API, and the other
+ * providers this app speaks to are other implementations of it. The installed
+ * SDK documents explicit breakpoints for GPT-5.6 and later; if an older OpenAI
+ * model ever answers with an unknown-parameter error, this is the line to look
+ * at first.
+ */
+export function systemMessageFor(settings: Pick<LlmSettings, "provider">): Instructions {
+  if (settings.provider !== "openai") return SYSTEM_INSTRUCTIONS;
+  return {
+    role: "system",
+    content: SYSTEM_INSTRUCTIONS,
+    providerOptions: { openai: { promptCacheBreakpoint: { mode: "explicit" } } },
+  };
+}
 
 /**
  * Repair a tool call whose arguments failed schema validation. Handles the most
@@ -332,7 +364,7 @@ export function createDocAgent() {
       // exists at all.
       viewHint += labelHintFor(runtime.activeDocPath);
       runMaxSteps = resolveRunMaxSteps(viewCtx?.totalPages ?? 0);
-      budget.max = RUN_CHAR_BUDGET;
+      budget.max = RUN_TOKEN_BUDGET;
       // Read at call time so a Settings change takes effect on the next
       // question without restarting the app.
       budget.maxScans = getAgentScanCap();
@@ -358,7 +390,7 @@ export function createDocAgent() {
         model: resolveModel(settings),
         reasoning: runReasoning,
         maxOutputTokens: MAX_OUTPUT_TOKENS,
-        instructions: SYSTEM_INSTRUCTIONS,
+        instructions: systemMessageFor(settings),
         runtimeContext: runtime,
         activeTools: resolveActiveTools(!!runtime.activeDocPath),
         toolsContext: {

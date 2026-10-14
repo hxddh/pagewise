@@ -28,22 +28,26 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  *
  *   backdrops       .doc-search-backdrop, .palette-backdrop, .drawer-backdrop,
  *                   .library-drawer-backdrop — invisible full-screen click
- *                   catchers. They have no chrome by design; giving them a
- *                   button's would be a bug, not a convergence.
+ *                   catchers. 18.0 deleted all four: they were a protocol
+ *                   written by hand five times, and the Radix overlay is that
+ *                   layer with the click and the focus behaviour included.
  *
  *   menu items      anything inside `.anchored-popover`, which styles its own
  *                   `button` children as full-width menu rows. Layering ui-btn
  *                   on top means two systems fighting over the same element.
  *
  *   clickable       .thumb-item, .welcome-recent-card, .provider-cell,
- *   content         .library-item, .doc-search-hit, .outline-item, .zoom-menu-item
- *                   — a page thumbnail, a search hit, a recent file. These are
- *                   content you click, and their selected state, layout and
- *                   density belong to the list they sit in.
+ *   content         .library-item, .doc-search-hit, .outline-item, .zoom-menu-item,
+ *                   .palette-item, .export-option, .mark-item, .record-page-chip
+ *                   — a page thumbnail, a search hit, a recent file, a menu row.
+ *                   These are content you click, and their selected state,
+ *                   layout and density belong to the list they sit in: since
+ *                   18.0 they render through `<ListRow>`, which owns the element
+ *                   and the state and leaves the layout to the list.
  *
  *   inline marks    .page-ref-link, .pdf-link, .tool-step-link, .pages-read-chip,
- *                   .empty-example-chip, .settings-pill — text-level affordances
- *                   sized to the type around them.
+ *                   .settings-pill — text-level affordances sized to the type
+ *                   around them.
  *
  * The point of writing this down is that the ratio of <Button> to <button> is
  * not a to-do list, and nobody has to make these calls a second time.

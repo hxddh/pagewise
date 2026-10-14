@@ -135,6 +135,7 @@ button.pages-read-chip:hover
 .citation-tally-verified
 .citation-tally-check
 .citation-tally-notFound
+.message-usage-line
 .markdown-stream-caret
 @keyframes markdown-caret-blink
   50%
@@ -207,7 +208,6 @@ button.pages-read-chip:hover
 .composer-hint
 # 06-drawer-overlay.css
 .drawer-root
-.drawer-backdrop
 .drawer-panel
 @keyframes slideIn
   from
@@ -218,12 +218,7 @@ button.pages-read-chip:hover
 .drop-overlay-inner
 .drop-title
 .drop-hint
-.error-line
 .chat-error
-.chat-scan-hint
-.chat-error
-.chat-error-text
-.chat-error-actions
 # 07-preview-chrome.css
 .preview-with-thumbs
 .preview-main
@@ -255,17 +250,11 @@ button.pages-read-chip:hover
 .loading-bar-fill
 .loading-percent
 .toast-viewport
-.toast
-.toast-success
-.toast-error
-@keyframes toastIn
-  from
-  to
-.toast-error
-.toast-close
+.toast-viewport
 # 09-palette-status.css
 .palette-root
-.palette-backdrop
+.palette-panel[data-state="open"]
+.palette-panel[data-state="closed"]
 .palette-panel
 .palette-input
 .palette-input:focus-visible
@@ -282,7 +271,6 @@ button.pages-read-chip:hover
 .library-list li:hover .library-remove, .library-list li:focus-within .library-remove
 .zoom-menu-item
 .doc-search-overlay
-.doc-search-backdrop
 .doc-search-panel .doc-search-input
 .doc-search-panel .doc-search-results
 .export-panel
@@ -317,6 +305,9 @@ button.pages-read-chip:hover
 .search-highlight
 .citation-highlight-layer
 .citation-highlight
+@keyframes citation-decay
+  from
+  to
 @keyframes search-highlight-in
   from
   to
@@ -386,7 +377,14 @@ button.pages-read-chip:hover
 .rail-btn-bottom
 .rail-btn-bottom svg:last-child
 .library-drawer-root
-.library-drawer-backdrop
+.library-drawer[data-state="open"]
+.library-drawer[data-state="closed"]
+@keyframes drawer-in
+  from
+  to
+@keyframes drawer-out
+  from
+  to
 .library-drawer
 @keyframes drawer-in
   from
@@ -445,6 +443,8 @@ button.pages-read-chip:hover
 .app.v3 .composer textarea
 .app.v3 .composer-footer
 .app.v3 .composer-hint
+[data-material="on"] :root
+[data-material="on"] .app-rail, [data-material="on"] .chat-column, [data-material="on"] .drawer-panel, [data-material="on"] .preview-toolbar
 # 13-chat-late.css
 .empty-state-minimal
 .empty-examples
@@ -464,7 +464,6 @@ button.pages-read-chip:hover
 .chat-column-hidden
 .chat-column-dragging
 .file-error-banner
-.file-error-dismiss
 .confirm-bar
 .confirm-bar-message
 .confirm-bar-actions
@@ -499,9 +498,14 @@ button.pages-read-chip:hover
 .message-action-labelled
 .panel-tabs .sidebar-tab
 .panel-tab-count
+.app.zen .app-rail, .app.zen .preview-toolbar, .app.zen .chat-column, .app.zen .resize-handle, .app.zen .agent-dock
+.zen-progress
+.zen-progress-fill
+.zen-exit
+.zen-ask
 # 14-states.css
-.outline-item.active, .thumb-item.active, .palette-item.active, .zoom-menu-item.active, .model-select-option.active, .anchored-popover button.active, .settings-nav-item.active, .library-list li.active .library-item
-.palette-item:hover:not(.active), .zoom-menu-item:hover:not(.active), .model-select-option:hover:not(.active), .outline-item:hover:not(.active)
+.list-row.active, .settings-nav-item.active, .model-select-option.active
+.list-row:hover:not(.active), .model-select-option:hover:not(.active)
 .sidebar-tab.active, .rail-btn.active, .toolbar-btn.active, .settings-pill.active, .web-toggle.active, .message-action-btn.active, .provider-cell.active, .record-page-chip.here, .ui-btn--ghost[aria-pressed="true"], .ui-btn--secondary[aria-pressed="true"]
 .settings-nav-item.active svg
 :where(button, [role="tab"], [role="option"], [role="menuitem"], a[href], input, select, textarea, summary):focus-visible

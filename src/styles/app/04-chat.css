@@ -514,7 +514,7 @@
  */
 .selection-actions {
   position: fixed;
-  z-index: 50;
+  z-index: var(--z-selection);
   display: flex;
   gap: var(--space-xs);
   transform: translate(-50%, calc(-100% - 8px));
@@ -697,6 +697,20 @@ button.pages-read-chip:hover {
 
 .citation-tally-notFound {
   color: var(--danger);
+}
+
+/*
+ * What a question cost, under the answer (18.0).
+ *
+ * Same ink and size as the citation tally above it: this is a footnote to the
+ * answer, not a badge. `font-variant-numeric` keeps the numbers in columns so
+ * two answers' lines can be compared by eye.
+ */
+.message-usage-line {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .markdown-stream-caret {
@@ -938,6 +952,10 @@ button.pages-read-chip:hover {
 
 .record-locate-found:hover {
   color: var(--finding);
+  /* It is a link-shaped control (variant="link") but not a link: the shared
+     variant underlines on hover, and this line is a status, not a sentence
+     reference. */
+  text-decoration: none;
 }
 
 /*
@@ -1018,6 +1036,8 @@ button.pages-read-chip:hover {
 
 .record-body-toggle:hover {
   color: var(--text);
+  /* See .record-locate-found: the shared link variant underlines on hover. */
+  text-decoration: none;
 }
 
 .record-body {

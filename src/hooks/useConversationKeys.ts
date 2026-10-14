@@ -91,7 +91,7 @@ export function useConversationKeys(
       // so this one must both preventDefault and stopPropagation: the React
       // root sees the event first, and stopping it there is what keeps the two
       // searches from opening together.
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
         setSearchOpen(true);

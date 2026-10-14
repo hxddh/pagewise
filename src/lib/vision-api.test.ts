@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getIndexUsageSnapshot, resetIndexUsageTracker } from "./usage-tracker";
+import {
+  getDocumentVisionUsage,
+  getIndexUsageSnapshot,
+  resetIndexUsageTracker,
+} from "./usage-tracker";
 import { imageBytesToDataUrl } from "./vision-api";
 
 describe("imageBytesToDataUrl", () => {
@@ -60,6 +64,46 @@ describe("generateVisionText usage", () => {
       // Default (no attribution): a background sweep / probe must not pollute the
       // per-send index-usage total.
       expect(getIndexUsageSnapshot()).toEqual({ inputTokens: 0, outputTokens: 0, calls: 0 });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("books an unattributed call to the document when the caller names one", async () => {
+    // The on-view prefetch: the reader scrolled onto a page with no text, so the
+    // page was billed before any question. There is no message to charge, and
+    // the run tracker is reset by the next question — so it used to be dropped.
+    // 18.0 keeps it on the document (B14).
+    resetIndexUsageTracker();
+    const path = "/docs/prefetch-usage.pdf";
+    const { generateVisionText } = await import("./vision-api");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "OK" } }],
+          usage: { prompt_tokens: 42, completion_tokens: 7 },
+        }),
+        { status: 200 },
+      )) as typeof fetch;
+    try {
+      await generateVisionText(
+        { provider: "openrouter", apiKey: "sk-test", model: "google/gemini-2.5-flash-lite" },
+        "test",
+        new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+        { attributeToDocument: path },
+      );
+      expect(getIndexUsageSnapshot(), "still not the run's total").toEqual({
+        inputTokens: 0,
+        outputTokens: 0,
+        calls: 0,
+      });
+      expect(getDocumentVisionUsage(path)).toEqual({ inputTokens: 42, outputTokens: 7, calls: 1 });
+      expect(getDocumentVisionUsage("/docs/never-prefetched.pdf")).toEqual({
+        inputTokens: 0,
+        outputTokens: 0,
+        calls: 0,
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }

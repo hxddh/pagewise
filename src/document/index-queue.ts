@@ -9,7 +9,12 @@
  */
 import { docCache } from "../lib/doc-cache";
 import { ensureProviderCompatibleImage } from "../lib/image-transcode";
-import { readAuthorizedFileBytes, renderPageToJpegBytes } from "../lib/pdf";
+import {
+  readAuthorizedFileBytes,
+  renderPageToJpegBytes,
+  VISION_MAX_EDGE,
+  VISION_QUALITY,
+} from "../lib/pdf";
 import { generateVisionText } from "../lib/vision-api";
 import { loadVisionSettings } from "../lib/settings";
 import { assertApiKeyForAgent, formatLlmError } from "../lib/llm";
@@ -19,6 +24,18 @@ import { forgetIndexedPages, rememberIndexedPage } from "../lib/index-store";
 import { recordVisionCall } from "../lib/usage-tracker";
 import { cachedOcrPage, ocrEnabled, ocrPage } from "../lib/ocr/ocr-service";
 import type { LoadedDocument } from "../lib/types";
+
+/**
+ * Where a vision call's tokens are booked.
+ *
+ * `run` — a page the assistant read while answering: the message pays, and the
+ * per-question tracker resets with the next question.
+ * `document` — the on-view prefetch: there is no message, so the document keeps
+ * the total (18.0; before this the tokens went nowhere).
+ * `none` — the background sweep: nobody asked for it, and it is already visible
+ * as the document's call count.
+ */
+type VisionUsage = "run" | "document" | "none";
 
 const VISION_TIMEOUT_MS = 60_000;
 /**
@@ -73,6 +90,14 @@ export function getAgentScanCap(): number {
  * vision transcription is worth its cost where a budget allows one.
  */
 export const OCR_TRUSTED_CONFIDENCE = 70;
+
+/**
+ * The render a page gets when OCR read it poorly: the larger one (18.0).
+ * Named here, next to the confidence floor that selects it, so the two cannot
+ * drift apart unnoticed.
+ */
+const VISION_OCR_POOR_MAX_EDGE = 1_568;
+const VISION_OCR_POOR_QUALITY = 0.85;
 
 /** Whether this page's words came from OCR that read it poorly. */
 export function isPoorlyRecognised(path: string, page: number): boolean {
@@ -202,6 +227,17 @@ function emitIdle(path: string, page: number): void {
   emitPageIndex({ path, page, status: "idle" });
 }
 
+/**
+ * The page render a vision call sends.
+ *
+ * 1,024px q0.80 is the default (18.0; it was 1,568 q0.85): a page image is
+ * billed per call and the larger render is roughly three to four times the
+ * bytes. A page local OCR tried and read poorly keeps the larger one — that is
+ * the case where the extra pixels decide between a usable transcription and a
+ * second billed call. A page OCR read nothing at all does not: vision is then
+ * the only reader, and most of those pages are photographs and line art that
+ * resolution does not rescue. With OCR off, every page takes the default.
+ */
 async function visionImageBytes(
   path: string,
   page: number,
@@ -215,8 +251,15 @@ async function visionImageBytes(
       visionMediaType(path),
     );
   }
+  const poorlyRead = isPoorlyRecognised(path, page);
   return {
-    bytes: await renderPageToJpegBytes(path, page, 1568, 0.85, signal),
+    bytes: await renderPageToJpegBytes(
+      path,
+      page,
+      poorlyRead ? VISION_OCR_POOR_MAX_EDGE : VISION_MAX_EDGE,
+      poorlyRead ? VISION_OCR_POOR_QUALITY : VISION_QUALITY,
+      signal,
+    ),
     mediaType: "image/jpeg",
   };
 }
@@ -242,7 +285,7 @@ async function indexPage(
   page: number,
   signal: AbortSignal,
   generation: number,
-  attributeUsage = false,
+  usage: VisionUsage = "none",
   enforceGeneration = true,
   policy: VisionPolicy = VISION_ALWAYS,
 ): Promise<void> {
@@ -335,7 +378,8 @@ async function indexPage(
     const text = await generateVisionText(settings, VISION_PROMPT, bytes, {
       signal: visionFetchSignal(signal),
       mediaType,
-      attributeUsage,
+      attributeUsage: usage === "run",
+      ...(usage === "document" ? { attributeToDocument: path } : {}),
     });
 
     if (signal.aborted || !current()) {
@@ -394,7 +438,7 @@ async function runIndexPage(
   page: number,
   signal: AbortSignal,
   generation: number,
-  attributeUsage = false,
+  usage: VisionUsage = "none",
   enforceGeneration = true,
   policy: VisionPolicy = VISION_ALWAYS,
 ): Promise<void> {
@@ -421,7 +465,7 @@ async function runIndexPage(
     page,
     signal,
     generation,
-    attributeUsage,
+    usage,
     enforceGeneration,
     policy,
   ).finally(() => {
@@ -446,7 +490,9 @@ async function runPool(
     while (!signal.aborted && isCurrentGeneration(path, generation)) {
       const i = cursor++;
       if (i >= pages.length) break;
-      await runIndexPage(path, pages[i]!, signal, generation, false, true, policy);
+      // A sweep is nobody's question and nobody's page view: its calls are
+      // counted, its tokens are not booked to a message or a document.
+      await runIndexPage(path, pages[i]!, signal, generation, "none", true, policy);
     }
   });
   await Promise.all(workers);
@@ -456,7 +502,7 @@ export async function ensurePageIndexed(
   path: string,
   page: number,
   signal?: AbortSignal,
-  attributeUsage = false,
+  usage: VisionUsage = "none",
   policy: VisionPolicy = VISION_ALWAYS,
 ): Promise<void> {
   if (signal?.aborted) return;
@@ -475,7 +521,7 @@ export async function ensurePageIndexed(
     const generation = pathGenerations.get(path) ?? 0;
     // Explicit reads must complete even if a background reindex bumps the
     // generation mid-flight — pass enforceGeneration=false.
-    await runIndexPage(path, page, controller.signal, generation, attributeUsage, false, policy);
+    await runIndexPage(path, page, controller.signal, generation, usage, false, policy);
   } finally {
     // A long-lived agent-run signal accumulates one listener per page read
     // without this.
@@ -489,7 +535,12 @@ export async function ensurePageIndexed(
  * not a request to pay for a better transcription of it.
  */
 export function indexPageInBackground(path: string, page: number): void {
-  void ensurePageIndexed(path, page, undefined, false, { takeVision: () => true, onlyIfUnread: true });
+  // "document", not "none": this call happens because the reader scrolled onto
+  // the page, and no message is being written to charge it to (18.0).
+  void ensurePageIndexed(path, page, undefined, "document", {
+    takeVision: () => true,
+    onlyIfUnread: true,
+  });
 }
 
 /** Stop a background sweep from asking for vision; it keeps reading pages locally. */

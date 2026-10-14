@@ -5,7 +5,13 @@ import react from "@vitejs/plugin-react";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
-  plugins: [react(), silenceTesseractLog()],
+  // React Compiler (1.0) through the Rust transform, which is the path
+  // @vitejs/plugin-react 6 documents for Vite 8 / Rolldown. It memoizes what
+  // the codebase used to do by hand: the comparison functions on PageSlot,
+  // MessageContent and the memo boundaries that three refs existed to work
+  // around. 18.0 deleted those by hand first, so the compiler has less to
+  // correct — what it adds is the next component that would have needed one.
+  plugins: [react({ compiler: true }), silenceTesseractLog()],
 
   build: {
     // The app ships inside macOS WKWebView (minimumSystemVersion ~ macOS 12,

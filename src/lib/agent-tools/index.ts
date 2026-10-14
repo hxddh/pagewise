@@ -1,4 +1,5 @@
 import type { ReadBudget } from "./reading";
+import { compactToolSchemas } from "./compact-schema";
 import { createDocumentOutlineTool } from "./tools/document-outline";
 import { createReadPdfPageTool } from "./tools/read-page";
 import { createReadPdfRangeTool } from "./tools/read-range";
@@ -15,7 +16,8 @@ export {
   DEFAULT_RANGE_MAX_CHARS,
   DEFAULT_SEARCH_HITS,
   DEFAULT_FIGURE_INDEX,
-  RUN_CHAR_BUDGET,
+  RUN_TOKEN_BUDGET,
+  estimateTokens,
   type ReadBudget,
 } from "./reading";
 
@@ -37,7 +39,7 @@ export function createDocumentTools(budget: ReadBudget) {
     if (budget.gen === runGen) budget.used += chars;
   };
 
-  return {
+  return compactToolSchemas({
     document_outline: createDocumentOutlineTool(budget, chargeBudget),
     read_pdf_page: createReadPdfPageTool(budget, chargeBudget),
     read_pdf_range: createReadPdfRangeTool(budget, chargeBudget),
@@ -48,5 +50,5 @@ export function createDocumentTools(budget: ReadBudget) {
     // pull into context, and writing pulls nothing.
     note_finding: createNoteFindingTool(),
     revise_finding: createReviseFindingTool(),
-  };
+  });
 }

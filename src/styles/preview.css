@@ -9,7 +9,7 @@
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border-subtle);
   position: relative;
-  z-index: 20;
+  z-index: var(--z-toolbar);
   overflow: visible;
   flex-shrink: 0;
   display: flex;
@@ -207,8 +207,14 @@
   background: var(--border-subtle);
 }
 
-.zoom-menu-action {
-  display: flex !important;
+/*
+ * A menu row with an icon and a label, rather than a bare label. Written with
+ * the popover's own selector so it outranks `.anchored-popover button`'s
+ * `display: block` by specificity — this was `display: flex !important`, which
+ * is a fight the cascade can settle on its own.
+ */
+.anchored-popover .zoom-menu-action {
+  display: flex;
   align-items: center;
   gap: var(--space-md);
 }
@@ -217,7 +223,7 @@
   position: absolute;
   left: 12px;
   bottom: 12px;
-  z-index: 4;
+  z-index: var(--z-page-badge);
   max-width: min(280px, calc(100% - 24px));
   padding: var(--space-xs) var(--space-md);
   border-radius: var(--radius-pill);
@@ -235,7 +241,7 @@
   position: absolute;
   left: 12px;
   bottom: 12px;
-  z-index: 4;
+  z-index: var(--z-page-badge);
   display: flex;
   align-items: center;
   gap: var(--space-md);
@@ -318,15 +324,38 @@
   animation: popover-in var(--transition);
 }
 
+/*
+ * Opacity only. The popover's placement is a `transform` written inline by the
+ * popper that owns it, and an animation that also animates `transform` wins
+ * over that for the length of the entry — the panel would appear at the wrong
+ * place and then jump to the right one.
+ */
 @keyframes popover-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
+}
+
+@keyframes popover-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/*
+ * Leaving, not only arriving. Radix writes `data-state` on the popover and
+ * keeps it mounted until its exit animation has run, so the departure is the
+ * same declaration as the arrival and nothing in JS has to hold a timer.
+ * Reduced motion is handled globally in `app/11-pdf-layers.css`.
+ */
+.anchored-popover[data-state="closed"] {
+  animation: popover-out var(--transition);
 }
 
 .anchored-popover button {
@@ -377,7 +406,7 @@
   position: fixed;
   bottom: 20px;
   right: 20px;
-  z-index: 350;
+  z-index: var(--z-confirm);
   max-width: min(400px, calc(100vw - 40px));
   animation: confirm-in var(--transition);
 }

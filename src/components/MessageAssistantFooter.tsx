@@ -17,6 +17,7 @@ import {
   type VerifiedSentence,
 } from "../lib/citation-check";
 import { AnchoredMenu } from "./AnchoredMenu";
+import { ListRow } from "./ui/ListRow";
 import { useI18n } from "../i18n";
 import { collectReadPages } from "../lib/read-pages";
 import { claimFromAnswer } from "../lib/keep-answer";
@@ -30,10 +31,12 @@ import {
   formatDuration,
   formatGenerationSpeed,
   formatTokenCount,
+  formatUsageSummaryLine,
   getPageWiseMetadata,
   resolveAgentTokenTotals,
   type PageWiseUIMessage,
 } from "../lib/message-metadata";
+import { loadPreferences } from "../lib/preferences";
 import { Button } from "./ui/Button";
 import { hasAnswerTable, tablesToCsv, type CsvLabels } from "../lib/answer-tables";
 import { saveTextFile } from "../lib/save-markdown";
@@ -145,9 +148,28 @@ function MessageAssistantFooterInner({
   const [kept, setKept] = useState(false);
   const statsBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimerRef = useRef<number | undefined>(undefined);
+  // The usage line is a preference (`showUsageLine`, on by default): a reader
+  // paying per question is entitled to the number, and off is for the reader who
+  // finds it noise. Read once, like the other preference reads in the app.
+  const [showUsageLine, setShowUsageLine] = useState(true);
 
   const metadata = getPageWiseMetadata(message);
   const showFooter = live || metadata?.startedAt != null;
+
+  useEffect(() => {
+    let alive = true;
+    loadPreferences().then(
+      (prefs) => {
+        if (alive) setShowUsageLine(prefs.showUsageLine);
+      },
+      // A store that rejects leaves the default (on) in place rather than
+      // turning the line off for everyone.
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!live || metadata?.finishedAt != null) return;
@@ -199,6 +221,14 @@ function MessageAssistantFooterInner({
   // The anchor: the pages this answer actually read. Already computed for the
   // "Pages read" trail, so keeping an answer invents nothing.
   const keepPages = useMemo(() => collectReadPages(message.parts), [message.parts]);
+
+  // The line under a settled answer (18.0): pages · steps · tokens in/out ·
+  // cache hits · scans, from what the message already records. Live answers have
+  // no totals yet, so the line appears when the answer settles.
+  const usageLine = useMemo(
+    () => (live ? null : formatUsageSummaryLine(metadata, t, keepPages.length)),
+    [live, metadata, t, keepPages.length],
+  );
 
   // What the answer's citations turned out to be, once it has finished
   // streaming. The chips check themselves; this waits on the same checks
@@ -418,6 +448,11 @@ function MessageAssistantFooterInner({
                 ))}
           </p>
         )}
+        {/* What this answer cost, from the metadata the popover below shows in
+            full. Settled answers only — a live one has no totals yet. */}
+        {usageLine && showUsageLine && (
+          <p className="message-usage-line">{usageLine}</p>
+        )}
       </div>
 
       <AnchoredMenu
@@ -428,32 +463,33 @@ function MessageAssistantFooterInner({
         align="start"
       >
         {keepAction?.verified && onKeep && keepPages.length > 0 && (
-          /* raw-button: role="menuitem" in the answer's overflow menu — a menu row, not a button */
-          <button type="button" role="menuitem" disabled={kept} onClick={() => { setMoreOpen(false); keepWhole(); }}>
-            {kept ? t("record.kept") : t("record.keepWhole")}
-          </button>
+          <ListRow
+            role="menuitem"
+            disabled={kept}
+            label={kept ? t("record.kept") : t("record.keepWhole")}
+            onClick={() => { setMoreOpen(false); keepWhole(); }}
+          />
         )}
         {citationEnv && hasTable && (
-          /* raw-button: role="menuitem" in the same menu; it has to match the rows around it */
-          <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); void exportTable(); }}>
-            {t("table.export")}
-          </button>
+          <ListRow
+            role="menuitem"
+            label={t("table.export")}
+            onClick={() => { setMoreOpen(false); void exportTable(); }}
+          />
         )}
         {citationEnv && reviewable.length > 0 && (
-          /* raw-button: role="menuitem" in the same menu; it has to match the rows around it */
-          <button
-            type="button"
+          <ListRow
             role="menuitem"
             disabled={reviewing || reviewedAll}
+            label={reviewedAll ? t("cite.reviewed") : t("cite.reviewAction", { count: String(reviewable.length) })}
             onClick={() => { setMoreOpen(false); void reviewCitations(); }}
-          >
-            {reviewedAll ? t("cite.reviewed") : t("cite.reviewAction", { count: String(reviewable.length) })}
-          </button>
+          />
         )}
-        {/* raw-button: role="menuitem" in the same menu; it has to match the rows around it */}
-        <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); setStatsOpen(true); }}>
-          {t("agent.usageStats")}
-        </button>
+        <ListRow
+          role="menuitem"
+          label={t("agent.usageStats")}
+          onClick={() => { setMoreOpen(false); setStatsOpen(true); }}
+        />
       </AnchoredMenu>
 
       <AnchoredMenu

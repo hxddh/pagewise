@@ -231,11 +231,30 @@
    */
   --scrim: rgba(0, 0, 0, 0.28);
 
-  /* z-index scale — keep overlay ordering coherent across the app */
+  /*
+   * z-index scale — keep overlay ordering coherent across the app.
+   *
+   * Named for the layer, not for a rank, so a new surface answers "what is
+   * this?" rather than "how big was the last number I saw?". Nine raw numbers
+   * lived beside these: the page's own layers (text over the canvas, the index
+   * badge, the region-select sheet), the preview toolbar, the rail, the mark
+   * note, the selection actions, the search dropdown and the confirm prompt.
+   * Every one of them now has a name.
+   */
+  --z-page-text: 1;
+  --z-chat-loading: 2;
+  --z-page-badge: 4;
+  --z-region: 5;
+  --z-toolbar: 20;
   --z-doc-search: 30;
+  --z-rail: 30;
+  --z-mark-note: 40;
   --z-library: 50;
+  --z-selection: 50;
+  --z-doc-search-results: 50;
   --z-settings-drawer: 200;
   --z-file-error: 300;
+  --z-confirm: 350;
   --z-drop: 1000;
   --z-loading: 1500;
   --z-palette: 2000;

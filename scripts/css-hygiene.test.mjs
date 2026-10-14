@@ -181,6 +181,41 @@ describe("CSS hygiene", () => {
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
+  it("gives the overlays and the citation highlight a movement, and stops for reduced motion", () => {
+    // 18.0 named four movements worth having: a panel opening and closing, an
+    // overlay arriving and leaving, an answer being inserted, and a citation
+    // lighting up. Two of them are held here — the overlays' enter/exit and the
+    // citation's decay — because both are written in a stylesheet, and the two
+    // states of both are what the acceptance asks for: with the movement, and
+    // with the operating system asking for less of it.
+    //
+    // The reduced-motion half is not per-rule. It is the global block in
+    // 11-pdf-layers.css that collapses every animation and transition to
+    // 0.01ms, and it only works while it is the last word on the subject —
+    // which is why it is asserted rather than assumed.
+    const read = (rel) =>
+      readFileSync(join(ROOT, "src/styles", rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+
+    // Leaving as well as arriving. Radix writes `data-state` and keeps the
+    // overlay mounted until the exit has run, so both directions are here.
+    const palette = read("app/09-palette-status.css");
+    expect(palette).toContain('.palette-panel[data-state="open"]');
+    expect(palette).toContain('.palette-panel[data-state="closed"]');
+    expect(read("app/12-shell-rail.css")).toContain('.library-drawer[data-state="closed"]');
+    expect(read("preview.css")).toContain('.anchored-popover[data-state="closed"]');
+
+    // The citation lands brighter and settles to the wash it always had, over
+    // the 250ms step rather than an off-scale number.
+    const layers = read("app/11-pdf-layers.css");
+    expect(layers).toMatch(/animation: citation-decay var\(--transition-slow\)/);
+
+    const block = layers.slice(layers.indexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(block, "the reduced-motion block moved or lost a property").toContain(
+      "animation-duration: 0.01ms !important",
+    );
+    expect(block).toContain("transition-duration: 0.01ms !important");
+  });
+
   it("keeps the in-document search panel from stretching over the document", () => {
     // Both of these shipped, and nothing in the suite could have caught them:
     // the DOM was correct throughout. Search found its matches and built the

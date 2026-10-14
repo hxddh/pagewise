@@ -4,6 +4,7 @@ import { installPromiseWithResolversPolyfill } from "./lib/polyfills";
 import { I18nProvider, resolveLocale } from "./i18n";
 import { applyReadingScale, applyTheme, loadPreferences, resolveTheme } from "./lib/preferences";
 import { ThemeProvider } from "./hooks/useTheme";
+import { applyWindowMaterial } from "./lib/window-material";
 import App from "./App";
 
 installPromiseWithResolversPolyfill();
@@ -11,6 +12,7 @@ installPromiseWithResolversPolyfill();
 void loadPreferences().then((prefs) => {
   applyTheme(resolveTheme(prefs.theme));
   applyReadingScale(prefs.readingScale);
+  void applyWindowMaterial(resolveTheme(prefs.theme));
   const locale = resolveLocale(prefs.locale);
   document.documentElement.lang = locale === "zh-CN" ? "zh-CN" : "en";
 });

@@ -1,6 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ConfirmOverlay } from "../../components/overlays/ConfirmOverlay";
+import { ConfirmDialog } from "../../components/overlays/ConfirmDialog";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useToast } from "../../hooks/useToast";
@@ -42,6 +42,7 @@ import { OutlineSidebar } from "../../components/OutlineSidebar";
 import { MarkSidebar } from "../../components/MarkSidebar";
 import { usableOutline } from "../../lib/outline-nav";
 import { DocumentSearch } from "../../components/DocumentSearch";
+import { Tabs } from "../../components/ui/Tabs";
 
 /** How long the page has to stay put before it counts as being read. */
 const INDEX_SETTLE_MS = 500;
@@ -96,6 +97,9 @@ function PreviewPaneInner({
     quoteRun.current += 1;
   }, [doc.path]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  // The panel itself, so the in-document search can portal into its box
+  // rather than over the whole window.
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const bindScroller = useCallback(
     (node: HTMLDivElement | null) => {
       scrollerRef.current = node;
@@ -484,7 +488,7 @@ function PreviewPaneInner({
   const outline = usableOutline(doc.outline, doc.totalPages);
   // Derived together, so the three cannot disagree — see `sidebar-tabs.ts` for
   // the two-tabs-selected-at-once bug that is about.
-  const { showPages, showOutline, showMarks } = sidebarTabState(sidebarTab, outline.length > 0);
+  const { showOutline, showMarks } = sidebarTabState(sidebarTab, outline.length > 0);
   const marks = (void markRevision, getMarks(doc.path));
   const selectedMark = marks.find((m) => m.id === selectedMarkId) ?? null;
   // Marks made against a different version of this file. Unlike the page index,
@@ -494,48 +498,25 @@ function PreviewPaneInner({
   // was marked.
   const staleMarks = marksAreStale(doc.path, doc.stamp ?? "");
   const sidebarTabs = (
-    <div className="sidebar-tabs" role="tablist">
-      {/* raw-button: role="tab" in a tablist — a tab is not a button and must not be styled as one */}
-      <button
-        type="button"
-        role="tab"
-        aria-selected={showPages}
-        className={`sidebar-tab ${showPages ? "active" : ""}`}
-        onClick={() => setSidebarTab("pages")}
-      >
-        {t("preview.pages")}
-      </button>
-      {/* raw-button: role="tab" in the same tablist; it has to match the tab beside it */}
-      <button
-        type="button"
-        role="tab"
-        aria-selected={showOutline}
+    <Tabs
+      items={[
+        { id: "pages", label: t("preview.pages") },
         // The tabs are always shown now that marks need reaching, so a document
         // without a recovered outline disables this one rather than offering a
         // tab that silently falls back to pages.
-        disabled={outline.length === 0}
-        className={`sidebar-tab ${showOutline ? "active" : ""}`}
-        onClick={() => setSidebarTab("outline")}
-      >
-        {t("preview.outline")}
-      </button>
-      {/* raw-button: role="tab" in the same tablist; it has to match the tabs beside it */}
-      <button
-        type="button"
-        role="tab"
-        aria-selected={showMarks}
-        className={`sidebar-tab ${showMarks ? "active" : ""}`}
-        onClick={() => setSidebarTab("marks")}
-      >
-        {t("preview.marks")}
-      </button>
-    </div>
+        { id: "outline", label: t("preview.outline"), disabled: outline.length === 0 },
+        { id: "marks", label: t("preview.marks") },
+      ]}
+      value={sidebarTab}
+      onChange={setSidebarTab}
+    />
   );
 
   return (
-    <div className="preview-panel preview-with-thumbs">
+    <div className="preview-panel preview-with-thumbs" ref={panelRef}>
       <DocumentSearch
         doc={doc}
+        containerRef={panelRef}
         onJumpToPage={(target, query) => {
           onPageChange(target);
           setSearchHit(query ? { page: target, query } : null);
@@ -613,7 +594,7 @@ function PreviewPaneInner({
         />
       )}
 
-      <ConfirmOverlay
+      <ConfirmDialog
         open={pendingLink !== null}
         message={t("preview.openLinkConfirm", { url: displayUrl(pendingLink ?? "") })}
         confirmLabel={t("preview.openLinkAction")}

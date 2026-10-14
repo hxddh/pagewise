@@ -15,6 +15,8 @@
   z-index: var(--z-settings-drawer);
   display: flex;
   justify-content: flex-end;
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
 }
 
 /*
@@ -27,15 +29,6 @@
  * dimming can — and where `backdrop-filter` is unsupported the scrim alone
  * still does its job, only less well.
  */
-.drawer-backdrop {
-  position: absolute;
-  inset: 0;
-  border: none;
-  background: var(--scrim);
-  backdrop-filter: blur(2px);
-  cursor: pointer;
-}
-
 .drawer-panel {
   position: relative;
   width: min(400px, 92vw);
@@ -101,34 +94,11 @@
   color: var(--text-muted);
 }
 
-.error-line {
-  font-size: var(--text-sm);
-  color: var(--danger);
-}
-
+/*
+ * Where an inline status line sits inside the chat panel. Its shape — the row,
+ * the text column, the action group, the danger ink — is `StatusLine`; only the
+ * placement is the panel's business.
+ */
 .chat-error {
   margin: var(--space-md) var(--space-lg) 0;
-}
-
-/* Same layout as the error line, but this is an offer, not a failure. */
-.chat-scan-hint {
-  color: var(--text-muted);
-}
-
-.chat-error {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-md);
-}
-
-.chat-error-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.chat-error-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  flex-shrink: 0;
 }

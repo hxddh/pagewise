@@ -17,7 +17,7 @@ export function createSearchInDocumentTool(
       description:
         "Search for a keyword or phrase in the active document. Returns up to " +
         `maxResults hits (page + snippet), ${R.DEFAULT_SEARCH_HITS} by default; ` +
-        "truncated=true means more exist — raise maxResults when you need the long list.",
+        "truncated=true means more exist — raise maxResults for the long list.",
       inputSchema: z.object({
         query: z.string().min(1),
         maxResults: z
@@ -34,7 +34,7 @@ export function createSearchInDocumentTool(
         "search",
         () => budget.gen,
         async ({ query, maxResults = R.DEFAULT_SEARCH_HITS }, options, runGen) => {
-          const path = R.resolvePathInput(undefined, options);
+          const path = R.activeDocPath(options);
           R.requireLoadedDoc(path);
           if (budget.used >= budget.max) {
             return { hits: [], truncated: false, budgetExceeded: true, note: R.BUDGET_NOTE };
@@ -74,7 +74,7 @@ export function createSearchInDocumentTool(
               : {}),
           };
           // Search output lands in context like any read — count it.
-          chargeBudget(runGen, JSON.stringify(result).length);
+          chargeBudget(runGen, R.estimateTokens(JSON.stringify(result)));
           return result;
         },
       ),

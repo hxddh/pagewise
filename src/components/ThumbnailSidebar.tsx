@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { renderThumbnail } from "../lib/pdf";
+import { ListRow } from "./ui/ListRow";
 
 /**
  * The pitch of one thumbnail row: the button plus the gap below it.
@@ -116,20 +117,18 @@ const ThumbnailItem = memo(function ThumbnailItem({
   }, [visible, path, page]);
 
   return (
-    // raw-button: a page thumbnail: a canvas and a label, sized by the page it shows
-    <button
+    <ListRow
       ref={rootRef}
-      type="button"
-      className={`thumb-item ${active ? "active" : ""}`}
+      className="thumb-item"
+      active={active}
+      current="page"
       onClick={onSelect}
       title={pageLabel}
       aria-label={pageLabel}
-      aria-current={active ? "page" : undefined}
       style={{ height: THUMB_BUTTON_HEIGHT }}
-    >
-      <canvas ref={canvasRef} className="thumb-canvas" />
-      <span className="thumb-label">{page}</span>
-    </button>
+      leading={<canvas ref={canvasRef} className="thumb-canvas" />}
+      trailing={<span className="thumb-label">{page}</span>}
+    />
   );
 });
 

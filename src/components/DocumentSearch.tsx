@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { searchDocumentPages, type SearchHit } from "../lib/document-search";
@@ -6,44 +6,38 @@ import { docCache } from "../lib/doc-cache";
 import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { OPEN_DOC_SEARCH_EVENT } from "../lib/events";
 import type { LoadedDocument } from "../lib/types";
-import { useOverlayLock } from "../hooks/useOverlayLock";
-import { useFocusTrap } from "../hooks/useFocusTrap";
-import {
-  isOverlayOpen,
-  isTopOverlayLayer,
-  popOverlayLayer,
-  pushOverlayLayer,
-} from "../lib/overlay-state";
+import { isOverlayOpen } from "../lib/overlay-state";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Field";
 import { Panel } from "./ui/Panel";
+import { ListRow } from "./ui/ListRow";
+import { Modal } from "./ui/Modal";
+import { EmptyState } from "./EmptyState";
 
 interface DocumentSearchProps {
   doc: LoadedDocument;
   onJumpToPage: (page: number, query?: string) => void;
+  /**
+   * Where the search portals to: the preview panel, not the window. The panel
+   * is a translucent bar over the document it searches, so it has to stay
+   * inside the panel's box.
+   */
+  containerRef?: RefObject<HTMLElement | null>;
 }
 
-export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
+export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSearchProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
-  useOverlayLock(open);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  useFocusTrap(open, panelRef);
-  const layerRef = useRef<number | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const searchGenRef = useRef(0);
 
-  useEffect(() => {
-    if (!open) return;
-    const id = pushOverlayLayer();
-    layerRef.current = id;
-    return () => {
-      popOverlayLayer(id);
-      layerRef.current = null;
-    };
-  }, [open]);
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+  };
 
   const [cacheRevision, setCacheRevision] = useState(0);
 
@@ -75,14 +69,13 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      // `!e.shiftKey`: ⌘⇧F is Zen (18.0). Without this the chord opened the
+      // document search *and* hid the chrome, which is how a shortcut added in
+      // one place quietly takes a key away from another.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
         if (!open && isOverlayOpen()) return;
         e.preventDefault();
         setOpen(true);
-      }
-      if (e.key === "Escape" && open && isTopOverlayLayer(layerRef.current ?? -1)) {
-        setOpen(false);
-        setQuery("");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -95,92 +88,69 @@ export function DocumentSearch({ doc, onJumpToPage }: DocumentSearchProps) {
     return () => window.removeEventListener(OPEN_DOC_SEARCH_EVENT, onOpen);
   }, []);
 
-  if (!open) return null;
-
   return (
-    <div className="doc-search-overlay" role="presentation">
-      {/* raw-button: an invisible full-bleed click target; Button would give it a box and a focus ring */}
-      <button
-        type="button"
-        className="doc-search-backdrop"
-        aria-label={t("preview.closeSearch")}
-        onClick={() => {
-          setOpen(false);
-          setQuery("");
-        }}
+    <Modal
+      open={open}
+      onClose={close}
+      overlayClassName="doc-search-overlay"
+      className="doc-search-panel"
+      container={containerRef?.current ?? null}
+      ariaLabel={t("preview.search")}
+      initialFocus={inputRef}
+    >
+      <Input
+        ref={inputRef}
+        size="sm"
+        className="doc-search-input"
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={t("preview.searchPlaceholder")}
       />
-      <div
-        ref={panelRef}
-        className="doc-search-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("preview.search")}
-      >
-        <Input
-          size="sm"
-          className="doc-search-input"
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("preview.searchPlaceholder")}
-          autoFocus
-        />
-        <Button
-          variant="ghost" size="md" icon
-          onClick={() => {
-            setOpen(false);
-            setQuery("");
-          }}
-          aria-label={t("preview.closeSearch")}
-        >
-          ×
-        </Button>
-        {query.trim() && (
-          <Panel tone="elevated" className="doc-search-results">
-            {searching ? (
-              <p className="doc-search-empty" aria-live="polite">
-                {t("preview.searching")}
+      <Button variant="ghost" size="md" icon onClick={close} aria-label={t("preview.closeSearch")}>
+        ×
+      </Button>
+      {query.trim() && (
+        <Panel tone="elevated" className="doc-search-results">
+          {searching ? (
+            <EmptyState variant="inline" className="doc-search-empty" live="polite">
+              {t("preview.searching")}
+            </EmptyState>
+          ) : hits.length === 0 ? (
+            <EmptyState variant="inline" className="doc-search-empty" live="polite">
+              {docCache
+                .getPages(doc.path)
+                .some((p) => p.text.trim().length < MIN_INDEX_CHARS)
+                ? t("preview.searchIndexing")
+                : t("preview.noMatches")}
+            </EmptyState>
+          ) : (
+            <>
+              <p className="doc-search-count">
+                {t("preview.matchCount", { count: hits.length })}
               </p>
-            ) : hits.length === 0 ? (
-              <p className="doc-search-empty" aria-live="polite">
-                {docCache
-                  .getPages(doc.path)
-                  .some((p) => p.text.trim().length < MIN_INDEX_CHARS)
-                  ? t("preview.searchIndexing")
-                  : t("preview.noMatches")}
-              </p>
-            ) : (
-              <>
-                <p className="doc-search-count">
-                  {t("preview.matchCount", { count: hits.length })}
-                </p>
-                <ul>
-                  {hits.map((hit, i) => (
-                    <li key={`${hit.page}-${hit.index}-${i}`}>
-                      {/* raw-button: a result row — page number above, snippet below, in its own layout */}
-                      <button
-                        type="button"
-                        className="doc-search-hit"
-                        onClick={() => {
-                          // The query travels with the jump so the page can
-                          // show where the hit is, not just which page it is on.
-                          onJumpToPage(hit.page, query);
-                          setOpen(false);
-                          setQuery("");
-                        }}
-                      >
-                        <span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>
-                        <span className="hit-snippet">{highlightTerms(hit.snippet, query)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </Panel>
-        )}
-      </div>
-    </div>
+              <ul>
+                {hits.map((hit, i) => (
+                  <li key={`${hit.page}-${hit.index}-${i}`}>
+                    <ListRow
+                      className="doc-search-hit"
+                      onClick={() => {
+                        // The query travels with the jump so the page can
+                        // show where the hit is, not just which page it is on.
+                        onJumpToPage(hit.page, query);
+                        close();
+                      }}
+                      label={<span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>}
+                      meta={<span className="hit-snippet">{highlightTerms(hit.snippet, query)}</span>}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Panel>
+      )}
+    </Modal>
   );
 }
 

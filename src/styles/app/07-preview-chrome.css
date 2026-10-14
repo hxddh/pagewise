@@ -159,7 +159,7 @@
   width: 280px;
   max-height: 240px;
   overflow-y: auto;
-  z-index: 50;
+  z-index: var(--z-doc-search-results);
   padding: var(--space-sm);
 }
 

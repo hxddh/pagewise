@@ -199,7 +199,13 @@
     "usageSteps": "分步用量",
     "usageStep": "第 {{n}} 步",
     "usageSummary": "{{input}} 输入 · {{output}} 输出",
-    "usageSummaryWithSteps": "{{input}} 输入 · {{output}} 输出 · {{steps}} 步",
+    "usageSummaryPages": "读 {{count}} 页",
+    "usageSummaryPages_plural": "读 {{count}} 页",
+    "usageSummarySteps": "{{count}} 步",
+    "usageSummarySteps_plural": "{{count}} 步",
+    "usageSummaryCached": "缓存 {{cached}}",
+    "usageSummaryScans": "扫描 {{count}}",
+    "usageSummaryScans_plural": "扫描 {{count}}",
     "regenerate": "重新生成",
     "editMessage": "编辑",
     "resend": "重新发送",
@@ -380,7 +386,8 @@
     "scanAllPages": "读取没有文字的页",
     "walkConversation": "上一条 / 下一条消息",
     "searchConversation": "在本次会话中搜索",
-    "export": "导出…"
+    "export": "导出…",
+    "zen": "专注模式：隐藏界面"
   },
   "toast": {
     "chatExported": "对话已导出",
@@ -552,5 +559,9 @@
     "chatEmpty": "还没有对话。",
     "busy": "请等回答结束。",
     "includeText": "附上文档全文"
+  },
+  "zen": {
+    "exit": "退出专注",
+    "ask": "问这份文档…"
   }
 }

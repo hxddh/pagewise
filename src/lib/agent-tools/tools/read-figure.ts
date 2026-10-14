@@ -14,9 +14,9 @@ export function createReadFigureTool(
   return tool({
       description:
         "Look at a figure, chart or diagram on a page and describe it. Figures are " +
-        "numbered from 1 in order of size on that page; omit index for the largest. " +
-        "Use this when a page's text refers to something the text alone does not " +
-        "convey. Each call sends one image to the vision model and is billed.",
+        "numbered from 1 by size; omit index for the largest. Use it when a page's " +
+        "text refers to something the text alone does not convey. Each call sends " +
+        "an image to the vision model and is billed.",
       inputSchema: z.object({
         page: z.number().int().min(1),
         index: z
@@ -36,7 +36,7 @@ export function createReadFigureTool(
         "index",
         () => budget.gen,
         async ({ page, index = R.DEFAULT_FIGURE_INDEX }, options, runGen) => {
-          const path = R.resolvePathInput(undefined, options);
+          const path = R.activeDocPath(options);
           const doc = R.requireLoadedDoc(path);
           R.assertPageInBounds(doc, page);
           if (budget.used >= budget.max) {
@@ -73,7 +73,7 @@ export function createReadFigureTool(
           throwIfAborted(signal);
 
           const result = { page, figureIndex: index, figureCount: figures.length, description };
-          chargeBudget(runGen, JSON.stringify(result).length);
+          chargeBudget(runGen, R.estimateTokens(JSON.stringify(result)));
           return result;
         },
       ),

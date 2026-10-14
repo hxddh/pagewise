@@ -7,13 +7,13 @@ import { SettingsDrawer } from "./components/SettingsDrawer";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { ToastViewport } from "./components/ToastViewport";
+import { Button } from "./components/ui/Button";
 import { AppRail } from "./components/AppRail";
 import { WelcomeView } from "./components/WelcomeView";
 import { AgentDock } from "./components/AgentDock";
 import { FileErrorBanner } from "./components/FileErrorBanner";
 import { RecentFilesDrawer } from "./components/RecentFilesDrawer";
-import { ClearChatConfirm } from "./components/overlays/ClearChatConfirm";
-import { ConfirmOverlay } from "./components/overlays/ConfirmOverlay";
+import { ConfirmDialog } from "./components/overlays/ConfirmDialog";
 import { indexWholeDocument, pendingIndexPages } from "./document/index-queue";
 import { ocrEnabled } from "./lib/ocr/ocr-service";
 import { getVisionCallCount } from "./lib/usage-tracker";
@@ -98,6 +98,7 @@ function AppContent() {
     setComposerDraft("");
     setRevealedFindingId(null);
     setRevealedCitation(null);
+    setZen(false);
   }, [doc?.path]);
 
   // Put something from the document into the composer and show it. The caller
@@ -111,6 +112,12 @@ function AppContent() {
   // served after the panel has mounted.
   const chatRef = useRef<ChatPanelHandle>(null);
   const [focusComposerNonce, setFocusComposerNonce] = useState(0);
+  /**
+   * Zen (18.0): the rail, the toolbar and the panel leave; the page and a
+   * progress hairline stay. Not persisted — it is a posture for this sitting,
+   * not a preference, and a reader who wants it always has the shortcut.
+   */
+  const [zen, setZen] = useState(false);
   const askAboutSelection = useCallback(
     (text: string) => {
       const insert = text.trim();
@@ -128,6 +135,14 @@ function AppContent() {
     const id = requestAnimationFrame(() => requestAnimationFrame(() => chatRef.current?.focusComposer()));
     return () => cancelAnimationFrame(id);
   }, [focusComposerNonce]);
+
+  const toggleZen = useCallback(() => setZen((z) => !z), []);
+  /** The pill in Zen: leave it, show the panel, put the caret in the composer. */
+  const askFromZen = useCallback(() => {
+    setZen(false);
+    s.setAgentOpen(true);
+    setFocusComposerNonce((n) => n + 1);
+  }, [s]);
 
   const openableRecents = openableRecentFiles(s.recentFiles);
 
@@ -183,6 +198,7 @@ function AppContent() {
     onOpenSettings: overlays.openSettings,
     onToggleFollowAgent: () => void prefs.toggleFollowAgent(),
     onToggleAgent: () => s.setAgentOpen(!s.agentOpen),
+    onToggleZen: toggleZen,
     onClearChat: overlays.openClearConfirm,
     onStop: agent.stop,
     onCycleTheme: () => void cycleTheme(),
@@ -213,7 +229,7 @@ function AppContent() {
   }, [panelDragging]);
 
   return (
-    <div className="app v3">
+    <div className={`app v3${zen && doc ? " zen" : ""}`}>
       <CommandPalette
         open={paletteOpen}
         commands={commands}
@@ -236,8 +252,9 @@ function AppContent() {
       )}
       <ToastViewport />
 
-      <ClearChatConfirm
+      <ConfirmDialog
         open={overlays.clearConfirmOpen}
+        danger
         message={t("agent.clearConfirm")}
         confirmLabel={t("agent.clear")}
         onConfirm={() => {
@@ -247,7 +264,7 @@ function AppContent() {
         onCancel={overlays.closeClearConfirm}
       />
 
-      <ConfirmOverlay
+      <ConfirmDialog
         open={scanAllPrompt !== null}
         message={
           doc && getVisionCallCount(doc.path) > 0
@@ -299,6 +316,25 @@ function AppContent() {
         onSaveError={() => showToast(t("settings.saveFailed"), "error")}
         onRefreshConnection={() => conn.refresh()}
       />
+
+      {zen && doc && (
+        <>
+          {/* Reading progress, not scroll position: what a reader wants from a
+              margin is "how much of this is left". */}
+          <div className="zen-progress" aria-hidden>
+            <span
+              className="zen-progress-fill"
+              style={{ height: `${Math.round((s.previewPage / Math.max(1, doc.totalPages)) * 100)}%` }}
+            />
+          </div>
+          <Button variant="ghost" size="sm" className="zen-exit" onClick={toggleZen}>
+            {t("zen.exit")}
+          </Button>
+          <Button variant="secondary" size="lg" className="zen-ask" onClick={askFromZen}>
+            {t("zen.ask")}
+          </Button>
+        </>
+      )}
 
       <AppRail
         showLibrary

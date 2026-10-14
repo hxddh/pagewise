@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   },
 }));
 
+import { asSchema } from "ai";
 import { createDocumentTools, newReadBudget } from "./index";
 import type { ReadBudget } from "./reading";
 import { ALREADY_READ_NOTE, DEFAULT_PAGE_MAX_CHARS } from "./reading";
@@ -49,7 +50,17 @@ function loadDoc(
 }
 
 type Tool = { execute: (input: unknown, options: unknown) => Promise<never> };
-type Tools = Record<string, Tool & { inputSchema: { safeParse: (v: unknown) => { success: boolean } } }>;
+type Tools = Record<string, Tool & { inputSchema: unknown }>;
+
+/**
+ * Whether a tool's schema accepts this input, through the same `validate` the
+ * SDK runs before executing a call — the schema is a `jsonSchema()` wrapper
+ * since `compactToolSchemas`, so there is no `safeParse` to reach for.
+ */
+async function schemaAccepts(schema: unknown, value: unknown): Promise<boolean> {
+  const result = await asSchema(schema as never).validate?.(value);
+  return result?.success ?? false;
+}
 
 function tools(budget: ReadBudget = newReadBudget()) {
   return { budget, t: createDocumentTools(budget) as never as Tools };
@@ -94,8 +105,8 @@ describe("read tool contract: page numbers are 1-based", () => {
     // Refused as a validation error the model can correct, rather than reaching
     // the reader and being silently clamped to page 1.
     const { t } = tools();
-    expect(t.read_pdf_page!.inputSchema.safeParse({ page: 0 }).success).toBe(false);
-    expect(t.read_pdf_page!.inputSchema.safeParse({ page: 1 }).success).toBe(true);
+    expect(await schemaAccepts(t.read_pdf_page!.inputSchema, { page: 0 })).toBe(false);
+    expect(await schemaAccepts(t.read_pdf_page!.inputSchema, { page: 1 })).toBe(true);
   });
 
   it("refuses a page past the end, and says how long the document is", async () => {
@@ -261,15 +272,31 @@ describe("read tool contract: the budget refuses rather than throws", () => {
     expect(out.hits).toEqual([]);
   });
 
-  it("never returns more characters than the budget had left", async () => {
+  it("never returns more of a page than the budget had left", async () => {
     // The cap is on what reaches the context, so a page bigger than the
-    // remaining allowance must come back clipped, not whole.
-    loadDoc([{ page: 1, text: pageText(1, 12_000) }]);
+    // remaining allowance must come back clipped, not whole. The budget is in
+    // estimated tokens, and this page is ASCII (four characters per token), so
+    // 500 tokens of it is 2,000 characters.
+    loadDoc([{ page: 1, text: "a".repeat(12_000) }]);
     const { budget, t } = tools();
     budget.used = budget.max - 500;
 
     const out = (await t.read_pdf_page!.execute({ page: 1 }, options)) as { charCount: number };
-    expect(out.charCount).toBe(500);
+    expect(out.charCount).toBe(2_000);
+    expect(budget.used).toBe(budget.max);
+  });
+
+  it("gives a Chinese page the same token ceiling as an English one", async () => {
+    // What the character budget could not do: a CJK character is about one
+    // token, so counting UTF-16 characters gave a Chinese document roughly
+    // three times the tokens for the same allowance. Both scripts get the same
+    // tokens here — and so different numbers of characters, which is the point.
+    loadDoc([{ page: 1, text: "合".repeat(8_000) }]);
+    const { budget, t } = tools();
+    budget.used = budget.max - 500;
+
+    const out = (await t.read_pdf_page!.execute({ page: 1 }, options)) as { charCount: number };
+    expect(out.charCount, "500 CJK characters ≈ 500 tokens").toBe(500);
     expect(budget.used).toBe(budget.max);
   });
 });

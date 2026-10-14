@@ -1,26 +1,21 @@
 import { useI18n } from "../i18n";
 import { useToast, type Toast } from "../hooks/useToast";
-import { Button } from "./ui/Button";
+import { StatusLine } from "./ui/StatusLine";
 
+/**
+ * Where toasts appear. What one *is* comes from `StatusLine` — this owns the
+ * corner and the stack, nothing else.
+ */
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const { t } = useI18n();
   return (
-    <div
-      className={`toast toast-${toast.tone ?? "default"}`}
-      role={toast.tone === "error" ? "alert" : "status"}
-    >
-      <span>{toast.message}</span>
-      <Button
-        variant="ghost"
-        size="sm"
-        icon
-        className="toast-close"
-        onClick={onDismiss}
-        aria-label={t("toast.dismiss")}
-      >
-        ×
-      </Button>
-    </div>
+    <StatusLine
+      role="toast"
+      tone={toast.tone ?? "default"}
+      message={toast.message}
+      onDismiss={onDismiss}
+      dismissLabel={t("toast.dismiss")}
+    />
   );
 }
 

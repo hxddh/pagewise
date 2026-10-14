@@ -285,3 +285,131 @@
 .ui-panel--inset {
   background: var(--bg-base);
 }
+
+/* Rows ------------------------------------------------------------------- */
+
+/*
+ * The base of every list row in the app.
+ *
+ * Each row keeps its own class — `.outline-item`, `.thumb-item`, `.palette-item`
+ * — because that is where its density and layout live, and fifteen stylesheets
+ * already say so. What this owns is the shape they had fifteen spellings of: a
+ * full-width, left-aligned, chrome-less button that a list can be read down.
+ *
+ * The `active` state is not here. It is `is-current` in `14-states.css`, which
+ * is the one file allowed to say what "you are here" looks like.
+ */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.list-row:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* Status lines ----------------------------------------------------------- */
+
+/*
+ * Three roles, one shape. The role says where the line is and how long it
+ * stays; the tone says what it is about. See `StatusLine.tsx` for why the
+ * eight treatments became three.
+ */
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  font-size: var(--text-sm);
+}
+
+.status-line-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.status-line-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.status-line-close {
+  flex-shrink: 0;
+  min-width: 28px;
+  padding: 0 var(--space-sm);
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* toast — an event that goes past. The corner is `.toast-viewport`'s. */
+.status-line-toast {
+  pointer-events: auto;
+  padding: 9px var(--space-lg);
+  background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-md);
+  animation: toastIn var(--transition);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.status-line-success {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border-subtle));
+}
+
+/* inline — a state of the thing it sits under, in the danger ink unless the
+   tone says otherwise (a hint is an offer, not a failure). */
+.status-line-inline {
+  align-items: flex-start;
+  color: var(--danger);
+}
+
+.status-line-inline.status-line-default {
+  color: var(--text-muted);
+}
+
+/* banner — the same, for the whole window. `.file-error-banner` gives it the
+   corner and the layer; this is what it looks like. */
+.status-line-banner {
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-elevated));
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+}
+
+/*
+ * The one scrim behind every modal.
+ *
+ * Each modal's own container class carries the wash (they differ: a drawer is
+ * lighter than the library) and this element is what Radix hit-tests for
+ * outside-pointer dismissal. It sits inside that container, so it never has to
+ * know which modal it belongs to.
+ */
+.modal-scrim {
+  position: absolute;
+  inset: 0;
+}

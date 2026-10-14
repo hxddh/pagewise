@@ -26,7 +26,7 @@ import type { PdfRect } from "../lib/types";
 import { RecordPanel } from "../components/RecordPanel";
 import { activeFindings, addFinding, findingsAreStale, subscribeFindings } from "../lib/finding-store";
 import type { PageWiseUIMessage } from "../lib/message-metadata";
-import { EmptyState } from "../components/EmptyState";
+import { ChatEmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
 
 import type { SendDocumentMessageOptions, RegenerateDocumentMessageOptions } from "../hooks/useDocAgent";
@@ -43,6 +43,9 @@ import { collectReadPages } from "../lib/read-pages";
 import { getMarks } from "../lib/mark-store";
 import { usableOutline } from "../lib/outline-nav";
 import { TextArea } from "../components/ui/Field";
+import { ListRow } from "../components/ui/ListRow";
+import { StatusLine } from "../components/ui/StatusLine";
+import { Tabs } from "../components/ui/Tabs";
 
 export interface ChatPanelHandle {
   focusComposer: () => void;
@@ -487,22 +490,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             fit, and the panel is identified by `aria-label` on the region
             instead, which costs no width at all.
           */}
-          <div className="sidebar-tabs panel-tabs" role="tablist">
-            {(["chat", "record"] as const).map((tab) => (
-              /* raw-button: role="tab" in a tablist — a tab is not a button and must not be styled as one */
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={panelTab === tab}
-                className={`sidebar-tab ${panelTab === tab ? "active" : ""}`}
-                onClick={() => setPanelTab(tab)}
-              >
-                {t(tab === "chat" ? "record.tabChat" : "record.tabRecord")}
-                {tab === "record" && recordCount > 0 && <span className="panel-tab-count">{recordCount}</span>}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            className="panel-tabs"
+            items={[
+              { id: "chat", label: t("record.tabChat") },
+              {
+                id: "record",
+                label: t("record.tabRecord"),
+                badge: recordCount > 0 ? <span className="panel-tab-count">{recordCount}</span> : undefined,
+              },
+            ]}
+            value={panelTab}
+            onChange={setPanelTab}
+          />
         </div>
         <div className="header-actions">
           {onCollapse && (
@@ -534,30 +534,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             anchorRef={moreBtnRef}
             className="anchored-popover"
           >
-            {/* raw-button: role="menuitem" in the overflow menu — a menu row, not a button */}
-            <button
-              type="button"
+            <ListRow
               role="menuitem"
+              label={t("agent.export")}
               onClick={() => {
                 setMenuOpen(false);
                 onOpenExport();
               }}
-            >
-              {t("agent.export")}
-            </button>
-            {/* raw-button: role="menuitem" in the same menu; it has to match the rows above it */}
-            <button
-              type="button"
+            />
+            <ListRow
               role="menuitem"
               className="danger"
+              label={t("agent.clear")}
               onClick={() => {
                 setMenuOpen(false);
                 onClearChat();
               }}
               disabled={interactionBusy || messages.length === 0}
-            >
-              {t("agent.clear")}
-            </button>
+            />
           </AnchoredMenu>
         </div>
       </header>
@@ -586,7 +580,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </div>
         )}
         {!chatLoading && messages.length === 0 ? (
-          <EmptyState
+          <ChatEmptyState
             hasApiKey={hasApiKey}
             agentToolsSupported={agentToolsSupported}
             settingsReady={settingsReady}
@@ -811,34 +805,39 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         unscannedPages > 0 &&
         messages.length > 0 &&
         scanHintDismissed !== activeDoc.path && (
-          <div className="error-line chat-error chat-scan-hint" role="status">
-            <span className="chat-error-text">
-              {t("agent.unscannedPages", { count: unscannedPages })}
-            </span>
-            <span className="chat-error-actions">
-              <Button
-                variant="secondary" size="sm"
-                onClick={onScanAllPages}
-                disabled={interactionBusy}
-              >
-                {t("preview.scanAllAction")}
-              </Button>
-              <Button
-                variant="ghost" size="md" icon
-                onClick={() => setScanHintDismissed(activeDoc.path)}
-                aria-label={t("agent.dismissScanHint")}
-                title={t("agent.dismissScanHint")}
-              >
-                <X size={14} />
-              </Button>
-            </span>
-          </div>
+          <StatusLine
+            role="inline"
+            className="chat-error"
+            message={t("agent.unscannedPages", { count: unscannedPages })}
+            actions={
+              <>
+                <Button
+                  variant="secondary" size="sm"
+                  onClick={onScanAllPages}
+                  disabled={interactionBusy}
+                >
+                  {t("preview.scanAllAction")}
+                </Button>
+                <Button
+                  variant="ghost" size="md" icon
+                  onClick={() => setScanHintDismissed(activeDoc.path)}
+                  aria-label={t("agent.dismissScanHint")}
+                  title={t("agent.dismissScanHint")}
+                >
+                  <X size={14} />
+                </Button>
+              </>
+            }
+          />
         )}
 
       {error && (
-        <div className="error-line chat-error" role="alert">
-          <span className="chat-error-text">{errorMessage ?? error.message}</span>
-          <span className="chat-error-actions">
+        <StatusLine
+          role="inline"
+          tone="error"
+          className="chat-error"
+          message={errorMessage ?? error.message}
+          actions={<>
             {regenerateDocumentMessage && (
               <Button
                 variant="secondary" size="sm"
@@ -858,8 +857,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 <X size={14} />
               </Button>
             )}
-          </span>
-        </div>
+          </>}
+        />
       )}
 
       <form className="composer" onSubmit={handleSubmit}>

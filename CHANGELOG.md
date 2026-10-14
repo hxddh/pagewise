@@ -4,6 +4,53 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [18.0.0] - 2026-10-14
+
+The workbench becomes a reader. 17.0 made the answer a piece of reading; this release makes the app one — a first run that asks for one decision, a settings surface of three groups, chrome that leaves when you are reading, a cost line under every answer, and the first performance budgets the project has ever had.
+
+The five things this was set against, and what each one measured before and after:
+
+**Configuration was six clicks and three concepts.** A new reader now gets one page: three provider tiles, one key, one button. The model is chosen from the provider's preset table, the scan model is not a concept they meet, and "Start reading" saves, activates and opens the file picker — editing and using are one action, so "Set active" and its second vocabulary are gone. Settings collapsed from four tabs and 34 controls to one surface in three groups (appearance, reading, assistant) with every expert field (provider, endpoint, scan model, thinking, connection test) behind the assistant's Advanced disclosure. The store was rewritten around a v3 payload: one migration instead of a ladder that ran on every read, a cleared key as a `null` tombstone rather than a second map, and a plaintext mirror only where the keychain refused the key. `settings.ts` went 763 → 613 lines and its compat block from ~457 → ~130.
+
+**The presentation layer was twelve hand-written protocols.** Five modals, two confirms and a popover now use Radix (`Dialog`, `AlertDialog`, `Popover`), which owns Escape, backdrops, focus trapping and restoration, `aria-modal` and the scroll lock; `useOverlayLock`/`useFocusTrap` went from 12 direct call sites to 0, and hand-written `<button>` reasons from 49 to 18. Nine empty states became one component, fifteen row renderings became `ListRow`, eight status treatments became `StatusLine`'s three roles, two hand-copied tab strips became `Tabs`, and every raw z-index became a token. React Compiler is on (through the Rust transform `@vitejs/plugin-react` 6 documents for Vite 8), so the memo boundaries the codebase maintained by hand are the compiler's job now.
+
+**Cost was invisible and paid in the wrong unit.** Every answer now carries one line — pages, steps, tokens in/out, cache hits, scan calls — under the existing footer, with a preference to hide it. The fixed prefix every request re-sends went **11,141 → 8,925 bytes** (system prompt 4,041 → 3,248; tool block 7,100 → 5,677) by dropping the `path` argument from the three schemas that still had it, pruning the JSON-Schema scaffolding that decides nothing (`$schema`, integer sentinels), and tightening every description and the system prompt without losing a rule. It is now a test: the prefix may not exceed 9,000 bytes. The read budget is charged in **estimated tokens** (50,000 per run) instead of UTF-16 characters, which is what had been giving a Chinese document about three times the token ceiling of an English one — with a parity test for it. OpenAI requests mark the system message with `prompt_cache_breakpoint`, verified on the wire. Vision renders at 1,024px/q0.80 by default (1,568px kept for pages OCR read poorly), the opt-in "attach current page" sends JPEG instead of a lossless PNG, both scan budgets dropped (50/20 → 20/10), and the on-view prefetch is attributed to the document instead of vanishing.
+
+**Performance had never been measured.** It has now, and it was healthy where the reader lives: boot 258–336ms to interactive, a 120-page document open at 589–685ms to first raster, scrolling and streaming at 16.7–16.8ms frames with no long tasks, 100 turns of history rendering in ~660ms. `scripts/perf-probe.mjs` is those measurements as nine scenarios and twenty budgets, run in CI — including a 500-page search, a 100-turn session and a scan-shaped document whose text layer is the local OCR path. What the probe does not measure (WebKitGTK, WebView2, a real window, a provider's own latency) is written at the top of the file rather than implied away.
+
+**Immersion was simply absent.** There is a **paper** theme (a warm page under warm chrome) and a reading text scale that multiplies the prose and nothing else. **Zen** (⌘⇧F, or the palette) hides the rail, the toolbar and the panel, leaves the page, a reading-progress hairline and one floating "Ask about this document…" pill, and restores exactly what was there. The window asks for real material — macOS vibrancy, Windows Mica — and a theme-matched window background so a launch is not a flash of the wrong colour; where the platform has no equivalent (Linux, the browser harness) nothing happens and every surface stays opaque.
+
+### Added
+
+- **A setup page** for an unconfigured app, and the assistant's Advanced disclosure for the rest (`SetupAssistant`, `AssistantSettings`).
+- **A usage line** under every settled answer (preference: "Show cost per answer"), with `cachedInputTokens`, pages read, steps and scan calls.
+- **`scripts/perf-probe.mjs`** (`npm run perf`) and a CI job: nine scenarios, twenty budgets, JSON report in `.perf/`.
+- **A prefix budget test**: the system prompt plus all tool definitions may not exceed 9,000 bytes.
+- **A token-based run budget** (`estimateTokens`, 50,000 per run) with an English/Chinese parity test.
+- **The paper theme**, the reading text scale, and **Zen** (⌘⇧F).
+- **Window material** (`setEffects`) and `setBackgroundColor`, gated on `data-material` so unsupported platforms are unchanged.
+
+### Changed
+
+- **Settings** is one surface in three groups; the AI Provider tab, its footer, the unsaved-changes confirm and the connection chip are gone.
+- **Overlays** are Radix primitives behind `ui/Modal` and `overlays/ConfirmDialog`; `EmptyState`, `ListRow`, `StatusLine` and `Tabs` replace the per-feature copies.
+- **The tool prefix**: `path` dropped from the three schemas that had it, JSON-Schema scaffolding pruned, descriptions and the system prompt tightened — behaviour unchanged, pinned by digests.
+- **Vision defaults**: 1,024px/q0.80, JPEG for the attached page, sweep 20 pages, 10 per question.
+- **`settings.ts` v3**: one migration (`migrateToV3`), `keys` map with `null` tombstones.
+- **`ui-shots`/`ui-inventory`**: the settings gate counts the single surface and asserts the assistant group is on it.
+
+### Fixed
+
+- **⌘⇧F no longer opens the document search as well as Zen** — the search chord (and the conversation's) now requires that Shift is not held.
+- **A modal's container was applied to Radix's overlay** while converting: the panel became a normal-flow child of the portal, at the top-left of the window and under the scrim. `Modal` now wraps the overlay and the content in the app's own container, and one `.modal-scrim` rule replaced five backdrops.
+
+### Notes
+
+- Not done, and deliberately: `ChatPanel`'s 34 props and 935 lines, the 30-field session context, motion for the panel and answer insertion, and the page-gutter notes. Each is recorded in the review's §2.3/§2.5 and remains the next release's first work; the measured acceptance for them is in `docs/reviews/2026-10-14-pagewise-v18-next-major-review.md` §4.
+- The macOS/Windows material is **unverified on a real machine** — this release was built and tested on Linux, where the correct behaviour is "no effect, opaque surfaces". The code is written so that is the only thing Linux can do.
+- `eval/README.md`'s corpus numbers are still the 14.0 record; nothing in this release changed them.
+
+
 ## [17.0.3] - 2026-10-14
 
 The macOS app opens again. The cause was mine, and it was in the entitlements: the signature carried `keychain-access-groups`, which is a *restricted* entitlement — it needs a provisioning profile and a Team ID. An ad-hoc signature has neither, so macOS kills the process at launch and the Finder says **"the application can't be opened"**. Nothing runs, so nothing writes a crash log, and the message looks like the signing problem it is not.

@@ -11,14 +11,10 @@ export function createReadPdfRangeTool(
   return tool({
       description:
         "Read text from a page range (inclusive, 1-based). " +
-        `For large documents use maxChars (default ${R.DEFAULT_RANGE_MAX_CHARS}) and continue when truncated=true: call again ` +
-        "with start=nextStart, and pass offset=nextOffset when it is non-null (the same page has more text). " +
-        "truncated=false (with nextStart=null) means the range is fully read.",
+        `Use maxChars (default ${R.DEFAULT_RANGE_MAX_CHARS}) and continue when truncated=true: call again ` +
+        "with start=nextStart, and offset=nextOffset when non-null (the page has more text). " +
+        "truncated=false (nextStart=null) means the range is fully read.",
       inputSchema: z.object({
-        path: z
-          .string()
-          .optional()
-          .describe("Loaded document path; defaults to the active document"),
         start: z.number().int().min(1),
         end: z.number().int().min(1),
         offset: z
@@ -26,7 +22,7 @@ export function createReadPdfRangeTool(
           .int()
           .min(0)
           .optional()
-          .describe("Character offset into the start page to resume from (a previous nextOffset)"),
+          .describe("Character offset to resume from (a nextOffset)"),
         maxChars: z
           .number()
           .int()
@@ -41,13 +37,12 @@ export function createReadPdfRangeTool(
         "read",
         () => budget.gen,
         async ({
-          path: inputPath,
           start,
           end,
           offset = 0,
           maxChars = R.DEFAULT_RANGE_MAX_CHARS,
         }, options, runGen) => {
-          const path = R.resolvePathInput(inputPath, options);
+          const path = R.activeDocPath(options);
           const doc = R.requireLoadedDoc(path);
           if (start > end) {
             throw new Error(

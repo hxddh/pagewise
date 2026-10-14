@@ -35,7 +35,26 @@
   background: color-mix(in srgb, var(--finding) 26%, transparent);
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--finding) 60%, transparent);
-  animation: search-highlight-in var(--transition);
+  /*
+   * A decay, not an appearance (18.0). The highlight used to arrive at its
+   * resting strength; the reader follows a citation to find a phrase, and the
+   * one thing the movement can say is "here" — so it lands brighter and settles
+   * to exactly the wash it always had, over the 250ms step. Reduced motion is
+   * handled globally in this file: the animation collapses to 0.01ms and the
+   * resting state is what remains.
+   */
+  animation: citation-decay var(--transition-slow);
+}
+
+@keyframes citation-decay {
+  from {
+    background: color-mix(in srgb, var(--finding) 58%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--finding) 85%, transparent);
+  }
+  to {
+    background: color-mix(in srgb, var(--finding) 26%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--finding) 60%, transparent);
+  }
 }
 
 @keyframes search-highlight-in {
@@ -144,7 +163,7 @@
   left: 50%;
   bottom: 16px;
   transform: translateX(-50%);
-  z-index: 40;
+  z-index: var(--z-mark-note);
   width: min(420px, calc(100% - 32px));
   padding: var(--space-lg);
 }
@@ -276,7 +295,7 @@
 .pdf-region-layer {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: var(--z-region);
   cursor: crosshair;
   /* Only mounted while the mode is on, so this never shadows the text layer. */
   pointer-events: auto;

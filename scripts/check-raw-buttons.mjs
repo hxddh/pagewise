@@ -39,6 +39,8 @@ const SRC = fileURLToPath(new URL("../src", import.meta.url));
 const EXEMPT = new Map([
   ["components/ui/Button.tsx", "the primitive itself — it is what renders the element"],
   ["components/ui/Field.tsx", "renders the trigger a Field labels"],
+  ["components/ui/ListRow.tsx", "the row primitive — every list row in the app is this element"],
+  ["components/ui/Tabs.tsx", "the tab primitive — a tab is not a Button and must not be styled as one"],
 ]);
 
 /** How many lines above a `<button>` the reason may sit. */

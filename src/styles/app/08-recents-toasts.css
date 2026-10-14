@@ -70,48 +70,23 @@
   max-width: min(360px, calc(100vw - 32px));
 }
 
-.toast {
-  pointer-events: auto;
+/*
+ * The corner and the stack. What a toast *is* — its surface, its tone and the
+ * × — is `StatusLine`, the same component the banner and the chat's own lines
+ * come from. (The entry animation moved with it: `toastIn` is defined in
+ * ui.css, where the rule that uses it lives.)
+ */
+.toast-viewport {
+  position: fixed;
+  bottom: 16px;
+  left: calc(var(--rail-w) + 16px);
+  z-index: var(--z-toast);
   display: flex;
-  align-items: center;
+  flex-direction: column-reverse;
   gap: var(--space-md);
-  padding: 9px var(--space-lg);
-  background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  box-shadow: var(--shadow-md);
-  animation: toastIn var(--transition);
-}
-
-.toast-success {
-  border-color: color-mix(in srgb, var(--success) 35%, var(--border-subtle));
-}
-
-.toast-error {
-  border-color: color-mix(in srgb, var(--danger) 35%, var(--border-subtle));
-}
-
-@keyframes toastIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.toast-error {
-  color: var(--danger);
-}
-
-.toast-close {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: var(--text-md);
-  padding: 0 var(--space-2xs);
-  line-height: 1;
+  align-items: flex-start;
+  pointer-events: none;
+  max-width: min(360px, calc(100vw - 32px));
 }
 
 /* Light theme tokens live in tokens.css — one source, not two. */

@@ -3,6 +3,8 @@ import { FileImage, FileText } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { RecentFile } from "../lib/recent-files";
 import { Button } from "./ui/Button";
+import { EmptyState } from "./EmptyState";
+import { ListRow } from "./ui/ListRow";
 
 function formatOpenedAt(
   openedAt: number,
@@ -106,10 +108,10 @@ function RecentFilesListInner({
 
   if (items.length === 0) {
     return (
-      <div className="library-empty">
+      <EmptyState variant="inline" className="library-empty">
         <p>{t("library.emptyRecent")}</p>
         <p>{t("library.emptyRecentHint")}</p>
-      </div>
+      </EmptyState>
     );
   }
 
@@ -119,33 +121,37 @@ function RecentFilesListInner({
         const active = file.path === activePath;
         const Icon = file.kind === "image" ? FileImage : FileText;
         return (
-          <li key={file.path} className={active ? "active" : undefined}>
-            {/* raw-button: a list row carrying name, meta and a remove action */}
-            <button
-              type="button"
+          <li key={file.path}>
+            <ListRow
               className="library-item library-item-history"
+              active={active}
               onClick={() => onOpen(file.path)}
               disabled={opening}
               title={file.path}
-            >
-              <span className="library-name">
-                <Icon
-                  size={14}
-                  strokeWidth={1.75}
-                  aria-hidden
-                  style={{ display: "inline", verticalAlign: "-2px", marginRight: 6 }}
-                />
-                {file.name}
-              </span>
-              <span className="library-meta">
-                {formatOpenedAt(file.openedAt, t)} · {pathSummary(file.path)}
-              </span>
-              {progressSummary(file, t).length > 0 && (
-                <span className="library-meta library-progress">
-                  {progressSummary(file, t).join(" · ")}
+              label={
+                <span className="library-name">
+                  <Icon
+                    size={14}
+                    strokeWidth={1.75}
+                    aria-hidden
+                    style={{ display: "inline", verticalAlign: "-2px", marginRight: 6 }}
+                  />
+                  {file.name}
                 </span>
-              )}
-            </button>
+              }
+              meta={
+                <>
+                  <span className="library-meta">
+                    {formatOpenedAt(file.openedAt, t)} · {pathSummary(file.path)}
+                  </span>
+                  {progressSummary(file, t).length > 0 && (
+                    <span className="library-meta library-progress">
+                      {progressSummary(file, t).join(" · ")}
+                    </span>
+                  )}
+                </>
+              }
+            />
             {onRemove && (
               <Button
                 variant="ghost"

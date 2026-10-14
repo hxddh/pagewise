@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EmptyState } from "./EmptyState";
+import { ChatEmptyState } from "./EmptyState";
 import { WelcomeView } from "./WelcomeView";
 import en from "../i18n/locales/en.json";
 
@@ -75,14 +75,14 @@ describe("chat empty state without an API key", () => {
     // document is open and no key is set. A link here as well put an
     // explanation at the top of the panel and a primary button at the bottom,
     // both doing the same thing.
-    wrap(<EmptyState {...props} hasDocument />);
+    wrap(<ChatEmptyState {...props} hasDocument />);
     expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("still offers the only way through when no document is open", () => {
     // Here the composer has no Configure button, so removing this one would
     // leave the message with no way to act on it.
-    wrap(<EmptyState {...props} hasDocument={false} />);
+    wrap(<ChatEmptyState {...props} hasDocument={false} />);
     expect(screen.getByRole("button")).toBeTruthy();
   });
 });

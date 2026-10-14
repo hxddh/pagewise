@@ -1,3 +1,4 @@
+import { asSchema } from "ai";
 import { describe, expect, it } from "vitest";
 import {
   createDocumentTools,
@@ -27,26 +28,31 @@ const tools = createDocumentTools(newReadBudget());
  * Everything a model reads about a tool: its own description AND every
  * parameter's. The stale "default 50" lived on the parameter, so a check that
  * only looked at the tool description would have passed right through it.
+ *
+ * Read from the resolved JSON Schema — the one that goes over the wire — rather
+ * than from the Zod shape, so this keeps reading the parameters after
+ * `compactToolSchemas` wraps the schema (and would notice if a parameter
+ * description stopped reaching the model at all).
  */
-function prose(name: keyof typeof tools): string {
-  const tool = tools[name] as {
-    description?: string;
-    inputSchema?: { shape?: Record<string, { description?: string }> };
+async function prose(name: keyof typeof tools): Promise<string> {
+  const tool = tools[name] as { description?: string; inputSchema?: unknown };
+  const schema = (await asSchema(tool.inputSchema as never).jsonSchema) as {
+    properties?: Record<string, { description?: string }>;
   };
-  const params = Object.values(tool.inputSchema?.shape ?? {})
+  const params = Object.values(schema.properties ?? {})
     .map((p) => p.description ?? "")
     .join(" ");
   return `${tool.description ?? ""} ${params}`;
 }
 
 describe("a tool's stated default is its real default", () => {
-  it("search states the hit count it actually returns", () => {
-    expect(prose("search_in_document")).toContain(String(DEFAULT_SEARCH_HITS));
+  it("search states the hit count it actually returns", async () => {
+    expect(await prose("search_in_document")).toContain(String(DEFAULT_SEARCH_HITS));
     // What it claimed instead, for four releases.
-    expect(prose("search_in_document")).not.toContain("default 50");
+    expect(await prose("search_in_document")).not.toContain("default 50");
   });
 
-  it("no description states a default that is not a live constant", () => {
+  it("no description states a default that is not a live constant", async () => {
     const live = new Set([
       String(DEFAULT_PAGE_MAX_CHARS),
       String(DEFAULT_RANGE_MAX_CHARS),
@@ -54,7 +60,7 @@ describe("a tool's stated default is its real default", () => {
       String(DEFAULT_FIGURE_INDEX),
     ]);
     for (const name of Object.keys(tools) as (keyof typeof tools)[]) {
-      for (const [, n] of prose(name).matchAll(/default\s+([\d,]+)/gi)) {
+      for (const [, n] of (await prose(name)).matchAll(/default\s+([\d,]+)/gi)) {
         expect(live, `${String(name)} documents a default of ${n}`).toContain(
           n.replace(/,/g, ""),
         );
@@ -62,7 +68,7 @@ describe("a tool's stated default is its real default", () => {
     }
   });
 
-  it("the range reader interpolates its cap rather than spelling it out", () => {
-    expect(prose("read_pdf_range")).toContain(String(DEFAULT_RANGE_MAX_CHARS));
+  it("the range reader interpolates its cap rather than spelling it out", async () => {
+    expect(await prose("read_pdf_range")).toContain(String(DEFAULT_RANGE_MAX_CHARS));
   });
 });
