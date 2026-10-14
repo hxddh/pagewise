@@ -99,17 +99,19 @@ Every release on [GitHub Releases](https://github.com/hxddh/pagewise/releases) c
 | Windows (x86-64) | `PageWise_<version>_x64-setup.exe` or `PageWise_<version>_x64_en-US.msi` |
 | Linux (x86-64) | `pagewise_<version>_amd64.AppImage` (`chmod +x` and run) or `.deb` |
 
-**Nothing is notarized.** The macOS bundle is *ad-hoc signed* (`signingIdentity: "-"`), because an unsigned `.app` downloaded to an Apple Silicon Mac does not merely warn — macOS reports it as **“PageWise is damaged and can’t be opened. You should move it to the Trash.”**, which no amount of right-clicking clears. Ad-hoc signing replaces that message with the ordinary “unverified developer” prompt, which has a way through.
+**Nothing is notarized.** The macOS bundle is *ad-hoc signed* (`signingIdentity: "-"`). That matters because an unsigned `.app` downloaded to an Apple Silicon Mac is refused as **“PageWise is damaged and can’t be opened. You should move it to the Trash.”** — no right-clicking clears that. With the signature, the refusal is the ordinary “cannot be opened” of an app macOS cannot verify.
 
-If you are on an affected download, clear the quarantine attribute once:
+Either way the way through is one command, run once per installed version:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/PageWise.app
 ```
 
-Then open the app normally. (Nothing is wrong with the file — the attribute is what macOS adds to *any* download, and it is what makes an unnotarized app fail its check. To confirm the download itself is intact before doing this, `codesign --verify --deep --strict /Applications/PageWise.app` should print nothing.)
+Then open the app normally. Nothing is wrong with the file — the quarantine attribute is what macOS adds to *any* download, and it is what makes an unnotarized app fail its check. To confirm the download itself is intact first, `codesign --verify --deep --strict /Applications/PageWise.app` should print nothing.
 
-On macOS 15 and later the old right-click → **Open** shortcut was removed; the equivalent is to try opening the app once, then go to **System Settings → Privacy & Security → Open Anyway**. Clearing the quarantine attribute does the same thing without the detour.
+Without the terminal: attempt to open the app once, then **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the blocked app. macOS 15 removed the old right-click → **Open** shortcut, and this is its replacement. If no such entry appears, the command above is the reliable path.
+
+Repeat the step after installing a new version: ad-hoc signatures differ per build, so macOS treats each one as an app it has not been told about. **Notarization is what removes the step entirely** — see the release guide for what it needs.
 
 Windows SmartScreen shows a "unrecognized app" warning for the same reason; choose **More info → Run anyway**.
 
