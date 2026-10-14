@@ -4,6 +4,52 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [17.0.0] - 2026-10-14
+
+The answer is a piece of reading, and asking starts on the page.
+
+16.0 cut the interface in half. This release makes what is left readable. The answer's column opens at 420px instead of 360 — 395px of prose a line, not 335. Its headings step: `h1`/`h2`/`h3`/`h4` were all `font-size: 1em`, so a `##` section the prompt asked the model to write arrived as bold body text. Tables are ruled: the prompt requires a Markdown table for list and compare questions, and there was no `.markdown table` rule anywhere in the app — the record panel had one, the answer did not. Tool steps move under the answer once the answer exists, "Copy"/"Keep" are 12px at 7.5:1 rather than 11px at 3.96:1, and the keyboard line under the composer is said once rather than forever.
+
+Asking from the page finishes at the page: selecting a passage and pressing **Ask about this** now leaves the caret at the end of the quoted text in the composer, so the next keystroke is the question. ⌘+ / ⌘− / ⌘0 zoom the document, `j`/`k` scroll it, and the panel opens with a 160ms movement instead of appearing.
+
+Under the surface: one JSON-store skeleton instead of seven copies, one trust vocabulary instead of four, 29 dead exports and 6 dead CSS rules deleted — and the CSS gate that reported "0 defined but never applied" for two releases while `.doc-name` and `.doc-meta` had no markup behind them, because a test fixture's `/doc-${i}.pdf` was read as a class prefix.
+
+### Changed
+
+- **Answers are set as reading.** A reading scale in `tokens.css` (`--text-read-display/title/subtitle`, ~1.1 apart) drives `h1`–`h4`; lists get item rhythm and their markers quieten; `hr` and `blockquote` get rules of their own; tables are border-collapsed with a filled header row, 1px row rules, tabular numerals in numeric cells (detected in the renderer, since CSS cannot see them) and a wrapper that scrolls sideways instead of the panel doing it. A heading opening an answer carries no space above it.
+- **The assistant column opens wider, and can go further.** Default 360 → 420px, ceiling 480 → 640px (`useResizeWidth.ts`), so the default answer is 395px of prose and a reader who wants a full column can reach the 68ch cap. Dragging the divider is exempt from the new width transition, which would otherwise make it trail the pointer.
+- **Provenance moved under the answer.** Settled messages draw their tool steps after the text; a live run keeps them where the progress is. Segment keys survive the reorder, and the scroll container's anchor holds the reader's place through the one reflow.
+- **Asking from a selection ends in the input.** `ChatPanelHandle.focusComposer` places the caret at the end of the draft, and `askAboutSelection` requests it (queued one frame so a closed panel has mounted).
+- **Keyboard.** ⌘+/⌘−/⌘0 zoom (fit-width on 0), `j`/`k` scroll a viewport at a time.
+- **One name for reading pages with no text.** The banner's action and the palette command were "Read these pages" and "Read the unscanned pages"; both are now **Read pages with no text** (读取没有文字的页), and the note the model is given quotes the same name.
+- **Settings speak to the reader.** The two longest explanations (attached page image, cloud reading) were written for the person who wrote the app; both are rewritten in plain language in English and Chinese.
+- **Contrast and size on the text a reader reads.** `--accent-text` (6.5:1 dark, 6.4:1 light) replaces `--accent` (4.07:1) for links inside sentences and for active tab labels; `--finding-text` does the same for citation ink (4.23:1 on white light, 5.7:1); the citation chip takes `max(11px, 0.72em)`; the composer hint is 12px at 7.5:1 and disappears after the first send.
+- **The empty conversation opens on the page in view.** The first suggestion is "What is on page 12?" for the page the reader is on, falling back to the document-level one.
+
+### Fixed
+
+- **`npm test` was red at 16.0.0.** `agent-stream-contract.test.ts` pinned `abort` directly after `tool-output-available`; with the current AI SDK the step that produced the tool result closes with `finish-step` before the run's terminal `abort`. The test now asserts what must hold — `abort` is last, no `finish`, no answer text, signal released — and says why.
+- **The dead-class scan was blind.** Its interpolation exemption came from anywhere in a file, so `/doc-${i}.pdf` in a test fixture registered "doc" as a class prefix and excused every `.doc-*` rule. Exemptions now come from class positions only, following one level into a local class list (`const classes = […]`), and four tests in `scripts/css-hygiene.test.mjs` hold the shapes apart.
+- `.doc-name`, `.doc-meta`, `.doc-search`, `.tool-debug`, `.tool-fold-state` and `.tool-label` had no markup behind them; deleted.
+- **`audit:ocr` could not pass, and had not since 16.0.** It waited for the page's status line to print "Read on this computer" — a sentence 16.0 removed when the line was cut to three states. It now waits for the result itself: the page's recognised text reaching the OCR cache, which is what the rest of the script inspects anyway and is independent of interface language. 9/9 again (first page read in 6.1s; confidence 95.5/95.8/95.8).
+- The panel's collapsed state used `visibility: hidden`, which switched content off in the first frame of the new transition; it now fades.
+
+### Internal
+
+- **`src/lib/json-store.ts`**: the store skeleton (write lock, lazy handle, migration, dirty set, debounce, flush, forget-after-flush, test reset) that was copied into `allowed-paths`, `finding-store`, `index-store`, `mark-store`, `recent-files` and `chat/persist` — six byte-identical `withStoreLock` copies plus a renamed seventh in `preferences`, and a `flushMarkStore`/`flushFindingStore` pair that differed only in names. Net −317 lines across the seven modules; the B6/B7 data-loss tests pass unchanged.
+- **`src/lib/trust-text.ts`**: one table for the trust reasons, read by the citation chip, the record, the CSV labels and the brief. `cite.*`, `record.trust*` and `table.status*` (25 keys) and both hardcoded `BRIEF_LABELS_*.trust` maps are gone; 40 of 41 reader-visible strings are byte-identical, and the four that changed said the same thing in two of the old families.
+- **29 dead exports deleted** (`savePreferences`, `getActiveProvider`, `combineAbortSignals`, `summaryToMarkdown`, four unused `Icon*`, the `@deprecated` provider aliases, and more), with the collateral types and constants that existed only for them.
+- **`ui:inventory` measures the reading surface**: column width, heading step, table rules, and the level of the labelled answer actions, alongside the 16.0 counts.
+- **CI now runs `npm run eval` and `npm run ui:inventory`** — the 13.0–16.0 gates and the reader-facing counts were only ever run by hand. The eval job fetches the pinned third-party corpus (`eval:fetch`) the numbers gate was set on; without it the suite's floor fails on 121 honest claims instead of 179.
+- **Dependencies**: `ai` 7.0.140, `@ai-sdk/react` 4.0.143, `@ai-sdk/openai` 4.0.93, `pdfjs-dist` 6.4.299 (text-layer measurement fixes from #21810/#22058 — the same span metrics the highlight layers are drawn from), `vite` 8.3.4, `vitest` 5.0.4, `playwright` 1.64, `jsdom` 30.1.2, `zod` 4.6.7, `lucide-react` 1.56, `@tauri-apps/api` 2.12.3, plugins; crates `tauri` 2.12.3, `pdf-inspector` 1.25.2, `keyring` 4.2.0 and the plugin set, via `cargo update`.
+- `--chat-w` was defined in `tokens.css` and referenced by nothing; the column's width comes from `useResizeWidth` alone.
+
+### Notes
+
+- **Not in this release**, though 17.0's plan named them: the in-popover ask input (the selection popover still hands off to the composer), and the presentation-stack changes — Radix for overlays, `motion` for cross-element animation, React Compiler for memoization. Each is a structural change with its own risk; they are recorded, with their reasons, in `docs/reviews/2026-10-14-pagewise-v17-next-major-review.md` §7–§8.
+- **Not verified here:** the macOS/Windows visual and input behaviour (window materials, IME in the composer, real-keyboard zoom chords), and `cargo test` on the release runners. `npm run eval`, the four `audit:*` scripts, `ui:shots` (13 shots), `ui:inventory` (10 invariants) and `npm test` (137 files, 1078 tests) all pass on the development machine.
+- The eval's OCR suite reports its own median page time (a gate at 5000 ms); the CI runner may be slower than this machine, and that gate is unchanged.
+
 ## [16.0.0] - 2026-09-30
 
 Half the interface, the same evidence. 13.0–15.0 made every answer checkable; this release makes the checking readable and fixes twenty defects a deep review found. Five of them gave a wrong verdict, and three could lose the reader's own work.

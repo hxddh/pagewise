@@ -86,7 +86,9 @@
 .ui-btn--secondary[aria-pressed="true"] {
   background: var(--accent-muted);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-  color: var(--accent);
+  /* `--accent-text`, not `--accent`: an active tab is a label, and the fill is
+     only 12% of the panel — 3.7:1 became 5.9:1 with no change of hue family. */
+  color: var(--accent-text);
 }
 
 /* The nav row's icon follows its label rather than staying half-lit. */

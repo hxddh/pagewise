@@ -7,8 +7,6 @@ body
 .app
 .panel-header-main
 .panel-header-main h2
-.doc-name
-.doc-meta
 .chat-column
 .resize-handle
 .resize-handle:hover
@@ -89,8 +87,23 @@ body
 .markdown
 .markdown p
 .markdown p:last-child
-.markdown h1, .markdown h2, .markdown h3
+.markdown h1, .markdown h2, .markdown h3, .markdown h4
+.markdown h1
+.markdown h2
+.markdown h3
+.markdown h4
+.markdown > :first-child
 .markdown ul, .markdown ol
+.markdown li + li
+.markdown li > p
+.markdown li::marker
+.markdown hr
+.md-table-wrap
+.markdown table
+.markdown th, .markdown td
+.markdown th
+.markdown tr:last-child td
+.markdown .md-num
 .markdown code
 .markdown pre
 .markdown pre code
@@ -134,12 +147,8 @@ button.pages-read-chip:hover
 .tool-dot.done
 .tool-dot.error
 .tool-fold-label
-.tool-fold-state
 .tool-steps-list
 .tool-steps-list li + li
-.tool-debug
-.tool-debug pre
-.tool-label
 .reasoning-block
 .reasoning-block pre
 .panel-tabs
@@ -228,7 +237,6 @@ button.pages-read-chip:hover
 .thumb-item:hover
 .thumb-canvas
 .thumb-label
-.doc-search
 .doc-search-input
 .doc-search-results
 .doc-search-empty, .doc-search-count
@@ -454,6 +462,7 @@ button.pages-read-chip:hover
   0%, 80%, 100%
   40%
 .chat-column-hidden
+.chat-column-dragging
 .file-error-banner
 .file-error-dismiss
 .confirm-bar

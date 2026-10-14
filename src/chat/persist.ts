@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import { Store } from "@tauri-apps/plugin-store";
 import { prepareMessagesForPersist } from "../lib/persist-messages";
 import { hydrateChatMessages, normalizeUIMessages } from "../lib/messages-utils";
+import { createStoreRuntime } from "../lib/json-store";
 
 const STORE_PATH = "pagewise-v3-chats.json";
 /**
@@ -43,30 +44,12 @@ async function readIdentityIndex(store: Store): Promise<Record<string, string>> 
   return out;
 }
 
-let storePromise: Promise<Store> | null = null;
-
-async function getStore(): Promise<Store> {
-  if (!storePromise) {
-    storePromise = Store.load(STORE_PATH).catch((err) => {
-      storePromise = null;
-      throw err;
-    });
-  }
-  return storePromise;
-}
-
-// Serialize every mutation so a 500ms autosave, a document-switch save, a
-// close-flush, and a clear can't interleave their set/delete + save cycles and
-// resurrect a just-cleared chat via last-write-wins (mirrors allowed-paths.ts).
-let storeLock: Promise<unknown> = Promise.resolve();
-function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = storeLock.then(fn, fn);
-  storeLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
+/**
+ * Serializes every mutation so a 500ms autosave, a document-switch save, a
+ * close-flush, and a clear can't interleave their set/delete + save cycles and
+ * resurrect a just-cleared chat via last-write-wins.
+ */
+const runtime = createStoreRuntime(() => Store.load(STORE_PATH));
 
 /**
  * The chat for a document — by path, then by fingerprint.
@@ -76,7 +59,7 @@ function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
  * conversation rather than an empty one.
  */
 export async function loadChat(path: string, identity?: string): Promise<UIMessage[]> {
-  const store = await getStore();
+  const store = await runtime.store();
   let raw = await store.get<unknown>(chatKey(path));
   if ((raw === null || raw === undefined) && identity) {
     const index = await readIdentityIndex(store);
@@ -85,7 +68,7 @@ export async function loadChat(path: string, identity?: string): Promise<UIMessa
       const moved = await store.get<unknown>(chatKey(oldPath));
       if (moved !== null && moved !== undefined) {
         raw = moved;
-        await withStoreLock(async () => {
+        await runtime.withStoreLock(async () => {
           await store.set(chatKey(path), moved);
           await store.delete(chatKey(oldPath));
           await store.set(IDENTITY_INDEX_KEY, { ...index, [identity]: path });
@@ -107,8 +90,8 @@ export async function saveChat(
   messages: UIMessage[],
   identity?: string,
 ): Promise<void> {
-  return withStoreLock(async () => {
-    const store = await getStore();
+  return runtime.withStoreLock(async () => {
+    const store = await runtime.store();
     await store.set(chatKey(path), prepareMessagesForPersist(messages));
     await store.set(SAVED_AT_KEY, { ...(await readSavedAt(store)), [chatKey(path)]: Date.now() });
     if (identity) {
@@ -122,8 +105,8 @@ export async function saveChat(
 }
 
 export async function clearChat(path: string): Promise<void> {
-  return withStoreLock(async () => {
-    const store = await getStore();
+  return runtime.withStoreLock(async () => {
+    const store = await runtime.store();
     await store.delete(chatKey(path));
     const savedAt = await readSavedAt(store);
     if (chatKey(path) in savedAt) {
@@ -154,8 +137,8 @@ export async function pruneOrphanedChats(
   maxChats = MAX_STORED_CHATS,
 ): Promise<void> {
   try {
-    await withStoreLock(async () => {
-      const store = await getStore();
+    await runtime.withStoreLock(async () => {
+      const store = await runtime.store();
       const keys = (await store.keys()).filter((k) => !RESERVED_KEYS.has(k));
       if (keys.length <= maxChats) return;
       const keep = new Set(keepPaths.map(chatKey));

@@ -1,5 +1,6 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import type { PreviewQuality } from "./types";
+import { createStoreRuntime } from "./json-store";
 
 export type ThemeMode = "dark" | "light" | "system";
 export type LocaleMode = "en" | "zh-CN" | "system";
@@ -79,22 +80,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   ocrLanguage: "auto",
 };
 
-let store: LazyStore | null = null;
-
-let prefsLock: Promise<unknown> = Promise.resolve();
-function withPrefsLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = prefsLock.then(fn, fn);
-  prefsLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
-
-async function getStore(): Promise<LazyStore> {
-  if (!store) store = new LazyStore(STORE_PATH);
-  return store;
-}
+const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
 
 const THEME_MODES: ThemeMode[] = ["dark", "light", "system"];
 const LOCALE_MODES: LocaleMode[] = ["en", "zh-CN", "system"];
@@ -154,25 +140,21 @@ export function sanitizePreferences(raw: unknown): AppPreferences {
 }
 
 export async function loadPreferences(): Promise<AppPreferences> {
-  const s = await getStore();
+  const s = await runtime.store();
   const saved = await s.get<unknown>(KEY);
   return sanitizePreferences(saved);
 }
 
 async function writePreferences(prefs: AppPreferences): Promise<void> {
-  const s = await getStore();
+  const s = await runtime.store();
   await s.set(KEY, prefs);
   await s.save();
-}
-
-export async function savePreferences(prefs: AppPreferences): Promise<void> {
-  return withPrefsLock(() => writePreferences(prefs));
 }
 
 export async function patchPreferences(
   patch: Partial<AppPreferences>,
 ): Promise<AppPreferences> {
-  return withPrefsLock(async () => {
+  return runtime.withStoreLock(async () => {
     const current = await loadPreferences();
     const next = { ...current, ...patch };
     await writePreferences(next);

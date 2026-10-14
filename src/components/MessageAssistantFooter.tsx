@@ -7,6 +7,7 @@ import { extractCitations } from "../lib/citations";
 import { cachedReview, reviewAll, reviewRevision, subscribeReviews } from "../lib/claim-review";
 import { answerLevels } from "../lib/answer-levels";
 import { TRUST_LEVELS } from "../lib/trust-level";
+import { shortKey } from "../lib/trust-text";
 import { CitationContext } from "./CitationChip";
 import {
   checkAnswer,
@@ -234,15 +235,16 @@ function MessageAssistantFooterInner({
     const labels: CsvLabels = {
       sources: t("table.sources"),
       checked: t("table.checked"),
+      // What each check found, in the one table of those words (trust-text.ts).
       status: {
-        located: t("table.statusLocated"),
-        unlocated: t("table.statusUnlocated"),
-        unreadable: t("table.statusUnreadable"),
-        unconfirmed: t("table.statusUnconfirmed"),
-        mismatch: t("table.statusMismatch"),
-        unchecked: t("table.statusUnchecked"),
-        outOfRange: t("table.statusOutOfRange"),
-        pending: t("table.statusPending"),
+        located: t(shortKey("located")),
+        unlocated: t(shortKey("unlocated")),
+        unreadable: t(shortKey("unreadable")),
+        unconfirmed: t(shortKey("unconfirmed")),
+        mismatch: t(shortKey("mismatch")),
+        unchecked: t(shortKey("unchecked")),
+        outOfRange: t(shortKey("outOfRange")),
+        pending: t(shortKey("pending")),
       },
       level: { verified: t("level.verified"), check: t("level.check"), notFound: t("level.notFound") },
       found: (located, total) => t("table.found", { located: String(located), total: String(total) }),

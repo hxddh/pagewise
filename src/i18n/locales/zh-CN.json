@@ -94,7 +94,7 @@
     "scanAllConfirmLocal": "读取这 1 个尚无文字的页面？会先在本机识别；只有识别失败或质量低时，才会成为一次计费的扫页模型调用。",
     "scanAllConfirmLocal_plural": "读取这 {{count}} 个尚无文字的页面？每页都先在本机识别；只有识别失败或质量低的页才会成为计费的扫页模型调用，最多 {{count}} 次。",
     "scanAllUsed": "本次会话中，该文档已使用 {{used}} 次扫页调用。",
-    "scanAllAction": "读取这些页",
+    "scanAllAction": "读取没有文字的页",
     "outline": "大纲",
     "openLinkConfirm": "在浏览器中打开 {{url}}？",
     "openLinkAction": "打开链接",
@@ -255,7 +255,8 @@
     "example1": "总结第一页",
     "example2": "文中有哪些日期？",
     "example3": "关键术语有哪些？",
-    "exampleWholeDoc": "总结全部 {{count}} 页"
+    "exampleWholeDoc": "总结全部 {{count}} 页",
+    "exampleThisPage": "第 {{page}} 页讲了什么？"
   },
   "settings": {
     "title": "设置",
@@ -276,7 +277,7 @@
     "langZh": "简体中文",
     "langSystem": "跟随系统",
     "includeViewingPage": "提问时附带当前页截图",
-    "includeViewingPageHint": "为多模态模型附带当前页图片；页码始终会告知助手，「这一页」「本页」等指代无需开启此项",
+    "includeViewingPageHint": "把页面图像发给能读图的模型，页面上的文字和页码本来就会共享，问“这一页讲了什么”不需要开它。",
     "providerCustom": "自定义",
     "baseUrl": "接口地址",
     "model": "模型",
@@ -349,7 +350,7 @@
     "scanCacheClear": "清空",
     "scanCacheClearing": "清空中…",
     "cloudReading": "云端识别页面",
-    "cloudReadingHint": "本机读不出的页面：每份文档可在后台发送给模型的页数，以及每个问题可发送的页数（同档）。由你的服务商计费。",
+    "cloudReadingHint": "本机读不出的页可以交给你的模型来读。这里设置数量：后台最多几页、每个问题最多几页。费用由你的服务商结算。",
     "readPagesCache": "已识别的页面文字",
     "readPagesCacheStats": "{{docs}} 份文档 · {{size}}"
   },
@@ -382,7 +383,7 @@
     "switchLang": "切换语言",
     "recent": "最近使用",
     "firstOpenHint": "提示：输入关键词可筛选命令",
-    "scanAllPages": "读取未扫描的页面",
+    "scanAllPages": "读取没有文字的页",
     "walkConversation": "上一条 / 下一条消息",
     "searchConversation": "在本次会话中搜索",
     "export": "导出…"
@@ -438,14 +439,6 @@
     "keep": "留下这条",
     "kept": "已留到记录",
     "onPage": "已记录：{{claim}}",
-    "trustConfirmed": "你已核对",
-    "trustLocated": "原文在第 {{page}} 页找到",
-    "trustUnverified": "没有可核对的引文",
-    "trustUnlocated": "在该页可提取文本中未找到这段文字",
-    "trustUnreadable": "该页没有可读文本 — 请直接查看页面",
-    "trustUnconfirmed": "未在这张扫描页的识别文字中找到（识别可能有误），请直接查看页面",
-    "trustStale": "文件在写下这条之后被改动过 — 请复核",
-    "trustRetracted": "已不成立",
     "confirm": "我已核对",
     "unconfirm": "撤回核对",
     "showBody": "展开完整回答",
@@ -456,7 +449,6 @@
     "cancelEdit": "取消",
     "claimLabel": "结论",
     "bodyOf": "这条结论所来自的完整回答",
-    "trustMismatch": "原文找到了，但结论里的数字不在那段原文里，请核对",
     "keepWhole": "留存整条回答",
     "keepShort": "留存",
     "keptShort": "已留存"
@@ -471,17 +463,9 @@
     "confirmed": "读者已核对"
   },
   "cite": {
-    "located": "已在第 {{page}} 页找到原文",
-    "unlocated": "未在第 {{pages}} 页的可提取文本中找到这段文字",
-    "unreadable": "第 {{pages}} 页没有可读文字，请直接查看页面",
-    "unconfirmed": "未在第 {{pages}} 页的识别文字中找到（识别可能有误），请直接查看页面",
-    "unchecked": "第 {{pages}} 页（未附原文，无法核对）",
-    "outOfRange": "文档没有第 {{pages}} 页",
-    "pending": "正在核对第 {{pages}} 页…",
     "tallyNone": "没有可核对的引用",
     "keepVerified": "只留下已核对的句子（{{count}}）",
     "keptVerified": "已将 {{count}} 句已核对内容留到记录",
-    "mismatch": "已在第 {{page}} 页找到原文，但句中的 {{numbers}} 不在该段原文里，请核对",
     "reviewAction": "让模型逐条判断原文是否支持这句话（{{count}} 次短调用）",
     "reviewed": "已由模型复核",
     "reviewDone": "模型复核：{{supports}} 条支持，{{contradicts}} 条矛盾，{{insufficient}} 条原文不足以判断",
@@ -501,21 +485,65 @@
     "export": "导出表格为 CSV（含出处）",
     "sources": "出处",
     "checked": "核对",
-    "statusLocated": "已找到",
-    "statusUnlocated": "未找到",
-    "statusUnreadable": "无可读文字",
-    "statusUnconfirmed": "未能确认（扫描页）",
-    "statusUnchecked": "无引文",
-    "statusOutOfRange": "无此页",
-    "statusPending": "尚未核对",
     "found": "{{located}}/{{total}} 条已找到",
-    "noQuote": "无可核对内容",
-    "statusMismatch": "已找到，但数字不符"
+    "noQuote": "无可核对内容"
   },
   "level": {
     "verified": "已核对",
     "check": "请看原页",
     "notFound": "未找到"
+  },
+  "trust": {
+    "confirmed": {
+      "long": "你已核对",
+      "brief": "读者已核对"
+    },
+    "located": {
+      "short": "已找到",
+      "long": "原文在第 {{page}} 页找到",
+      "brief": "原文已在页面上找到"
+    },
+    "unverified": {
+      "long": "没有可核对的引文"
+    },
+    "unlocated": {
+      "short": "未找到",
+      "long": "在该页可提取文本中未找到这段文字"
+    },
+    "mismatch": {
+      "short": "已找到，但数字不符",
+      "long": "已在第 {{page}} 页找到原文，但句中的 {{numbers}} 不在该段原文里，请核对",
+      "brief": "原文找到了，但结论里的数字不在那段原文里"
+    },
+    "unreadable": {
+      "short": "无可读文字",
+      "long": "该页没有可读文本 — 请直接查看页面",
+      "brief": "该页没有可读文本"
+    },
+    "unconfirmed": {
+      "short": "未能确认（扫描页）",
+      "long": "未在这张扫描页的识别文字中找到（识别可能有误），请直接查看页面",
+      "brief": "未在这张扫描页的识别文字中找到这段文字"
+    },
+    "stale": {
+      "long": "文件在写下这条之后被改动过 — 请复核",
+      "brief": "文件在写下这条之后被改动过"
+    },
+    "retracted": {
+      "long": "已不成立"
+    },
+    "unchecked": {
+      "short": "无引文",
+      "long": "第 {{pages}} 页（未附原文，无法核对）"
+    },
+    "outOfRange": {
+      "short": "无此页",
+      "long": "文档没有第 {{pages}} 页"
+    },
+    "pending": {
+      "short": "尚未核对",
+      "long": "正在核对第 {{pages}} 页…"
+    }
   },
   "export": {
     "title": "导出",

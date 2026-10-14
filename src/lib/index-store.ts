@@ -12,6 +12,7 @@
  */
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
+import { createStoreRuntime } from "./json-store";
 import type { PageText } from "./types";
 
 const STORE_PATH = "index-cache.json";
@@ -53,27 +54,12 @@ export interface IndexCacheStats {
   chars: number;
 }
 
-let store: LazyStore | null = null;
-
-async function getStore(): Promise<LazyStore> {
-  if (!store) store = new LazyStore(STORE_PATH);
-  return store;
-}
-
 /**
  * Serializes every mutation through one promise chain. Vision pages land from
  * three concurrent workers, so an unserialized read-modify-write would drop
  * paid-for pages via last-write-wins.
  */
-let storeLock: Promise<unknown> = Promise.resolve();
-function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = storeLock.then(fn, fn);
-  storeLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
+const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
 
 function isValidPage(value: unknown): value is PageText {
   if (!value || typeof value !== "object") return false;
@@ -163,12 +149,12 @@ function capDocPages(pages: PageText[]): PageText[] {
 }
 
 async function readDocs(): Promise<StoredDoc[]> {
-  const s = await getStore();
+  const s = await runtime.store();
   return sanitizeStoredIndex(await s.get<unknown>(KEY));
 }
 
 async function writeDocs(docs: StoredDoc[]): Promise<void> {
-  const s = await getStore();
+  const s = await runtime.store();
   const payload: StoredIndex = { version: VERSION, docs };
   await s.set(KEY, payload);
   await s.save();
@@ -187,13 +173,13 @@ const identityByPath = new Map<string, string>();
 export async function loadIndexedPages(path: string, stamp: string, identity?: string): Promise<PageText[]> {
   if (identity) identityByPath.set(path, identity);
   try {
-    const docs = await withStoreLock(readDocs);
+    const docs = await runtime.withStoreLock(readDocs);
     let doc = docs.find((d) => d.path === path && d.stamp === stamp);
     if (!doc && identity && !docs.some((d) => d.path === path && d.stamp === stamp)) {
       const moved = docs.find((d) => d.identity === identity && d.path !== path);
       if (moved) {
         doc = moved;
-        await withStoreLock(async () => {
+        await runtime.withStoreLock(async () => {
           const current = await readDocs();
           const next = current
             .filter((d) => d.path !== path)
@@ -234,7 +220,7 @@ async function flushPending(): Promise<void> {
   const batch = [...pending.entries()];
   pending.clear();
 
-  await withStoreLock(async () => {
+  await runtime.withStoreLock(async () => {
     try {
       const docs = await readDocs();
       const byPath = new Map(docs.map((d) => [d.path, d]));
@@ -343,7 +329,7 @@ if (typeof window !== "undefined") {
 export async function getIndexCacheStats(): Promise<IndexCacheStats> {
   await flushIndexStore();
   try {
-    const docs = await withStoreLock(readDocs);
+    const docs = await runtime.withStoreLock(readDocs);
     let pages = 0;
     let chars = 0;
     for (const doc of docs) {
@@ -362,7 +348,7 @@ export async function clearIndexCache(): Promise<void> {
     flushTimer = null;
   }
   pending.clear();
-  await withStoreLock(async () => {
+  await runtime.withStoreLock(async () => {
     try {
       await writeDocs([]);
     } catch {
@@ -374,7 +360,7 @@ export async function clearIndexCache(): Promise<void> {
 /** Drop one document's cached index (used when its pages are invalidated). */
 export async function forgetIndexedDoc(path: string): Promise<void> {
   pending.delete(path);
-  await withStoreLock(async () => {
+  await runtime.withStoreLock(async () => {
     try {
       const docs = await readDocs();
       const next = docs.filter((d) => d.path !== path);
@@ -407,7 +393,7 @@ export async function forgetIndexedPages(path: string, pages: number[]): Promise
     for (const page of drop) buffered.pages.delete(page);
     if (buffered.pages.size === 0) pending.delete(path);
   }
-  await withStoreLock(async () => {
+  await runtime.withStoreLock(async () => {
     try {
       const docs = await readDocs();
       const doc = docs.find((d) => d.path === path);
@@ -432,7 +418,7 @@ export function __resetIndexStoreForTests(): void {
     flushTimer = null;
   }
   pending.clear();
-  store = null;
-  storeLock = Promise.resolve();
+  runtime.resetStore();
+  runtime.resetLock();
   flushInFlight = Promise.resolve();
 }

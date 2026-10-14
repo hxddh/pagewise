@@ -65,10 +65,6 @@ export function ocrEnabled(): boolean {
   return enabled;
 }
 
-export function ocrLanguages(): OcrLanguages {
-  return languages;
-}
-
 interface DocState {
   identity?: string;
   pages: Map<number, StoredOcrPage>;
@@ -107,12 +103,6 @@ export function cachedOcrPage(path: string, page: number): StoredOcrPage | undef
   return docs.get(path)?.pages.get(page);
 }
 
-/** How long reading a page takes here, for the progress hint. */
-export function ocrTimings(path: string): { pages: number; medianMs: number } {
-  const ms = [...(docs.get(path)?.pages.values() ?? [])].map((p) => p.ms).filter((m) => m > 0).sort((a, b) => a - b);
-  return { pages: docs.get(path)?.pages.size ?? 0, medianMs: ms.length ? ms[Math.floor(ms.length / 2)]! : 0 };
-}
-
 // ---------------------------------------------------------------- the queue
 
 interface Job {
@@ -141,11 +131,6 @@ function pump(): void {
       pump();
     });
   }
-}
-
-/** Jobs waiting for a slot, for tests and the progress hint. */
-export function ocrQueueLength(): number {
-  return queue.length;
 }
 
 async function recognize(path: string, page: number, slot: number, signal?: AbortSignal): Promise<StoredOcrPage | null> {

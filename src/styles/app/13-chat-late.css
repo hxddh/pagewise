@@ -132,8 +132,13 @@
   min-width: 0 !important;
   overflow: hidden;
   border-left: none !important;
-  visibility: hidden;
+  opacity: 0;
   pointer-events: none;
+}
+
+/* Dragging the divider is direct manipulation: the width must not be eased. */
+.chat-column-dragging {
+  transition: none;
 }
 
 .file-error-banner {
@@ -358,7 +363,14 @@
 
 .message-action-labelled {
   gap: var(--space-2xs);
-  font-size: var(--text-xs);
+  /*
+   * 11px and `--text-muted` (3.96:1) until 17.0, on the two buttons a reader
+   * presses most — the only labelled ones under an answer. Words need the text
+   * scale and AA; the icon-only buttons beside them keep the quieter ghost
+   * colour, because 1.4.11 asks 3:1 of a graphic, not 4.5:1 of a word.
+   */
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 /* The assistant panel's two tabs have room the sidebar's three do not (16.0). */

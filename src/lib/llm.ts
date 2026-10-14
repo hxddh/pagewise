@@ -10,7 +10,6 @@ import {
   DEFAULT_SETTINGS,
   PROVIDER_PRESETS,
   type LlmSettings,
-  type ProviderId,
 } from "./types";
 
 /** A DeepSeek model (either the DeepSeek provider, or an OpenRouter `deepseek/*` route). */
@@ -492,20 +491,4 @@ export async function testConnection(
   } catch (e) {
     throw new Error(formatLlmError(e, t));
   }
-}
-
-export function settingsForProvider(
-  provider: ProviderId,
-  current: LlmSettings,
-): Partial<LlmSettings> {
-  if (provider === "custom") {
-    return { provider, baseURL: current.baseURL ?? "" };
-  }
-  const preset = PROVIDER_PRESETS[provider];
-  return {
-    provider,
-    model: preset.defaultModel,
-    baseURL: undefined,
-    thinkingEnabled: false,
-  };
 }

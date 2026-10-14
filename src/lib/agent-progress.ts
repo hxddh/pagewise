@@ -41,7 +41,3 @@ export function subscribeAgentProgress(listener: ProgressListener): () => void {
 export function clearAgentProgress(): void {
   latest = null;
 }
-
-export function getLatestAgentProgress(): AgentProgressPayload | null {
-  return latest;
-}

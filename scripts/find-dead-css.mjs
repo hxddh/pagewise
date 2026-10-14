@@ -91,12 +91,82 @@ function stringLiterals(fragment) {
   return out;
 }
 
+/**
+ * The right-hand sides of `const x = …` for a set of names, where the value is
+ * a literal class list or a single template.
+ *
+ * Needed because a class list is not always written where it is used: every
+ * `ui-*` component builds one in a local first
+ * (`const classes = ["ui-btn", `ui-btn--${variant}`]`) and then writes
+ * `className={classes}`. A scanner that reads only the attribute sees the
+ * identifier and none of the names — which is how `ui-btn--ghost` and eleven
+ * others came back as "defined but never applied" the moment the interpolation
+ * rule was tightened to class positions.
+ *
+ * Restricted to array literals and string/template literals on purpose. An
+ * earlier version read any declaration the identifier named, which walked into
+ * test fixtures (`{ type: `tool-${name}` }`) and turned "tool" into a live class
+ * prefix — exempting `.tool-label`, `.tool-fold-state` and `.tool-debug`, three
+ * rules with no markup behind them. Classes live in class-shaped values.
+ */
+function assignedFragments(source, names) {
+  const out = [];
+  for (const name of names) {
+    const re = new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*=\\s*`, "g");
+    let m;
+    while ((m = re.exec(source))) {
+      const start = m.index + m[0].length;
+      const first = source[start];
+      if (first !== "[" && first !== '"' && first !== "'" && first !== "`") continue;
+      let i = start;
+      let depth = 0;
+      let quote = null;
+      for (; i < source.length; i += 1) {
+        const ch = source[i];
+        if (quote) {
+          if (ch === "\\") i += 1;
+          else if (ch === quote) quote = null;
+          continue;
+        }
+        if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+        else if (ch === "[" || ch === "(" || ch === "{") depth += 1;
+        else if (ch === "]" || ch === ")" || ch === "}") {
+          if (depth === 0) break;
+          depth -= 1;
+        } else if (ch === ";" && depth === 0) break;
+      }
+      out.push(source.slice(start, i));
+    }
+  }
+  return out;
+}
+
 export function appliedClassNames(source) {
   const found = new Set();
+  /*
+   * Prefixes that only exist as an interpolation — `cite-${level}` — and must
+   * therefore be treated as live for every class they could produce.
+   *
+   * Collected from CLASS POSITIONS ONLY, and that is the whole point. The first
+   * version of this scanned the file for `foo-${` anywhere, so a test fixture
+   * writing `/doc-${i}.pdf` (chat/persist.test.ts) registered "doc" as a class
+   * prefix and exempted every `.doc-*` rule in the app — `.doc-name` and
+   * `.doc-meta` had no markup behind them for two releases while this check
+   * reported zero. A path fragment and a class prefix look the same to a regex;
+   * they do not look the same inside `className={…}`.
+   */
+  const composed = new Set();
+  const identifiers = new Set();
   const add = (value) => {
     for (const name of value.split(/[\s${}()?:'"`+]+/)) {
       if (/^[A-Za-z][\w-]*$/.test(name)) found.add(name);
     }
+  };
+  const addComposed = (fragment) => {
+    for (const m of fragment.matchAll(/([a-z][\w-]*?)-{1,2}\$\{/g)) composed.add(m[1]);
+  };
+  const noteIdentifiers = (fragment) => {
+    for (const m of fragment.matchAll(/[A-Za-z_$][\w$]*/g)) identifiers.add(m[0]);
   };
   // className="a b" / class="a b"
   for (const m of source.matchAll(/\bclass(?:Name)?\s*=\s*"([^"]*)"/g)) add(m[1]);
@@ -111,18 +181,25 @@ export function appliedClassNames(source) {
       if (source[i] === "{") depth += 1;
       else if (source[i] === "}") depth -= 1;
     }
-    add(stringLiterals(source.slice(m.index + m[0].length, i - 1)).join(" "));
+    const fragment = source.slice(m.index + m[0].length, i - 1);
+    add(stringLiterals(fragment).join(" "));
+    addComposed(fragment);
+    noteIdentifiers(fragment);
+  }
+  // Follow the locals those attributes name, one level: `const classes = […]`.
+  for (const fragment of assignedFragments(source, identifiers)) {
+    add(stringLiterals(fragment).join(" "));
+    addComposed(fragment);
   }
   // classList.add("x") / .toggle("x", cond) / a bare className assignment
   for (const m of source.matchAll(/classList\.\w+\(\s*"([^"]*)"/g)) add(m[1]);
   for (const m of source.matchAll(/\.className\s*=\s*"([^"]*)"/g)) add(m[1]);
-  return found;
+  return { found, composed };
 }
 
-const applied = appliedClassNames(code);
+const { found: applied, composed: composedPrefixes } = appliedClassNames(code);
 
-// `foo--${variant}` / `foo-${id}`: the literal never appears, the rule is live.
-const composed = [...code.matchAll(/([a-z][\w-]*?)-{1,2}\$\{/g)].map((m) => m[1]);
+const composed = [...composedPrefixes];
 
 const defined = new Map();
 for (const f of files.filter((f) => extname(f) === ".css")) {
@@ -145,8 +222,17 @@ const suspect = [...defined.keys()]
   .filter((c) => !composed.some((p) => c === p || c.startsWith(`${p}-`)))
   .sort();
 
+/*
+ * What the app applies, of what the stylesheets define.
+ *
+ * The candidate set now reaches through locals and templates, so it holds class
+ * names and near-misses both ("secondary", "md"); reporting its raw size says
+ * nothing. The number that means something is the intersection.
+ */
+const appliedDefined = [...applied].filter((c) => defined.has(c)).length;
+
 console.log(
-  `${defined.size} class names defined, ${applied.size} applied by the app, ` +
+  `${defined.size} class names defined, ${appliedDefined} applied by the app, ` +
     `${suspect.length} defined but never applied:\n`,
 );
 for (const c of suspect) console.log(`  .${c.padEnd(32)} ${defined.get(c)}`);

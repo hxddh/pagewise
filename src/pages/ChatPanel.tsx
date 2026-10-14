@@ -15,6 +15,10 @@ import { MessageAssistantFooter } from "../components/MessageAssistantFooter";
 import { MessageContent } from "../components/MessageContent";
 import { useConversationKeys } from "../hooks/useConversationKeys";
 import { reclaimUndeliveredNotes } from "../lib/agent-steer";
+import {
+  hasSeenComposerHint,
+  markComposerHintSeen,
+} from "../lib/onboarding-hints";
 import { ConversationSearchBar } from "../components/ConversationSearchBar";
 import { PageRefContext } from "../components/Markdown";
 import { CitationContext, type CitationEnv } from "../components/CitationChip";
@@ -191,6 +195,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // dismissing it for one document doesn't hide it for the next.
   const [scanHintDismissed, setScanHintDismissed] = useState<string | null>(null);
   const [webForNext, setWebForNext] = useState(false);
+  /*
+   * The keyboard line under the input, until it has been said once.
+   *
+   * Read from storage rather than state so it survives a restart the way the
+   * other one-time hints do (`onboarding-hints.ts`), and cleared the moment the
+   * reader sends something.
+   */
+  const [showComposerHint, setShowComposerHint] = useState(() => !hasSeenComposerHint());
   // Bumped on every manual toggle click, so a failed send only re-arms the
   // web toggle if the user hasn't made a newer explicit choice mid-flight.
   const webToggleSeqRef = useRef(0);
@@ -209,7 +221,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }, [activeDoc?.path, chatLoading]);
 
   useImperativeHandle(ref, () => ({
-    focusComposer: () => composerRef.current?.focus(),
+    // Focus, and leave the caret at the end of whatever is already there —
+    // "Ask about this" fills the composer, and a caret landing in front of a
+    // quoted passage turns "type your question" into "type, then move the caret".
+    focusComposer: () => {
+      const el = composerRef.current;
+      if (!el) return;
+      el.focus();
+      const end = el.value.length;
+      try {
+        el.setSelectionRange(end, end);
+      } catch {
+        // A hidden or detached textarea may refuse the range; focus is enough.
+      }
+    },
   }));
 
   const busy = status === "streaming" || status === "submitted";
@@ -341,6 +366,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     }
     stickToBottomRef.current = true;
     onComposerDraftChange("");
+    // The one-time keyboard line under the input has done its job.
+    markComposerHintSeen();
+    setShowComposerHint(false);
     const useWebSearch = webSearchAvailable && webForNext;
     const webToggleSeqAtSend = webToggleSeqRef.current;
     // Re-arm the failed send's web opt-in only if the user hasn't clicked the
@@ -564,6 +592,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             settingsReady={settingsReady}
             hasDocument={!!activeDoc}
             totalPages={activeDoc?.totalPages}
+            previewPage={previewPage}
             onConfigureApi={onConfigureApi}
             onExamplePrompt={(text) => {
               onComposerDraftChange(text);
@@ -850,7 +879,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           disabled={loadingDoc}
         />
         <div className="composer-footer">
-          <span className="composer-hint">{t("agent.hint")}</span>
+          {/* Kept as an element either way: it is what holds the send button at
+              the right edge of the footer. */}
+          <span className="composer-hint">{showComposerHint ? t("agent.hint") : null}</span>
           {webSearchAvailable && !!activeDoc && (
             <Button
               variant="ghost"

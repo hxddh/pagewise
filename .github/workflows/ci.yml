@@ -116,3 +116,95 @@ jobs:
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --locked
+
+  # The offline evaluation, `npm run eval`: quote location ≥ 90%, the same
+  # quotes altered ≤ 1% wrongly located, search, coverage, OCR per kind of
+  # page, annotation export, and the number check's false alarms. All of it was
+  # committed across 13.0–16.0 and run by hand since, so nothing has held the
+  # numbers it was set on.
+  #
+  # No model is called. `eval/extract` includes `inspect.rs` by path so it
+  # builds without Tauri's GTK/WebKit dependencies, and pypdfium2 (with Pillow)
+  # renders the page images the OCR suite reads.
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: eval/extract
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the page renderer the OCR suite reads the corpus with
+        run: pip install pypdfium2 pillow
+
+      # The committed corpus alone does not satisfy the numbers suite: its floor
+      # of 150 located claims is set on the corpus plus these two third-party
+      # documents, and without them the same run locates 121 and fails. They are
+      # pinned by SHA-256, so every run measures the same bytes.
+      - name: Fetch the third-party documents the evaluation corpus includes
+        run: npm run eval:fetch
+
+      - name: Evaluation
+        run: npm run eval
+
+  # The DOM invariants of the running app, `npm run ui:inventory`: at most 4
+  # buttons under an answer, one export entry in the chat menu and one in the
+  # palette (both opening a dialog of three), at most 12 settings rows, at most
+  # three citation levels. 16.0 set those numbers, and nothing has held them
+  # since: a control can come back without a single red check.
+  #
+  # Needs a dev server on :1420 and a Chromium Playwright can drive.
+  # `ui-inventory.mjs` reads PLAYWRIGHT_CHROMIUM_PATH, and its fallback is the
+  # path the project's container uses, not the one `playwright install` writes
+  # on a runner — hence the resolved path below.
+  ui-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Point the harness at the browser Playwright installed
+        run: echo "PLAYWRIGHT_CHROMIUM_PATH=$(node -p 'require("playwright").chromium.executablePath()')" >> "$GITHUB_ENV"
+
+      - name: Start the dev server and inventory what it shows
+        run: |
+          nohup npm run dev > dev-server.log 2>&1 &
+          ready=""
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:1420/; then ready=1; break; fi
+            sleep 2
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::the dev server never answered on :1420"
+            cat dev-server.log
+            exit 1
+          fi
+          npm run ui:inventory

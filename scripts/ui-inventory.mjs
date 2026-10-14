@@ -34,6 +34,8 @@ const answer = (t) =>
   "data: [DONE]\n\n";
 
 const ANSWER = [
+  "## What page two says",
+  "",
   'Page two opens with filler text〔p2 "sed diam nonumy eirmod tempor invidunt ut labore on page 2"〕, and repeats labore 5 times〔p2 "invidunt ut labore on page 2"〕.',
   "",
   "| Page | Says |",
@@ -80,6 +82,58 @@ const chipLevels = await p.$$eval("button.cite", (els) => [
   ...new Set(els.flatMap((e) => [...e.classList].filter((c) => c.startsWith("cite-level-")))),
 ]);
 
+/*
+ * The reading surface (17.0), measured rather than asserted in a stylesheet:
+ * how wide the answer's column opens, whether its headings step, whether a
+ * table has rules, and whether the two labelled actions under an answer are
+ * readable text. All four were defects found by measurement — 45 characters a
+ * line, `1em` headings, no `.markdown table` rule at all, and an 11px/3.96:1
+ * "Copy"/"Keep" — so they are counting invariants now, not intentions.
+ */
+const reading = await p.evaluate(() => {
+  const px = (v) => parseFloat(v) || 0;
+  const toRgb = (s) => {
+    const m = /rgba?\(([^)]+)\)/.exec(s);
+    if (!m) return { r: 0, g: 0, b: 0, a: 1 };
+    const parts = m[1].split(",").map(Number);
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts[3] ?? 1 };
+  };
+  const lum = ({ r, g, b }) => {
+    const f = (v) => {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const ratio = (a, b) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const bgOf = (el) => {
+    let n = el;
+    while (n) {
+      const c = toRgb(getComputedStyle(n).backgroundColor);
+      if (c.a > 0.95) return c;
+      n = n.parentElement;
+    }
+    return { r: 0, g: 0, b: 0, a: 1 };
+  };
+  const body = document.querySelector(".markdown p");
+  const h2 = document.querySelector(".markdown h2");
+  const td = document.querySelector(".markdown td");
+  const column = document.querySelector(".chat-column");
+  const label = document.querySelector(".message-action-labelled");
+  return {
+    columnWidth: column ? Math.round(column.getBoundingClientRect().width) : 0,
+    bodySize: body ? px(getComputedStyle(body).fontSize) : 0,
+    h2Size: h2 ? px(getComputedStyle(h2).fontSize) : 0,
+    cellPadding: td ? px(getComputedStyle(td).paddingLeft) : 0,
+    cellRule: td ? px(getComputedStyle(td).borderBottomWidth) : 0,
+    actionSize: label ? px(getComputedStyle(label).fontSize) : 0,
+    actionContrast: label ? ratio(toRgb(getComputedStyle(label).color), bgOf(label)) : 0,
+  };
+});
+
 // The chat menu: how many rows export.
 await p.locator(".panel-header").getByRole("button", { name: /^more actions$/i }).click();
 const menuExports = await p.$$eval("[role=menuitem]", (els) => els.filter((e) => /export/i.test(e.textContent ?? "")).length);
@@ -114,8 +168,18 @@ const results = {
   "the export dialog offers three": dialogChoices === 3,
   "settings: at most 12 rows": generalRows + aiRows <= 12,
   "citations in at most three levels": chipLevels.filter((l) => l !== "cite-level-none").length <= 3,
+  "reading column at least 420px": reading.columnWidth >= 420,
+  "answer headings step by 1.2x the body": reading.bodySize > 0 && reading.h2Size / reading.bodySize >= 1.2,
+  "answer tables are ruled": reading.cellPadding >= 6 && reading.cellRule >= 1,
+  "answer actions: 12px and 4.5:1": reading.actionSize >= 12 && reading.actionContrast >= 4.5,
 };
-console.log(JSON.stringify({ footerButtons, menuExports, paletteExports, dialogChoices, generalRows, aiRows, chipLevels }, null, 2));
+console.log(
+  JSON.stringify(
+    { footerButtons, menuExports, paletteExports, dialogChoices, generalRows, aiRows, chipLevels, reading },
+    null,
+    2,
+  ),
+);
 let failed = 0;
 for (const [name, ok] of Object.entries(results)) {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);

@@ -65,6 +65,43 @@ const ANSWER_STREAM =
   chunk({}, "stop") +
   "data: [DONE]\n\n";
 
+/**
+ * A structured answer: heading, prose, list, table with a citation in a cell.
+ *
+ * The shapes the prompt asks for ("answer with a Markdown table"), and the ones
+ * whose typography the panel has to carry. Shot on its own so a change to the
+ * reading scale or the table rules is visible in a diff of the screenshots
+ * rather than only in a stylesheet. The quoted words are really on page 1 of the
+ * fixture, so the chip in the cell is located for real.
+ */
+const STRUCTURED_CONTENT = [
+  "## Reading order",
+  "",
+  "Both lines come from the same specimen, so the difference is only in where they sit.",
+  "",
+  "### What each line carries",
+  "",
+  "- The first line states the specimen's name.",
+  "- The second line closes it and names the page.",
+  "",
+  "| Line | Words | Position |",
+  "| --- | ---: | --- |",
+  "| Opening | 9 | Top of the block 〔p1 \"Lorem ipsum dolor sit amet\"〕 |",
+  "| Closing | 11 | Under the opening line 〔p1 \"invidunt ut labore on page 1\"〕 |",
+  "",
+  "> Neither line makes an argument; the page is filler.",
+  "",
+];
+
+const STRUCTURED_STREAM =
+  chunk({ role: "assistant", content: "" }) +
+  STRUCTURED_CONTENT.join("\n")
+    .split(" ")
+    .map((w) => chunk({ content: `${w} ` }))
+    .join("") +
+  chunk({}, "stop") +
+  "data: [DONE]\n\n";
+
 /*
  * A second turn that writes to the record.
  *
@@ -207,6 +244,24 @@ await page.waitForTimeout(1200);
 await shoot(page, "06-answering");
 await page.waitForTimeout(4000);
 await shoot(page, "07-answered");
+
+// A structured answer, for the reading typography: heading scale, list rhythm,
+// a ruled table with a numeric column, and a citation chip inside a cell.
+await page.unroute("**/chat/completions").catch(() => {});
+let structuredTurn = 0;
+await page.route("**/chat/completions", async (route) => {
+  structuredTurn += 1;
+  await route.fulfill({
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+    body: structuredTurn === 1 ? TOOL_CALL_STREAM : STRUCTURED_STREAM,
+  });
+});
+await composer.click();
+await composer.fill("Compare the two lines on page 1.");
+await page.keyboard.press("Enter");
+await page.waitForTimeout(6000);
+await shoot(page, "07b-answer-typography");
 
 // The record, written and then placed. Turn 3 calls `note_finding`; turn 4 is
 // the sentence that follows it.

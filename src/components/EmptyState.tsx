@@ -7,6 +7,8 @@ interface EmptyStateProps {
   settingsReady: boolean;
   hasDocument: boolean;
   totalPages?: number;
+  /** The page the reader is on, so the first suggestion can be about it. */
+  previewPage?: number;
   onConfigureApi: () => void;
   onExamplePrompt?: (text: string) => void;
 }
@@ -17,6 +19,7 @@ export function EmptyState({
   settingsReady,
   hasDocument,
   totalPages,
+  previewPage,
   onConfigureApi,
   onExamplePrompt,
 }: EmptyStateProps) {
@@ -65,8 +68,17 @@ export function EmptyState({
   // Three suggestions, no heading (16.0). "Ready to ask / type below or pick a
   // suggestion" described the panel to the reader instead of letting them
   // start; five examples, two of them the same summary, were a menu to read.
+  //
+  // The first one is about the page in view (17.0): a reader who has turned to
+  // page 9 and opened the panel is asking about page 9, and the most useful
+  // first chip is that question spelled out, not a generic one about the whole
+  // document. It falls back to the document-level suggestion without a page.
   const examples = [
-    totalPages && totalPages > 1 ? t("empty.exampleWholeDoc", { count: totalPages }) : t("empty.example1"),
+    previewPage && previewPage > 0
+      ? t("empty.exampleThisPage", { page: previewPage })
+      : totalPages && totalPages > 1
+        ? t("empty.exampleWholeDoc", { count: totalPages })
+        : t("empty.example1"),
     t("empty.example3"),
     t("empty.example2"),
   ];

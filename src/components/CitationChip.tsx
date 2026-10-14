@@ -4,6 +4,7 @@ import { useI18n } from "../i18n";
 import { cachedCitationCheck, checkCitation, withClaim, type CitationCheck } from "../lib/citation-check";
 import { citationLabel, type CitationLink } from "../lib/remark-citations";
 import { citationLevel } from "../lib/trust-level";
+import { longKey, type CitationReason } from "../lib/trust-text";
 import type { PdfRect } from "../lib/types";
 
 /**
@@ -20,7 +21,8 @@ export interface CitationEnv {
 
 export const CitationContext = createContext<CitationEnv | null>(null);
 
-export type CitationChipStatus = CitationCheck["status"] | "pending";
+/** The status a chip is drawn in: what its check found, or `pending` until it has run. */
+export type CitationChipStatus = CitationReason;
 
 /**
  * One citation in an answer, and whether its words are on its page.
@@ -70,7 +72,9 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
   const read = withClaim(check, link.claim ?? "", link.quote);
   const status: CitationChipStatus = read?.status ?? "pending";
   const pages = citationLabel(link.pages);
-  const verdict = t(`cite.${status}`, {
+  // The words the check found, from the one table of them (trust-text.ts):
+  // the same sentence the record shows for the same state.
+  const verdict = t(longKey(status), {
     page: String(read?.page ?? link.pages[0]),
     pages,
     numbers: (read?.unstated ?? []).join("、"),

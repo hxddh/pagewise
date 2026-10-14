@@ -12,6 +12,7 @@ import {
   User,
 } from "lucide-react";
 import { recordLevel } from "../lib/trust-level";
+import { longKey } from "../lib/trust-text";
 import { useI18n } from "../i18n";
 import {
   confirmFinding,
@@ -229,7 +230,7 @@ function RecordEntry({
               ? t("marks.struck")
               : superseded
                 ? t("marks.replaced")
-                : t("record.trustRetracted")}
+                : t(longKey("retracted"))}
           </span>
         )}
         {!inactive && !editing && (
@@ -380,7 +381,7 @@ function TrustLine({
         onClick={() => onRevealFinding?.(finding.id, placement.anchor.page)}
       >
         <Crosshair size={11} aria-hidden />
-        {t("record.trustLocated", { page: placement.anchor.page })}
+        {t(longKey("located"), { page: placement.anchor.page })}
       </button>
     );
   }
@@ -388,7 +389,7 @@ function TrustLine({
     return (
       <p className="record-locate record-locate-confirmed">
         <Check size={11} aria-hidden />
-        {t("record.trustConfirmed")}
+        {t(longKey("confirmed"))}
         {/* raw-button: an inline affordance at the end of a status line */}
         <button
           type="button"
@@ -402,21 +403,16 @@ function TrustLine({
   }
   if (trust === "retracted") return null;
   // The level first, the reason after it — the same three words as the chips
-  // in the answer (16.0).
+  // in the answer, and the same sentence (16.0, one table of both).
   const level = recordLevel(trust);
   const doubtful = level === "check" || level === "notFound";
-  const text =
-    trust === "unlocated"
-      ? t("record.trustUnlocated")
-      : trust === "mismatch"
-        ? t("record.trustMismatch")
-      : trust === "unreadable"
-        ? t("record.trustUnreadable")
-        : trust === "unconfirmed"
-          ? t("record.trustUnconfirmed")
-        : trust === "stale"
-          ? t("record.trustStale")
-          : t("record.trustUnverified");
+  // A mismatch names the numbers the claim states and the passage does not;
+  // the reason is only given for a placement that has them (finding-trust.ts).
+  const mismatch = placement?.status === "mismatch" ? placement : null;
+  const text = t(longKey(trust), {
+    page: mismatch?.anchor.page ?? finding.pages[0],
+    numbers: mismatch ? mismatch.unstated.join("、") : "",
+  });
   return (
     <p className={`record-locate ${doubtful ? `record-locate-${level}` : "record-locate-unverified"}`}>
       {doubtful && <AlertTriangle size={11} aria-hidden />}

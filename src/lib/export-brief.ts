@@ -21,6 +21,7 @@ import { citationsToText } from "./citations";
 import type { Finding } from "./finding-store";
 import { labelForPage } from "./page-labels";
 import { TRUST_KNOWN, type Trust } from "./finding-trust";
+import { briefReasons } from "./trust-text";
 import type { LoadedDocument } from "./types";
 
 export interface BriefEntry {
@@ -28,7 +29,11 @@ export interface BriefEntry {
   trust: Trust;
 }
 
-/** The headings and phrases, so the file reads in the reader's language. */
+/**
+ * The headings and phrases, so the file reads in the reader's language. The
+ * reason lines come from `trust-text.ts` — the same table the chip, the
+ * record and the CSV read — so the brief cannot say a state the app does not.
+ */
 export interface BriefLabels {
   title: string;
   document: string;
@@ -53,16 +58,7 @@ export const BRIEF_LABELS_EN: BriefLabels = {
   toRecheck: "To re-check",
   nothingHere: "Nothing yet.",
   page: (ref) => `p. ${ref}`,
-  trust: {
-    confirmed: "checked by the reader",
-    located: "wording found on the page",
-    unverified: "nothing to check against",
-    unlocated: "wording not found in the page's text",
-    mismatch: "wording found, but a number in the claim is not in that passage",
-    unreadable: "page has no readable text",
-    unconfirmed: "wording not found in the text recognised on this scanned page",
-    stale: "file changed since this was written",
-  },
+  trust: briefReasons("en"),
   keptFromAnswer: "Kept from an answer",
 };
 
@@ -76,16 +72,7 @@ export const BRIEF_LABELS_ZH: BriefLabels = {
   toRecheck: "待复核",
   nothingHere: "暂无。",
   page: (ref) => `第 ${ref} 页`,
-  trust: {
-    confirmed: "读者已核对",
-    located: "原文已在页面上找到",
-    unverified: "没有可核对的引文",
-    unlocated: "在该页可提取文本中未找到这段文字",
-    mismatch: "原文找到了，但结论里的数字不在那段原文里",
-    unreadable: "该页没有可读文本",
-    unconfirmed: "未在这张扫描页的识别文字中找到这段文字",
-    stale: "文件在写下这条之后被改动过",
-  },
+  trust: briefReasons("zh-CN"),
   keptFromAnswer: "留自一条回答",
 };
 

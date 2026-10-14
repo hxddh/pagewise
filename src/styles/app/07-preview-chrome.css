@@ -146,13 +146,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.doc-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
 .doc-search-input {
   flex: 1;
   min-width: 0;

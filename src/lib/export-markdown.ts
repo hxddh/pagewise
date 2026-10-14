@@ -1,7 +1,6 @@
 import type { UIMessage } from "ai";
 import { isToolUIPart } from "ai";
 import { stripDsmlToolMarkup } from "./agent-loop-guards";
-import { findLastMessage } from "./messages-utils";
 import { citationsToText } from "./citations";
 
 function messageText(message: UIMessage): string {
@@ -72,27 +71,6 @@ export function chatToMarkdown(messages: UIMessage[], docName?: string): string 
       }
       lines.push("");
     }
-  }
-
-  return lines.join("\n").trim() + "\n";
-}
-
-export function summaryToMarkdown(messages: UIMessage[], docName?: string): string {
-  const lastAssistant = findLastMessage(messages, (m) => m.role === "assistant");
-  const summary = lastAssistant ? messageText(lastAssistant) : "";
-
-  const lines: string[] = ["# PageWise Summary", ""];
-
-  if (docName) {
-    lines.push(`**Document:** ${docName}`, "");
-  }
-
-  lines.push(`**Generated:** ${new Date().toLocaleString()}`, "", "---", "");
-
-  if (summary) {
-    lines.push(summary, "");
-  } else {
-    lines.push("_No assistant response to export._", "");
   }
 
   return lines.join("\n").trim() + "\n";

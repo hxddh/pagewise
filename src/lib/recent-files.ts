@@ -1,5 +1,6 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { isSupportedDocument } from "./load-document";
+import { createStoreRuntime } from "./json-store";
 
 const STORE_PATH = "recent.json";
 const KEY = "files";
@@ -28,31 +29,16 @@ export type RecentProgress = Pick<
   "lastPage" | "totalPages" | "findingCount" | "openCount"
 >;
 
-let store: LazyStore | null = null;
-
-async function getStore(): Promise<LazyStore> {
-  if (!store) store = new LazyStore(STORE_PATH);
-  return store;
-}
-
 /**
  * Serializes every store mutation through a single promise chain so concurrent
  * read-modify-write cycles (e.g. startup restore racing a user opening a file)
  * can't interleave and drop entries via last-write-wins.
  */
-let storeLock: Promise<unknown> = Promise.resolve();
-function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = storeLock.then(fn, fn);
-  storeLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
+const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
 
 /** Unlocked read — callers hold the lock (or accept a snapshot) themselves. */
 async function readRecentFiles(): Promise<RecentFile[]> {
-  const s = await getStore();
+  const s = await runtime.store();
   return sanitizeRecentFiles(await s.get<unknown>(KEY));
 }
 
@@ -91,7 +77,7 @@ function sanitizeRecentFiles(raw: unknown): RecentFile[] {
 }
 
 export async function getRecentFiles(): Promise<RecentFile[]> {
-  return withStoreLock(readRecentFiles);
+  return runtime.withStoreLock(readRecentFiles);
 }
 
 /** Recent entries the app can still open (PDF or supported image). */
@@ -104,8 +90,8 @@ export function openableRecentFiles(files: RecentFile[]): RecentFile[] {
 }
 
 export async function addRecentFile(entry: Omit<RecentFile, "openedAt">): Promise<RecentFile[]> {
-  return withStoreLock(async () => {
-    const s = await getStore();
+  return runtime.withStoreLock(async () => {
+    const s = await runtime.store();
     const existing = await readRecentFiles();
     const previous = existing.find((f) => f.path === entry.path);
     // Reopening keeps the progress the last visit left, unless the caller
@@ -128,7 +114,7 @@ export async function updateRecentProgress(
   path: string,
   progress: RecentProgress,
 ): Promise<RecentFile[]> {
-  return withStoreLock(async () => {
+  return runtime.withStoreLock(async () => {
     const existing = await readRecentFiles();
     const index = existing.findIndex((f) => f.path === path);
     if (index < 0) return existing;
@@ -139,7 +125,7 @@ export async function updateRecentProgress(
     if (same) return existing;
     const updated = existing.slice();
     updated[index] = merged;
-    const s = await getStore();
+    const s = await runtime.store();
     await s.set(KEY, updated);
     await s.save();
     return updated;
@@ -147,11 +133,11 @@ export async function updateRecentProgress(
 }
 
 export async function removeRecentFiles(paths: string[]): Promise<RecentFile[]> {
-  return withStoreLock(async () => {
+  return runtime.withStoreLock(async () => {
     const existing = await readRecentFiles();
     if (paths.length === 0) return existing;
     const removeSet = new Set(paths);
-    const s = await getStore();
+    const s = await runtime.store();
     const updated = existing.filter((f) => !removeSet.has(f.path));
     await s.set(KEY, updated);
     await s.save();
@@ -160,8 +146,8 @@ export async function removeRecentFiles(paths: string[]): Promise<RecentFile[]> 
 }
 
 export async function removeRecentFile(path: string): Promise<RecentFile[]> {
-  return withStoreLock(async () => {
-    const s = await getStore();
+  return runtime.withStoreLock(async () => {
+    const s = await runtime.store();
     const existing = await readRecentFiles();
     const updated = existing.filter((f) => f.path !== path);
     await s.set(KEY, updated);

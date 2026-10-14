@@ -7,13 +7,14 @@ Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev
 ## Features
 
 - **Documents** — Open PDFs and images via file picker or drag & drop
-- **Preview** — Page navigation, thumbnails, zoom, in-document search (⌘F)
+- **Preview** — Page navigation, thumbnails, zoom (⌘+ / ⌘− / ⌘0), in-document search (⌘F), and `j`/`k` to scroll a screenful at a time
 - **Indexing** — PDF text layer; scanned pages are read on your machine (English and Simplified Chinese), with a vision model as an optional fallback for pages that do not read well
 - **Agent** — Streaming chat with tool calls (`document_outline`, `read_pdf_page`, `search_in_document`, …)
 - **Checked citations** — Every fact in an answer cites its page and the words it rests on; PageWise looks the words up on that page and shows whether they are there. Click a citation to see the passage lit on the page — on scanned pages too. A found quote under a sentence whose number the passage does not state is flagged, and your model can be asked, on demand, whether each passage supports its sentence
 - **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
-- **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one trust state (*checked*, *found on the page*, *re-check*) that the panel, the model and the export all read
-- **Brief** — Export the record as one Markdown file: conclusions, evidence, and what still needs re-checking
+- **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one of three levels (*verified*, *check the page*, *not found*) that the panel, the model and the export all read
+- **Reading** — The answer column is a reading column: resizable from 360 to 640px, headings that step, ruled tables, and the tool steps below the answer where provenance belongs
+- **Export** — One dialog, three things: **Report** (the record and your marks, with the document's text on request), **PDF with evidence**, and **Conversation**
 - **Evidence in the PDF** — Export a copy of the document with located findings and your marks written in as standard highlights and notes, readable in any PDF reader
 - **Cited tables** — Ask for a list or comparison and get a table with a checked citation in every cell; export it as CSV with each row's sources and whether they were found
 - **Chat** — One thread per document, persisted locally; a renamed or moved file finds its own chat, marks and record by content fingerprint
@@ -62,7 +63,9 @@ See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 | `npm test` | Unit tests (Vitest) |
 | `npm run check:secrets` | Pre-release credential scan |
 | `npm run version:sync` | Sync `VERSION` → package / Tauri / Cargo |
-| `npm run eval` | Measure citation location (text layers and scanned pages) and search on the evaluation corpus (see [eval/README.md](eval/README.md)) |
+| `npm run eval` | Measure citation location (text layers and scanned pages) and search on the evaluation corpus (see [eval/README.md](eval/README.md)) — needs `npm run eval:fetch` once for the pinned third-party documents |
+| `npm run ui:inventory` | With `npm run dev` running: count what a reader is shown — buttons under an answer, export entries, settings rows, citation levels, and the reading surface's width, heading step, table rules and action contrast |
+| `npm run ui:shots` | With `npm run dev` running: photograph the 13 screens a reader sees into `docs/ui-shots/` |
 | `npm run audit:claims` | With `npm run dev` running: follow a citation whose number does not hold through its chip, the model review and the next question |
 | `npm run audit:tables` | With `npm run dev` running: follow a cited table answer through its chips, the CSV export and the record |
 | `npm run audit:ocr` | After `npm run build`: open a scanned document in Chromium under the app's CSP and follow one cited answer end to end |

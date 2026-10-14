@@ -35,18 +35,25 @@ function safeGetItem(key: string): string | null {
   }
 }
 
-export function hasSeenCollapseHint(): boolean {
-  return safeGetItem("pagewise.hint.collapse") === "1";
-}
-
-export function markCollapseHintSeen(): void {
-  safeSetItem("pagewise.hint.collapse", "1");
-}
-
 export function hasSeenPaletteHint(): boolean {
   return safeGetItem("pagewise.hint.palette") === "1";
 }
 
 export function markPaletteHintSeen(): void {
   safeSetItem("pagewise.hint.palette", "1");
+}
+
+/*
+ * The composer's keyboard line ("Enter to send · Shift+Enter for newline").
+ *
+ * It used to be permanent furniture under the input — a sentence explaining the
+ * app on the surface the reader looks at most, at 11px and 3.96:1. It is worth
+ * saying once. Once the reader has sent something, they know.
+ */
+export function hasSeenComposerHint(): boolean {
+  return safeGetItem("pagewise.hint.composer") === "1";
+}
+
+export function markComposerHintSeen(): void {
+  safeSetItem("pagewise.hint.composer", "1");
 }

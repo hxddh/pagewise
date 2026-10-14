@@ -48,10 +48,6 @@ export function beginSteerRun(generation: number): void {
   queue = queue.filter((q) => q.generation === generation);
 }
 
-export function currentSteerRun(): number {
-  return currentGeneration;
-}
-
 /**
  * Queue a correction for the run identified by `generation`.
  *

@@ -60,9 +60,70 @@ const remarkPlugins = [remarkGfm, remarkCitations, remarkPageRefs];
  */
 const urlTransform = (url: string) =>
   url.startsWith(PAGE_REF_SCHEME) || url.startsWith(CITATION_SCHEME) ? url : defaultUrlTransform(url);
+
+/** The plain text of a cell's children, for the numeric-column test below. */
+function textOf(children: ReactNode): string {
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(textOf).join("");
+  if (children && typeof children === "object" && "props" in children) {
+    return textOf((children as { props?: { children?: ReactNode } }).props?.children);
+  }
+  return "";
+}
+
+/**
+ * Does this cell hold a number, and nothing else worth reading?
+ *
+ * CSS cannot tell a numeric column from a prose one, so the alignment is
+ * decided here instead: currency, sign, thousands separators, percent, and a
+ * short unit are allowed; anything with letters in the value (a date, a name, a
+ * phrase) is not, because right-aligning "as agreed" is worse than leaving it.
+ */
+function isNumericCell(children: ReactNode): boolean {
+  const text = textOf(children).trim();
+  if (!text || text.length > 24) return false;
+  return /^[¥$€£₩]?\s*-?\d[\d,._\s]*\s*%?$/.test(text);
+}
+
+type CellProps = { children?: ReactNode; node?: unknown };
+
+function TableCell({ children, node: _node, className, ...rest }: CellProps & { className?: string }) {
+  const numeric = isNumericCell(children);
+  return (
+    <td {...rest} className={[className, numeric ? "md-num" : ""].filter(Boolean).join(" ") || undefined}>
+      {children}
+    </td>
+  );
+}
+
+function TableHeadCell({ children, node: _node, className, ...rest }: CellProps & { className?: string }) {
+  const numeric = isNumericCell(children);
+  return (
+    <th {...rest} className={[className, numeric ? "md-num" : ""].filter(Boolean).join(" ") || undefined}>
+      {children}
+    </th>
+  );
+}
+
+/**
+ * A wrapper that scrolls, so a wide table scrolls itself rather than the panel
+ * (or the window) — the failure a fixed-width reading column would otherwise
+ * make routine.
+ */
+function TableWrap({ children, node: _node, ...rest }: CellProps) {
+  return (
+    <div className="md-table-wrap">
+      <table {...rest}>{children}</table>
+    </div>
+  );
+}
+
 const markdownComponents = {
   a: SafeAnchor,
   img: SafeImg,
+  table: TableWrap,
+  td: TableCell,
+  th: TableHeadCell,
 };
 
 function SafeAnchor({

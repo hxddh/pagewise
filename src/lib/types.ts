@@ -217,16 +217,6 @@ export function agentPresetModels(provider: Exclude<ProviderId, "custom">): stri
   return PROVIDER_AGENT_MODELS[provider];
 }
 
-/** @deprecated Use agentPresetModels */
-export function allProviderModels(provider: Exclude<ProviderId, "custom">): string[] {
-  return agentPresetModels(provider);
-}
-
-/** Default agent (tool-capable) model per provider. */
-export function defaultAgentModel(provider: Exclude<ProviderId, "custom">): string {
-  return PROVIDER_PRESETS[provider].defaultModel;
-}
-
 /** Default vision model for background page indexing. */
 export function defaultVisionModel(provider: Exclude<ProviderId, "custom">): string {
   const presets = PROVIDER_VISION_MODELS[provider];
@@ -237,9 +227,4 @@ export function defaultVisionModel(provider: Exclude<ProviderId, "custom">): str
 
 export function visionPresetModels(provider: Exclude<ProviderId, "custom">): string[] {
   return PROVIDER_VISION_MODELS[provider];
-}
-
-/** @deprecated Use visionPresetModels */
-export function visionModelsForProvider(provider: Exclude<ProviderId, "custom">): string[] {
-  return visionPresetModels(provider);
 }

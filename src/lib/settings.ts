@@ -698,11 +698,6 @@ export async function loadSettings(): Promise<LlmSettings> {
   return loadProviderSettings(storeData.activeProvider);
 }
 
-export async function getActiveProvider(): Promise<ProviderId> {
-  const storeData = await readStoreV2();
-  return storeData.activeProvider;
-}
-
 export async function saveProviderProfile(
   provider: ProviderId,
   patch: Partial<ProviderProfile>,
@@ -744,13 +739,6 @@ export async function setActiveProvider(provider: ProviderId): Promise<LlmSettin
   storeData.activeProvider = provider;
   await writeStoreV2(storeData);
   return loadProviderSettings(provider);
-}
-
-export async function markProviderVerified(
-  provider: ProviderId,
-  verified: boolean,
-): Promise<LlmSettings> {
-  return saveProviderProfile(provider, { connectionVerified: verified });
 }
 
 /** Saves profile for settings.provider — does not change the active provider. */

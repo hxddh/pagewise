@@ -35,7 +35,8 @@
  * that says what it changed its mind about.
  */
 import { LazyStore } from "@tauri-apps/plugin-store";
-import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
+import { migrateStored, type Migration } from "./store-migrate";
+import { createDocumentStore, createPathListeners, createStoreRuntime } from "./json-store";
 
 const STORE_PATH = "findings.json";
 const KEY = "findings";
@@ -132,27 +133,24 @@ interface StoredFindings {
   docs: StoredDoc[];
 }
 
-let store: LazyStore | null = null;
-
-async function getStore(): Promise<LazyStore> {
-  if (!store) store = new LazyStore(STORE_PATH);
-  return store;
-}
+const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
 
 /**
- * Serializes every mutation through one promise chain — the same reason the
- * mark store does: an unserialized read-modify-write loses entries to
- * last-write-wins, and a lost finding is work that has to be paid for again.
+ * Findings are the agent's record of the document: an unserialized
+ * read-modify-write loses entries to last-write-wins, and a write that fails
+ * must not drop what the record has not saved yet. The shared store owns both.
  */
-let storeLock: Promise<unknown> = Promise.resolve();
-function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = storeLock.then(fn, fn);
-  storeLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
+const findings = createDocumentStore<StoredDoc, Finding>(runtime, {
+  key: KEY,
+  version: VERSION,
+  migrations: MIGRATIONS,
+  flushDelayMs: FLUSH_DELAY_MS,
+  maxPerDoc: MAX_FINDINGS_PER_DOC,
+  maxTotal: MAX_FINDINGS_TOTAL,
+  sanitize: sanitizeStoredFindings,
+  entriesOf: (doc) => doc.findings,
+  build: (path, entries, identity) => ({ path, findings: entries, ...(identity ? { identity } : {}) }),
+});
 
 /** Ascending, deduplicated, whole, ≥ 1, and capped. */
 export function normalizePages(raw: readonly number[]): number[] {
@@ -224,52 +222,23 @@ export function sanitizeStoredFindings(raw: unknown): StoredDoc[] {
   return out;
 }
 
-async function readDocs(): Promise<StoredDoc[]> {
-  const s = await getStore();
-  const raw = await s.get<unknown>(KEY);
-  const outcome = migrateStored(raw, VERSION, MIGRATIONS);
-  if (outcome.status === "newer") {
-    // Written by a later PageWise. Kept aside, never overwritten: reading the
-    // store as empty and then flushing would otherwise replace it.
-    await preserveNewer(s, KEY, raw).catch(() => {});
-    return [];
-  }
-  return sanitizeStoredFindings(raw);
-}
+/**
+ * Findings changed for a document — the sidebar redraws.
+ *
+ * The open document's findings are served from memory, so the sidebar never
+ * awaits disk; the store is the durable copy.
+ */
+const listeners = createPathListeners();
 
-async function writeDocs(docs: StoredDoc[]): Promise<void> {
-  const s = await getStore();
-  await s.set(KEY, { version: VERSION, docs } satisfies StoredFindings);
-  await s.save();
-}
-
-/** In-memory findings for the open document, so the sidebar never awaits disk. */
-const findingsByPath = new Map<string, Finding[]>();
-/** The fingerprint the open document was loaded with, written back on flush. */
-const identityByPath = new Map<string, string>();
 type FindingListener = (path: string) => void;
-const listeners = new Set<FindingListener>();
-
-function notify(path: string): void {
-  for (const listener of listeners) {
-    try {
-      listener(path);
-    } catch {
-      // A misbehaving subscriber must not break finding updates.
-    }
-  }
-}
 
 export function subscribeFindings(listener: FindingListener): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return listeners.subscribe(listener);
 }
 
 /** Every finding for `path`, oldest first — including struck and superseded. */
 export function getFindings(path: string): Finding[] {
-  return findingsByPath.get(path) ?? [];
+  return findings.cached(path) ?? [];
 }
 
 /** True when some later finding replaced this one. */
@@ -371,101 +340,29 @@ function sortFindings(findings: Finding[]): Finding[] {
  * "my notes are gone" though nothing on disk had been touched.
  */
 export async function loadFindings(path: string, identity?: string): Promise<Finding[]> {
-  // Reopened before its unsaved changes were written: those are newer than
-  // anything the store holds.
-  forgetAfterFlush.delete(path);
-  if (dirty.has(path) && findingsByPath.has(path)) return findingsByPath.get(path)!;
-  if (identity) identityByPath.set(path, identity);
-  else identityByPath.delete(path);
+  const unsaved = findings.reopen(path);
+  if (unsaved) return unsaved;
+  findings.identify(path, identity);
   try {
-    const docs = await withStoreLock(readDocs);
-    let doc = docs.find((d) => d.path === path);
-    if (!doc && identity) {
-      const moved = docs.find((d) => d.identity === identity);
-      if (moved) {
-        doc = moved;
-        // Re-keyed in memory now and on disk at the next flush: `dirty` names
-        // both paths, so the old key is dropped and the new one written.
-        findingsByPath.set(moved.path, []);
-        dirty.add(moved.path);
-        dirty.add(path);
-        scheduleFlush();
-      }
-    }
-    const findings = sortFindings(doc?.findings ?? []);
-    findingsByPath.set(path, findings);
-    notify(path);
-    return findings;
+    const doc = await findings.locate(path, identity);
+    const loaded = sortFindings(doc?.findings ?? []);
+    findings.cache(path, loaded);
+    listeners.notify(path);
+    return loaded;
   } catch {
-    findingsByPath.set(path, []);
+    findings.cache(path, []);
     return [];
   }
 }
 
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-const dirty = new Set<string>();
-let flushInFlight: Promise<void> = Promise.resolve();
-
-function scheduleFlush(): void {
-  if (flushTimer) return;
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    void flushFindingStore();
-  }, FLUSH_DELAY_MS);
-}
-
 /** Write pending changes now (document close, app quit). */
 export async function flushFindingStore(): Promise<void> {
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  if (dirty.size === 0) {
-    await flushInFlight;
-    return;
-  }
-  const paths = [...dirty];
-  dirty.clear();
-  flushInFlight = withStoreLock(async () => {
-    const docs = await readDocs();
-    const byPath = new Map(docs.map((d) => [d.path, d] as const));
-    for (const path of paths) {
-      // Not in memory: nothing here to write, and an empty list would read as
-      // "the reader removed them all" (16.0).
-      if (!findingsByPath.has(path)) continue;
-      const findings = findingsByPath.get(path)!;
-      if (findings.length === 0) byPath.delete(path);
-      else {
-        const identity = identityByPath.get(path) ?? byPath.get(path)?.identity;
-        byPath.set(path, {
-          path,
-          findings: findings.slice(0, MAX_FINDINGS_PER_DOC),
-          ...(identity ? { identity } : {}),
-        });
-      }
-    }
-    let total = 0;
-    const kept: StoredDoc[] = [];
-    for (const doc of byPath.values()) {
-      if (total + doc.findings.length > MAX_FINDINGS_TOTAL) continue;
-      total += doc.findings.length;
-      kept.push(doc);
-    }
-    await writeDocs(kept);
-    for (const path of paths) if (!dirty.has(path)) forgetNow(path);
-  }).catch(() => {
-    // A failed write must not lose the findings — they stay in memory and in
-    // `dirty` for the next attempt.
-    for (const path of paths) dirty.add(path);
-  });
-  await flushInFlight;
+  await findings.flush();
 }
 
 function mutate(path: string, next: Finding[]): void {
-  findingsByPath.set(path, sortFindings(next));
-  dirty.add(path);
-  notify(path);
-  scheduleFlush();
+  findings.replace(path, sortFindings(next));
+  listeners.notify(path);
 }
 
 export interface NewFinding {
@@ -622,36 +519,17 @@ export function removeFinding(path: string, id: string): void {
   if (next.length !== existing.length) mutate(path, next);
 }
 
-/** Drop a document's findings from memory. The stored copy is untouched. */
-/** Closed documents whose unsaved changes must be written before they go. */
-const forgetAfterFlush = new Set<string>();
-
-function forgetNow(path: string): void {
-  if (!forgetAfterFlush.delete(path)) return;
-  findingsByPath.delete(path);
-  identityByPath.delete(path);
-}
-
 /**
  * Drop a closed document's in-memory copy. While it has changes a write has
  * not yet stored — the last one failed — the copy stays until one does: it is
  * the only copy of them (16.0).
  */
 export function forgetFindings(path: string): void {
-  forgetAfterFlush.add(path);
-  if (!dirty.has(path)) forgetNow(path);
+  findings.forget(path);
 }
 
 /** Reset module state between tests. */
 export function __resetFindingStoreForTests(): void {
-  forgetAfterFlush.clear();
-  findingsByPath.clear();
-  identityByPath.clear();
+  findings.reset();
   listeners.clear();
-  dirty.clear();
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  store = null;
 }

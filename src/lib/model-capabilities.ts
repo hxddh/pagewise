@@ -144,11 +144,6 @@ export function isToolModel(provider: ProviderId, model: string): boolean {
   return true;
 }
 
-/** Whether background vision indexing should run for the configured scan model. */
-export function canAttemptVisionIndexing(provider: ProviderId, visionModel: string): boolean {
-  return isVisionModel(provider, visionModel);
-}
-
 /** Whether the assistant model can accept AI SDK `reasoning` (thinking mode). */
 export function isThinkingCapableModel(provider: ProviderId, model: string): boolean {
   if (provider === "custom" || provider === "ollama" || provider === "openai") return false;

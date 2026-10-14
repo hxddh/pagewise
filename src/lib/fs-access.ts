@@ -12,10 +12,3 @@ import { allowPathPersisted } from "./allowed-paths";
 export async function allowPath(path: string): Promise<void> {
   await allowPathPersisted(path);
 }
-
-/**
- * Authorize several paths at once. Rejects if any single registration fails.
- */
-export async function allowPaths(paths: string[]): Promise<void> {
-  await Promise.all(paths.map((path) => allowPath(path)));
-}

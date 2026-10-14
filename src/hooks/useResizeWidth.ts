@@ -2,8 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "pagewise.chatWidth";
 const MIN = 360;
-const MAX = 480;
-const DEFAULT_WIDTH = 360;
+/*
+ * 480 → 640, and the default 360 → 420 (17.0).
+ *
+ * The panel is the app's reading surface, and 360px gave it ~45 characters a
+ * line — under the 50–75 a reader's eye expects, while `--measure-read` (68ch)
+ * was unreachable at any column width. 420 puts the opening answer at ~55
+ * characters; the ceiling now lets a reader who wants a real column get to 68ch
+ * and stop there.
+ */
+const MAX = 640;
+const DEFAULT_WIDTH = 420;
 
 /**
  * What the document side needs before its toolbar starts running off the end:

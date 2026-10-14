@@ -1,31 +1,17 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { invoke } from "@tauri-apps/api/core";
+import { createStoreRuntime } from "./json-store";
 
 const STORE_PATH = "allowed-paths.json";
 const KEY = "paths";
 const MAX_PERSISTED = 64;
-
-let store: LazyStore | null = null;
-
-async function getStore(): Promise<LazyStore> {
-  if (!store) store = new LazyStore(STORE_PATH);
-  return store;
-}
 
 /**
  * Serializes every persisted-array mutation through a single promise chain so a
  * concurrent startup restore and a user allow/remove action can't interleave
  * their read-modify-write cycles and drop entries via last-write-wins.
  */
-let storeLock: Promise<unknown> = Promise.resolve();
-function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = storeLock.then(fn, fn);
-  storeLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
+const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
 
 async function registerWithBackend(path: string, strict: boolean): Promise<boolean> {
   try {
@@ -47,8 +33,8 @@ async function persistPath(path: string): Promise<void> {
   const trimmed = path.trim();
   if (!trimmed) return;
 
-  return withStoreLock(async () => {
-    const s = await getStore();
+  return runtime.withStoreLock(async () => {
+    const s = await runtime.store();
     const existing = (await s.get<string[]>(KEY)) ?? [];
     if (existing.includes(trimmed)) return;
 
@@ -62,8 +48,8 @@ async function removePersistedPath(path: string): Promise<void> {
   const trimmed = path.trim();
   if (!trimmed) return;
 
-  return withStoreLock(async () => {
-    const s = await getStore();
+  return runtime.withStoreLock(async () => {
+    const s = await runtime.store();
     const existing = (await s.get<string[]>(KEY)) ?? [];
     if (!existing.includes(trimmed)) return;
 
@@ -100,8 +86,8 @@ export async function restoreAllowedPaths(
 ): Promise<RestoreAllowedPathsResult> {
   // Snapshot the persisted list under the lock; per-path removals below take the
   // lock individually so we never hold it across backend round-trips.
-  const stored = await withStoreLock(async () => {
-    const s = await getStore();
+  const stored = await runtime.withStoreLock(async () => {
+    const s = await runtime.store();
     return (await s.get<string[]>(KEY)) ?? [];
   });
   const seen = new Set<string>();

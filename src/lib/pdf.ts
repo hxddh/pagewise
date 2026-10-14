@@ -966,19 +966,6 @@ export function clearPdfCache(): void {
   pageCacheBytes = 0;
 }
 
-export async function computeFitWidthScale(
-  path: string,
-  pageNumber: number,
-  containerWidth: number,
-  padding = 4,
-): Promise<number> {
-  const doc = await getPdfDocument(path);
-  const page = await doc.getPage(pageNumber);
-  const base = page.getViewport({ scale: 1 });
-  const available = Math.max(120, containerWidth - padding * 2);
-  return available / base.width;
-}
-
 /** OCR target ~300 DPI (72 PDF points × ~4.17). */
 const OCR_RENDER_SCALE = 300 / 72;
 

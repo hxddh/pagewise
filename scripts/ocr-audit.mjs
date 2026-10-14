@@ -161,12 +161,22 @@ const opened = Date.now();
 await p.getByRole("button", { name: /open document/i }).first().click();
 log("opened a three-page scan");
 
-// The page on screen is read first; its hint says so when it is done.
-await p.getByText(/Read on this computer/i).first().waitFor({ timeout: 90_000 }).catch((e) => fail("the first page", e));
+// The page on screen is read first, and it is done when OCR has written it.
+//
+// This waited for the page's status line to read "Read on this computer" — a
+// sentence the status line stopped saying in 16.0, when it was cut back to
+// "reading" / "check the page" / "could not read" and silence when the page is
+// fine. From then until 17.0 this audit could not pass: it waited out its
+// ninety seconds for words the app no longer prints. The signal now is the
+// result itself — the page's recognised text reaching the OCR cache, which is
+// what the rest of this script already inspects, and is language-independent.
+await p
+  .waitForFunction(() => (window.__HARNESS_OCR_CACHE__?.size ?? 0) > 0, null, { timeout: 90_000 })
+  .catch((e) => fail("the first page", e));
 const firstPage = Date.now() - opened;
 log(`first page read in ${(firstPage / 1000).toFixed(1)} s (worker start + model load included)`);
-const hint = await p.getByText(/Read on this computer/i).first().textContent();
-log(`hint: ${hint?.trim()}`);
+const status = await p.locator(".preview-index-badge").first().textContent().catch(() => null);
+log(`page status: ${(status ?? "").trim() || "(none — the page read cleanly)"}`);
 
 const composer = p.getByPlaceholder(/ask about this document/i);
 await composer.click();

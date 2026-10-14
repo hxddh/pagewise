@@ -17,7 +17,3 @@ export function previewPrevPage(): void {
 export function previewNextPage(): void {
   actions?.nextPage();
 }
-
-export function previewGoToPage(page: number): void {
-  actions?.goToPage(page);
-}

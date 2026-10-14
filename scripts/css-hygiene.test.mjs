@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { appliedClassNames } from "./find-dead-css.mjs";
 
 /**
  * Surface hygiene kept as invariants instead of as one-off tidying.
@@ -625,5 +626,45 @@ describe("CSS hygiene", () => {
         encoding: "utf8",
       }),
     ).not.toThrow();
+  });
+
+  /*
+   * `find-dead-css.mjs` said "0 defined but never applied" for two releases
+   * while six rules had no markup behind them. The cause was the interpolation
+   * exemption: a test fixture writing `/doc-${i}.pdf` registered "doc" as a
+   * class prefix, and every `.doc-*` rule in the app was excused. The exemption
+   * now comes only from class positions, and these are the shapes that
+   * distinguish the two — a path is not a class list, however similar it looks.
+   */
+  describe("the dead-class scan's exemption", () => {
+    it("is not fooled by a path built from a template", () => {
+      const { found, composed } = appliedClassNames("const p = `/doc-${i}.pdf`;");
+      expect([...composed]).toEqual([]);
+      expect([...found]).toEqual([]);
+    });
+
+    it("follows a class list assigned to a local", () => {
+      const source = [
+        'const classes = ["ui-btn", `ui-btn--${variant}`, cond ? "x" : ""];',
+        "return <button className={classes} />;",
+      ].join("\n");
+      const { found, composed } = appliedClassNames(source);
+      expect(found.has("ui-btn")).toBe(true);
+      expect([...composed]).toContain("ui-btn");
+    });
+
+    it("does not read an object literal a function returns", () => {
+      // The fixture that hid `.tool-label`: `{ type: `tool-${name}` }` is a
+      // value, not a class, and following it made "tool" a live prefix.
+      const source = "function t(name) { return { type: `tool-${name}` }; }";
+      const { composed } = appliedClassNames(source);
+      expect([...composed]).toEqual([]);
+    });
+
+    it("takes the prefix from a template used as a class", () => {
+      const source = 'return <span className={`cite-${level}`} />;';
+      const { composed } = appliedClassNames(source);
+      expect([...composed]).toContain("cite");
+    });
   });
 });

@@ -17,7 +17,8 @@
  */
 import { LazyStore } from "@tauri-apps/plugin-store";
 import type { PdfRect } from "./types";
-import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
+import { migrateStored, type Migration } from "./store-migrate";
+import { createDocumentStore, createPathListeners, createStoreRuntime } from "./json-store";
 
 const STORE_PATH = "marks.json";
 const KEY = "marks";
@@ -75,29 +76,24 @@ interface StoredMarks {
   docs: StoredDoc[];
 }
 
-let store: LazyStore | null = null;
-
-async function getStore(): Promise<LazyStore> {
-  if (!store) store = new LazyStore(STORE_PATH);
-  return store;
-}
+const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
 
 /**
- * Serializes every mutation through one promise chain.
- *
- * The same reason the index store does it: an unserialized read-modify-write
- * loses entries to last-write-wins. Losing a cached page costs a re-index;
- * losing a mark costs the reader's own work, so it matters more here.
+ * Marks are the reader's own work: an unserialized read-modify-write loses
+ * entries to last-write-wins, and a write that fails must not drop what the
+ * reader has not saved yet. The shared store owns both.
  */
-let storeLock: Promise<unknown> = Promise.resolve();
-function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = storeLock.then(fn, fn);
-  storeLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
+const marks = createDocumentStore<StoredDoc, Mark>(runtime, {
+  key: KEY,
+  version: VERSION,
+  migrations: MIGRATIONS,
+  flushDelayMs: FLUSH_DELAY_MS,
+  maxPerDoc: MAX_MARKS_PER_DOC,
+  maxTotal: MAX_MARKS_TOTAL,
+  sanitize: sanitizeStoredMarks,
+  entriesOf: (doc) => doc.marks,
+  build: (path, entries, identity) => ({ path, marks: entries, ...(identity ? { identity } : {}) }),
+});
 
 function isValidRect(value: unknown): value is PdfRect {
   if (!value || typeof value !== "object") return false;
@@ -166,52 +162,23 @@ export function sanitizeStoredMarks(raw: unknown): StoredDoc[] {
   return out;
 }
 
-async function readDocs(): Promise<StoredDoc[]> {
-  const s = await getStore();
-  const raw = await s.get<unknown>(KEY);
-  const outcome = migrateStored(raw, VERSION, MIGRATIONS);
-  if (outcome.status === "newer") {
-    await preserveNewer(s, KEY, raw).catch(() => {});
-    return [];
-  }
-  return sanitizeStoredMarks(raw);
-}
-
-async function writeDocs(docs: StoredDoc[]): Promise<void> {
-  const s = await getStore();
-  await s.set(KEY, { version: VERSION, docs } satisfies StoredMarks);
-  await s.save();
-}
-
 /**
- * In-memory marks for the open document, so drawing a page never awaits disk.
- * The store is the durable copy; this is what the UI reads.
+ * Marks changed for a document — the layer and the list redraw.
+ *
+ * The open document's marks are served from memory, so drawing a page never
+ * awaits disk; the store is the durable copy.
  */
-const marksByPath = new Map<string, Mark[]>();
-const identityByPath = new Map<string, string>();
-type MarkListener = (path: string) => void;
-const listeners = new Set<MarkListener>();
+const listeners = createPathListeners();
 
-function notify(path: string): void {
-  for (const listener of listeners) {
-    try {
-      listener(path);
-    } catch {
-      // A misbehaving subscriber must not break mark updates.
-    }
-  }
-}
+type MarkListener = (path: string) => void;
 
 export function subscribeMarks(listener: MarkListener): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return listeners.subscribe(listener);
 }
 
 /** Marks for `path`, page order then creation order. */
 export function getMarks(path: string): Mark[] {
-  return marksByPath.get(path) ?? [];
+  return marks.cached(path) ?? [];
 }
 
 export function marksOnPage(path: string, page: number): Mark[] {
@@ -250,99 +217,29 @@ function sortMarks(marks: Mark[]): Mark[] {
  * and are re-keyed to where it is now. See `loadFindings`.
  */
 export async function loadMarks(path: string, identity?: string): Promise<Mark[]> {
-  // Reopened before its unsaved changes were written: those are newer than
-  // anything the store holds.
-  forgetAfterFlush.delete(path);
-  if (dirty.has(path) && marksByPath.has(path)) return marksByPath.get(path)!;
-  if (identity) identityByPath.set(path, identity);
-  else identityByPath.delete(path);
+  const unsaved = marks.reopen(path);
+  if (unsaved) return unsaved;
+  marks.identify(path, identity);
   try {
-    const docs = await withStoreLock(readDocs);
-    let doc = docs.find((d) => d.path === path);
-    if (!doc && identity) {
-      const moved = docs.find((d) => d.identity === identity);
-      if (moved) {
-        doc = moved;
-        marksByPath.set(moved.path, []);
-        dirty.add(moved.path);
-        dirty.add(path);
-        scheduleFlush();
-      }
-    }
-    const marks = sortMarks(doc?.marks ?? []);
-    marksByPath.set(path, marks);
-    notify(path);
-    return marks;
+    const doc = await marks.locate(path, identity);
+    const loaded = sortMarks(doc?.marks ?? []);
+    marks.cache(path, loaded);
+    listeners.notify(path);
+    return loaded;
   } catch {
-    marksByPath.set(path, []);
+    marks.cache(path, []);
     return [];
   }
 }
 
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-const dirty = new Set<string>();
-let flushInFlight: Promise<void> = Promise.resolve();
-
-function scheduleFlush(): void {
-  if (flushTimer) return;
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    void flushMarkStore();
-  }, FLUSH_DELAY_MS);
-}
-
 /** Write pending changes now (document close, app quit, before stats). */
 export async function flushMarkStore(): Promise<void> {
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  if (dirty.size === 0) {
-    await flushInFlight;
-    return;
-  }
-  const paths = [...dirty];
-  dirty.clear();
-  flushInFlight = withStoreLock(async () => {
-    const docs = await readDocs();
-    const byPath = new Map(docs.map((d) => [d.path, d] as const));
-    for (const path of paths) {
-      // Not in memory: nothing here to write, and an empty list would read as
-      // "the reader removed them all" (16.0).
-      if (!marksByPath.has(path)) continue;
-      const marks = marksByPath.get(path)!;
-      if (marks.length === 0) byPath.delete(path);
-      else {
-        const identity = identityByPath.get(path) ?? byPath.get(path)?.identity;
-        byPath.set(path, {
-          path,
-          marks: marks.slice(0, MAX_MARKS_PER_DOC),
-          ...(identity ? { identity } : {}),
-        });
-      }
-    }
-    let total = 0;
-    const kept: StoredDoc[] = [];
-    for (const doc of byPath.values()) {
-      if (total + doc.marks.length > MAX_MARKS_TOTAL) continue;
-      total += doc.marks.length;
-      kept.push(doc);
-    }
-    await writeDocs(kept);
-    for (const path of paths) if (!dirty.has(path)) forgetNow(path);
-  }).catch(() => {
-    // A failed write must not lose the marks — they stay in memory and in
-    // `dirty` for the next attempt.
-    for (const path of paths) dirty.add(path);
-  });
-  await flushInFlight;
+  await marks.flush();
 }
 
 function mutate(path: string, next: Mark[]): void {
-  marksByPath.set(path, sortMarks(next));
-  dirty.add(path);
-  notify(path);
-  scheduleFlush();
+  marks.replace(path, sortMarks(next));
+  listeners.notify(path);
 }
 
 export interface NewMark {
@@ -392,39 +289,13 @@ export function removeMark(path: string, id: string): void {
   if (next.length !== existing.length) mutate(path, next);
 }
 
-/** Drop a document's marks from memory. The stored copy is untouched. */
-/** Closed documents whose unsaved changes must be written before they go. */
-const forgetAfterFlush = new Set<string>();
-
-function forgetNow(path: string): void {
-  if (!forgetAfterFlush.delete(path)) return;
-  marksByPath.delete(path);
-  identityByPath.delete(path);
-}
-
 /**
- * Drop a closed document's in-memory copy. While it has changes a write has
- * not yet stored — the last one failed — the copy stays until one does: it is
- * the only copy of them (16.0).
+ * Drop a closed document's in-memory copy. While it has changes a write has not
+ * yet stored — the last one failed — the copy stays until one does: it is the
+ * only copy of them (16.0).
  */
 export function forgetMarks(path: string): void {
-  forgetAfterFlush.add(path);
-  if (!dirty.has(path)) forgetNow(path);
-}
-
-export interface MarkStoreStats {
-  docs: number;
-  marks: number;
-}
-
-export async function getMarkStoreStats(): Promise<MarkStoreStats> {
-  await flushMarkStore();
-  try {
-    const docs = await withStoreLock(readDocs);
-    return { docs: docs.length, marks: docs.reduce((n, d) => n + d.marks.length, 0) };
-  } catch {
-    return { docs: 0, marks: 0 };
-  }
+  marks.forget(path);
 }
 
 // Closing the window with edits still buffered would throw away the reader's
@@ -438,14 +309,6 @@ if (typeof window !== "undefined") {
 }
 
 export function __resetMarkStoreForTests(): void {
-  forgetAfterFlush.clear();
-  marksByPath.clear();
-  identityByPath.clear();
-  dirty.clear();
+  marks.reset();
   listeners.clear();
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  store = null;
 }

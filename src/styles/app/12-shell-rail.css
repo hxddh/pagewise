@@ -486,8 +486,8 @@
 }
 
 .app.v3 .composer-hint {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
   flex: 1;
   min-width: 0;
 }

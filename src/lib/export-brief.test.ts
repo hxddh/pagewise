@@ -64,7 +64,7 @@ describe("briefToMarkdown", () => {
     expect(md.slice(md.indexOf("## Conclusions"), md.indexOf("## Evidence"))).toContain(
       "Nothing yet.",
     );
-    expect(md.slice(md.indexOf("## To re-check"))).toContain("_nothing to check against_");
+    expect(md.slice(md.indexOf("## To re-check"))).toContain("_Nothing to check against_");
   });
 
   it("carries the whole kept answer under its conclusion, indented", () => {

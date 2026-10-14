@@ -1,4 +1,4 @@
-import { memo, useContext } from "react";
+import { memo, useContext, useMemo } from "react";
 import type { UIMessage } from "ai";
 import { isToolUIPart } from "ai";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -260,10 +260,33 @@ function MessageContentInner({
   const readPages = message.role === "assistant" && !live ? collectReadPages(parts) : [];
   const showReasoningAsAnswer = message.role === "assistant" && !hasAnswerText(parts);
   const segments = segmentMessageParts(parts);
+  /*
+   * Provenance under the answer, once there is an answer (17.0).
+   *
+   * While a run is going the steps belong at the top: they are the only thing
+   * to look at until text arrives, and the live progress strip lives there
+   * anyway. Once the answer is written they are provenance — "what it read" —
+   * and a transcript that opens every turn with a tool line buries the answer
+   * under its own receipts. Applied to settled messages only, so nothing moves
+   * while text is still streaming in; the scroll container's `overflow-anchor`
+   * holds the reader's place through the one reflow at the end of a run.
+   *
+   * Segment indices are carried through so React keys stay stable across the
+   * reorder.
+   */
+  const orderedSegments = useMemo(() => {
+    const indexed = segments.map((segment, index) => ({ segment, index }));
+    if (live) return indexed;
+    if (!segments.some((s) => s.kind !== "tools")) return indexed;
+    return [
+      ...indexed.filter(({ segment }) => segment.kind !== "tools"),
+      ...indexed.filter(({ segment }) => segment.kind === "tools"),
+    ];
+  }, [segments, live]);
 
   let sawAnswerBody = false;
 
-  const body = segments.map((segment, segmentIndex) => {
+  const body = orderedSegments.map(({ segment, index: segmentIndex }) => {
     if (segment.kind === "tools") {
       return (
         <ToolStepsBlock

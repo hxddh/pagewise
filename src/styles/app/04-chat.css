@@ -346,25 +346,130 @@
 }
 
 .markdown p {
-  margin: 0 0 0.75em;
+  margin: 0 0 0.7em;
 }
 
 .markdown p:last-child {
   margin-bottom: 0;
 }
 
+/*
+ * The answer's own structure, made visible (17.0).
+ *
+ * These three rules used to be one: `font-size: 1em` for every heading. The
+ * prompt asks the model to structure long answers with `##`/`###`, so a reader
+ * was handed sections they could not see — a heading rendered as bold body
+ * text, with the same margin on both sides. Three steps from `tokens.css`,
+ * ~1.1 apart: enough to read as levels, small enough that a section heading in
+ * a 420px column is not a billboard. `h4` exists because models emit it.
+ */
 .markdown h1,
 .markdown h2,
-.markdown h3 {
-  margin: 1em 0 0.5em;
-  font-size: 1em;
+.markdown h3,
+.markdown h4 {
+  line-height: var(--leading-tight);
   font-weight: 600;
+  color: var(--text);
+}
+
+.markdown h1 {
+  margin: 1.4em 0 0.55em;
+  font-size: var(--text-read-display);
+}
+
+.markdown h2 {
+  margin: 1.4em 0 0.5em;
+  font-size: var(--text-read-title);
+}
+
+.markdown h3 {
+  margin: 1.25em 0 0.4em;
+  font-size: var(--text-read-subtitle);
+}
+
+.markdown h4 {
+  margin: 1.15em 0 0.35em;
+  font-size: var(--text-read);
+}
+
+/* A heading opening the answer carries no space above it. */
+.markdown > :first-child {
+  margin-top: 0;
 }
 
 .markdown ul,
 .markdown ol {
-  margin: 0 0 0.75em;
-  padding-left: 1.25em;
+  margin: 0 0 0.7em;
+  padding-left: 1.4em;
+}
+
+/* Enough air between items to see them as items, not as wrapped prose. */
+.markdown li + li {
+  margin-top: 0.25em;
+}
+
+/* A list item holding a paragraph (loose lists) is not double-spaced. */
+.markdown li > p {
+  margin: 0;
+}
+
+.markdown li::marker {
+  color: var(--text-muted);
+}
+
+.markdown hr {
+  margin: 1.4em 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/*
+ * Tables.
+ *
+ * The prompt tells the model to answer list/compare questions with a Markdown
+ * table (`agent.ts`: "answer with a Markdown table: one row per item"). Until
+ * 17.0 there was no `.markdown table` rule anywhere in the app — the record
+ * panel had one, the answer did not — so those answers arrived as the browser's
+ * default: no padding, no rules, columns running together. The reader got the
+ * one shape the product explicitly asks for, unstyled.
+ *
+ * The wrapper (in `Markdown.tsx`) scrolls sideways instead of the page doing
+ * it, and numeric cells — detected in the `td`/`th` renderers, because CSS
+ * cannot see that a column holds numbers — take `tabular-nums` and align right.
+ */
+.md-table-wrap {
+  margin: 0 0 0.9em;
+  overflow-x: auto;
+}
+
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  /* Table text runs one step below body: it is scanned, not read line by line. */
+  font-size: var(--text-base);
+  line-height: 1.45;
+}
+
+.markdown th,
+.markdown td {
+  padding: 0.45em 0.7em;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+  text-align: left;
+}
+
+.markdown th {
+  background: var(--bg-elevated);
+  font-weight: 600;
+}
+
+.markdown tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown .md-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .markdown code {
@@ -389,9 +494,9 @@
 }
 
 .markdown blockquote {
-  margin: 0;
+  margin: 0 0 0.7em;
   padding-left: var(--space-lg);
-  border-left: 2px solid var(--border);
+  border-left: 2px solid var(--border-strong);
   color: var(--text-secondary);
 }
 
@@ -484,7 +589,8 @@ button.pages-read-chip:hover {
   border: none;
   background: none;
   font: inherit;
-  color: var(--accent);
+  /* --accent-text, not --accent: this is a link inside a sentence (4.07:1 → 6.5:1). */
+  color: var(--accent-text);
   cursor: pointer;
   border-radius: var(--radius-sm);
   text-decoration: underline;
@@ -516,7 +622,10 @@ button.pages-read-chip:hover {
   border-radius: var(--radius-sm);
   background: transparent;
   font: inherit;
-  font-size: 0.68em;
+  /* The chip is a footnote marker, so it may sit below body size — but not
+     below the app's own floor for readable text (11px). At 15px body, 0.72em
+     is 10.8px, so the floor is what actually applies. */
+  font-size: max(11px, 0.72em);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
   text-align: center;
@@ -536,7 +645,7 @@ button.pages-read-chip:hover {
  * dotted, dashed and a heavier border were not told apart.
  */
 .cite-level-verified {
-  color: var(--finding);
+  color: var(--finding-text);
 }
 
 .cite-level-check {
@@ -579,7 +688,7 @@ button.pages-read-chip:hover {
 /* Each part in its level's ink, so one citation not found does not turn the
    whole line red (16.0). */
 .citation-tally-verified {
-  color: var(--finding);
+  color: var(--finding-text);
 }
 
 .citation-tally-check {
@@ -662,13 +771,6 @@ button.pages-read-chip:hover {
   color: var(--text-secondary);
 }
 
-.tool-fold-state {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-
 /* A step in the run is a way back to the page it read — numbered, so the run
    reads as a sequence. The padding and list-style here were overridden from
    part 13 for exactly that; merged rather than left as two half-rules. */
@@ -683,31 +785,6 @@ button.pages-read-chip:hover {
 
 .tool-steps-list li + li {
   margin-top: var(--space-xs);
-}
-
-.tool-debug {
-  padding: 0 var(--space-md) var(--space-md);
-}
-
-.tool-debug pre {
-  margin: var(--space-xs) 0 0;
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-base);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-.tool-label {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
 }
 
 .reasoning-block {

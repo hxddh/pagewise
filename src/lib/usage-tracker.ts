@@ -52,8 +52,3 @@ export function recordVisionCall(path: string): void {
 export function getVisionCallCount(path: string): number {
   return docVisionCalls.get(path) ?? 0;
 }
-
-export function resetVisionCallCount(path?: string): void {
-  if (path === undefined) docVisionCalls.clear();
-  else docVisionCalls.delete(path);
-}

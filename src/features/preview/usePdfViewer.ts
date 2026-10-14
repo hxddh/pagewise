@@ -164,12 +164,48 @@ export function usePdfViewer({
       // Already handled — the resize handle's arrows, say — is not a page turn (B19).
       if (e.defaultPrevented) return;
       if (isTypingTarget(e.target) || isOverlayOpen()) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      /*
+       * Zoom on the chord every reader already knows (17.0), before the
+       * modifier guard below — that guard exists to keep page keys unmodified.
+       * `=` is what `+` produces without shift, and both spellings are accepted
+       * because the key a reader presses depends on their keyboard.
+       */
+      if (e.metaKey || e.ctrlKey) {
+        if (e.altKey) return;
+        if (e.key === "=" || e.key === "+") {
+          zoomIn();
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "-" || e.key === "_") {
+          zoomOut();
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "0") {
+          toggleFitWidth();
+          e.preventDefault();
+          return;
+        }
+        return;
+      }
+      if (e.altKey) return;
       switch (e.key) {
         case "PageDown":
           if (scrollByViewport(1)) e.preventDefault();
           break;
         case "PageUp":
+          if (scrollByViewport(-1)) e.preventDefault();
+          break;
+        /*
+         * j/k, the reading keys: a viewport at a time, like PageDown/PageUp.
+         * Bound to the scroll rather than to a page turn so they never skip
+         * past the paragraph the reader is in the middle of.
+         */
+        case "j":
+          if (scrollByViewport(1)) e.preventDefault();
+          break;
+        case "k":
           if (scrollByViewport(-1)) e.preventDefault();
           break;
         case "Home":
@@ -193,7 +229,7 @@ export function usePdfViewer({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doc.kind, nextPage, prevPage, scrollByViewport, scrollToEnd]);
+  }, [doc.kind, nextPage, prevPage, scrollByViewport, scrollToEnd, zoomIn, zoomOut, toggleFitWidth]);
 
   return {
     zoom,

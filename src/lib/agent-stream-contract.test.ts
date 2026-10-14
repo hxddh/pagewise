@@ -220,6 +220,16 @@ describe("what a run streams to the UI", () => {
     // The reader pressed stop. If the stream still closed with `finish` the UI
     // would file a half-written answer as a completed one, with usage metadata
     // for a run that never reached its end.
+    //
+    // `finish-step` before the terminal `abort` is intended, not a leak: the
+    // step that had already produced output is closed out, and `abort` is the
+    // last chunk (AI SDK's resilient stream enqueues `{type: "abort"}` and then
+    // closes; `ToolLoopAgent` and `streamText` share it). This assertion used to
+    // pin `abort` directly after `tool-output-available`, which was true only
+    // while the client cut the pipeline short — the cleanup that 7.0.135's
+    // `Chat.stop()` waits for now lets that trailing `finish-step` through.
+    // What must hold is that the run's OWN end (`finish`) never appears, no
+    // answer text was written, and `abort` is last.
     const stop = new AbortController();
     const chunks = await drain(
       (await transportFor(twoStepAgent()).sendMessages({
@@ -242,8 +252,14 @@ describe("what a run streams to the UI", () => {
       "tool-input-delta",
       "tool-input-available",
       "tool-output-available",
+      // Closing the step that produced the tool result. Not the run's end.
+      "finish-step",
       "abort",
     ]);
+    expect(
+      chunks[chunks.length - 1]?.type,
+      "a stopped run ends on abort, whatever else it emitted before it",
+    ).toBe("abort");
     expect(
       chunks.some((c) => c.type === "finish"),
       "a run the reader stopped has not finished",

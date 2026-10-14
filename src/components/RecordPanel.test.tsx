@@ -164,7 +164,7 @@ describe("the record panel, 12.0", () => {
     addFinding(PATH, { pages: [1], claim: "Old.", stamp: "older-stamp" });
     const { container, rerender } = trusted();
     expect(container.querySelector(".record-entry")?.getAttribute("data-trust")).toBe("stale");
-    expect(screen.getByText("record.trustStale")).toBeTruthy();
+    expect(screen.getByText("trust.stale.long")).toBeTruthy();
 
     fireEvent.click(screen.getByText("record.confirm"));
     // Checking it against the file that is open is what "re-check" asked for,
@@ -183,7 +183,7 @@ describe("the record panel, 12.0", () => {
       />,
     );
     expect(container.querySelector(".record-entry")?.getAttribute("data-trust")).toBe("confirmed");
-    expect(screen.getByText("record.trustConfirmed")).toBeTruthy();
+    expect(screen.getByText("trust.confirmed.long")).toBeTruthy();
   });
 
   it("lets the reader rewrite a claim, and counts that as checking it", () => {
@@ -202,6 +202,6 @@ describe("the record panel, 12.0", () => {
     addFinding(PATH, { pages: [999], claim: "Nowhere.", stamp: "s" });
     const { container } = trusted();
     expect(container.querySelector(".record-entry-inactive")).not.toBeNull();
-    expect(screen.getByText("record.trustRetracted")).toBeTruthy();
+    expect(screen.getByText("trust.retracted.long")).toBeTruthy();
   });
 });

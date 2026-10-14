@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
 import { SessionProvider, useSession } from "./session/SessionProvider";
 import { useI18n } from "./i18n";
@@ -53,6 +53,9 @@ const PreviewPane = lazy(() =>
 const ChatPanel = lazy(() =>
   import("./pages/ChatPanel").then((m) => ({ default: m.ChatPanel })),
 );
+// Type-only: the panel stays lazily loaded, but its imperative handle is what
+// "Ask about this" uses to put the caret in the composer.
+import type { ChatPanelHandle } from "./pages/ChatPanel";
 
 function PanelFallback() {
   const { t } = useI18n();
@@ -100,15 +103,31 @@ function AppContent() {
   // Put something from the document into the composer and show it. The caller
   // decides what the text says — a quoted passage, or a sentence naming the
   // page a mark is on — because only the caller knows which it has.
+  //
+  // "Ask about this" has to end with the caret in the input (17.0): the reader
+  // selected a passage in order to ask about it, and a click that leaves focus
+  // on the page is a click that has to be followed by another one. The panel may
+  // be closed at this instant, so the focus request is queued on a counter and
+  // served after the panel has mounted.
+  const chatRef = useRef<ChatPanelHandle>(null);
+  const [focusComposerNonce, setFocusComposerNonce] = useState(0);
   const askAboutSelection = useCallback(
     (text: string) => {
       const insert = text.trim();
       if (!insert) return;
       setComposerDraft((prev) => (prev.trim() ? `${prev.trim()} ${insert} ` : `${insert} `));
       s.setAgentOpen(true);
+      setFocusComposerNonce((n) => n + 1);
     },
     [s],
   );
+
+  useEffect(() => {
+    if (focusComposerNonce === 0) return;
+    // Two frames: one for the panel to mount, one for its textarea to exist.
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => chatRef.current?.focusComposer()));
+    return () => cancelAnimationFrame(id);
+  }, [focusComposerNonce]);
 
   const openableRecents = openableRecentFiles(s.recentFiles);
 
@@ -173,6 +192,25 @@ function AppContent() {
   });
 
   useFollowAgent(prefs.followAgent, agent.messages, s.setPreviewPage);
+
+  /**
+   * True while the reader is dragging the divider.
+   *
+   * The panel's width transition is for opening and closing; during a drag the
+   * width changes on every pointer move, and interpolating each of those makes
+   * the divider trail the pointer.
+   */
+  const [panelDragging, setPanelDragging] = useState(false);
+  useEffect(() => {
+    if (!panelDragging) return;
+    const end = () => setPanelDragging(false);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [panelDragging]);
 
   return (
     <div className="app v3">
@@ -299,7 +337,10 @@ function AppContent() {
 
             {s.agentOpen && (
               <ResizeHandle
-                onPointerDown={s.onPointerDown}
+                onPointerDown={(e) => {
+                  setPanelDragging(true);
+                  s.onPointerDown(e);
+                }}
                 onNudge={s.nudgeWidth}
                 value={s.chatWidth}
                 min={s.minWidth}
@@ -307,12 +348,15 @@ function AppContent() {
               />
             )}
             <div
-              className={`chat-column ${s.agentOpen ? "" : "chat-column-hidden"}`}
+              className={`chat-column ${s.agentOpen ? "" : "chat-column-hidden"}${
+                panelDragging ? " chat-column-dragging" : ""
+              }`}
               style={s.agentOpen ? { width: s.chatWidth } : undefined}
               aria-hidden={!s.agentOpen}
             >
               <Suspense fallback={<PanelFallback />}>
                 <ChatPanel
+                  ref={chatRef}
                   activeDoc={doc}
                   previewPage={s.previewPage}
                   includeViewingPage={prefs.includeViewingPage}
