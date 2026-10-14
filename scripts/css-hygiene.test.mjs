@@ -248,7 +248,12 @@ describe("CSS hygiene", () => {
     const walk = (dir) => {
       for (const entry of readdirSync(join(ROOT, "src/styles", dir), { withFileTypes: true })) {
         if (entry.isDirectory()) walk(join(dir, entry.name));
-        else if (entry.name.endsWith(".css")) stylesheets.push(join(dir, entry.name));
+        else if (entry.name.endsWith(".css")) {
+          // Forward slashes: this list is compared in an assertion, and on
+          // Windows `join` hands back backslashes. (The repo has been bitten by
+          // exactly this twice — see the Windows-checks note in ci.yml.)
+          stylesheets.push(join(dir, entry.name).split("\\").join("/"));
+        }
       }
     };
     walk(".");
