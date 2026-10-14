@@ -4,6 +4,24 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [17.0.3] - 2026-10-14
+
+The macOS app opens again. The cause was mine, and it was in the entitlements: the signature carried `keychain-access-groups`, which is a *restricted* entitlement — it needs a provisioning profile and a Team ID. An ad-hoc signature has neither, so macOS kills the process at launch and the Finder says **"the application can't be opened"**. Nothing runs, so nothing writes a crash log, and the message looks like the signing problem it is not.
+
+The entry had been in `Entitlements.plist` since 0.2.0 and was inert for four years: unsigned bundles carry no entitlements at all. 17.0.1 began signing the bundle — the fix for the "is damaged" message — which is what finally put the entry into a real signature. Two different failures, one week apart, both reading as "macOS will not open this".
+
+### Fixed
+
+- **`keychain-access-groups` is gone from the entitlements.** It was never needed: `keyring`'s macOS backend uses the file-based login keychain (`SecKeychainAddGenericPassword`), which is per-user and takes no access group — those exist for sharing items between apps of one team. The value that shipped was the literal `$(AppIdentifierPrefix)com.hxddh.pagewise`, because an ad-hoc signature has no App ID prefix to substitute.
+- **`com.apple.security.cs.disable-library-validation` is added**, the documented companion for an ad-hoc build under the hardened runtime: library validation matches loaded libraries against a Team ID that an ad-hoc signature does not have.
+- **`scripts/check-entitlements.mjs` fails the build on a restricted entitlement** (`keychain-access-groups`, `com.apple.developer.*`, `application-identifier`, `application-groups`, `aps-environment`, `get-task-allow`) and on a missing ad-hoc requirement. It runs in the `prebuild` chain, so it is checked on every platform on every build, not only where the mistake shows up — on a reader's Mac. Verified to fail on 17.0.2's file, naming the key.
+- `docs/RELEASE.md` and the plist's own comments record the rule: with `signingIdentity: "-"`, the entitlements may only contain switches any signature can carry, or the project must move to a Developer ID.
+
+### Notes
+
+- Readers on 17.0.1 or 17.0.2 can test the diagnosis without waiting for this build: `codesign --force --deep --sign - /Applications/PageWise.app` re-signs the installed copy with no entitlements, and the app opens if this is the cause.
+- Ad-hoc signing is still not notarization: the first-launch approval (`xattr -dr com.apple.quarantine`, or Privacy & Security → Open Anyway) still applies, once per version.
+
 ## [17.0.2] - 2026-10-14
 
 macOS ships one build for both architectures. 17.0.0 and 17.0.1 published an arm64-only `.dmg`, which on an Intel Mac cannot run at all — and macOS reports that as *"the application cannot be opened"*, the same shape of message as the signing problem 17.0.1 fixed, which is how two unrelated causes came to look like one.

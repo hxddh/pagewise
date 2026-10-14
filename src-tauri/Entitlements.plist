@@ -1,16 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What the macOS bundle asks of the system, and nothing else.
+
+  Every key here is a hardened-runtime or sandbox switch that any signature may
+  carry. That constraint is the whole point: this project signs ad-hoc
+  (`signingIdentity: "-"`, see docs/RELEASE.md), an ad-hoc signature has no
+  Team ID, and a *restricted* entitlement — one that needs a provisioning
+  profile to be legitimate — makes macOS refuse to launch the app at all.
+
+  It did refuse. 17.0.0 shipped a `keychain-access-groups` entry with the
+  literal value `$(AppIdentifierPrefix)com.hxddh.pagewise`, because an ad-hoc
+  signature has no App ID prefix to substitute. 17.0.1 began signing, which was
+  the first time that entry actually reached a signature — and the app stopped
+  opening on Apple Silicon with "the application can't be opened", a different
+  message from the unsigned build's "is damaged", for a different reason:
+  AMFI kills the process at exec ("its use of the keychain-access-groups
+  entitlement is not allowed", error -67050), so nothing ever runs to write a
+  crash log. `scripts/check-entitlements.mjs` now fails the build if a
+  restricted key is added back.
+
+  The removed entry was never needed. `keyring`'s macOS backend uses the
+  file-based login keychain (`SecKeychainAddGenericPassword` through
+  `security-framework`), which is per-user and needs no keychain access group;
+  access groups exist for *sharing* items between apps of one team.
+-->
 <plist version="1.0">
 <dict>
+  <!-- Not sandboxed: the app reads documents the reader picks, and the sandbox
+       would need a bookmarks dance to keep them after a restart. -->
   <key>com.apple.security.app-sandbox</key>
   <false/>
+  <!-- The webview's JavaScript engine. Under the hardened runtime a missing
+       allow-jit caps the reader's UI at the interpreter. -->
   <key>com.apple.security.cs.allow-jit</key>
   <true/>
-  <key>com.apple.security.network.client</key>
+  <!-- Ad-hoc signatures have no Team ID, and the hardened runtime's library
+       validation matches loaded libraries against that Team ID. Any non-Apple
+       library we ship would be rejected as "different Team IDs"; this is the
+       entitlement that tells the loader not to make that comparison. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
-  <key>keychain-access-groups</key>
-  <array>
-    <string>$(AppIdentifierPrefix)com.hxddh.pagewise</string>
-  </array>
 </dict>
 </plist>
