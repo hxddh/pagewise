@@ -99,11 +99,17 @@ Every release on [GitHub Releases](https://github.com/hxddh/pagewise/releases) c
 | Windows (x86-64) | `PageWise_<version>_x64-setup.exe` or `PageWise_<version>_x64_en-US.msi` |
 | Linux (x86-64) | `pagewise_<version>_amd64.AppImage` (`chmod +x` and run) or `.deb` |
 
-**Nothing is code-signed or notarized.** On macOS, Gatekeeper blocks the first launch — either right-click the app and choose **Open** (then confirm), or clear the quarantine attribute:
+**Nothing is notarized.** The macOS bundle is *ad-hoc signed* (`signingIdentity: "-"`), because an unsigned `.app` downloaded to an Apple Silicon Mac does not merely warn — macOS reports it as **“PageWise is damaged and can’t be opened. You should move it to the Trash.”**, which no amount of right-clicking clears. Ad-hoc signing replaces that message with the ordinary “unverified developer” prompt, which has a way through.
+
+If you are on an affected download, clear the quarantine attribute once:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/PageWise.app
 ```
+
+Then open the app normally. (Nothing is wrong with the file — the attribute is what macOS adds to *any* download, and it is what makes an unnotarized app fail its check. To confirm the download itself is intact before doing this, `codesign --verify --deep --strict /Applications/PageWise.app` should print nothing.)
+
+On macOS 15 and later the old right-click → **Open** shortcut was removed; the equivalent is to try opening the app once, then go to **System Settings → Privacy & Security → Open Anyway**. Clearing the quarantine attribute does the same thing without the detour.
 
 Windows SmartScreen shows a "unrecognized app" warning for the same reason; choose **More info → Run anyway**.
 

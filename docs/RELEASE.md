@@ -64,21 +64,20 @@ cancelling it. A release with every platform failed is refused.
 
 3. GitHub Actions (`release.yml`) builds all three platforms and attaches them to the release, **or** upload local installers manually via the Releases UI.
 
-### Code signing (not yet wired)
+### Code signing
 
-> **Note:** `release.yml` does **not** currently sign or notarize builds. The
-> steps below describe what *would* need to be added; none of these secrets or
-> hooks exist in the workflow today.
+The macOS bundle is **ad-hoc signed** — `bundle.macOS.signingIdentity: "-"` in `tauri.conf.json`. This is deliberate and is the supported option for a project without an Apple Developer certificate ([Tauri: Ad-Hoc Signing](https://v2.tauri.app/distribute/sign/macos/)).
 
-CI-built DMGs are unsigned, so users must right-click → **Open** (or run
-`xattr -dr com.apple.quarantine /Applications/PageWise.app`) on first launch.
-For signed distribution outside your team you would need to:
+Why it is not optional: on Apple Silicon, macOS requires every executable to carry a signature, and a **downloaded** `.app` that has none is not reported as an unverified developer — it is reported as *"PageWise is damaged and can't be opened. You should move it to the Trash."* 17.0.0 shipped that way and produced exactly that message: the published `.app` had no `Contents/_CodeSignature` at all. Ad-hoc signing gives the bundle a real signature, so the failure mode is the ordinary unverified-developer prompt, which has a way through (right-click → **Open** before macOS 15; **System Settings → Privacy & Security → Open Anyway** from macOS 15 on).
 
-- Obtain an Apple Developer ID Application certificate
-- Add `APPLE_SIGNING_IDENTITY` (and related secrets) to the release workflow
-- Notarize with `notarytool`
+What it does **not** do is remove the prompt. Only notarization does, and notarization needs:
 
-See [Tauri macOS code signing](https://v2.tauri.app/distribute/sign/macos/).
+- an Apple Developer account with a `Developer ID Application` certificate
+- `APPLE_CERTIFICATE` (base64 `.p12`) + `APPLE_CERTIFICATE_PASSWORD` secrets, imported into a temporary keychain in the macOS job
+- `APPLE_ID` + `APPLE_PASSWORD` (app-specific) + `APPLE_TEAM_ID` for `notarytool`, which Tauri drives when these are present
+- `APPLE_SIGNING_IDENTITY` set to the certificate's name instead of `-`
+
+With those in place, `tauri build` signs and notarizes in one pass and the download opens with no prompt at all. Until then, the README's install section is the user-facing instruction, and it is the place to keep current: the "damaged" wording, the one-line `xattr -dr com.apple.quarantine` fix, and the macOS 15 change to the manual bypass are all recorded there.
 
 ## CI
 

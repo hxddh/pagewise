@@ -4,6 +4,23 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [17.0.1] - 2026-10-14
+
+The macOS build is signed now — ad-hoc, which is what a project without an Apple Developer certificate can do, and the difference between "unverified developer" and "damaged".
+
+17.0.0's `.app` carried no signature at all. Verified from the published artifact: no `Contents/_CodeSignature`, nothing for `codesign --verify` to check. On Apple Silicon a downloaded app with no signature is not reported as coming from an unverified developer — it is reported as **"PageWise is damaged and can't be opened. You should move it to the Trash."**, which no right-click clears. That is the message 17.0.0 produced.
+
+### Fixed
+
+- **The macOS bundle is ad-hoc signed** (`bundle.macOS.signingIdentity: "-"`, Tauri's supported option for this case). The download now gets the ordinary unverified-developer prompt, whose way through is documented: right-click → **Open** before macOS 15, or **System Settings → Privacy & Security → Open Anyway** from macOS 15 on.
+- **The install instructions name the symptom.** `README.md` now quotes the "damaged" message, gives the one-line `xattr -dr com.apple.quarantine` fix, says how to check the download is intact (`codesign --verify --deep --strict`), and stops recommending right-click → **Open**, which macOS 15 removed.
+- `docs/RELEASE.md` records why ad-hoc signing is not optional on Apple Silicon and exactly what notarization would need to remove the prompt (certificate, four secrets, `APPLE_SIGNING_IDENTITY`).
+
+### Notes
+
+- Ad-hoc signing is exercised on the macOS runner — `codesign` runs as part of bundling, and the release job fails if it does not. It cannot be verified from the development machine, which is Linux.
+- Notarization is still not wired. Until it is, every macOS download needs the one-time quarantine step, and the README is where that lives.
+
 ## [17.0.0] - 2026-10-14
 
 The answer is a piece of reading, and asking starts on the page.
