@@ -43,6 +43,9 @@ src-tauri/target
 release-notes.md
 docs/ui-shots/
 
+# Performance probe output (scripts/perf-probe.mjs)
+.perf/
+
 # Evaluation build output and fetched third-party documents
 eval/extract/target
 eval/corpus/fetched/

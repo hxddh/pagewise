@@ -208,3 +208,38 @@ jobs:
             exit 1
           fi
           npm run ui:inventory
+
+  # The running app's performance, `npm run perf`: boot, a 120-page open, two
+  # scroll speeds, a fling's settle, a windowed jump, the thumbnail sidebar, a
+  # 500-page search, a streamed answer, a 100-turn session and a scan-shaped
+  # document. 18.0 measured all of these by hand before setting the budgets
+  # (docs/reviews/2026-10-14-pagewise-v18-next-major-review.md §1.2); nothing
+  # held them before, and "it feels slower" is not a check.
+  #
+  # The budgets are the measured values with room for a slower machine — this
+  # job exists to catch the 5–50× regressions (an unvirtualized list, a raster
+  # per scroll tick), not 20% noise, so it should not need retries to pass.
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Point the probe at the browser Playwright installed
+        run: echo "PLAYWRIGHT_CHROMIUM_PATH=$(node -p 'require("playwright").chromium.executablePath()')" >> "$GITHUB_ENV"
+
+      - name: Build the frontend
+        run: npm run build
+
+      - name: Performance budgets
+        run: npm run perf

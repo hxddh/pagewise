@@ -25,6 +25,7 @@
     "prebuild": "npm run prepare:pdfjs && npm run prepare:ocr && npm run check:secrets && npm run check:css && npm run check:css-order && npm run check:buttons && npm run check:i18n && npm run check:entitlements",
     "tauri": "tauri",
     "ui:shots": "node scripts/ui-shots.mjs",
+    "perf": "node scripts/perf-probe.mjs",
     "postbuild": "node scripts/check-bundle.mjs",
     "audit:request": "node scripts/request-audit.mjs",
     "audit:citations": "node scripts/citation-audit.mjs",
