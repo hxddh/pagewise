@@ -37,20 +37,17 @@ release:
 
 | Runner | `--bundles` | Produces |
 |---|---|---|
-| `macos-latest` (Apple Silicon) | `dmg,app` | `PageWise_<v>_aarch64.dmg`, `PageWise.app.tar.gz` |
+| `macos-latest` (universal) | `dmg,app` with `--target universal-apple-darwin` | `PageWise_<v>_universal.dmg`, `PageWise.app.tar.gz` |
 | `windows-latest` | `msi,nsis` | `PageWise_<v>_x64_en-US.msi`, `PageWise_<v>_x64-setup.exe` |
 | `ubuntu-22.04` | `deb,appimage` | `pagewise_<v>_amd64.deb`, `pagewise_<v>_amd64.AppImage` |
 
-Ubuntu 22.04 rather than `ubuntu-latest` on purpose: a binary's glibc floor is
-the image it was built on, so building on the oldest supported image is what
-lets it run on anything older.
+macOS is built **universal** (aarch64 + x86_64 in one binary) rather than per-architecture. An arm64-only download on an Intel Mac fails with the same wording as a damaged bundle — "the application cannot be opened" — so one artifact for both removes a whole class of install reports, at the cost of a longer macOS build. The job adds the Intel target (`rustup target add x86_64-apple-darwin`) and its bundles land under `src-tauri/target/universal-apple-darwin/release/bundle`, which `verify-bundle-version.mjs` and the workflow's collect step both know about.
 
-**Still not produced:** an Intel macOS `x64.dmg` (needs an explicit
-`--target x86_64-apple-darwin` cross-build), and any ARM Linux/Windows build.
+Ubuntu 22.04 rather than `ubuntu-latest` on purpose: a binary's glibc floor is the image it was built on, so building on the oldest supported image is what lets it run on anything older.
 
-`fail-fast` is off and the release job runs even when a platform fails, so one
-broken runner degrades the release to the platforms that did build rather than
-cancelling it. A release with every platform failed is refused.
+**Still not produced:** any ARM Linux or ARM Windows build.
+
+`fail-fast` is off and the release job runs even when a platform fails, so one broken runner degrades the release to the platforms that did build rather than cancelling it. A release with every platform failed is refused.
 
 ## GitHub release
 

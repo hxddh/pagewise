@@ -95,7 +95,7 @@ Every release on [GitHub Releases](https://github.com/hxddh/pagewise/releases) c
 
 | Platform | Asset |
 |---|---|
-| macOS (Apple Silicon) | `PageWise_<version>_aarch64.dmg` — open it and drag PageWise to Applications |
+| macOS (Apple Silicon **and** Intel) | `PageWise_<version>_universal.dmg` — open it and drag PageWise to Applications |
 | Windows (x86-64) | `PageWise_<version>_x64-setup.exe` or `PageWise_<version>_x64_en-US.msi` |
 | Linux (x86-64) | `pagewise_<version>_amd64.AppImage` (`chmod +x` and run) or `.deb` |
 

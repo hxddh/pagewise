@@ -74,18 +74,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Universal, not aarch64: the Intel half of the macOS audience could
+          # not run the app at all, and an arm64-only download on Intel fails
+          # with the same wording as a damaged bundle — one message for two very
+          # different causes. One artifact, both architectures.
           - os: macos-latest
-            name: macos-aarch64
+            name: macos-universal
             bundles: dmg,app
+            args: --target universal-apple-darwin
           - os: windows-latest
             name: windows-x86_64
             bundles: msi,nsis
+            args: ""
           # Not ubuntu-latest: a binary's glibc floor is the runner it was built
           # on, so building on the oldest supported image is what lets it run on
           # anything older than that image.
           - os: ubuntu-22.04
             name: linux-x86_64
             bundles: deb,appimage
+            args: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -97,6 +104,12 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Add the Intel macOS target
+        # The universal build compiles both slices; the Apple Silicon one is the
+        # runner's own target and is already installed.
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -126,7 +139,7 @@ jobs:
         run: npm run version:sync
 
       - name: Build
-        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }} ${{ matrix.args }}
 
       - name: Verify bundle version
         # Reads the .app's Info.plist, so it is a macOS check; it exits quietly
@@ -137,16 +150,21 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-artifacts
-          bundle="src-tauri/target/release/bundle"
           shopt -s nullglob
-          for f in "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe \
-                   "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage; do
-            cp "$f" release-artifacts/
-          done
-          # A raw .app directory cannot be a release asset; tar keeps its
-          # symlinks and permissions intact.
-          for app in "$bundle"/macos/*.app; do
-            tar -czf release-artifacts/PageWise.app.tar.gz -C "$bundle/macos" "$(basename "$app")"
+          # Two possible roots: a plain build writes under target/release, the
+          # universal macOS build under target/<triple>/release.
+          for bundle in src-tauri/target/release/bundle \
+                        src-tauri/target/universal-apple-darwin/release/bundle; do
+            [ -d "$bundle" ] || continue
+            for f in "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe \
+                     "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage; do
+              cp "$f" release-artifacts/
+            done
+            # A raw .app directory cannot be a release asset; tar keeps its
+            # symlinks and permissions intact.
+            for app in "$bundle"/macos/*.app; do
+              tar -czf release-artifacts/PageWise.app.tar.gz -C "$bundle/macos" "$(basename "$app")"
+            done
           done
           ls -la release-artifacts/
 

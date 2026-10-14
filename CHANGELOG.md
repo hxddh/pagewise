@@ -4,6 +4,19 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 ## [Unreleased]
 
+## [17.0.2] - 2026-10-14
+
+macOS ships one build for both architectures. 17.0.0 and 17.0.1 published an arm64-only `.dmg`, which on an Intel Mac cannot run at all — and macOS reports that as *"the application cannot be opened"*, the same shape of message as the signing problem 17.0.1 fixed, which is how two unrelated causes came to look like one.
+
+### Changed
+
+- **The macOS bundle is universal** (`--target universal-apple-darwin`, one `PageWise_<version>_universal.dmg` for Apple Silicon and Intel). The release job adds the Intel Rust target; its bundles live under `src-tauri/target/universal-apple-darwin/release/bundle`, and both `verify-bundle-version.mjs` and the workflow's collect step now search either root.
+- The README's install table names the universal asset, and `docs/RELEASE.md` records why one artifact beats two here.
+
+### Notes
+
+- Built and verified on the macOS runner: the executable reports `Mach-O universal binary with 2 architectures`. It cannot be built from the Linux development machine.
+
 ## [17.0.1] - 2026-10-14
 
 The macOS build is signed now — ad-hoc, which is what a project without an Apple Developer certificate can do, and the difference between "unverified developer" and "damaged".
