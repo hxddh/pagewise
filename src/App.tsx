@@ -285,6 +285,8 @@ function AppContent() {
       <SettingsDrawer
         open={s.settingsOpen}
         onClose={overlays.closeSettings}
+        assistantConfigured={conn.hasApiKey}
+        settingsReady={conn.settingsReady}
         onLlmSettingsSaved={() => conn.refresh()}
         onApiReady={() => conn.refresh()}
         onReindexDoc={s.reindexDoc}
@@ -295,6 +297,7 @@ function AppContent() {
         onIncludeViewingPageDefaultChange={(value) => void prefs.setIncludeViewingPageDefault(value)}
         onTestResult={(message, ok) => showToast(message, ok ? "success" : "error")}
         onSaveError={() => showToast(t("settings.saveFailed"), "error")}
+        onRefreshConnection={() => conn.refresh()}
       />
 
       <AppRail

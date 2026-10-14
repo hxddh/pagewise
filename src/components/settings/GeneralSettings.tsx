@@ -4,6 +4,8 @@ import { useTheme } from "../../hooks/useTheme";
 import {
   AGENT_SCAN_PAGE_CHOICES,
   AUTO_INDEX_PAGE_CHOICES,
+  READING_SCALE_CHOICES,
+  applyReadingScale,
   loadPreferences,
   patchPreferences,
   resolveOcrLanguages,
@@ -13,12 +15,29 @@ import { clearIndexCache, getIndexCacheStats, type IndexCacheStats } from "../..
 import { setAgentScanCap, setAutoIndexCap } from "../../document/index-queue";
 import { configureOcr } from "../../lib/ocr/ocr-service";
 import { clearOcrCache, getOcrCacheStats } from "../../lib/ocr/ocr-store";
+import { AssistantSettings } from "./AssistantSettings";
 import { Button } from "../ui/Button";
 
+/**
+ * Everything a reader can change, in three groups.
+ *
+ * 18.0 collapsed the old "General" and "AI Provider" tabs into one surface:
+ * appearance, how the app reads pages, and the assistant. The AI tab's
+ * paragraph-long explanations are gone with it — a row is a title, a one-line
+ * caption, and the control. Anything that needs an explanation the caption
+ * cannot carry (endpoints, scan models, thinking) lives in the assistant's
+ * Advanced disclosure instead of on the everyday surface.
+ */
 interface GeneralSettingsProps {
   includeViewingPageDefault: boolean;
   onIncludeViewingPageDefaultChange: (value: boolean) => void;
   onPreferencesSaved?: () => Promise<void>;
+  onLlmSettingsSaved?: () => void;
+  onReindexDoc?: () => void;
+  onApiReady?: () => void;
+  onTestResult?: (message: string, ok: boolean) => void;
+  onSaveError?: () => void;
+  onRefreshConnection?: () => void;
 }
 
 function PillRow<T extends string>({
@@ -57,23 +76,29 @@ export function GeneralSettings({
   includeViewingPageDefault,
   onIncludeViewingPageDefaultChange,
   onPreferencesSaved,
+  onLlmSettingsSaved,
+  onReindexDoc,
+  onApiReady,
+  onTestResult,
+  onSaveError,
+  onRefreshConnection,
 }: GeneralSettingsProps) {
   const { t, localeMode, setLocaleMode } = useI18n();
   const { theme, setTheme } = useTheme();
-  const [localIncludeViewingPage, setLocalIncludeViewingPage] = useState(
-    includeViewingPageDefault,
-  );
   const [autoIndexPages, setAutoIndexPages] = useState<number | null>(null);
+  const [readingScale, setReadingScale] = useState<number | null>(null);
+  const [showUsageLine, setShowUsageLine] = useState(true);
   const [cacheStats, setCacheStats] = useState<IndexCacheStats | null>(null);
   const [localOcr, setLocalOcr] = useState<boolean | null>(null);
   const [ocrStats, setOcrStats] = useState<{ bytes: number; docs: number } | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
 
   useEffect(() => {
-    loadPreferences().then((p) => {
-      setLocalIncludeViewingPage(p.includeViewingPageDefault);
+    void loadPreferences().then((p) => {
       setAutoIndexPages(p.autoIndexPages);
       setLocalOcr(p.localOcr);
+      setReadingScale(p.readingScale);
+      setShowUsageLine(p.showUsageLine);
     });
   }, []);
 
@@ -109,10 +134,10 @@ export function GeneralSettings({
   }, []);
 
   /**
-   * One control for reading pages in the cloud (16.0): how many pages of a
-   * document may be read in the background, and — at the same step — how many
-   * the assistant may send while answering one question. Two settings that
-   * always moved together are one.
+   * One control for reading pages in the cloud: how many pages of a document
+   * may be read in the background, and — at the same step — how many the
+   * assistant may send while answering one question. Two settings that always
+   * moved together are one.
    */
   async function onCloudReading(next: number) {
     const step = Math.max(0, AUTO_INDEX_PAGE_CHOICES.indexOf(next as (typeof AUTO_INDEX_PAGE_CHOICES)[number]));
@@ -123,6 +148,19 @@ export function GeneralSettings({
     setAutoIndexCap(next);
     setAgentScanCap(agent);
     await patchPreferences({ autoIndexPages: next, agentScanPages: agent });
+    await onPreferencesSaved?.();
+  }
+
+  async function onReadingScale(next: number) {
+    setReadingScale(next);
+    applyReadingScale(next);
+    await patchPreferences({ readingScale: next });
+    await onPreferencesSaved?.();
+  }
+
+  async function onShowUsageLine(next: boolean) {
+    setShowUsageLine(next);
+    await patchPreferences({ showUsageLine: next });
     await onPreferencesSaved?.();
   }
 
@@ -138,24 +176,19 @@ export function GeneralSettings({
     }
   }
 
-  async function onIncludeViewingPageChange(checked: boolean) {
-    setLocalIncludeViewingPage(checked);
-    onIncludeViewingPageDefaultChange(checked);
-    await patchPreferences({ includeViewingPageDefault: checked });
-  }
-
   return (
     <div className="settings-page">
       <h3 className="settings-page-title">{t("settings.general")}</h3>
 
       <section className="settings-card">
-        <h4 className="settings-card-title">{t("settings.appearanceAndLanguage")}</h4>
+        <h4 className="settings-card-title">{t("settings.appearanceGroup")}</h4>
         <PillRow
           label={t("settings.appearance")}
           value={theme}
           options={[
             { id: "dark", label: t("settings.themeDark") },
             { id: "light", label: t("settings.themeLight") },
+            { id: "paper", label: t("settings.themePaper") },
             { id: "system", label: t("settings.themeSystem") },
           ]}
           onChange={(id) => void setTheme(id)}
@@ -173,22 +206,21 @@ export function GeneralSettings({
       </section>
 
       <section className="settings-card">
-        <h4 className="settings-card-title">{t("settings.documentAndAgent")}</h4>
-        <label className="settings-row-toggle">
-          <div>
-            <span className="settings-row-title">{t("settings.includeViewingPage")}</span>
-            <span className="settings-row-hint">{t("settings.includeViewingPageHint")}</span>
-          </div>
-          <input
-            type="checkbox"
-            checked={localIncludeViewingPage}
-            onChange={(e) => void onIncludeViewingPageChange(e.target.checked)}
-          />
-        </label>
-      </section>
-
-      <section className="settings-card">
-        <h4 className="settings-card-title">{t("settings.scanning")}</h4>
+        <h4 className="settings-card-title">{t("settings.readingGroup")}</h4>
+        <PillRow
+          label={t("settings.readingScale")}
+          value={String(readingScale ?? 1)}
+          options={READING_SCALE_CHOICES.map((scale) => ({
+            id: String(scale),
+            label:
+              scale < 1
+                ? t("settings.readingScaleSmall")
+                : scale > 1
+                  ? t("settings.readingScaleLarge")
+                  : t("settings.readingScaleDefault"),
+          }))}
+          onChange={(id) => void onReadingScale(Number(id))}
+        />
         <label className="settings-row-toggle">
           <div>
             <span className="settings-row-title">{t("settings.localOcr")}</span>
@@ -211,9 +243,8 @@ export function GeneralSettings({
           }))}
           onChange={(id) => void onCloudReading(Number(id))}
         />
-        <span className="settings-row-hint">{t("settings.cloudReadingHint")}</span>
         <div className="settings-card-divider" />
-        <div className="settings-row-toggle">
+        <div className="settings-row">
           <div>
             <span className="settings-row-title">{t("settings.readPagesCache")}</span>
             <span className="settings-row-hint">
@@ -236,6 +267,19 @@ export function GeneralSettings({
           </Button>
         </div>
       </section>
+
+      <AssistantSettings
+        onLlmSettingsSaved={onLlmSettingsSaved}
+        onReindexDoc={onReindexDoc}
+        onApiReady={onApiReady}
+        onTestResult={onTestResult}
+        onSaveError={onSaveError}
+        onRefreshConnection={onRefreshConnection}
+        includeViewingPageDefault={includeViewingPageDefault}
+        onIncludeViewingPageDefaultChange={onIncludeViewingPageDefaultChange}
+        showUsageLine={showUsageLine}
+        onShowUsageLineChange={(value) => void onShowUsageLine(value)}
+      />
     </div>
   );
 }

@@ -88,7 +88,7 @@
 }
 
 .message {
-  font-size: var(--text-read);
+  font-size: calc(var(--text-read) * var(--reading-scale));
   line-height: var(--leading-read);
   max-width: 100%;
 }
@@ -374,22 +374,22 @@
 
 .markdown h1 {
   margin: 1.4em 0 0.55em;
-  font-size: var(--text-read-display);
+  font-size: calc(var(--text-read-display) * var(--reading-scale));
 }
 
 .markdown h2 {
   margin: 1.4em 0 0.5em;
-  font-size: var(--text-read-title);
+  font-size: calc(var(--text-read-title) * var(--reading-scale));
 }
 
 .markdown h3 {
   margin: 1.25em 0 0.4em;
-  font-size: var(--text-read-subtitle);
+  font-size: calc(var(--text-read-subtitle) * var(--reading-scale));
 }
 
 .markdown h4 {
   margin: 1.15em 0 0.35em;
-  font-size: var(--text-read);
+  font-size: calc(var(--text-read) * var(--reading-scale));
 }
 
 /* A heading opening the answer carries no space above it. */
@@ -891,7 +891,7 @@ button.pages-read-chip:hover {
   margin: 0;
   max-width: var(--measure-read);
   color: var(--text);
-  font-size: var(--text-read);
+  font-size: calc(var(--text-read) * var(--reading-scale));
   line-height: var(--leading-read);
 }
 

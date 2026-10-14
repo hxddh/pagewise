@@ -22,10 +22,17 @@ export interface ProviderProfile {
   connectionVerified?: boolean;
 }
 
-export interface LlmStoreV2 {
-  version: 2;
+export interface LlmStoreV3 {
+  version: 3;
   activeProvider: ProviderId;
   profiles: Partial<Record<ProviderId, ProviderProfile>>;
+  /**
+   * Plaintext key mirrors, written only where the OS keychain refused the key.
+   * `null` is a tombstone: the reader cleared that provider's key, so the
+   * keychain must not be asked for it again. Absent means "ask the keychain,
+   * once per session".
+   */
+  keys?: Partial<Record<ProviderId, string | null>>;
 }
 
 export type PreviewQuality = "auto" | "crisp" | "performance";

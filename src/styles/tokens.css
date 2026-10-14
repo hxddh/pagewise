@@ -152,6 +152,13 @@
   --text-read-display: 21px;
   --text-read-title: 18.5px;
   --text-read-subtitle: 16.5px;
+  /*
+   * The reader's own text scale, three steps, applied by
+   * `applyReadingScale()` to this variable on <html>. It multiplies the four
+   * reading sizes above and nothing else: the chrome is already at its floor,
+   * and "bigger text" means the prose, not the buttons.
+   */
+  --reading-scale: 1;
   /* Headings sit closer to the line above than prose does; 1.65 is for reading, not for titles. */
   --leading-tight: 1.3;
   /*
@@ -270,4 +277,42 @@
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.12);
   --shadow-edge: 8px 0 24px rgba(0, 0, 0, 0.08);
   --scrim: rgba(0, 0, 0, 0.18);
+}
+
+/*
+ * The paper theme: a warm page under a warm chrome.
+ *
+ * Not a lighter light theme. A reader who chooses paper is asking for the
+ * document to look like the thing it was printed on, so every surface carries
+ * the same warm cast and the page stays the brightest area in the window —
+ * the same rule the dark theme follows from the other end. Contrast floors
+ * are the light theme's (4.5:1 body, 3:1 chrome) measured against #faf7f0.
+ */
+[data-theme="paper"] {
+  --bg-base: #f6f2ea;
+  --bg-surface: #fbf8f2;
+  --bg-elevated: #f1ece2;
+  --bg-hover: #eae4d8;
+  --bg-canvas: #e2dccf;
+  --bg-panel: #fbf8f2;
+  --border: #e0d9cb;
+  --border-subtle: #ece6da;
+  --border-strong: #c9c1b0;
+  --text: #211d17;
+  --text-secondary: #57503f;
+  /* Darkened for >=4.5:1 against the paper surfaces */
+  --text-muted: #6d6552;
+  --accent: #5e6ad2;
+  --accent-hover: #4f5bc4;
+  --accent-text: #4a55b8;
+  --finding-text: #7c3aed;
+  --accent-muted: rgba(94, 106, 210, 0.1);
+  --success: #1a7f4e;
+  --warning: #8a5d00;
+  --danger: #b02a2f;
+  --shadow-sm: 0 1px 3px rgba(60, 48, 30, 0.08);
+  --shadow-md: 0 8px 24px rgba(60, 48, 30, 0.1);
+  --shadow-lg: 0 16px 48px rgba(60, 48, 30, 0.14);
+  --shadow-edge: 8px 0 24px rgba(60, 48, 30, 0.1);
+  --scrim: rgba(40, 32, 20, 0.18);
 }

@@ -8,63 +8,78 @@ import {
   defaultVisionModel,
   visionPresetModels,
   type LlmSettings,
-  type LlmStoreV2,
+  type LlmStoreV3,
   type ProviderId,
   type ProviderProfile,
 } from "./types";
-import { isThinkingCapableModel, isKnownNonVisionModel, isToolModel, isVisionModel } from "./model-capabilities";
+import { isKnownNonVisionModel, isThinkingCapableModel, isToolModel, isVisionModel } from "./model-capabilities";
 
 const STORE_PATH = "settings.json";
 const SETTINGS_KEY = "llm";
 
-/** Fields persisted in settings.json — apiKey also mirrored in `apiKeys` for reliable reads. */
-type StoredLlmV1 = Omit<LlmSettings, "apiKey"> & { apiKey?: string; version?: number };
-
 /**
- * On-disk payload. API keys are mirrored in `apiKeys` (per provider) inside the local
- * Tauri app data directory so keys survive unsigned macOS rebuilds where Keychain access
- * prompts or fails. The OS keychain is still updated when available. `apiKey` is the legacy
- * single-slot fallback (associated with the active provider), read for backward compat.
+ * Everything a previous version may have written, read exactly once.
+ *
+ * 18.0 rewrote the payload to v3 and deleted the ladder of migrations that used
+ * to run on every read: v1's flat object, v2's `profiles`, the legacy single
+ * `apiKey` slot, `apiKeysCleared` tombstones and the keychain-import flag. What
+ * replaced them is one function (`migrateToV3`) that runs when the payload on
+ * disk is not v3, and nothing after it. Only v3 is ever written.
  */
-type StoredPayload = LlmStoreV2 & {
+interface LegacyPayload {
+  version?: number;
+  activeProvider?: ProviderId;
+  profiles?: Partial<Record<ProviderId, ProviderProfile>>;
+  /** v1: one flat settings object. */
+  provider?: ProviderId;
+  model?: string;
+  baseURL?: string;
+  thinkingEnabled?: boolean;
+  webSearch?: boolean;
+  connectionVerified?: boolean;
+  /** v1/v2 key carriers. */
   apiKey?: string;
   apiKeys?: Partial<Record<ProviderId, string>>;
-  /** Providers whose keys were explicitly cleared — skip keychain re-import. */
   apiKeysCleared?: Partial<Record<ProviderId, true>>;
-  /** One-time migration: copy any OS keychain keys into the local mirror. */
   apiKeysMigratedFromKeychain?: boolean;
-};
+  /** v3. */
+  keys?: Partial<Record<ProviderId, string | null>>;
+}
 
-type RawStored = StoredLlmV1 & Partial<StoredPayload>;
+type StoredPayload = LegacyPayload;
 
 type KeychainGet = (provider: ProviderId) => Promise<string>;
 type KeychainSet = (provider: ProviderId, key: string) => Promise<void>;
 
 let store: LazyStore | null = null;
-let migrationPromise: Promise<void> | null = null;
+
 /**
  * Session-level record of a keychain we couldn't reach (denied/blocked prompt).
- * Once set, migration and per-read fallbacks stop consulting the keychain to
- * avoid an OS-prompt storm — a single background index sweep otherwise fires
- * hundreds of keychain accesses (loadVisionSettings per page × concurrency).
- * Cleared only on an explicit user action (opening Settings).
+ * Once set, no code path consults the keychain again this session — a single
+ * background index sweep otherwise fires hundreds of keychain accesses
+ * (loadVisionSettings per page × concurrency). Cleared when the reader opens
+ * Settings, which is the moment to re-ask the OS.
  */
 let keychainBlockedThisSession = false;
 export function resetKeychainBlockedFlag(): void {
   keychainBlockedThisSession = false;
-  // Opening Settings is the moment to re-ask the OS, so a key that was
-  // unreadable a moment ago is not answered from a stale cache.
   forgetSessionKey();
 }
 
-let settingsStoreLock: Promise<unknown> = Promise.resolve();
-function withSettingsStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = settingsStoreLock.then(fn, fn);
-  settingsStoreLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
+/**
+ * API keys resolved this session, so the OS keychain is asked once per key.
+ *
+ * On a machine where the keychain works there is deliberately no plaintext
+ * mirror on disk, so every read would otherwise go to the OS — and settings are
+ * resolved on every vision-indexed page. On macOS, where an unsigned build's
+ * changed signature makes the system re-ask for the login keychain password,
+ * that is one prompt per page. Cleared whenever a key is written or removed,
+ * which is the only way it changes from inside the app.
+ */
+const sessionKeys = new Map<ProviderId, string>();
+function forgetSessionKey(provider?: ProviderId): void {
+  if (provider === undefined) sessionKeys.clear();
+  else sessionKeys.delete(provider);
 }
 
 /** In-memory store + injectable keychain for unit tests. */
@@ -82,14 +97,13 @@ export function __resetSettingsStoreForTests(opts?: {
 }): void {
   memoryStore = { value: opts?.store ?? null };
   store = null;
-  migrationPromise = null;
   keychainBlockedThisSession = false;
   forgetSessionKey();
   keychainGet = opts?.keychain?.get ?? getApiKey;
   keychainSet = opts?.keychain?.set ?? setApiKey;
 }
 
-/** Test helper: inspect the raw persisted payload (including plaintext key fallbacks). */
+/** Test helper: inspect the raw persisted payload (including plaintext mirrors). */
 export function __peekSettingsStoreForTests(): StoredPayload | null {
   return memoryStore ? memoryStore.value : null;
 }
@@ -111,6 +125,17 @@ async function getStore(): Promise<LazyStore> {
   return store;
 }
 
+/** Serializes every write so two saves can't interleave their set/save cycles. */
+let writeLock: Promise<unknown> = Promise.resolve();
+function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = writeLock.then(fn, fn);
+  writeLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 export function defaultProviderProfile(provider: ProviderId): ProviderProfile {
   if (provider === "custom") {
     return {
@@ -130,84 +155,293 @@ export function defaultProviderProfile(provider: ProviderId): ProviderProfile {
   };
 }
 
-export function migrateLlmSettings(saved: Partial<LlmSettings> | null | undefined): LlmSettings {
-  const merged: LlmSettings = { ...DEFAULT_SETTINGS, ...saved };
-  // Coerce a corrupt/non-string model before any string ops (.startsWith etc).
-  merged.model = typeof merged.model === "string" ? merged.model : DEFAULT_SETTINGS.model;
-  const legacy = LEGACY_MODEL_MAP[merged.model];
-  if (legacy) {
-    merged.model = legacy.model;
-    merged.thinkingEnabled = legacy.thinkingEnabled;
-    merged.connectionVerified = false;
-  }
-  if (merged.provider === "deepseek" && merged.model.startsWith("deepseek-") && !merged.model.includes("v4")) {
-    merged.model = "deepseek-v4-flash";
-    merged.connectionVerified = false;
-  }
-  if (
-    merged.provider === "deepseek" &&
-    (merged.baseURL === "https://api.deepseek.com/v1" ||
-      merged.baseURL === "https://api.deepseek.com/v1/")
-  ) {
-    merged.baseURL = undefined;
-    merged.connectionVerified = false;
-  }
-  if (
-    merged.provider === "openrouter" &&
-    (merged.model === "deepseek/deepseek-v4-flash" ||
-      merged.model === "deepseek/deepseek-v4-pro")
-  ) {
-    merged.model = "openai/gpt-4o-mini";
-    merged.connectionVerified = false;
-  }
-  return merged;
-}
-
-function migrateProviderProfile(
-  provider: ProviderId,
-  profile: ProviderProfile,
-): ProviderProfile {
-  const asSettings = migrateLlmSettings({ provider, ...profile, apiKey: "" });
-  let model = asSettings.model;
+/**
+ * Coerce a stored profile into something the app can use.
+ *
+ * This is the only place legacy model ids are rewritten: `deepseek-chat` and
+ * `deepseek-reasoner` map to their current equivalents, a DeepSeek `/v1` base
+ * URL is dropped (the endpoint does not use it), and OpenRouter's retired
+ * `deepseek/deepseek-v4-*` routes fall back to a tool-capable model. A rewrite
+ * clears `connectionVerified`, because a model that has never been tested is
+ * exactly what that flag would otherwise claim.
+ */
+function normalizeProfile(provider: ProviderId, profile: ProviderProfile): ProviderProfile {
+  const fallback = defaultProviderProfile(provider);
+  let model = typeof profile.model === "string" && profile.model ? profile.model : fallback.model;
+  let thinking = !!profile.thinkingEnabled;
+  let verified = !!profile.connectionVerified;
+  let baseURL = profile.baseURL;
   let visionModel = profile.visionModel?.trim() ?? "";
-  let connectionVerified = asSettings.connectionVerified;
 
-  let thinkingEnabled = asSettings.thinkingEnabled;
+  const legacy = LEGACY_MODEL_MAP[model];
+  if (legacy) {
+    model = legacy.model;
+    thinking = legacy.thinkingEnabled;
+    verified = false;
+  }
+  if (provider === "deepseek" && model.startsWith("deepseek-") && !model.includes("v4")) {
+    model = "deepseek-v4-flash";
+    verified = false;
+  }
+  if (
+    provider === "deepseek" &&
+    (baseURL === "https://api.deepseek.com/v1" || baseURL === "https://api.deepseek.com/v1/")
+  ) {
+    baseURL = undefined;
+    verified = false;
+  }
+  if (
+    provider === "openrouter" &&
+    (model === "deepseek/deepseek-v4-flash" || model === "deepseek/deepseek-v4-pro")
+  ) {
+    model = "openai/gpt-4o-mini";
+    verified = false;
+  }
 
   if (provider !== "custom") {
-    const presetProvider = provider as Exclude<ProviderId, "custom">;
-    const visionPresets = visionPresetModels(presetProvider);
+    const visionPresets = visionPresetModels(provider);
     if (!visionModel) {
       visionModel =
         isVisionModel(provider, model) && !isToolModel(provider, model)
           ? model
-          : defaultVisionModel(presetProvider);
+          : defaultVisionModel(provider);
     } else if (
       visionPresets.length > 0 &&
       !visionPresets.includes(visionModel) &&
       visionModel === model &&
       isToolModel(provider, model)
     ) {
-      visionModel = defaultVisionModel(presetProvider);
-    } else if (
-      visionModel === "google/gemma-4-31b-it:free" &&
-      visionPresets.length > 0
-    ) {
-      visionModel = defaultVisionModel(presetProvider);
+      visionModel = defaultVisionModel(provider);
+    } else if (visionModel === "google/gemma-4-31b-it:free" && visionPresets.length > 0) {
+      visionModel = defaultVisionModel(provider);
     }
-    if (thinkingEnabled && !isThinkingCapableModel(provider, model)) {
-      thinkingEnabled = false;
-    }
+    if (thinking && !isThinkingCapableModel(provider, model)) thinking = false;
   }
 
   return {
     model,
     visionModel: visionModel || undefined,
-    baseURL: asSettings.baseURL,
-    thinkingEnabled,
-    webSearch: asSettings.webSearch,
-    connectionVerified,
+    baseURL,
+    thinkingEnabled: thinking,
+    webSearch: profile.webSearch,
+    connectionVerified: verified,
   };
+}
+
+function isLlmStoreV3(raw: StoredPayload | null | undefined): raw is LlmStoreV3 & StoredPayload {
+  return (
+    !!raw &&
+    typeof raw === "object" &&
+    raw.version === 3 &&
+    ALL_PROVIDER_IDS.includes(raw.activeProvider as ProviderId) &&
+    !!raw.profiles &&
+    typeof raw.profiles === "object" &&
+    !Array.isArray(raw.profiles)
+  );
+}
+
+/**
+ * Fold anything older than v3 into v3, consulting the keychain at most once.
+ *
+ * Three jobs, in order:
+ *
+ *  1. Profiles. v2 has one per provider; v1 has a single flat object. Each is
+ *     normalized (see `normalizeProfile`), and the active provider always ends
+ *     up with a profile so later reads never have to invent one.
+ *  2. Keys already on disk. v3's `keys` map wins; then v2's per-provider
+ *     mirrors; then v1's single slot; and `apiKeysCleared` becomes a `null`,
+ *     which is v3's way of saying "the reader removed this one — do not ask the
+ *     keychain again".
+ *  3. The keychain. A mirror is a fallback, not a home: where the keychain is
+ *     reachable, a mirrored key is moved into it and taken off the disk. Where
+ *     the keychain refuses, keys found this session are cached in memory and
+ *     the mirror is kept — that is the machine this mirror exists for.
+ */
+async function migrateToV3(raw: StoredPayload | null): Promise<LlmStoreV3> {
+  const profiles: Partial<Record<ProviderId, ProviderProfile>> = {};
+  if (raw?.profiles && typeof raw.profiles === "object" && !Array.isArray(raw.profiles)) {
+    for (const id of ALL_PROVIDER_IDS) {
+      const existing = raw.profiles[id];
+      if (existing) profiles[id] = normalizeProfile(id, existing);
+    }
+  } else {
+    const provider = ALL_PROVIDER_IDS.includes(raw?.provider as ProviderId)
+      ? (raw?.provider as ProviderId)
+      : DEFAULT_SETTINGS.provider;
+    profiles[provider] = normalizeProfile(provider, {
+      model: typeof raw?.model === "string" ? raw.model : "",
+      baseURL: raw?.baseURL,
+      thinkingEnabled: raw?.thinkingEnabled,
+      webSearch: raw?.webSearch,
+      connectionVerified: false,
+    });
+  }
+  const activeProvider = ALL_PROVIDER_IDS.includes((raw?.activeProvider ?? raw?.provider) as ProviderId)
+    ? ((raw?.activeProvider ?? raw?.provider) as ProviderId)
+    : DEFAULT_SETTINGS.provider;
+  if (!profiles[activeProvider]) profiles[activeProvider] = defaultProviderProfile(activeProvider);
+
+  const keys: Partial<Record<ProviderId, string | null>> = { ...(raw?.keys ?? {}) };
+  for (const [provider, value] of Object.entries(raw?.apiKeys ?? {})) {
+    if (keys[provider as ProviderId] === undefined && typeof value === "string" && value.trim()) {
+      keys[provider as ProviderId] = value.trim();
+    }
+  }
+  for (const [provider, cleared] of Object.entries(raw?.apiKeysCleared ?? {})) {
+    if (keys[provider as ProviderId] === undefined && cleared) keys[provider as ProviderId] = null;
+  }
+  const legacyKey = raw?.apiKey?.trim();
+  if (legacyKey && keys[activeProvider] === undefined) keys[activeProvider] = legacyKey;
+
+  // Mirrors → keychain, then off the disk.
+  for (const provider of ALL_PROVIDER_IDS) {
+    const mirror = keys[provider];
+    if (typeof mirror !== "string" || !mirror.trim()) continue;
+    try {
+      const existing = (await keychainGet(provider)).trim();
+      if (existing && existing !== mirror) continue; // a different key: leave the mirror alone
+      if (!existing) {
+        await keychainSet(provider, mirror);
+        if ((await keychainGet(provider)).trim() !== mirror) continue;
+      }
+      delete keys[provider];
+      sessionKeys.set(provider, mirror);
+    } catch {
+      keychainBlockedThisSession = true;
+      break;
+    }
+  }
+
+  // Providers with no answer yet: ask the keychain once, cache in memory only.
+  for (const provider of ALL_PROVIDER_IDS) {
+    if (provider === "ollama" || keys[provider] !== undefined || sessionKeys.has(provider)) continue;
+    if (keychainBlockedThisSession) break;
+    try {
+      const found = (await keychainGet(provider)).trim();
+      if (found) sessionKeys.set(provider, found);
+    } catch {
+      keychainBlockedThisSession = true;
+      break;
+    }
+  }
+
+  const next: LlmStoreV3 = { version: 3, activeProvider, profiles };
+  const entries = Object.entries(keys).filter(
+    ([, value]) => value === null || (typeof value === "string" && value.trim().length > 0),
+  );
+  if (entries.length > 0) next.keys = Object.fromEntries(entries);
+  await writePayload(next);
+  return next;
+}
+
+/**
+ * Persist a v3 payload. `keyUpdate` is the only way the key map changes:
+ * a non-empty key the keychain accepted is not written to disk, one it refused
+ * has to be (or the next launch loses it), and an empty key is a tombstone —
+ * `null`, which stops the keychain from ever being asked for that provider again.
+ */
+async function writePayload(
+  storeData: LlmStoreV3,
+  keyUpdate?: { provider: ProviderId; apiKey: string; keychainOk?: boolean },
+): Promise<void> {
+  return withStoreLock(async () => {
+    const s = await getStore();
+    const prior = await s.get<StoredPayload>(SETTINGS_KEY);
+    // The payload being written wins: it carries the migration's tombstones and
+    // mirrors. Anything only the prior read knows about is kept as a floor.
+    const keys: Partial<Record<ProviderId, string | null>> = {
+      ...(prior?.keys ?? {}),
+      ...(storeData.keys ?? {}),
+    };
+
+    if (keyUpdate) {
+      if (keyUpdate.apiKey.trim()) {
+        if (keyUpdate.keychainOk === false) keys[keyUpdate.provider] = keyUpdate.apiKey.trim();
+        else delete keys[keyUpdate.provider];
+      } else {
+        keys[keyUpdate.provider] = null;
+      }
+    }
+
+    const payload: LlmStoreV3 = {
+      version: 3,
+      activeProvider: storeData.activeProvider,
+      profiles: storeData.profiles,
+    };
+    const entries = Object.entries(keys).filter(
+      ([, value]) => value === null || (typeof value === "string" && value.trim().length > 0),
+    );
+    if (entries.length > 0) payload.keys = Object.fromEntries(entries);
+
+    await s.set(SETTINGS_KEY, payload);
+    await s.save();
+  });
+}
+
+async function readPayload(): Promise<LlmStoreV3> {
+  const s = await getStore();
+  const raw = await s.get<StoredPayload>(SETTINGS_KEY);
+  if (isLlmStoreV3(raw)) return raw;
+  return migrateToV3(raw ?? null);
+}
+
+/** Keys that live in plaintext on disk (keychain unavailable). */
+async function plaintextMirrors(): Promise<Partial<Record<ProviderId, string>>> {
+  const payload = await readPayload();
+  const out: Partial<Record<ProviderId, string>> = {};
+  for (const [provider, value] of Object.entries(payload.keys ?? {})) {
+    if (typeof value === "string" && value.trim()) out[provider as ProviderId] = value.trim();
+  }
+  return out;
+}
+
+async function persistApiKey(provider: ProviderId, apiKey: string): Promise<boolean> {
+  forgetSessionKey(provider);
+  try {
+    await keychainSet(provider, apiKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Load API key for a provider: session cache, then the disk mirror, then the
+ * keychain (once per key per session).
+ */
+async function loadApiKey(provider: ProviderId): Promise<string> {
+  const cached = sessionKeys.get(provider);
+  if (cached !== undefined) return cached;
+  const payload = await readPayload();
+  if (provider === "ollama") return "ollama";
+  const mirror = payload.keys?.[provider];
+  if (typeof mirror === "string" && mirror.trim()) {
+    sessionKeys.set(provider, mirror.trim());
+    return mirror.trim();
+  }
+  if (mirror === null) return ""; // explicitly cleared — the keychain is not asked
+  if (keychainBlockedThisSession) return "";
+  try {
+    const fromKeychain = (await keychainGet(provider)).trim();
+    if (fromKeychain) {
+      sessionKeys.set(provider, fromKeychain);
+      return fromKeychain;
+    }
+  } catch {
+    keychainBlockedThisSession = true;
+  }
+  return "";
+}
+
+async function hasStoredApiKey(provider: ProviderId): Promise<boolean> {
+  if (provider === "ollama") return true;
+  const cached = sessionKeys.get(provider);
+  if (cached !== undefined) return cached.trim().length > 0;
+  const payload = await readPayload();
+  const mirror = payload.keys?.[provider];
+  if (typeof mirror === "string") return mirror.trim().length > 0;
+  if (mirror === null) return false;
+  return (await loadApiKey(provider)).trim().length > 0;
 }
 
 function profileToSettings(
@@ -226,14 +460,6 @@ function profileToSettings(
   };
 }
 
-/** Settings metadata without reading the OS keychain (safe at app startup). */
-export type LlmSettingsMeta = Omit<LlmSettings, "apiKey"> & {
-  hasStoredKey: boolean;
-  visionModel: string;
-  /** True when API keys are mirrored in plaintext on disk (keychain unavailable). */
-  plaintextKeysOnDisk: boolean;
-};
-
 function settingsToProfile(settings: LlmSettings, visionModel?: string): ProviderProfile {
   return {
     model: settings.model,
@@ -245,422 +471,58 @@ function settingsToProfile(settings: LlmSettings, visionModel?: string): Provide
   };
 }
 
-export function migrateV1ToV2(saved: Partial<LlmSettings> | null | undefined): LlmStoreV2 {
-  const merged = migrateLlmSettings(saved);
-  return {
-    version: 2,
-    activeProvider: merged.provider,
-    profiles: {
-      [merged.provider]: settingsToProfile(merged),
-    },
-  };
+/** Settings metadata without reading the OS keychain (safe at app startup). */
+export type LlmSettingsMeta = Omit<LlmSettings, "apiKey"> & {
+  hasStoredKey: boolean;
+  visionModel: string;
+  /** True when API keys are mirrored in plaintext on disk (keychain unavailable). */
+  plaintextKeysOnDisk: boolean;
+};
+
+function profileFor(payload: LlmStoreV3, provider: ProviderId): ProviderProfile {
+  return payload.profiles[provider] ?? defaultProviderProfile(provider);
 }
 
-function isLlmStoreV2(raw: unknown): raw is LlmStoreV2 {
-  return (
-    typeof raw === "object" &&
-    raw !== null &&
-    "version" in raw &&
-    (raw as LlmStoreV2).version === 2 &&
-    "activeProvider" in raw &&
-    "profiles" in raw
-  );
-}
-
-function normalizeStore(raw: LlmStoreV2): LlmStoreV2 {
-  const profiles: Partial<Record<ProviderId, ProviderProfile>> = {};
-  const sourceProfiles =
-    raw.profiles && typeof raw.profiles === "object" && !Array.isArray(raw.profiles)
-      ? raw.profiles
-      : {};
-  for (const id of ALL_PROVIDER_IDS) {
-    const existing = sourceProfiles[id];
-    if (existing) {
-      profiles[id] = migrateProviderProfile(id, existing);
-    }
-  }
-  const activeProvider = ALL_PROVIDER_IDS.includes(raw.activeProvider)
-    ? raw.activeProvider
-    : DEFAULT_SETTINGS.provider;
-  if (!profiles[activeProvider]) {
-    profiles[activeProvider] = defaultProviderProfile(activeProvider);
-  }
-  return { version: 2, activeProvider, profiles };
-}
-
-/**
- * Persist the V2 store. Existing plaintext keychain fallbacks are PRESERVED unless a
- * `keyUpdate` explicitly overwrites (non-empty) or clears (empty string) one provider's key.
- */
-async function writeStoreV2(
-  storeData: LlmStoreV2,
-  keyUpdate?: { provider: ProviderId; apiKey: string; keychainOk?: boolean },
-): Promise<void> {
-  return withSettingsStoreLock(async () => {
-  const s = await getStore();
-  const prior = await s.get<RawStored>(SETTINGS_KEY);
-
-  const fallbackKeys: Partial<Record<ProviderId, string>> = { ...(prior?.apiKeys ?? {}) };
-  const clearedKeys: Partial<Record<ProviderId, true>> = { ...(prior?.apiKeysCleared ?? {}) };
-
-  // Fold any legacy single-slot key into the per-provider map before rewriting.
-  if (prior?.apiKey?.trim()) {
-    const legacyProvider = isLlmStoreV2(prior) ? prior.activeProvider : storeData.activeProvider;
-    if (!fallbackKeys[legacyProvider]?.trim()) {
-      fallbackKeys[legacyProvider] = prior.apiKey;
-    }
-  }
-
-  if (keyUpdate) {
-    if (keyUpdate.apiKey.trim()) {
-      if (keyUpdate.keychainOk === false) {
-        fallbackKeys[keyUpdate.provider] = keyUpdate.apiKey;
-      } else {
-        delete fallbackKeys[keyUpdate.provider];
-      }
-      delete clearedKeys[keyUpdate.provider];
-    } else {
-      delete fallbackKeys[keyUpdate.provider];
-      clearedKeys[keyUpdate.provider] = true;
-    }
-  }
-
-  const payload: StoredPayload = { ...normalizeStore(storeData) };
-  if (prior?.apiKeysMigratedFromKeychain) {
-    payload.apiKeysMigratedFromKeychain = true;
-  }
-  const entries = Object.entries(fallbackKeys).filter(([, v]) => v?.trim());
-  if (entries.length > 0) {
-    payload.apiKeys = Object.fromEntries(entries) as Partial<Record<ProviderId, string>>;
-  }
-  if (Object.keys(clearedKeys).length > 0) {
-    payload.apiKeysCleared = clearedKeys;
-  }
-
-  await s.set(SETTINGS_KEY, payload);
-  await s.save();
-  });
-}
-
-async function persistApiKey(provider: ProviderId, apiKey: string): Promise<boolean> {
-  forgetSessionKey(provider);
-  try {
-    await keychainSet(provider, apiKey);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Copy keychain keys into settings.json once so routine reads never touch Keychain. */
-async function migrateKeychainApiKeysIfNeeded(): Promise<void> {
-  return withSettingsStoreLock(async () => {
-  const s = await getStore();
-  const raw = await s.get<RawStored>(SETTINGS_KEY);
-  if (raw?.apiKeysMigratedFromKeychain) return;
-
-  const storeData = isLlmStoreV2(raw) ? normalizeStore(raw) : migrateV1ToV2(raw);
-  const fallbackKeys: Partial<Record<ProviderId, string>> = { ...(raw?.apiKeys ?? {}) };
-
-  let keychainBlocked = false;
-  if (raw?.apiKey?.trim()) {
-    const legacyProvider = isLlmStoreV2(raw) ? raw.activeProvider : storeData.activeProvider;
-    if (!fallbackKeys[legacyProvider]?.trim()) {
-      const legacyKey = raw.apiKey.trim();
-      const keychainOk = await persistApiKey(legacyProvider, legacyKey);
-      if (!keychainOk) {
-        fallbackKeys[legacyProvider] = legacyKey;
-        keychainBlocked = true;
-      }
-    }
-  }
-
-  const cleared = raw?.apiKeysCleared ?? {};
-  for (const provider of ALL_PROVIDER_IDS) {
-    if (provider === "ollama" || fallbackKeys[provider]?.trim() || cleared[provider]) continue;
-    // Stop hitting a keychain we already know is blocked this session.
-    if (keychainBlockedThisSession) {
-      keychainBlocked = true;
-      break;
-    }
-    try {
-      const fromKeychain = await keychainGet(provider);
-      if (fromKeychain.trim()) fallbackKeys[provider] = fromKeychain.trim();
-    } catch {
-      keychainBlocked = true;
-      keychainBlockedThisSession = true;
-    }
-  }
-
-  const payload: StoredPayload = { ...normalizeStore(storeData) };
-  if (keychainBlocked) {
-    const entries = Object.entries(fallbackKeys).filter(([, v]) => v?.trim());
-    if (entries.length > 0) {
-      payload.apiKeys = Object.fromEntries(entries) as Partial<Record<ProviderId, string>>;
-    }
-  }
-  // Preserve deliberate clears so a keychain-blocked -> available retry can't
-  // resurrect a key the user explicitly removed (the loop above already skips
-  // re-importing any provider present in `cleared`).
-  if (Object.keys(cleared).length > 0) {
-    payload.apiKeysCleared = { ...cleared };
-  }
-  if (!keychainBlocked) {
-    payload.apiKeysMigratedFromKeychain = true;
-  }
-
-  await s.set(SETTINGS_KEY, payload);
-  await s.save();
-
-  if (keychainBlocked) {
-    migrationPromise = null;
-  }
-  });
-}
-
-/**
- * When Keychain works but legacy plaintext mirrors remain on disk (e.g. after an
- * unsigned rebuild or a denied prompt), copy them back into Keychain and drop the mirror.
- */
-async function reconcilePlaintextKeyMirrors(): Promise<void> {
-  const s = await getStore();
-  const raw = await s.get<RawStored>(SETTINGS_KEY);
-  if (!raw) return;
-
-  const diskKeys: Partial<Record<ProviderId, string>> = { ...(raw.apiKeys ?? {}) };
-  if (raw.apiKey?.trim()) {
-    const legacyProvider = isLlmStoreV2(raw) ? raw.activeProvider : DEFAULT_SETTINGS.provider;
-    if (!diskKeys[legacyProvider]?.trim()) {
-      diskKeys[legacyProvider] = raw.apiKey.trim();
-    }
-  }
-
-  const entries = Object.entries(diskKeys).filter(([, v]) => v?.trim()) as [
-    ProviderId,
-    string,
-  ][];
-  if (entries.length === 0) return;
-
-  for (const [provider, key] of entries) {
-    if (provider === "ollama") continue;
-
-    const rawNow = await s.get<RawStored>(SETTINGS_KEY);
-    const storeData =
-      rawNow && isLlmStoreV2(rawNow)
-        ? normalizeStore(rawNow)
-        : isLlmStoreV2(raw)
-          ? normalizeStore(raw)
-          : migrateV1ToV2(raw);
-
-    let keychainKey = "";
-    try {
-      keychainKey = (await keychainGet(provider)).trim();
-    } catch {
-      continue;
-    }
-    if (keychainKey && keychainKey !== key.trim()) continue;
-
-    if (!keychainKey) {
-      const keychainOk = await persistApiKey(provider, key);
-      if (!keychainOk) continue;
-      try {
-        if ((await keychainGet(provider)).trim() !== key.trim()) continue;
-      } catch {
-        continue;
-      }
-    }
-    await writeStoreV2(storeData, { provider, apiKey: key, keychainOk: true });
-  }
-}
-
-function ensureApiKeysMigrated(): Promise<void> {
-  // A keychain-blocked migration nulls migrationPromise to allow a later retry,
-  // but once we know the keychain is blocked this session, re-running is just
-  // churn (and would re-prompt if not for the per-loop guard) — treat it as
-  // done until the user reopens Settings (which calls resetKeychainBlockedFlag).
-  if (keychainBlockedThisSession) return Promise.resolve();
-  if (!migrationPromise) {
-    migrationPromise = migrateKeychainApiKeysIfNeeded()
-      .then(() => reconcilePlaintextKeyMirrors())
-      .catch((e) => {
-        // A transient store I/O failure must not poison the memoized promise for
-        // the rest of the session — reset so the next read retries migration.
-        migrationPromise = null;
-        throw e;
-      });
-  }
-  return migrationPromise;
-}
-
-/**
- * Load API key for a provider from the local settings.json mirror only.
- * Keychain is consulted once during {@link ensureApiKeysMigrated}, not on every read.
- */
-/**
- * API keys resolved this session, so the OS keychain is asked once per key.
- *
- * On a machine where the keychain works there is deliberately no plaintext
- * mirror on disk, so every read went to the OS — and settings are resolved on
- * every vision-indexed page, so indexing a scan meant one keychain round trip
- * per page. On macOS, where an unsigned build's changed signature makes the
- * system re-ask for the login keychain password, that is one prompt per page.
- *
- * Cleared whenever a key is written or removed, which is the only way it
- * changes from inside the app.
- */
-const sessionKeys = new Map<ProviderId, string>();
-
-function forgetSessionKey(provider?: ProviderId): void {
-  if (provider === undefined) sessionKeys.clear();
-  else sessionKeys.delete(provider);
-}
-
-async function loadApiKey(provider: ProviderId): Promise<string> {
-  const cached = sessionKeys.get(provider);
-  if (cached !== undefined) return cached;
-  await ensureApiKeysMigrated();
-  const s = await getStore();
-  const raw = await s.get<RawStored>(SETTINGS_KEY);
-  if (raw?.apiKeysCleared?.[provider]) return "";
-  if (provider === "ollama") return "ollama";
-  const fromMirror = (await getFallbackKey(provider)).trim();
-  if (fromMirror) {
-    sessionKeys.set(provider, fromMirror);
-    return fromMirror;
-  }
-  // Skip the per-read keychain fallback once the keychain is known blocked —
-  // otherwise every mirror-less read re-prompts the OS.
-  if (keychainBlockedThisSession) return "";
-  try {
-    const fromKeychain = (await keychainGet(provider)).trim();
-    if (fromKeychain) {
-      sessionKeys.set(provider, fromKeychain);
-      return fromKeychain;
-    }
-  } catch {
-    keychainBlockedThisSession = true;
-  }
-  return "";
-}
-
-/** The plaintext fallback key stored in settings.json for a provider (keychain-less machines). */
-async function getFallbackKey(provider: ProviderId): Promise<string> {
-  const s = await getStore();
-  const raw = await s.get<RawStored>(SETTINGS_KEY);
-  if (!raw) return "";
-  const perProvider = raw.apiKeys?.[provider]?.trim();
-  if (perProvider) return perProvider;
-  if (raw.apiKey?.trim()) {
-    const legacyProvider = isLlmStoreV2(raw) ? raw.activeProvider : DEFAULT_SETTINGS.provider;
-    if (legacyProvider === provider) return raw.apiKey.trim();
-  }
-  return "";
-}
-
-async function readStoreV2Raw(): Promise<LlmStoreV2> {
-  const s = await getStore();
-  const raw = await s.get<RawStored>(SETTINGS_KEY);
-
-  if (isLlmStoreV2(raw)) {
-    return normalizeStore(raw);
-  }
-
-  const migrated = migrateV1ToV2(raw);
-  const legacyKey = raw?.apiKey?.trim() ?? "";
-  if (legacyKey) {
-    const keychainOk = await persistApiKey(migrated.activeProvider, legacyKey);
-    await writeStoreV2(migrated, {
-      provider: migrated.activeProvider,
-      apiKey: legacyKey,
-      keychainOk,
-    });
-  } else {
-    await writeStoreV2(migrated);
-  }
-  return migrated;
-}
-
-async function readStoreV2(): Promise<LlmStoreV2> {
-  await ensureApiKeysMigrated();
-  return readStoreV2Raw();
-}
-
-async function hasStoredApiKey(provider: ProviderId): Promise<boolean> {
-  if (provider === "ollama") return true;
-  await ensureApiKeysMigrated();
-  if ((await getFallbackKey(provider)).trim().length > 0) return true;
-  const s = await getStore();
-  const raw = await s.get<RawStored>(SETTINGS_KEY);
-  if (raw?.apiKeysCleared?.[provider]) return false;
-  try {
-    return (await keychainGet(provider)).trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
-async function hasPlaintextKeysOnDisk(): Promise<boolean> {
-  await ensureApiKeysMigrated();
-  const s = await getStore();
-  const raw = await s.get<RawStored>(SETTINGS_KEY);
-  if (!raw?.apiKeys) return false;
-  return Object.values(raw.apiKeys).some((v) => v?.trim());
-}
-
-function metaFromProfile(
-  provider: ProviderId,
-  profile: ProviderProfile,
-  hasStoredKey: boolean,
-  plaintextKeysOnDisk: boolean,
-): LlmSettingsMeta {
-  const visionModel =
-    profile.visionModel?.trim() ||
-    (provider !== "custom" ? defaultVisionModel(provider as Exclude<ProviderId, "custom">) : "");
-  return {
-    provider,
-    model: profile.model,
-    visionModel,
-    baseURL: profile.baseURL,
-    thinkingEnabled: profile.thinkingEnabled,
-    connectionVerified: profile.connectionVerified,
-    hasStoredKey,
-    plaintextKeysOnDisk,
-  };
-}
-function getProfileFromStore(storeData: LlmStoreV2, provider: ProviderId): ProviderProfile {
-  return migrateProviderProfile(
-    provider,
-    storeData.profiles[provider] ?? defaultProviderProfile(provider),
-  );
-}
-
-export async function loadLlmStore(): Promise<LlmStoreV2> {
-  return readStoreV2();
+export async function loadLlmStore(): Promise<LlmStoreV3> {
+  return readPayload();
 }
 
 /** Active provider metadata without touching the OS keychain. */
 export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
-  const storeData = await readStoreV2();
-  const provider = storeData.activeProvider;
-  const profile = getProfileFromStore(storeData, provider);
-  const hasStoredKey = await hasStoredApiKey(provider);
-  const plaintextKeysOnDisk = await hasPlaintextKeysOnDisk();
-  return metaFromProfile(provider, profile, hasStoredKey, plaintextKeysOnDisk);
+  const payload = await readPayload();
+  const provider = payload.activeProvider;
+  const profile = profileFor(payload, provider);
+  const visionModel =
+    profile.visionModel?.trim() ||
+    (provider !== "custom"
+      ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
+      : "");
+  const mirrors = await plaintextMirrors();
+  return {
+    provider,
+    model: profile.model,
+    baseURL: profile.baseURL,
+    thinkingEnabled: profile.thinkingEnabled,
+    connectionVerified: profile.connectionVerified,
+    visionModel,
+    hasStoredKey: await hasStoredApiKey(provider),
+    plaintextKeysOnDisk: Object.keys(mirrors).length > 0,
+  };
 }
 
 /** Vision indexing model (separate from agent model when configured). */
 export async function loadVisionSettings(): Promise<LlmSettings> {
-  const storeData = await readStoreV2();
-  const provider = storeData.activeProvider;
-  const profile = getProfileFromStore(storeData, provider);
+  const payload = await readPayload();
+  const provider = payload.activeProvider;
+  const profile = profileFor(payload, provider);
   const apiKey = await loadApiKey(provider);
   let model =
     profile.visionModel?.trim() ||
     (provider !== "custom"
       ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
       : "");
-  // Replace only when the stored id is a known non-vision model and matches the agent model
-  // (legacy shared slot). Explicit user scan models are preserved even on DeepSeek.
+  // Replace only when the stored id is a known non-vision model and matches the
+  // agent model (the legacy shared slot). An explicit scan model is preserved.
   const userScan = profile.visionModel?.trim();
   if (
     provider !== "custom" &&
@@ -668,34 +530,28 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
     isKnownNonVisionModel(model) &&
     (!userScan || userScan === profile.model)
   ) {
-    model =
-      defaultVisionModel(provider as Exclude<ProviderId, "custom">) || profile.model;
+    model = defaultVisionModel(provider as Exclude<ProviderId, "custom">) || profile.model;
   }
   return profileToSettings(
     provider,
-    {
-      ...profile,
-      model: provider === "custom" ? model : model || profile.model,
-    },
+    { ...profile, model: provider === "custom" ? model : model || profile.model },
     apiKey,
   );
 }
 
 export async function loadProviderSettings(provider: ProviderId): Promise<LlmSettings> {
-  const storeData = await readStoreV2();
-  const profile = getProfileFromStore(storeData, provider);
-  const apiKey = await loadApiKey(provider);
-  return profileToSettings(provider, profile, apiKey);
+  const payload = await readPayload();
+  return profileToSettings(provider, profileFor(payload, provider), await loadApiKey(provider));
 }
 
 export async function loadApiKeyForProvider(provider: ProviderId): Promise<string> {
   return loadApiKey(provider);
 }
 
-/** Active provider + profile — used by Agent and connection status. */
+/** Active provider + profile — used by the agent and connection status. */
 export async function loadSettings(): Promise<LlmSettings> {
-  const storeData = await readStoreV2();
-  return loadProviderSettings(storeData.activeProvider);
+  const payload = await readPayload();
+  return loadProviderSettings(payload.activeProvider);
 }
 
 export async function saveProviderProfile(
@@ -703,28 +559,25 @@ export async function saveProviderProfile(
   patch: Partial<ProviderProfile>,
   apiKey?: string,
 ): Promise<LlmSettings> {
-  const storeData = await readStoreV2();
-  const existing = getProfileFromStore(storeData, provider);
-  const nextProfile = migrateProviderProfile(provider, { ...existing, ...patch });
-  storeData.profiles[provider] = nextProfile;
+  const payload = await readPayload();
+  const nextProfile = normalizeProfile(provider, { ...profileFor(payload, provider), ...patch });
+  payload.profiles[provider] = nextProfile;
 
   let resolvedKey = apiKey;
   if (resolvedKey !== undefined && resolvedKey.trim()) {
     const keychainOk = await persistApiKey(provider, resolvedKey);
-    await writeStoreV2(storeData, { provider, apiKey: resolvedKey, keychainOk });
+    await writePayload(payload, { provider, apiKey: resolvedKey, keychainOk });
   } else if (resolvedKey === undefined) {
-    // No key change requested — preserve existing local mirror.
-    await writeStoreV2(storeData);
+    await writePayload(payload);
     resolvedKey = await loadApiKey(provider);
   } else {
-    // Explicit clear of the key.
     forgetSessionKey(provider);
     try {
       await deleteApiKey(provider);
     } catch {
       /* keychain may be unavailable */
     }
-    await writeStoreV2(storeData, { provider, apiKey: "" });
+    await writePayload(payload, { provider, apiKey: "" });
     resolvedKey = "";
   }
 
@@ -732,21 +585,17 @@ export async function saveProviderProfile(
 }
 
 export async function setActiveProvider(provider: ProviderId): Promise<LlmSettings> {
-  const storeData = await readStoreV2();
-  if (!storeData.profiles[provider]) {
-    storeData.profiles[provider] = defaultProviderProfile(provider);
+  const payload = await readPayload();
+  if (!payload.profiles[provider]) {
+    payload.profiles[provider] = defaultProviderProfile(provider);
   }
-  storeData.activeProvider = provider;
-  await writeStoreV2(storeData);
+  payload.activeProvider = provider;
+  await writePayload(payload);
   return loadProviderSettings(provider);
 }
 
-/** Saves profile for settings.provider — does not change the active provider. */
-export async function saveSettings(
-  settings: LlmSettings,
-  visionModel?: string,
-): Promise<void> {
-  const profile = settingsToProfile(migrateLlmSettings(settings), visionModel);
+/** Saves the profile of `settings.provider`; the active provider is unchanged. */
+export async function saveSettings(settings: LlmSettings, visionModel?: string): Promise<void> {
   const storedKey = await loadApiKey(settings.provider);
   const draftKey = settings.apiKey.trim();
 
@@ -759,5 +608,5 @@ export async function saveSettings(
     keyArg = undefined;
   }
 
-  await saveProviderProfile(settings.provider, profile, keyArg);
+  await saveProviderProfile(settings.provider, settingsToProfile(settings, visionModel), keyArg);
 }

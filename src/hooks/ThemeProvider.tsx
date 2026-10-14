@@ -13,12 +13,13 @@ import {
   patchPreferences,
   resolveTheme,
   type AppPreferences,
+  type ResolvedTheme,
   type ThemeMode,
 } from "../lib/preferences";
 
 interface ThemeContextValue {
   theme: ThemeMode;
-  resolved: "dark" | "light";
+  resolved: ResolvedTheme;
   setTheme: (theme: ThemeMode) => Promise<void>;
   cycleTheme: () => Promise<void>;
   reloadPreferences: () => Promise<AppPreferences>;
@@ -28,7 +29,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<AppPreferences | null>(null);
-  const [resolved, setResolved] = useState<"dark" | "light">("dark");
+  const [resolved, setResolved] = useState<ResolvedTheme>("dark");
 
   useEffect(() => {
     loadPreferences().then(setPreferences);

@@ -91,69 +91,11 @@
   min-height: 100%;
 }
 
-.settings-page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-lg);
-  margin-bottom: var(--space-xs);
-}
-
 .settings-page-title {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text);
-}
-
-.connection-chip {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-xs) var(--space-md);
-  border-radius: var(--radius-pill);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  white-space: nowrap;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.connection-chip-ok {
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--success) 28%, transparent);
-}
-
-.connection-chip-ready {
-  color: var(--accent);
-  background: var(--accent-muted);
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-}
-
-.connection-chip-pending {
-  color: var(--text-muted);
-  background: var(--bg-hover);
-  border: 1px solid var(--border-subtle);
-}
-
-.connection-chip-unsaved {
-  color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
-}
-
-.connection-chip-failed {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
-}
-
-.connection-chip-preview {
-  color: var(--accent);
-  background: var(--accent-muted);
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .settings-card {
@@ -171,13 +113,6 @@
   font-size: var(--text-base);
   font-weight: 600;
   color: var(--text);
-}
-
-.settings-card-hint {
-  margin: -var(--space-sm) 0 0;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  line-height: 1.45;
 }
 
 .settings-card-divider {
@@ -244,20 +179,6 @@
   align-items: flex-start;
   gap: var(--space-xs);
   min-width: 0;
-}
-
-.provider-endpoint {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.provider-endpoint code {
-  font-size: var(--text-xs);
-  padding: 1px var(--space-sm);
-  border-radius: var(--radius-sm);
-  background: var(--bg-hover);
-  color: var(--text-secondary);
 }
 
 .settings-field-hint {
@@ -502,59 +423,80 @@
   outline-offset: 2px;
 }
 
-.settings-footer {
-  flex-shrink: 0;
+/*
+ * A settings row with an action instead of a switch: a title, a value, and one
+ * quiet button ("Change"). Same geometry as the toggle rows, so the three
+ * groups read as one column rather than three card styles.
+ */
+.settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: var(--space-md) 20px var(--space-lg);
-  border-top: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-panel) 95%, transparent);
+  padding: var(--space-md) 0;
 }
 
-.settings-footer-status {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
+.settings-row > div {
   display: flex;
-  align-items: center;
-  gap: var(--space-sm);
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-width: 0;
 }
 
-.settings-footer-status.saved {
-  color: var(--success);
-}
-
-.settings-footer-status.error {
-  color: var(--danger);
-}
-
-.settings-footer-status.unsaved {
-  color: var(--warning);
-}
-
-.settings-footer-actions {
+/* What a row's disclosure reveals: provider, key, scan model, thinking. */
+.settings-advanced,
+.setup-advanced {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding-top: var(--space-md);
+}
+
+/*
+ * The setup page: three tiles, one key, one button.
+ */
+.setup-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  max-width: 420px;
+}
+
+.setup-providers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--space-md);
 }
 
-.settings-close-confirm {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  align-items: flex-end;
+.setup-providers .provider-cell {
   justify-content: center;
-  padding: var(--space-xl);
-  background: color-mix(in srgb, var(--bg-base) 40%, transparent);
-  backdrop-filter: blur(2px);
+  padding: var(--space-lg) var(--space-md);
 }
 
-.settings-close-confirm .confirm-bar {
-  width: 100%;
-  max-width: 420px;
+.setup-more {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.setup-more:hover {
+  text-decoration: underline;
+}
+
+.setup-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.setup-note {
   margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 .settings-callout {
@@ -575,17 +517,6 @@
   border-color: color-mix(in srgb, var(--danger) 35%, var(--border-subtle));
   background: color-mix(in srgb, var(--danger) 8%, var(--bg-elevated));
   color: var(--text-secondary);
-}
-
-.settings-callout-dismiss {
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: var(--text-lg);
-  line-height: 1;
-  padding: 0 var(--space-2xs);
 }
 
 .settings-error-banner {

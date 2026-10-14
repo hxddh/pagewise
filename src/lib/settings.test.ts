@@ -6,10 +6,9 @@ import {
   loadApiKeyForProvider,
   loadLlmStore,
   loadProviderSettings,
+  loadSettings,
   loadSettingsMeta,
   loadVisionSettings,
-  migrateLlmSettings,
-  migrateV1ToV2,
   resetKeychainBlockedFlag,
   saveProviderProfile,
   saveSettings,
@@ -23,72 +22,95 @@ import {
   type ProviderId,
 } from "./types";
 
-describe("migrateLlmSettings", () => {
-  it("maps legacy deepseek-chat model", () => {
-    const result = migrateLlmSettings({
-      provider: "deepseek",
-      model: "deepseek-chat",
-      apiKey: "",
+describe("legacy model ids are rewritten on read", () => {
+  afterEach(() => {
+    __resetSettingsStoreForTests();
+  });
+
+  it("maps legacy deepseek-chat model", async () => {
+    __resetSettingsStoreForTests({
+      store: { provider: "deepseek", model: "deepseek-chat", apiKey: "" },
+      keychain: memoryKeychain(),
     });
+    const result = await loadSettings();
     expect(result.model).toBe("deepseek-v4-flash");
     expect(result.thinkingEnabled).toBe(false);
     expect(result.connectionVerified).toBe(false);
   });
 
-  it("normalizes deepseek /v1 base URL", () => {
-    const result = migrateLlmSettings({
-      provider: "deepseek",
-      model: "deepseek-v4-flash",
-      baseURL: "https://api.deepseek.com/v1",
-      apiKey: "",
+  it("normalizes deepseek /v1 base URL", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        baseURL: "https://api.deepseek.com/v1",
+        apiKey: "",
+      },
+      keychain: memoryKeychain(),
     });
-    expect(result.baseURL).toBeUndefined();
+    expect((await loadSettings()).baseURL).toBeUndefined();
   });
 
-  it("migrates OpenRouter DeepSeek V4 to a tool-capable model", () => {
-    const result = migrateLlmSettings({
-      provider: "openrouter",
-      model: "deepseek/deepseek-v4-flash",
-      apiKey: "",
+  it("migrates OpenRouter DeepSeek V4 to a tool-capable model", async () => {
+    __resetSettingsStoreForTests({
+      store: { provider: "openrouter", model: "deepseek/deepseek-v4-flash", apiKey: "" },
+      keychain: memoryKeychain(),
     });
+    const result = await loadSettings();
     expect(result.model).toBe("openai/gpt-4o-mini");
     expect(result.connectionVerified).toBe(false);
   });
 
-  it("coerces a non-string model from a corrupt store without throwing", () => {
-    const result = migrateLlmSettings({
-      provider: "deepseek",
-      // Simulate corruption: model is not a string.
-      model: 42 as unknown as string,
-      apiKey: "",
+  it("coerces a non-string model from a corrupt store without throwing", async () => {
+    __resetSettingsStoreForTests({
+      store: { provider: "deepseek", model: 42 as unknown as string, apiKey: "" },
+      keychain: memoryKeychain(),
     });
-    expect(result.model).toBe(DEFAULT_SETTINGS.model);
+    expect((await loadSettings()).model).toBe(DEFAULT_SETTINGS.model);
   });
 
-  it("does not throw when model is null", () => {
-    expect(() =>
-      migrateLlmSettings({ provider: "openrouter", model: null as unknown as string }),
-    ).not.toThrow();
+  it("does not throw when model is null", async () => {
+    __resetSettingsStoreForTests({
+      store: { provider: "openrouter", model: null as unknown as string },
+      keychain: memoryKeychain(),
+    });
+    await expect(loadSettings()).resolves.toBeTruthy();
   });
 });
 
-describe("migrateV1ToV2", () => {
-  it("preserves active provider profile from v1 settings", () => {
-    const store = migrateV1ToV2({
-      provider: "openrouter",
-      model: "deepseek/deepseek-v4-flash",
-      thinkingEnabled: true,
-      connectionVerified: true,
-      apiKey: "sk-test",
+describe("v1 payload migrates on read", () => {
+  afterEach(() => {
+    __resetSettingsStoreForTests();
+  });
+
+  it("preserves the active provider profile, model rewrite and key", async () => {
+    const keychain = memoryKeychain();
+    __resetSettingsStoreForTests({
+      store: {
+        provider: "openrouter",
+        model: "deepseek/deepseek-v4-flash",
+        thinkingEnabled: true,
+        connectionVerified: true,
+        apiKey: "sk-test",
+      },
+      keychain,
     });
 
-    expect(store.version).toBe(2);
+    const store = await loadLlmStore();
+    expect(store.version).toBe(3);
     expect(store.activeProvider).toBe("openrouter");
     expect(store.profiles.openrouter).toEqual({
       model: "openai/gpt-4o-mini",
-      thinkingEnabled: true,
+      visionModel: "google/gemini-2.5-flash-lite",
+      // The rewrite also drops thinking: gpt-4o-mini does not support it.
+      thinkingEnabled: false,
       connectionVerified: false,
     });
+    // The single legacy slot is folded in, moved to the keychain, and the
+    // plaintext copy is not written back.
+    expect((await loadProviderSettings("openrouter")).apiKey).toBe("sk-test");
+    expect(__peekSettingsStoreForTests()?.keys?.openrouter).toBeUndefined();
+    expect(await keychain.get("openrouter")).toBe("sk-test");
   });
 });
 
@@ -148,7 +170,7 @@ describe("store I/O — keychain fallback (no working keychain)", () => {
 
     // The plaintext fallback must actually be on "disk".
     const persisted = __peekSettingsStoreForTests();
-    expect(persisted?.apiKeys?.openai).toBe("sk-openai-1");
+    expect(persisted?.keys?.openai).toBe("sk-openai-1");
   });
 
   it("survives an app restart with a keychain-less machine", async () => {
@@ -192,7 +214,9 @@ describe("store I/O — keychain fallback (no working keychain)", () => {
     await saveProviderProfile("openai", {}, "");
 
     expect((await loadProviderSettings("openai")).apiKey).toBe("");
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBeUndefined();
+    // The tombstone is the record of the clear: absent would mean "ask the
+    // keychain again", which is what resurrected removed keys before 18.0.
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBe(null);
   });
 });
 
@@ -405,7 +429,7 @@ describe("store I/O — working keychain", () => {
     await saveProviderProfile("openai", { model: "gpt-4o-mini" }, "sk-openai");
 
     expect((await loadProviderSettings("openai")).apiKey).toBe("sk-openai");
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBeUndefined();
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBeUndefined();
   });
 
   it("prefers local mirror over keychain on read when both exist", async () => {
@@ -455,12 +479,12 @@ describe("store I/O — working keychain", () => {
     });
 
     expect((await loadSettingsMeta()).plaintextKeysOnDisk).toBe(false);
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBeUndefined();
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBeUndefined();
     expect(await keychain.get("openai")).toBe("sk-on-disk");
     expect((await loadProviderSettings("openai")).apiKey).toBe("sk-on-disk");
   });
 
-  it("migrates all provider keys from keychain into local mirror once", async () => {
+  it("reads every provider key from the keychain once, writing no mirror", async () => {
     const keychain = memoryKeychain();
     await keychain.set("openai", "sk-openai");
     await keychain.set("openrouter", "sk-router");
@@ -478,8 +502,8 @@ describe("store I/O — working keychain", () => {
 
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("sk-router");
     expect((await loadProviderSettings("openai")).apiKey).toBe("sk-openai");
-    expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBe(true);
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBeUndefined();
+    expect(__peekSettingsStoreForTests()?.version).toBe(3);
+    expect(__peekSettingsStoreForTests()?.keys?.openrouter).toBeUndefined();
   });
 
   it("retries keychain migration after access is denied", async () => {
@@ -501,7 +525,7 @@ describe("store I/O — working keychain", () => {
     });
 
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("");
-    expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBeUndefined();
+    expect(__peekSettingsStoreForTests()?.version).toBe(3);
 
     denyKeychain = false;
     // A plain re-read stays blocked this session (no keychain re-hammering /
@@ -510,7 +534,7 @@ describe("store I/O — working keychain", () => {
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("");
     resetKeychainBlockedFlag();
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("sk-router");
-    expect(__peekSettingsStoreForTests()?.apiKeysMigratedFromKeychain).toBe(true);
+    expect(__peekSettingsStoreForTests()?.version).toBe(3);
   });
 
   it("does not resurrect an explicitly-cleared key after keychain becomes available", async () => {
@@ -536,13 +560,13 @@ describe("store I/O — working keychain", () => {
 
     // Keychain blocked: migration incomplete, cleared flag must be preserved.
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("");
-    expect(__peekSettingsStoreForTests()?.apiKeysCleared?.openrouter).toBe(true);
+    expect(__peekSettingsStoreForTests()?.keys?.openrouter).toBe(null);
 
     // Keychain now available on retry — the cleared key must NOT come back.
     denyKeychain = false;
     expect((await loadProviderSettings("openrouter")).apiKey).toBe("");
-    expect(__peekSettingsStoreForTests()?.apiKeysCleared?.openrouter).toBe(true);
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBeUndefined();
+    expect(__peekSettingsStoreForTests()?.keys?.openrouter).toBe(null);
+    expect(typeof __peekSettingsStoreForTests()?.keys?.openrouter).toBe("object");
   });
 
   it("saveSettings with unchanged apiKey does not touch the key mirror", async () => {
@@ -550,11 +574,11 @@ describe("store I/O — working keychain", () => {
     __resetSettingsStoreForTests({ keychain });
     await saveProviderProfile("openai", { model: "gpt-4o-mini" }, "sk-openai");
 
-    const before = __peekSettingsStoreForTests()?.apiKeys?.openai;
+    const before = __peekSettingsStoreForTests()?.keys?.openai;
     const loaded = await loadProviderSettings("openai");
     await saveSettings({ ...loaded, thinkingEnabled: true });
 
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openai).toBe(before);
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBe(before);
     expect(await keychain.get("openai")).toBe("sk-openai");
   });
 
@@ -573,7 +597,7 @@ describe("store I/O — working keychain", () => {
     // V1 -> V2 migration also remaps the model.
     expect(loaded.model).toBe("openai/gpt-4o-mini");
     expect(loaded.apiKey).toBe("sk-legacy");
-    expect(__peekSettingsStoreForTests()?.apiKeys?.openrouter).toBeUndefined();
+    expect(__peekSettingsStoreForTests()?.keys?.openrouter).toBeUndefined();
     expect(await keychain.get("openrouter")).toBe("sk-legacy");
   });
 });

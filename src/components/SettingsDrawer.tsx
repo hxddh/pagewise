@@ -1,29 +1,24 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Info, Keyboard, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Info, Keyboard, SlidersHorizontal } from "lucide-react";
 import { useI18n } from "../i18n";
 import { IconClose } from "./Icon";
-import { ConfirmBar } from "./ConfirmBar";
 import { GeneralSettings } from "./settings/GeneralSettings";
-import {
-  AiProviderSettings,
-  type AiSettingsFooterState,
-} from "./settings/AiProviderSettings";
+import { SetupAssistant } from "./settings/SetupAssistant";
 import { ShortcutsSettings } from "./settings/ShortcutsSettings";
 import { AboutSettings } from "./settings/AboutSettings";
 import { loadPreferences, patchPreferences, type SettingsTab } from "../lib/preferences";
 import { useOverlayLock } from "../hooks/useOverlayLock";
 import { useFocusTrap } from "../hooks/useFocusTrap";
-import {
-  isTopOverlayLayer,
-  popOverlayLayer,
-  pushOverlayLayer,
-} from "../lib/overlay-state";
+import { isTopOverlayLayer, popOverlayLayer, pushOverlayLayer } from "../lib/overlay-state";
 import { Button } from "./ui/Button";
 
 interface SettingsDrawerProps {
   open: boolean;
-  initialTab?: SettingsTab;
   onClose: () => void;
+  /** True once a key is stored for the active provider — decides setup vs settings. */
+  assistantConfigured: boolean;
+  /** False while the stored settings are still being read. */
+  settingsReady: boolean;
   onLlmSettingsSaved?: () => void;
   onReindexDoc?: () => void;
   onApiReady?: () => void;
@@ -32,23 +27,37 @@ interface SettingsDrawerProps {
   onIncludeViewingPageDefaultChange: (value: boolean) => void;
   onTestResult?: (message: string, ok: boolean) => void;
   onSaveError?: () => void;
+  onRefreshConnection?: () => void;
 }
 
-const TABS = ["ai", "general", "shortcuts", "about"] as const satisfies readonly SettingsTab[];
+const TABS = ["general", "shortcuts", "about"] as const satisfies readonly SettingsTab[];
 
 type DrawerTab = (typeof TABS)[number];
 
-const TAB_ICONS: Record<DrawerTab, typeof Sparkles> = {
-  ai: Sparkles,
+const TAB_ICONS: Record<DrawerTab, typeof Info> = {
   general: SlidersHorizontal,
   shortcuts: Keyboard,
   about: Info,
 };
 
+/**
+ * The settings surface, and the setup page a new reader gets instead.
+ *
+ * 18.0 removed the "AI Provider" tab: it was a second surface for one subject,
+ * and its "Set active" footer made editing and using two different things. An
+ * unconfigured app now opens on a single page that asks for one key, and a
+ * configured one opens on three groups — appearance, reading, assistant.
+ *
+ * The unsaved-changes confirm is gone with the footer: every edit autosaves
+ * (400ms debounce) and the hook flushes on unmount, so the drawer's close is
+ * never a place where work is lost, and a dialog asking about it was a
+ * leftover from when saving was manual.
+ */
 function SettingsDrawerInner({
   open,
-  initialTab,
   onClose,
+  assistantConfigured,
+  settingsReady,
   onLlmSettingsSaved,
   onReindexDoc,
   onApiReady,
@@ -57,56 +66,43 @@ function SettingsDrawerInner({
   onIncludeViewingPageDefaultChange,
   onTestResult,
   onSaveError,
+  onRefreshConnection,
 }: SettingsDrawerProps) {
   const { t } = useI18n();
   useOverlayLock(open);
   const panelRef = useRef<HTMLElement>(null);
   useFocusTrap(open, panelRef);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [tab, setTab] = useState<DrawerTab>("ai");
-  const [visited, setVisited] = useState<Set<DrawerTab>>(() => new Set(["ai"]));
-  const [aiFooter, setAiFooter] = useState<AiSettingsFooterState | null>(null);
-  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    loadPreferences().then((p) => {
-      const next = initialTab ?? p.lastSettingsTab ?? "ai";
-      const resolved = TABS.includes(next as DrawerTab) ? (next as DrawerTab) : "ai";
-      setTab(resolved);
-      setVisited(new Set([resolved]));
-    });
-  }, [open, initialTab]);
+  const [tab, setTab] = useState<DrawerTab>("general");
+  const [visited, setVisited] = useState<Set<DrawerTab>>(() => new Set(["general"]));
+  /** The reader chose "something else…" on the setup page: show the full surface. */
+  const [setupSkipped, setSetupSkipped] = useState(false);
 
   useEffect(() => {
     if (!open) {
-      setCloseConfirmOpen(false);
+      setSetupSkipped(false);
+      return;
     }
+    void loadPreferences().then((p) => {
+      const resolved = TABS.includes(p.lastSettingsTab as DrawerTab)
+        ? (p.lastSettingsTab as DrawerTab)
+        : "general";
+      setTab(resolved);
+      setVisited(new Set([resolved]));
+    });
   }, [open]);
 
   const requestClose = useCallback(() => {
-    if (aiFooter?.dirty) {
-      setCloseConfirmOpen(true);
-      return;
-    }
     onClose();
-  }, [aiFooter?.dirty, onClose]);
-
-  // Read the latest requestClose from a ref so the escape-layer effect below can
-  // depend only on `open`. Otherwise requestClose's identity (which changes with
-  // aiFooter.dirty) would pop+re-push the layer on an unrelated autosave tick,
-  // shoving this drawer above a higher overlay and mis-routing Escape.
-  const requestCloseRef = useRef(requestClose);
-  requestCloseRef.current = requestClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     const layerId = pushOverlayLayer();
     const onKey = (e: KeyboardEvent) => {
-      // Only the topmost overlay layer reacts to Escape. When the close-confirm
-      // ConfirmBar is open it owns a higher layer and handles Escape itself.
+      // Only the topmost overlay layer reacts to Escape.
       if (e.key === "Escape" && isTopOverlayLayer(layerId)) {
-        requestCloseRef.current();
+        requestClose();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -114,7 +110,7 @@ function SettingsDrawerInner({
       window.removeEventListener("keydown", onKey);
       popOverlayLayer(layerId);
     };
-  }, [open]);
+  }, [open, requestClose]);
 
   async function selectTab(next: DrawerTab) {
     setTab(next);
@@ -149,21 +145,13 @@ function SettingsDrawerInner({
 
   if (!open) return null;
 
+  const needsSetup = settingsReady && !assistantConfigured && !setupSkipped;
+
   const tabLabels: Record<DrawerTab, string> = {
-    ai: t("settings.aiProvider"),
     general: t("settings.general"),
     shortcuts: t("settings.shortcuts"),
     about: t("settings.about"),
   };
-
-  const footerStatusClass =
-    aiFooter?.saveStatus === "saved"
-      ? "saved"
-      : aiFooter?.saveStatus === "error"
-        ? "error"
-        : aiFooter?.dirty
-          ? "unsaved"
-          : "";
 
   return (
     <div className="drawer-root" role="presentation">
@@ -179,10 +167,10 @@ function SettingsDrawerInner({
         className="drawer-panel settings-drawer"
         role="dialog"
         aria-modal="true"
-        aria-label={t("settings.title")}
+        aria-label={needsSetup ? t("settings.setupTitle") : t("settings.title")}
       >
         <header className="drawer-header">
-          <h2>{t("settings.title")}</h2>
+          <h2>{needsSetup ? t("settings.setupTitle") : t("settings.title")}</h2>
           <Button
             variant="ghost" size="md" icon
             onClick={requestClose}
@@ -192,133 +180,95 @@ function SettingsDrawerInner({
           </Button>
         </header>
 
-        <div className="settings-layout">
-          <nav className="settings-nav" role="tablist" aria-label={t("settings.title")}>
-            {TABS.map((id, index) => {
-              const Icon = TAB_ICONS[id];
-              return (
-                // raw-button: role="tab" in a tablist — a tab is not a button and must not be styled as one
-                <button
-                  key={id}
-                  ref={(el) => {
-                    tabRefs.current[index] = el;
-                  }}
-                  type="button"
-                  role="tab"
-                  id={`settings-tab-${id}`}
-                  aria-selected={tab === id}
-                  aria-controls={`settings-panel-${id}`}
-                  tabIndex={tab === id ? 0 : -1}
-                  className={`settings-nav-item ${tab === id ? "active" : ""}`}
-                  onClick={() => void selectTab(id)}
-                  onKeyDown={(e) => onTabKeyDown(e, index)}
-                >
-                  <Icon size={14} strokeWidth={1.75} />
-                  {tabLabels[id]}
-                </button>
-              );
-            })}
-          </nav>
-
+        {needsSetup ? (
           <div className="settings-main">
             <div className="settings-content">
-              {visited.has("ai") && (
-                <div
-                  id="settings-panel-ai"
-                  role="tabpanel"
-                  aria-labelledby="settings-tab-ai"
-                  hidden={tab !== "ai"}
-                  className="settings-pane"
-                >
-                  <AiProviderSettings
-                    onLlmSettingsSaved={onLlmSettingsSaved}
-                    onReindexDoc={onReindexDoc}
-                    onTestResult={onTestResult}
-                    onApiReady={onApiReady}
-                    onSaveError={onSaveError}
-                    onFooterState={setAiFooter}
-                  />
-                </div>
-              )}
-              {visited.has("general") && (
-                <div
-                  id="settings-panel-general"
-                  role="tabpanel"
-                  aria-labelledby="settings-tab-general"
-                  hidden={tab !== "general"}
-                  className="settings-pane"
-                >
-                  <GeneralSettings
-                    includeViewingPageDefault={includeViewingPageDefault}
-                    onIncludeViewingPageDefaultChange={onIncludeViewingPageDefaultChange}
-                    onPreferencesSaved={onPreferencesSaved}
-                  />
-                </div>
-              )}
-              {visited.has("shortcuts") && (
-                <div
-                  id="settings-panel-shortcuts"
-                  role="tabpanel"
-                  aria-labelledby="settings-tab-shortcuts"
-                  hidden={tab !== "shortcuts"}
-                  className="settings-pane"
-                >
-                  <ShortcutsSettings />
-                </div>
-              )}
-              {visited.has("about") && (
-                <div
-                  id="settings-panel-about"
-                  role="tabpanel"
-                  aria-labelledby="settings-tab-about"
-                  hidden={tab !== "about"}
-                  className="settings-pane"
-                >
-                  <AboutSettings />
-                </div>
-              )}
+              <div className="settings-pane">
+                <SetupAssistant
+                  onDone={onClose}
+                  onSkip={() => setSetupSkipped(true)}
+                  onSaveError={onSaveError}
+                  onRefreshConnection={onRefreshConnection}
+                />
+              </div>
             </div>
-
-            {tab === "ai" && aiFooter && (
-              <footer className="settings-footer">
-                <span className={`settings-footer-status ${footerStatusClass}`}>
-                  {aiFooter.saveStatusLabel ?? t("settings.autoSaved")}
-                </span>
-                <div className="settings-footer-actions">
-                  <Button
-                    variant="secondary" size="lg"
-                    onClick={aiFooter.onSetActive}
-                    disabled={!aiFooter.canSetActive || aiFooter.settingActive}
-                  >
-                    {aiFooter.settingActive
-                      ? t("settings.settingActive")
-                      : aiFooter.previewIsActive
-                        ? t("settings.currentlyActive")
-                        : t("settings.setAsActive")}
-                  </Button>
-                  <Button
-                    variant="primary" size="lg"
-                    onClick={aiFooter.onTest}
-                    disabled={aiFooter.testing}
-                  >
-                    {aiFooter.testing ? t("settings.testing") : t("settings.testConnection")}
-                  </Button>
-                </div>
-              </footer>
-            )}
           </div>
-        </div>
+        ) : (
+          <div className="settings-layout">
+            <nav className="settings-nav" role="tablist" aria-label={t("settings.title")}>
+              {TABS.map((id, index) => {
+                const Icon = TAB_ICONS[id];
+                return (
+                  // raw-button: role="tab" in a tablist — a tab is not a button and must not be styled as one
+                  <button
+                    key={id}
+                    ref={(el) => {
+                      tabRefs.current[index] = el;
+                    }}
+                    type="button"
+                    role="tab"
+                    id={`settings-tab-${id}`}
+                    aria-selected={tab === id}
+                    aria-controls={`settings-panel-${id}`}
+                    tabIndex={tab === id ? 0 : -1}
+                    className={`settings-nav-item ${tab === id ? "active" : ""}`}
+                    onClick={() => void selectTab(id)}
+                    onKeyDown={(e) => onTabKeyDown(e, index)}
+                  >
+                    <Icon size={14} strokeWidth={1.75} />
+                    {tabLabels[id]}
+                  </button>
+                );
+              })}
+            </nav>
 
-        {closeConfirmOpen && (
-          <div className="settings-close-confirm">
-            <ConfirmBar
-              message={t("settings.discardUnsaved")}
-              confirmLabel={t("settings.discardAndClose")}
-              onConfirm={() => {
-                void aiFooter?.onDiscard().then(() => onClose());
-              }}
-              onCancel={() => setCloseConfirmOpen(false)}
-            />
+            <div className="settings-main">
+              <div className="settings-content">
+                {visited.has("general") && (
+                  <div
+                    id="settings-panel-general"
+                    role="tabpanel"
+                    aria-labelledby="settings-tab-general"
+                    hidden={tab !== "general"}
+                    className="settings-pane"
+                  >
+                    <GeneralSettings
+                      includeViewingPageDefault={includeViewingPageDefault}
+                      onIncludeViewingPageDefaultChange={onIncludeViewingPageDefaultChange}
+                      onPreferencesSaved={onPreferencesSaved}
+                      onLlmSettingsSaved={onLlmSettingsSaved}
+                      onReindexDoc={onReindexDoc}
+                      onApiReady={onApiReady}
+                      onTestResult={onTestResult}
+                      onSaveError={onSaveError}
+                      onRefreshConnection={onRefreshConnection}
+                    />
+                  </div>
+                )}
+                {visited.has("shortcuts") && (
+                  <div
+                    id="settings-panel-shortcuts"
+                    role="tabpanel"
+                    aria-labelledby="settings-tab-shortcuts"
+                    hidden={tab !== "shortcuts"}
+                    className="settings-pane"
+                  >
+                    <ShortcutsSettings />
+                  </div>
+                )}
+                {visited.has("about") && (
+                  <div
+                    id="settings-panel-about"
+                    role="tabpanel"
+                    aria-labelledby="settings-tab-about"
+                    hidden={tab !== "about"}
+                    className="settings-pane"
+                  >
+                    <AboutSettings />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </aside>

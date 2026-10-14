@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { installPromiseWithResolversPolyfill } from "./lib/polyfills";
 import { I18nProvider, resolveLocale } from "./i18n";
-import { applyTheme, loadPreferences, resolveTheme } from "./lib/preferences";
+import { applyReadingScale, applyTheme, loadPreferences, resolveTheme } from "./lib/preferences";
 import { ThemeProvider } from "./hooks/useTheme";
 import App from "./App";
 
@@ -10,6 +10,7 @@ installPromiseWithResolversPolyfill();
 
 void loadPreferences().then((prefs) => {
   applyTheme(resolveTheme(prefs.theme));
+  applyReadingScale(prefs.readingScale);
   const locale = resolveLocale(prefs.locale);
   document.documentElement.lang = locale === "zh-CN" ? "zh-CN" : "en";
 });

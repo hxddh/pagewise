@@ -2,9 +2,17 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import type { PreviewQuality } from "./types";
 import { createStoreRuntime } from "./json-store";
 
-export type ThemeMode = "dark" | "light" | "system";
+/**
+ * `paper` is the third reading surface, not a variant of light: a warm white
+ * page under a warm grey chrome. It exists because a reader who spends an hour
+ * in a document wants the page to look like paper, and both of the other two
+ * themes are built around the app's own greys.
+ */
+export type ThemeMode = "dark" | "light" | "paper" | "system";
+export type ResolvedTheme = "dark" | "light" | "paper";
 export type LocaleMode = "en" | "zh-CN" | "system";
-export type SettingsTab = "general" | "ai" | "shortcuts" | "about";
+/** 18.0: the AI provider tab is gone — one settings surface, three groups. */
+export type SettingsTab = "general" | "shortcuts" | "about";
 export type { PreviewQuality };
 
 export interface AppPreferences {
@@ -37,6 +45,14 @@ export interface AppPreferences {
   localOcr: boolean;
   /** Which models local OCR reads with. "auto" follows the interface language. */
   ocrLanguage: OcrLanguageMode;
+  /**
+   * The line under every settled answer: pages, steps, tokens in/out, cache
+   * hits, scan calls. On by default — a reader who is paying per question is
+   * entitled to see what it cost, and off is for the reader who finds it noise.
+   */
+  showUsageLine: boolean;
+  /** The answer column's text scale (three steps). See `READING_SCALE_CHOICES`. */
+  readingScale: number;
 }
 
 export type OcrLanguageMode = "auto" | "eng" | "chi_sim+eng";
@@ -64,6 +80,9 @@ export const AUTO_INDEX_PAGE_CHOICES = [0, 20, 50, 200] as const;
 /** Selectable per-question assistant scan allowances, smallest first. */
 export const AGENT_SCAN_PAGE_CHOICES = [0, 10, 20, 50] as const;
 
+/** The answer column's text scale: small, default, large. */
+export const READING_SCALE_CHOICES = [0.95, 1, 1.1] as const;
+
 const STORE_PATH = "preferences.json";
 const KEY = "app";
 
@@ -74,17 +93,22 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   followAgentDefault: true,
   includeViewingPageDefault: false,
   previewQuality: "crisp",
-  autoIndexPages: 50,
-  agentScanPages: 20,
+  // 18.0 lowered both scan budgets: the background sweep was 50 pages of billed
+  // vision calls on every document opened, and a question could spend 20 more.
+  // Full coverage is still one command away, and the reader now sees the count.
+  autoIndexPages: 20,
+  agentScanPages: 10,
   localOcr: true,
   ocrLanguage: "auto",
+  showUsageLine: true,
+  readingScale: 1,
 };
 
 const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
 
-const THEME_MODES: ThemeMode[] = ["dark", "light", "system"];
+const THEME_MODES: ThemeMode[] = ["dark", "light", "paper", "system"];
 const LOCALE_MODES: LocaleMode[] = ["en", "zh-CN", "system"];
-const SETTINGS_TABS: SettingsTab[] = ["general", "ai", "shortcuts", "about"];
+const SETTINGS_TABS: SettingsTab[] = ["general", "shortcuts", "about"];
 const PREVIEW_QUALITIES: PreviewQuality[] = ["auto", "crisp", "performance"];
 
 function pick<T>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -136,6 +160,8 @@ export function sanitizePreferences(raw: unknown): AppPreferences {
     ),
     localOcr: bool(saved.localOcr, DEFAULT_PREFERENCES.localOcr),
     ocrLanguage: pick(saved.ocrLanguage, OCR_LANGUAGE_MODES, DEFAULT_PREFERENCES.ocrLanguage),
+    showUsageLine: bool(saved.showUsageLine, DEFAULT_PREFERENCES.showUsageLine),
+    readingScale: pick(saved.readingScale, READING_SCALE_CHOICES, DEFAULT_PREFERENCES.readingScale),
   };
 }
 
@@ -162,13 +188,24 @@ export async function patchPreferences(
   });
 }
 
-export function resolveTheme(mode: ThemeMode): "dark" | "light" {
+export function resolveTheme(mode: ThemeMode): ResolvedTheme {
   if (mode === "system") {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   return mode;
 }
 
-export function applyTheme(resolved: "dark" | "light"): void {
+export function applyTheme(resolved: ResolvedTheme): void {
   document.documentElement.setAttribute("data-theme", resolved);
+}
+
+/**
+ * The answer column's text scale, as one CSS variable.
+ *
+ * Scaling only the reading sizes (not the whole panel) is deliberate: the
+ * chrome around an answer is already at its floor, and a reader asking for
+ * larger text means the prose, not the buttons.
+ */
+export function applyReadingScale(scale: number): void {
+  document.documentElement.style.setProperty("--reading-scale", String(scale));
 }

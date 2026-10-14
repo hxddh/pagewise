@@ -9,7 +9,8 @@
  *   - under an answer: at most 4 visible buttons;
  *   - one export entry in the chat menu and one in the palette, both opening
  *     the same dialog of three;
- *   - at most 12 settings rows across General and AI Provider;
+ *   - at most 12 settings rows on the settings surface, and the assistant
+ *     group is present on it;
  *   - citation chips in at most three levels (plus the unmarked "none").
  *
  * A scripted model answers with a table and three citations — found, found
@@ -148,17 +149,22 @@ await p.waitForSelector(".export-panel");
 const dialogChoices = await p.$$eval(".export-option", (els) => els.length);
 await p.keyboard.press("Escape");
 
-// Settings: rows on the two pages a reader configures.
+// Settings: rows on the one page a reader configures.
+//
+// 18.0 collapsed "General" and "AI Provider" into a single surface (three
+// groups: appearance, reading, assistant). The gate counts the everyday rows
+// with the assistant's Advanced disclosure closed — which is how the page
+// opens — so a control added to the everyday surface has to fit the budget.
 await p.keyboard.press("Control+,");
 await p.waitForTimeout(800);
 const rowSelector = ".settings-row-toggle, .settings-pill-row, .ui-field";
 const countRows = () => p.$$eval(rowSelector, visible);
 await p.getByRole("tab", { name: /general/i }).click().catch(() => p.getByText(/^General$/).first().click());
 await p.waitForTimeout(400);
-const generalRows = await countRows();
-await p.getByRole("tab", { name: /ai provider/i }).click().catch(() => p.getByText(/^AI Provider$/).first().click());
-await p.waitForTimeout(400);
-const aiRows = await countRows();
+const settingsRows = await countRows();
+// The assistant group is where the model lives now; without it the count above
+// could pass on a page that had lost its configuration surface entirely.
+const assistantGroup = await p.getByText(/^Assistant$/).count();
 await b.close();
 
 const results = {
@@ -166,7 +172,8 @@ const results = {
   "one export entry in the chat menu": menuExports === 1,
   "one export command in the palette": paletteExports === 1,
   "the export dialog offers three": dialogChoices === 3,
-  "settings: at most 12 rows": generalRows + aiRows <= 12,
+  "settings: at most 12 rows": settingsRows <= 12,
+  "settings: the assistant group is on the page": assistantGroup >= 1,
   "citations in at most three levels": chipLevels.filter((l) => l !== "cite-level-none").length <= 3,
   "reading column at least 420px": reading.columnWidth >= 420,
   "answer headings step by 1.2x the body": reading.bodySize > 0 && reading.h2Size / reading.bodySize >= 1.2,
@@ -175,7 +182,7 @@ const results = {
 };
 console.log(
   JSON.stringify(
-    { footerButtons, menuExports, paletteExports, dialogChoices, generalRows, aiRows, chipLevels, reading },
+    { footerButtons, menuExports, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, reading },
     null,
     2,
   ),
