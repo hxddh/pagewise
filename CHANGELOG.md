@@ -2,6 +2,19 @@
 
 All notable changes to PageWise are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+v22's last item (`docs/reviews/2026-10-15-pagewise-v22-evaluation.md` §3.3 item 12): measure the six things the v20, v21 and v22 reviews could only mark "not measured", then fix what is over. One was.
+
+- **Page numbers show again** (`src/features/preview/PageSlot.tsx`, `src/styles/preview.css`). The number sits in the gap below each page, and the page slot clipped its content so a mark could not draw over the next page — which hid the number on every page. The clip is now an inner box (`.pdf-page-clip`) around the canvas, the text layer and the overlays; the number is outside it. `ui:inventory` checks it: page numbers and margin cards are drawn and none is cut by a box that clips it.
+- **Five measurements join the perf probe** (`scripts/perf-probe.mjs`, `src/lib/perf-counters.ts`), each recorded first and budgeted with the probe's usual room:
+  - idle main-thread work with a document open: **1.9–2.3 ms/s** (budget 8) — nothing polls or animates;
+  - `getPageGeometry` calls per mounted page with one overlay on every page: **1.5** (budget 3);
+  - pages rasterized from the end of a fling to the settle: **1.0 per mounted page** (budget 2) — the end of "hurry" re-renders what it drew rough, once;
+  - a 1,000-entry outline: first row in **243–349 ms**, one long task of ~186 ms (budgets 900 ms, 2) — under the thumbnails' 600 ms, so it stays unwindowed;
+  - BM25 over 500 pages: **130–163 ms** to build the index, 1.4 ms to read it (budget 450 ms).
+- Budget re-recorded: `srcLines` **41,892 → 41,924**.
+
 ## [21.1.0] - 2026-10-15
 
 v22: the first open has to work. No breaking change, so a minor release under the SemVer policy. From `docs/reviews/2026-10-15-pagewise-v22-evaluation.md`.

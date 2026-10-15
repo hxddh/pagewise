@@ -476,10 +476,17 @@
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.28),
     var(--shadow-md);
-  /* A page contains its own overlays. Marks are clamped to the page before
-     they are drawn, but a page that clips is what makes "over the neighbouring
-     page" impossible rather than merely unlikely. The note popover is rendered
-     by the preview, not by the page, so it is not affected. */
+}
+
+/* A page contains its own overlays. Marks are clamped to the page before they
+   are drawn, but a page that clips is what makes "over the neighbouring page"
+   impossible rather than merely unlikely. The note popover is rendered by the
+   preview, not by the page, so it is not affected. The clip is this inner box
+   and not the slot (22.0): the page number sits in the gap below the slot,
+   and the slot's own clip hid it on every page. */
+.pdf-page-clip {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
 }
 
@@ -492,7 +499,9 @@
 .pdf-page-number {
   position: absolute;
   right: 8px;
-  bottom: -18px;
+  /* In the gap between pages (PAGE_GAP, 16px), and no further. */
+  bottom: -16px;
+  line-height: 16px;
   font-size: var(--text-xs);
   color: var(--text-secondary);
   pointer-events: none;

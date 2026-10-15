@@ -19,6 +19,7 @@ import {
   readableAnnotations,
   type DocAnnotation,
 } from "./pdf-annotations";
+import { countEvent } from "./perf-counters";
 
 const MAX_CACHE_BYTES = 128 * 1024 * 1024;
 const RASTER_TEXT_THRESHOLD = 48;
@@ -626,6 +627,7 @@ async function paintPage(
   const prev = activeRenderTasks.get(canvas);
   prev?.cancel();
 
+  countEvent("raster");
   const task = page.render({
     canvasContext: ctx,
     viewport,
@@ -1333,6 +1335,7 @@ export async function getPageGeometry(
   path: string,
   pageNumber: number,
 ): Promise<PageGeometry> {
+  countEvent("geometry");
   const doc = await getPdfDocument(path);
   const page = await doc.getPage(pageNumber);
   const viewport = page.getViewport({ scale: 1 });

@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
  *   conversation, and it stayed that way for four releases.
  * - 6.0.0 also sized the scroller with `flex: 1` inside a row flex container,
  *   which collapsed it to zero height: the document could not be scrolled.
- * - 6.2 clipped pages so a mark could not draw over its neighbour.
+ * - 6.2 clipped pages so a mark could not draw over its neighbour. The clip
+ *   was on the slot, which also hid the page number below it (22.0 moved it).
  *
  * These assertions are crude — they read the stylesheet as text — and that is
  * the point: they are the only thing standing between a careless edit and a
@@ -45,8 +46,13 @@ describe("declarations the app cannot lose", () => {
     expect(scroller).toContain("overflow: auto");
   });
 
-  it("a page clips what is drawn on it", () => {
-    expect(rule("preview.css", ".pdf-page-slot")).toContain("overflow: hidden");
+  it("a page clips what is drawn on it, and not its number", () => {
+    // The clip moved off the slot in 22.0: the page number sits in the gap
+    // below the page, and the slot's own clip had hidden it on every page.
+    const clip = rule("preview.css", ".pdf-page-clip");
+    expect(clip).toContain("overflow: hidden");
+    expect(clip).toContain("inset: 0");
+    expect(rule("preview.css", ".pdf-page-slot")).not.toContain("overflow: hidden");
   });
 
   it("the shared button and input carry a focus ring", () => {
