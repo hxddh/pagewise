@@ -18,7 +18,8 @@
  * named here is a page the reader can turn to in any viewer.
  */
 import { citationsToText } from "./citations";
-import { cachedReview, type ReviewVerdict } from "./claim-review";
+import { cachedCitationCheck } from "./citation-check";
+import { cachedReview, reviewBasis, type ReviewVerdict } from "./claim-review";
 import type { Finding } from "./finding-store";
 import { labelForPage } from "./page-labels";
 import { TRUST_KNOWN, type Trust } from "./finding-trust";
@@ -115,7 +116,10 @@ function quote(text: string): string[] {
 function reviewLine(doc: LoadedDocument, finding: Finding, labels: BriefLabels): string {
   const evidence = finding.evidence.trim();
   if (!evidence) return "";
-  const review = cachedReview(doc.path, finding.claim, evidence);
+  // Read against the passage the entry's check finds now (22.0): a verdict
+  // on words the page no longer has is not filed.
+  const basis = reviewBasis(cachedCitationCheck(doc.path, { pages: finding.pages, quote: evidence }));
+  const review = cachedReview(doc.path, finding.claim, evidence, basis);
   return review ? ` · _${labels.review[review.verdict]}_` : "";
 }
 

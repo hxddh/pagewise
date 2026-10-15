@@ -270,7 +270,7 @@ describe("keep-verified agrees with the sentence states (20.0)", () => {
     // The review can only lower a level, never raise one (16.0) — and it is
     // the same lowering the chip shows beside the local verdict.
     await reviewClaim(PATH, "质保期为 36 个月", WARRANTY, "质保期为最终验收合格之日起三十六个月。", 3);
-    expect(cachedReview(PATH, "质保期为 36 个月", WARRANTY)?.verdict).toBe("contradicts");
+    expect(cachedReview(PATH, "质保期为 36 个月", WARRANTY, { page: 3, passage: "质保期为最终验收合格之日起三十六个月。" })?.verdict).toBe("contradicts");
     expect(sentenceStates(PATH, md)[0]!.state).toBe("notFound");
     expect(verifiedSentences(PATH, md)).toEqual([]);
   });

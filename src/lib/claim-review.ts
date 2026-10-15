@@ -21,8 +21,17 @@
  * exported an empty model column — "never reviewed" where the truth was "the
  * review was not kept" — and asking again paid again). A changed file drops
  * them: they were readings of a passage that may no longer be there.
+ *
+ * 22.0: a verdict is keyed by the page and a fingerprint of the passage it
+ * read, not only by the sentence and the quote. The file's stamp does not
+ * change when its text does — a scan read again with both OCR models, a page
+ * indexed again — and a verdict on words that are no longer the page's must
+ * not hang on the new ones. And a citation whose words were not found can be
+ * asked about too, against its page's text: that is the next step for a red
+ * chip, which until now could only say "not found".
  */
 import { generateObject } from "ai";
+import type { CitationCheck } from "./citation-check";
 import { z } from "zod";
 import { createAtomicStore } from "./atomic-store";
 import { createStoreRuntime } from "./json-store";
@@ -53,17 +62,61 @@ export const claimReviewBatchSchema = z.object({
   ),
 });
 
-const MAX_PASSAGE = 3000;
+/** A paragraph is far shorter; a page's text is capped at the same length (`MAX_PAGE_TEXT`). */
+const MAX_PASSAGE = 4000;
 const MAX_REASON = 400;
 /**
- * Citations per call. Eight passages at the 3,000-character cap is a prompt
- * of ~25,000 characters — well inside every preset model's window — and an
+ * Citations per call. Eight passages at the 4,000-character cap is a prompt
+ * of ~33,000 characters — well inside every preset model's window — and an
  * answer with more citations than that is rare; it becomes a few calls.
  */
 export const REVIEW_BATCH = 8;
 
-/** Keyed by path, sentence and quote; the parts kept too, since either may hold a newline. */
-const reviews = new Map<string, { claim: string; quote: string; review: ClaimReview }>();
+/** What a verdict was a reading of: the page, and the passage sent from it. */
+export interface ReviewBasis {
+  page: number;
+  passage: string;
+  /** The quoted words were not found; `passage` is the page's text. */
+  wholePage?: boolean;
+}
+
+/**
+ * What the model would be asked to read for this check, or null when there is
+ * nothing to send: a found quote's paragraph, or, when the words were not
+ * found on a page that has text, that page's text (22.0).
+ */
+export function reviewBasis(check: CitationCheck | null | undefined): ReviewBasis | null {
+  if (!check) return null;
+  if ((check.status === "located" || check.status === "mismatch") && check.page && check.passage) {
+    return { page: check.page, passage: check.passage };
+  }
+  if ((check.status === "unlocated" || check.status === "unconfirmed") && check.pageText?.text) {
+    return { page: check.pageText.page, passage: check.pageText.text, wholePage: true };
+  }
+  return null;
+}
+
+/** FNV-1a over the passage with its whitespace collapsed: the same words, the same print. */
+export function passageFingerprint(passage: string): string {
+  const text = passage.replace(/\s+/g, " ").trim().slice(0, MAX_PASSAGE);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+interface HeldReview {
+  claim: string;
+  quote: string;
+  page: number;
+  fp: string;
+  review: ClaimReview;
+}
+
+/** Keyed by path, sentence, quote, page and passage print; the parts kept too, since a part may hold a newline. */
+const reviews = new Map<string, HeldReview>();
 const listeners = new Set<() => void>();
 let revision = 0;
 
@@ -77,12 +130,22 @@ function notifyReviews(): void {
   for (const l of listeners) l();
 }
 
-function key(path: string, claim: string, quote: string): string {
-  return `${path}\n${claim}\n${quote}`;
+function key(path: string, claim: string, quote: string, page: number, fp: string): string {
+  return `${path}\n${claim}\n${quote}\n${page}\n${fp}`;
 }
 
-export function cachedReview(path: string, claim: string, quote: string): ClaimReview | null {
-  return reviews.get(key(path, claim, quote))?.review ?? null;
+/**
+ * The verdict on this sentence and quote, if it was a reading of `basis` —
+ * the passage the check finds now. No basis, or another passage: none.
+ */
+export function cachedReview(
+  path: string,
+  claim: string,
+  quote: string,
+  basis: ReviewBasis | null,
+): ClaimReview | null {
+  if (!basis) return null;
+  return reviews.get(key(path, claim, quote, basis.page, passageFingerprint(basis.passage)))?.review ?? null;
 }
 
 /** Be told when a review lands, so a chip already on screen can show it. */
@@ -103,18 +166,16 @@ export function clearReviews(path?: string): void {
   notifyReviews();
 }
 
-export interface ReviewItem {
+export interface ReviewItem extends ReviewBasis {
   claim: string;
   quote: string;
-  passage: string;
-  page: number;
 }
 
 export function reviewPrompt(items: readonly ReviewItem[]): string {
   const blocks = items
     .map(
       (r, i) => `Citation ${i + 1}
-Passage (page ${r.page}):
+${r.wholePage ? `Page ${r.page} (the quoted words are not on it word for word; this is the page's text):` : `Passage (page ${r.page}):`}
 """
 ${r.passage.slice(0, MAX_PASSAGE)}
 """
@@ -189,7 +250,7 @@ export async function reviewAll(
   let failed = 0;
   const pending: ReviewItem[] = [];
   for (const r of items) {
-    const hit = cachedReview(path, r.claim, r.quote);
+    const hit = cachedReview(path, r.claim, r.quote, r);
     if (hit) counts[hit.verdict] += 1;
     else pending.push(r);
   }
@@ -212,7 +273,8 @@ export async function reviewAll(
         failed += 1;
         return;
       }
-      reviews.set(key(path, r.claim, r.quote), { claim: r.claim, quote: r.quote, review });
+      const fp = passageFingerprint(r.passage);
+      reviews.set(key(path, r.claim, r.quote, r.page, fp), { claim: r.claim, quote: r.quote, page: r.page, fp, review });
       counts[review.verdict] += 1;
     });
     notifyReviews();
@@ -230,12 +292,13 @@ export async function reviewClaim(
   page: number,
   signal?: AbortSignal,
 ): Promise<ClaimReview> {
-  const hit = cachedReview(path, claim, quote);
+  const basis = { page, passage };
+  const hit = cachedReview(path, claim, quote, basis);
   if (hit) return hit;
   const controller = new AbortController();
   signal?.addEventListener("abort", () => controller.abort(), { once: true });
-  const { failed, cancelled } = await reviewAll(path, [{ claim, quote, passage, page }], controller.signal);
-  const review = cachedReview(path, claim, quote);
+  const { failed, cancelled } = await reviewAll(path, [{ claim, quote, ...basis }], controller.signal);
+  const review = cachedReview(path, claim, quote, basis);
   if (cancelled) throw new DOMException("Review cancelled", "AbortError");
   if (failed > 0 || !review) throw new Error("review failed");
   return review;
@@ -253,6 +316,9 @@ export const MAX_REVIEW_DOCS = 100;
 interface StoredEntry extends ClaimReview {
   claim: string;
   quote: string;
+  /** Since 22.0. An entry without them (21.0's) read an unknown passage and is not read back. */
+  page: number;
+  fp: string;
 }
 interface StoredDoc {
   path: string;
@@ -284,6 +350,8 @@ async function readStored(): Promise<{ docs: StoredDoc[]; newer: boolean }> {
       (e): e is StoredEntry =>
         typeof e?.claim === "string" &&
         typeof e.quote === "string" &&
+        typeof e.page === "number" &&
+        typeof e.fp === "string" &&
         isVerdict(e.verdict) &&
         typeof e.reason === "string",
     );
@@ -305,9 +373,11 @@ export async function loadReviews(path: string, stamp: string): Promise<void> {
     const doc = docs.find((d) => d.path === path && d.stamp === stamp);
     if (!doc || stampByPath.get(path) !== stamp) return;
     for (const e of doc.entries) {
-      reviews.set(key(path, e.claim, e.quote), {
+      reviews.set(key(path, e.claim, e.quote, e.page, e.fp), {
         claim: e.claim,
         quote: e.quote,
+        page: e.page,
+        fp: e.fp,
         review: { verdict: e.verdict, reason: e.reason },
       });
     }
@@ -323,8 +393,8 @@ async function saveReviews(path: string): Promise<void> {
   if (!stamp) return;
   const prefix = `${path}\n`;
   const entries: StoredEntry[] = [];
-  for (const [k, { claim, quote, review }] of reviews) {
-    if (k.startsWith(prefix)) entries.push({ claim, quote, ...review });
+  for (const [k, { claim, quote, page, fp, review }] of reviews) {
+    if (k.startsWith(prefix)) entries.push({ claim, quote, page, fp, ...review });
   }
   await runtime.withStoreLock(async () => {
     const { docs, newer } = await readStored();

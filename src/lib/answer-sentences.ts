@@ -56,7 +56,7 @@
 import { answerTables, claimBefore, rowClaim, type AnswerRow, type AnswerTable } from "./answer-tables";
 import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
 import { citationRe, extractCitations, sentenceBefore, sentenceEndRe, type Citation } from "./citations";
-import { cachedReview } from "./claim-review";
+import { cachedReview, reviewBasis } from "./claim-review";
 import { markdownToPlainText } from "./markdown-text";
 import { quantities, statedIn, type Quantity } from "./quantities";
 import { citationLevel, type TrustLevel } from "./trust-level";
@@ -352,7 +352,7 @@ export function sentenceStates(path: string, markdown: string): SentenceRow[] {
     for (const c of sentence.citations) {
       const claim = claimBefore(markdown, c.index);
       const check = withClaim(cachedCitationCheck(path, c), claim, c.quote);
-      const review = c.quote && claim ? cachedReview(path, claim, c.quote) : null;
+      const review = c.quote && claim ? cachedReview(path, claim, c.quote, reviewBasis(check)) : null;
       const reason: SentenceReason = check?.status ?? "pending";
       if (!check) checking = true;
       const level = citationLevel(reason, review?.verdict);

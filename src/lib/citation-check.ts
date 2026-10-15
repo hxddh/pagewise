@@ -28,7 +28,7 @@ import {
 } from "./citations";
 import type { PdfRect } from "./types";
 import { claimBefore } from "./answer-tables";
-import { passageAround } from "./passage";
+import { pageText, passageAround } from "./passage";
 import { unstatedQuantities } from "./quantities";
 
 /**
@@ -86,6 +86,12 @@ export interface CitationCheck {
   passage?: string;
   /** For `mismatch`: the sentence's numbers the passage does not state, as written. */
   unstated?: string[];
+  /**
+   * For `unlocated` and `unconfirmed`: the first named page that has text, as
+   * text (22.0). The words were not found, so there is no paragraph; this is
+   * what the model is asked about when the reader sends the citation to it.
+   */
+  pageText?: { page: number; text: string };
 }
 
 const results = new Map<string, CitationCheck>();
@@ -201,6 +207,7 @@ async function resolve(
   let sawRecognised = false;
   let failedRead = false;
   let emptyPage = false;
+  let firstText: { page: number; text: string } | undefined;
   for (const page of c.pages) {
     const runs = await pageRuns(path, page);
     if (runs.reason === "failed") {
@@ -209,6 +216,7 @@ async function resolve(
       continue;
     }
     if (runs.items.length === 0) emptyPage = true;
+    else firstText ??= { page, text: pageText(runs.items) };
     const outcome = locateQuote(runs.items, c.quote);
     if (outcome.status === "located") {
       const passage = passageAround(runs.items, outcome.rects);
@@ -224,8 +232,8 @@ async function resolve(
   // One page that could not be read is enough to withhold the accusation.
   if (sawUnreadable) return { check: { status: "unreadable" }, failedRead, emptyPage };
   // So is one page whose only words are OCR's reading of it.
-  if (sawRecognised) return settled({ status: "unconfirmed" });
-  return settled({ status: sawAbsent ? "unlocated" : "unchecked" });
+  if (sawRecognised) return settled({ status: "unconfirmed", pageText: firstText });
+  return settled(sawAbsent ? { status: "unlocated", pageText: firstText } : { status: "unchecked" });
 }
 
 export interface CitationTally {

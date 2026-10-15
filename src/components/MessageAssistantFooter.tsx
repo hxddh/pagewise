@@ -1,10 +1,10 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { UIMessage } from "ai";
 import { Copy, RotateCcw, BookmarkPlus, BookmarkCheck, MoreHorizontal } from "lucide-react";
-import { cachedCitationCheck, withClaim } from "../lib/citation-check";
+import { cachedCitationCheck } from "../lib/citation-check";
 import { claimBefore } from "../lib/answer-tables";
 import { extractCitations } from "../lib/citations";
-import { cachedReview, REVIEW_BATCH, reviewAll, reviewRevision, subscribeReviews } from "../lib/claim-review";
+import { cachedReview, REVIEW_BATCH, reviewAll, reviewBasis, reviewRevision, subscribeReviews } from "../lib/claim-review";
 import {
   SENTENCE_STATES,
   sentenceStates,
@@ -311,19 +311,21 @@ function MessageAssistantFooterInner({
     }
   }, [citationEnv, markdownText, showToast, t]);
 
-  // Found citations the model can be asked about: located, or found with a
-  // number the passage does not state (15.0). `REVIEW_BATCH` to a call (21.0).
+  // Citations the model can be asked about: found, or found with a number the
+  // passage does not state (15.0) — and, since 22.0, not found on a page that
+  // has text, read against that page: the next step for a red chip.
+  // `REVIEW_BATCH` to a call (21.0).
   const reviewable = useMemo(() => {
     if (!citationEnv || !tally || live) return [];
     const seen = new Set<string>();
     return extractCitations(markdownText).flatMap((c) => {
       const claim = claimBefore(markdownText, c.index);
-      const check = withClaim(cachedCitationCheck(citationEnv.path, c), claim, c.quote);
-      if (!c.quote || !claim || !check?.page || (check.status !== "located" && check.status !== "mismatch")) return [];
-      const k = `${claim}\n${c.quote}`;
+      const basis = reviewBasis(cachedCitationCheck(citationEnv.path, c));
+      if (!c.quote || !claim || !basis) return [];
+      const k = `${claim}\n${c.quote}\n${basis.page}`;
       if (seen.has(k)) return [];
       seen.add(k);
-      return [{ claim, quote: c.quote, passage: check.passage ?? c.quote, page: check.page }];
+      return [{ claim, quote: c.quote, ...basis }];
     });
   }, [citationEnv, tally, live, markdownText]);
   const [reviewing, setReviewing] = useState(false);
@@ -363,7 +365,7 @@ function MessageAssistantFooterInner({
   // What the button would actually send: a citation already reviewed — this
   // session or, since 21.0, a previous one — is not asked about again.
   const reviewPending = citationEnv
-    ? reviewable.filter((r) => !cachedReview(citationEnv.path, r.claim, r.quote)).length
+    ? reviewable.filter((r) => !cachedReview(citationEnv.path, r.claim, r.quote, r)).length
     : 0;
   const reviewedAll = reviewable.length > 0 && reviewPending === 0;
 

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { cachedReview, subscribeReviews } from "../lib/claim-review";
+import { cachedReview, reviewBasis, subscribeReviews } from "../lib/claim-review";
 import { useI18n } from "../i18n";
 import { cachedCitationCheck, checkCitation, withClaim, type CitationCheck } from "../lib/citation-check";
 import { citationLabel, type CitationLink } from "../lib/remark-citations";
@@ -66,7 +66,7 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
   // the local verdict, never in place of it. Subscribed before any early
   // return: a hook after one breaks when the document arrives (16.0, B11).
   const review = useSyncExternalStore(subscribeReviews, () =>
-    env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote) : null,
+    env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote, reviewBasis(check)) : null,
   );
 
   const label = children ?? citationLabel(link.pages);

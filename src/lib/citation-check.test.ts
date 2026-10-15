@@ -140,6 +140,18 @@ describe("on a scanned page (14.0)", () => {
     expect(check.status).toBe("unlocated");
   });
 
+  it("keeps the first named page's text when the words are not found, for a model to read (22.0)", async () => {
+    pages[5] = [run("The filter admits a newcomer"), run("only if it is   popular", 686)];
+    const check = await checkCitation(PATH, 10, { pages: [5], quote: "the committee rejected every newcomer" });
+    expect(check.status).toBe("unlocated");
+    expect(check.pageText).toEqual({ page: 5, text: "The filter admits a newcomer only if it is popular" });
+
+    recognised[6] = [run("Recognised words of a scan")];
+    const scanned = await checkCitation(PATH, 10, { pages: [6], quote: "the committee rejected every newcomer" });
+    expect(scanned.status).toBe("unconfirmed");
+    expect(scanned.pageText?.text).toBe("Recognised words of a scan");
+  });
+
   it("withholds the accusation when one of the named pages is a scan", async () => {
     pages[4] = [run("Nothing relevant here at all, only other words")];
     recognised[5] = [run("Other recognised words entirely")];
