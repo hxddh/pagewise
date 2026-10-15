@@ -9,6 +9,8 @@ vi.mock("../lib/citation-check", () => ({
   cachedCitationCheck: () => state.check,
   checkCitation: () => new Promise(() => {}),
   withClaim: (c: unknown) => c,
+  subscribeChecks: () => () => {},
+  checksEpoch: () => 0,
 }));
 
 vi.mock("../i18n", () => ({ useI18n: () => ({ t: (k: string) => k }) }));

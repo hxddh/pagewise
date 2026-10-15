@@ -28,6 +28,7 @@ vi.mock("../pdf", () => ({
 vi.mock("../doc-cache", () => ({ docCache: { get: () => ({ kind: "pdf" }) } }));
 
 import { __resetOcrServiceForTests, configureOcr, flushOcr, ocrPage, restoreOcr } from "./ocr-service";
+import { onOcrTextReplaced } from "./ocr-events";
 
 const PATH = "/scan.pdf";
 const ID = "fnv1a64:0123456789abcdef:100";
@@ -255,5 +256,21 @@ describe("a language change whose save fails (Codex on #157)", () => {
     __resetOcrServiceForTests();
     configureOcr({ enabled: true, languages: "eng" });
     expect((await restoreOcr(PATH, ID)).map((p) => p.page)).toEqual([7]);
+  });
+});
+
+describe("a change of language says the words were replaced (Codex on #157)", () => {
+  it("once the other section is read in", async () => {
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    await ocrPage(PATH, 1);
+    const told: { path: string; pages: number }[] = [];
+    const { cachedOcrPage } = await import("./ocr-service");
+    const off = onOcrTextReplaced((path) => told.push({ path, pages: cachedOcrPage(path, 1) ? 1 : 0 }));
+    configureOcr({ enabled: true, languages: "chi_sim+eng" });
+    await settle();
+    await settle();
+    off();
+    expect(told).toEqual([{ path: PATH, pages: 0 }]);
   });
 });

@@ -62,7 +62,7 @@ export const claimReviewBatchSchema = z.object({
   ),
 });
 
-/** A paragraph is far shorter; a page's text is capped at the same length (`MAX_PAGE_TEXT`). */
+/** A paragraph is far shorter; a page longer than this is not sent at all (`MAX_PAGE_TEXT`). */
 const MAX_PASSAGE = 4000;
 const MAX_REASON = 400;
 /**
@@ -83,7 +83,7 @@ export interface ReviewBasis {
 /**
  * What the model would be asked to read for this check, or null when there is
  * nothing to send: a found quote's paragraph, or, when the words were not
- * found on a page that has text, that page's text (22.0).
+ * found on a page that has text, that page's text, whole (22.0).
  */
 export function reviewBasis(check: CitationCheck | null | undefined): ReviewBasis | null {
   if (!check) return null;

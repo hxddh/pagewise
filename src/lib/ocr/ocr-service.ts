@@ -22,6 +22,7 @@ import { recognizeCanvas, terminateOcr, terminateOcrSlot, type OcrLanguages } fr
 import { readOcrDoc, writeOcrDoc, type StoredOcrPage } from "./ocr-store";
 import { ocrDpiFor } from "./ocr-result";
 import type { PageText } from "../types";
+import { ocrTextReplaced } from "./ocr-events";
 
 export const OCR_SLOTS = 2;
 /**
@@ -64,7 +65,9 @@ export function configureOcr(options: { enabled: boolean; languages: OcrLanguage
       // The interface's choice changed: the document chooses again.
       state.langs = undefined;
       state.cjkProbes = 0;
-      if (enabled && state.identity) void restoreOcr(path, state.identity);
+      // Said once the other section is in, so what is checked again reads it.
+      if (enabled && state.identity) void restoreOcr(path, state.identity).finally(() => ocrTextReplaced(path));
+      else ocrTextReplaced(path);
     }
   }
   if (changed) void terminateOcr();

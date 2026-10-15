@@ -31,9 +31,12 @@ import {
   cachedCitationCheck,
   checkAnswer,
   checkCitation,
+  checksEpoch,
   clearCitationChecks,
   tallyCitations,
 } from "./citation-check";
+import { ocrTextReplaced } from "./ocr/ocr-events";
+import { MAX_PAGE_TEXT } from "./passage";
 import { verifiedSentences } from "./answer-sentences";
 
 const PATH = "/docs/contract.pdf";
@@ -146,6 +149,11 @@ describe("on a scanned page (14.0)", () => {
     expect(check.status).toBe("unlocated");
     expect(check.pageText).toEqual({ page: 5, text: "The filter admits a newcomer only if it is popular" });
 
+    pages[7] = [run("x".repeat(MAX_PAGE_TEXT + 1))];
+    const dense = await checkCitation(PATH, 10, { pages: [7], quote: "the committee rejected every newcomer" });
+    expect(dense.status).toBe("unlocated");
+    expect(dense.pageText, "a page past the cap is not sent cut short").toBeUndefined();
+
     recognised[6] = [run("Recognised words of a scan")];
     const scanned = await checkCitation(PATH, 10, { pages: [6], quote: "the committee rejected every newcomer" });
     expect(scanned.status).toBe("unconfirmed");
@@ -201,5 +209,17 @@ describe("B10: a citation found unreadable is checked again (16.0)", () => {
     expect((await checkCitation(PATH, 10, { pages: [3], quote })).status).toBe("unreadable");
     recognised[3] = [run("每逾期一日按逾期金额的万分之三向乙方")];
     expect((await checkCitation(PATH, 10, { pages: [3], quote })).status).not.toBe("unreadable");
+  });
+});
+
+describe("words OCR replaced (Codex on #157)", () => {
+  it("forget the document's checks, and say so to the chips", async () => {
+    pages[5] = [run("The filter admits a newcomer only if it is popular")];
+    const c = { pages: [5], quote: "admits a newcomer only if it is popular" };
+    await checkCitation(PATH, 10, c);
+    const before = checksEpoch();
+    ocrTextReplaced(PATH);
+    expect(cachedCitationCheck(PATH, c)).toBeNull();
+    expect(checksEpoch()).toBeGreaterThan(before);
   });
 });

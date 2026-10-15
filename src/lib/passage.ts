@@ -63,17 +63,18 @@ export function passageAround(items: readonly TextItemRect[], rects: readonly Pd
 /**
  * The most of a page's text a model review is sent (22.0): the passage it
  * reads when the quoted words were not found, so there is no paragraph to
- * send. About a page of prose; a denser page is cut, which can only make the
- * verdict "insufficient", never wrong the other way.
+ * send. About a page of prose. A longer page is not sent at all: cut short,
+ * the model could read support in its first half that a condition in the
+ * second takes back (Codex on #157).
  */
 export const MAX_PAGE_TEXT = 4000;
 
-/** A page's runs as text, in the order the page gives them, capped at `MAX_PAGE_TEXT`. */
-export function pageText(items: readonly TextItemRect[]): string {
-  return items
+/** A page's runs as text, in the order the page gives them; null past `MAX_PAGE_TEXT`. */
+export function pageText(items: readonly TextItemRect[]): string | null {
+  const text = items
     .map((it) => it.text)
     .join(" ")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_PAGE_TEXT);
+    .trim();
+  return text.length <= MAX_PAGE_TEXT ? text : null;
 }
