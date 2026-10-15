@@ -4,7 +4,7 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Until 21.0 each round of work took a new major number whether or not anything broke. From 21.1 the numbers mean what SemVer says: the v22 round shipped as 21.1.0–21.1.1, with no breaking change, and the major number now moves only for one (`docs/RELEASE.md`, "When to release").
 
-## [Unreleased]
+## [21.2.0] - 2026-10-15
 
 v23, "first a reader" (`docs/reviews/2026-10-15-pagewise-v23-evaluation.md` §3.2).
 

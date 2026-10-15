@@ -2868,7 +2868,7 @@ dependencies = [
 
 [[package]]
 name = "pagewise"
-version = "21.1.2"
+version = "21.2.0"
 dependencies = [
  "keyring",
  "lopdf",
