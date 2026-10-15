@@ -17,14 +17,14 @@
     "modelRequired": "请填写模型 ID",
     "baseUrlRequired": "请填写接口地址",
     "misconfiguredEndpoint": "提供商配置错误：需要 Chat Completions 端点。",
-    "invalidApiKey": "API 密钥无效 — 请检查设置 → AI 提供商。",
+    "invalidApiKey": "API 密钥无效 — 请检查设置 → 助手 → 高级。",
     "notFound": "找不到模型或端点 — 请检查接口地址与模型名称。",
     "rateLimited": "请求过于频繁 — 请稍后再试。",
     "networkError": "网络错误 — 请检查网络连接。",
     "toolsNotSupported": "模型「{{model}}」不支持助手所需的工具调用。请在设置中换用支持工具的模型（如 openai/gpt-4o-mini），或直接使用 DeepSeek 提供商。",
-    "toolsNotSupportedOpenRouter": "当前 OpenRouter 模型没有支持工具调用的路由。请在设置 → AI 提供商中换用 openai/gpt-4o-mini 等支持工具的模型。",
-    "reasoningNotSupported": "当前提供商不支持推理强度参数 — 请在设置 → AI 提供商中关闭「扩展思考」。",
-    "visionNotSupported": "此模型不支持图片输入 — 请在设置 → AI 提供商中换用其他扫页模型。",
+    "toolsNotSupportedOpenRouter": "当前 OpenRouter 模型没有支持工具调用的路由。请在设置 → 助手 → 高级中换用 openai/gpt-4o-mini 等支持工具的模型。",
+    "reasoningNotSupported": "当前提供商不支持推理强度参数 — 请在设置 → 助手 → 高级中关闭「扩展思考」。",
+    "visionNotSupported": "此模型不支持图片输入 — 请在设置 → 助手 → 高级中换用其他扫页模型。",
     "agentImageNotSupported": "助手模型拒绝了当前页截图 — 可在设置 → 常规关闭「提问时包含当前页码」，或换用支持多模态的助手模型（如 openai/gpt-4o-mini）。已索引的页面文字仍可用。",
     "providerReturnedError": "上游模型提供商拒绝了请求 — 请尝试 OpenRouter 的 openai/gpt-4o-mini、更换提供商，或稍后重试。「包含当前页」仍会通过文字页码上下文生效，无需视觉模型。"
   },
@@ -359,7 +359,7 @@
     "navigate": "↑↓ 选择",
     "run": "↵ 执行",
     "close": "esc 关闭",
-    "closeOverlay": "关闭浮层",
+    "closeOverlay": "关闭菜单或对话框（退出专注模式用上一行的快捷键）",
     "sectionFile": "文件",
     "sectionDocument": "文档",
     "sectionExport": "导出",
@@ -402,7 +402,9 @@
     "annotatedNothing": "暂无可写入的内容：没有已找到原文的结论，也没有标记",
     "tableExported": "表格已连同出处导出",
     "reportExported": "报告已导出",
-    "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖"
+    "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖",
+    "storeNewer": "{{file}} 由更新版本的 PageWise 保存 —— 已保持原样，在此做的改动不会保存，请更新应用",
+    "storeFull": "{{file}} 已满 —— 这次改动没有保存；删除不再需要的条目以腾出空间"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",
@@ -461,7 +463,7 @@
   "cite": {
     "keepVerified": "只留下已核对的句子（{{count}}）",
     "keptVerified": "已将 {{count}} 句已核对内容留到记录",
-    "reviewAction": "让模型逐条判断原文是否支持这句话（{{count}} 次短调用）",
+    "reviewAction": "让模型逐条判断原文是否支持这句话（{{count}} 条引文，{{calls}} 次调用）",
     "reviewed": "已由模型复核",
     "reviewDone": "模型复核：{{supports}} 条支持，{{contradicts}} 条矛盾，{{insufficient}} 条原文不足以判断",
     "reviewFailed": "模型复核未能运行，请检查模型设置",

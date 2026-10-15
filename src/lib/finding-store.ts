@@ -160,6 +160,7 @@ const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
  * must not drop what the record has not saved yet. The shared store owns both.
  */
 const findings = createDocumentStore<StoredDoc, Finding>(runtime, {
+  file: STORE_PATH,
   key: KEY,
   version: VERSION,
   migrations: MIGRATIONS,

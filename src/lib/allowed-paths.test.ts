@@ -1,97 +1,77 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { storeKey, useMemoryStoreBackend } from "./store-testkit";
-
-/** The Rust commands this module calls: `register_allowed_path`. */
-const invokeMock = vi.fn().mockResolvedValue(undefined);
+/** The Rust commands this module calls. */
+const invokeMock = vi.fn();
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
-/**
- * The store's disk, in memory, and the list it keeps under `paths`. The store
- * layer writes through this backend rather than through `invoke`, so the mock
- * above sees the Rust commands and nothing else.
- */
-const store = useMemoryStoreBackend();
-const disk = storeKey(store, "allowed-paths.json", "paths");
+import {
+  isPathGranted,
+  pickDocument,
+  pickSavePath,
+  requireGrantedPath,
+  ungrantedPaths,
+} from "./allowed-paths";
 
+/**
+ * The webview asks; it never grants (21.0).
+ *
+ * `register_allowed_path` took any path the webview named, so the allowlist
+ * kept nothing out of reach of a script running there. The module now only
+ * opens the dialogs (which grant in Rust) and asks whether a path is granted.
+ */
 describe("allowed-paths", () => {
   beforeEach(() => {
     invokeMock.mockReset();
-    invokeMock.mockResolvedValue(undefined);
-    store.reset();
-    vi.resetModules();
   });
 
-  it("registers only the given file, never its parent directory", async () => {
-    const { allowPathPersisted } = await import("./allowed-paths");
-    await allowPathPersisted("/Users/me/docs/report.pdf");
+  it("never calls a command that grants a path the webview names", async () => {
+    invokeMock.mockResolvedValue(true);
+    await requireGrantedPath("/Users/me/docs/report.pdf");
+    await ungrantedPaths(["/a.pdf", "/b.pdf"]);
+    const commands = invokeMock.mock.calls.map(([cmd]) => cmd);
+    expect(commands).not.toContain("register_allowed_path");
+    expect(new Set(commands)).toEqual(new Set(["path_granted"]));
+  });
 
-    expect(invokeMock).toHaveBeenCalledWith("register_allowed_path", {
-      path: "/Users/me/docs/report.pdf",
-    });
-    // The parent directory must NOT be authorized on open.
-    expect(invokeMock).not.toHaveBeenCalledWith("register_allowed_path", {
-      path: "/Users/me/docs",
-    });
+  it("refuses a path Rust has not granted", async () => {
+    invokeMock.mockResolvedValue(false);
+    await expect(requireGrantedPath("/Users/me/.ssh/id_rsa")).rejects.toThrow("path not authorized");
+  });
+
+  it("reads a failed check as not granted", async () => {
+    invokeMock.mockRejectedValue(new Error("lock poisoned"));
+    expect(await isPathGranted("/x.pdf")).toBe(false);
+    expect(await isPathGranted("   ")).toBe(false);
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("throws, surfacing the real backend cause, when the path can't be registered", async () => {
-    invokeMock.mockRejectedValueOnce(new Error("Invalid path: No such file"));
-    const { allowPathPersisted } = await import("./allowed-paths");
-
-    // The real Rust cause is surfaced (a moved/deleted file → "No such file")
-    // instead of the misleading generic "path not authorized".
-    await expect(allowPathPersisted("/missing/report.pdf")).rejects.toThrow(
-      "No such file",
-    );
-    expect(invokeMock).toHaveBeenCalledTimes(1);
+  it("lists the recents that are no longer granted, once each", async () => {
+    invokeMock.mockImplementation(async (_cmd: string, args: { path: string }) => args.path !== "/gone.pdf");
+    expect(await ungrantedPaths(["/kept.pdf", "/gone.pdf", "/gone.pdf", " "])).toEqual(["/gone.pdf"]);
   });
 
-  it("falls back to a generic message when the backend gives no cause", async () => {
-    invokeMock.mockRejectedValueOnce(new Error(""));
-    const { allowPathPersisted } = await import("./allowed-paths");
-    await expect(allowPathPersisted("/x/report.pdf")).rejects.toThrow(
-      "path not authorized",
-    );
+  it("opens the document dialog in Rust, and resolves null on cancel", async () => {
+    invokeMock.mockResolvedValueOnce("/Users/me/docs/report.pdf").mockResolvedValueOnce(null);
+    expect(await pickDocument()).toBe("/Users/me/docs/report.pdf");
+    expect(await pickDocument()).toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith("pick_document");
   });
 
-  it("does not drop entries when two allow actions run concurrently", async () => {
-    // Without the store lock, the two allowPathPersisted calls read the same
-    // initial array and last-write-wins would drop one file's entries.
-    const { allowPathPersisted } = await import("./allowed-paths");
-    await Promise.all([
-      allowPathPersisted("/Users/me/a/one.pdf"),
-      allowPathPersisted("/Users/me/b/two.pdf"),
-    ]);
-
-    const persisted = disk.peek<string[]>() ?? [];
-
-    expect(persisted).toContain("/Users/me/a/one.pdf");
-    expect(persisted).toContain("/Users/me/b/two.pdf");
-    // Parent directories are no longer auto-registered on open.
-    expect(persisted).not.toContain("/Users/me/a");
-    expect(persisted).not.toContain("/Users/me/b");
-  });
-
-  it("reports failed paths on restore and prunes them from storage", async () => {
-    disk.seed(["/gone/report.pdf", "/ok/report.pdf"]);
-
-    invokeMock.mockImplementation((_cmd: string, args: { path: string }) => {
-      if (args.path === "/gone/report.pdf") return Promise.reject(new Error("missing"));
-      return Promise.resolve(undefined);
+  it("asks Rust for the save path, which grants the folder", async () => {
+    invokeMock.mockResolvedValueOnce("/out/notes.md");
+    expect(await pickSavePath("notes.md", "Markdown", ["md"])).toBe("/out/notes.md");
+    expect(invokeMock).toHaveBeenCalledWith("pick_save_path", {
+      defaultName: "notes.md",
+      filterName: "Markdown",
+      extensions: ["md"],
     });
+  });
 
-    const { restoreAllowedPaths } = await import("./allowed-paths");
-    const result = await restoreAllowedPaths(["/ok/report.pdf"]);
-
-    expect(result.failed).toContain("/gone/report.pdf");
-    expect(result.restored).toBeGreaterThan(0);
-
-    const remaining = disk.peek<string[]>() ?? [];
-    expect(remaining).not.toContain("/gone/report.pdf");
+  it("surfaces the real Rust cause when a dialog fails", async () => {
+    invokeMock.mockRejectedValueOnce("Invalid path: No such file");
+    await expect(pickDocument()).rejects.toThrow("No such file");
   });
 });

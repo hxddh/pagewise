@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 
 // `describeFigure` is the one part of the figure path that calls the vision
@@ -9,13 +9,25 @@ vi.mock("../read-figure", async (importOriginal) => {
   return { ...actual, describeFigure: vi.fn(async () => "A chart of miss rates.") };
 });
 
+// Indexing stays real by default. The blank-page block below replaces it with
+// "already recognised, nothing found": a test runtime has no OCR, so a blank
+// page here would otherwise read as an index failure, not as blank.
+vi.mock("../../document/index-queue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../document/index-queue")>();
+  return { ...actual, ensurePageIndexed: vi.fn(actual.ensurePageIndexed) };
+});
+
 import { asSchema } from "ai";
+import { ensurePageIndexed } from "../../document/index-queue";
 import { createDocumentTools, newReadBudget } from "./index";
 import type { ReadBudget } from "./reading";
 import {
   ALREADY_DESCRIBED_NOTE,
   ALREADY_READ_NOTE,
+  BUDGET_NOTE,
   DEFAULT_PAGE_MAX_CHARS,
+  EMPTY_PAGE_NOTE,
+  FIGURE_LIMIT_NOTE,
 } from "./reading";
 import { describeFigure } from "../read-figure";
 import { docCache } from "../doc-cache";
@@ -206,6 +218,107 @@ describe("read tool contract: truncation is continuable", () => {
   });
 });
 
+describe("read tool contract: a blank page is a page, not the end of the budget", () => {
+  // Measured against the budget, an empty page affords 0 characters. Until
+  // 21.0 that ended the range as "budget reached" and told the model to stop
+  // reading — so a scan's first blank separator page cut every whole-document
+  // answer short there, and `nextStart` pointed back at the same blank page.
+  beforeEach(() => {
+    vi.mocked(ensurePageIndexed).mockImplementation(async () => {});
+    loadDoc([
+      { page: 1, text: pageText(1) },
+      { page: 2, text: "" },
+      { page: 3, text: pageText(3) },
+    ]);
+  });
+
+  it("reads past it to the end of the range", async () => {
+    const { t } = tools();
+    const out = (await t.read_pdf_range!.execute({ start: 1, end: 3 }, options)) as {
+      endPage: number;
+      text: string;
+      truncated: boolean;
+      budgetExceeded?: boolean;
+      note?: string;
+    };
+    expect(out.budgetExceeded).toBeUndefined();
+    expect(out.note).not.toBe(BUDGET_NOTE);
+    expect(out.truncated).toBe(false);
+    expect(out.endPage).toBe(3);
+    expect(out.text).toContain("PAGE-3-START");
+    expect(out.text).toContain(`--- Page 2 ---\n${EMPTY_PAGE_NOTE}`);
+  });
+
+  it("counts its marker against maxChars, and says where to go on", async () => {
+    // Codex review on #154: forty blank pages at the 2,000-character minimum
+    // passed the cap while reporting the range whole.
+    loadDoc(Array.from({ length: 80 }, (_, i) => ({ page: i + 1, text: "" })));
+    const { t } = tools();
+    const out = (await t.read_pdf_range!.execute({ start: 1, end: 80, maxChars: 2000 }, options)) as {
+      text: string;
+      truncated: boolean;
+      nextStart: number | null;
+      nextOffset: number | null;
+      budgetExceeded?: boolean;
+    };
+    expect(out.text.length).toBeLessThanOrEqual(2000);
+    expect(out.truncated).toBe(true);
+    expect(out.nextStart).toBeGreaterThan(1);
+    expect(out.nextOffset).toBe(0);
+    expect(out.budgetExceeded, "the cap, not the budget").toBeUndefined();
+  });
+
+  it("costs nothing", async () => {
+    const { budget, t } = tools();
+    await t.read_pdf_range!.execute({ start: 2, end: 2 }, options);
+    expect(budget.used).toBe(0);
+  });
+
+  afterEach(() => {
+    vi.mocked(ensurePageIndexed).mockRestore();
+  });
+
+  it("says so when it is read on its own", async () => {
+    const { t } = tools();
+    const out = (await t.read_pdf_page!.execute({ page: 2 }, options)) as {
+      text: string;
+      note?: string;
+      budgetExceeded?: boolean;
+    };
+    expect(out.text).toBe("");
+    expect(out.note).toBe(EMPTY_PAGE_NOTE);
+    expect(out.budgetExceeded).toBeUndefined();
+  });
+});
+
+describe("read tool contract: a page that could not be indexed", () => {
+  // A test runtime has no OCR, so a page with no text layer fails to index —
+  // the same shape as a missing key or a vision timeout in the app.
+  beforeEach(() => {
+    loadDoc([
+      { page: 1, text: pageText(1) },
+      { page: 2, text: "" },
+      { page: 3, text: pageText(3) },
+    ]);
+  });
+
+  it("is listed with its reason, and the range carries on past it", async () => {
+    const { t } = tools();
+    const out = (await t.read_pdf_range!.execute({ start: 1, end: 3 }, options)) as {
+      endPage: number;
+      text: string;
+      budgetExceeded?: boolean;
+      indexingFailedPages?: string;
+      indexingFailedReasons?: string[];
+    };
+    expect(out.budgetExceeded).toBeUndefined();
+    expect(out.endPage).toBe(3);
+    expect(out.text).toContain("PAGE-3-START");
+    expect(out.indexingFailedPages).toBe("2");
+    expect(out.indexingFailedReasons, "the reason must survive the range").toHaveLength(1);
+  });
+});
+
 describe("read tool contract: a page is handed over once", () => {
   it("answers a repeat with a note instead of the text, and charges nothing", async () => {
     // The text is still a few messages above. Sending it again buys no
@@ -254,6 +367,14 @@ describe("read tool contract: a figure is described once", () => {
   beforeEach(() => {
     loadDoc([1, 2].map((page) => ({ page, text: pageText(page) })), undefined, undefined, FIGURES);
     vi.mocked(describeFigure).mockClear();
+  });
+
+  it("says the figure was not looked at when the allowance is spent, not that the page has no text", async () => {
+    const { budget, t } = tools();
+    budget.scans = budget.maxScans;
+    const out = (await t.read_figure!.execute({ page: 1 }, options)) as { note?: string };
+    expect(out.note).toBe(FIGURE_LIMIT_NOTE);
+    expect(describeFigure).not.toHaveBeenCalled();
   });
 
   it("answers a repeat with a note instead of a second billed call", async () => {

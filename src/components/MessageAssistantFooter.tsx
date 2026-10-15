@@ -4,7 +4,7 @@ import { Copy, RotateCcw, BookmarkPlus, BookmarkCheck, MoreHorizontal } from "lu
 import { cachedCitationCheck, withClaim } from "../lib/citation-check";
 import { claimBefore } from "../lib/answer-tables";
 import { extractCitations } from "../lib/citations";
-import { cachedReview, reviewAll, reviewRevision, subscribeReviews } from "../lib/claim-review";
+import { cachedReview, REVIEW_BATCH, reviewAll, reviewRevision, subscribeReviews } from "../lib/claim-review";
 import {
   SENTENCE_STATES,
   sentenceStates,
@@ -312,7 +312,7 @@ function MessageAssistantFooterInner({
   }, [citationEnv, markdownText, showToast, t]);
 
   // Found citations the model can be asked about: located, or found with a
-  // number the passage does not state (15.0). One billed call each.
+  // number the passage does not state (15.0). `REVIEW_BATCH` to a call (21.0).
   const reviewable = useMemo(() => {
     if (!citationEnv || !tally || live) return [];
     const seen = new Set<string>();
@@ -360,10 +360,12 @@ function MessageAssistantFooterInner({
       counts.contradicts > 0 ? "error" : "success",
     );
   }, [citationEnv, reviewing, reviewable, showToast, t]);
-  const reviewedAll =
-    reviewable.length > 0 && citationEnv
-      ? reviewable.every((r) => cachedReview(citationEnv.path, r.claim, r.quote))
-      : false;
+  // What the button would actually send: a citation already reviewed — this
+  // session or, since 21.0, a previous one — is not asked about again.
+  const reviewPending = citationEnv
+    ? reviewable.filter((r) => !cachedReview(citationEnv.path, r.claim, r.quote)).length
+    : 0;
+  const reviewedAll = reviewable.length > 0 && reviewPending === 0;
 
   const keepWhole = () => {
     if (!onKeep) return;
@@ -505,7 +507,14 @@ function MessageAssistantFooterInner({
           <ListRow
             role="menuitem"
             disabled={reviewing || reviewedAll}
-            label={reviewedAll ? t("cite.reviewed") : t("cite.reviewAction", { count: String(reviewable.length) })}
+            label={
+              reviewedAll
+                ? t("cite.reviewed")
+                : t("cite.reviewAction", {
+                    count: String(reviewable.length),
+                    calls: String(Math.ceil(reviewPending / REVIEW_BATCH)),
+                  })
+            }
             onClick={() => { setMoreOpen(false); void reviewCitations(); }}
           />
         )}

@@ -89,7 +89,15 @@ function toMetaLoopSnapshot(steps: ReadonlyArray<{ toolCalls: ReadonlyArray<unkn
 const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
   isMetaToolOnlyLoop(toMetaLoopSnapshot(steps));
 
-const AGENT_STOP_WHEN = [stepCountIs(DEFAULT_MAX_AGENT_STEPS), stopMetaToolLoop];
+/**
+ * When a run stops: its step budget, or a loop of meta tools. One function,
+ * used by the constructor's default and by `prepareCall`'s per-run budget —
+ * the two were written out separately until 21.0, so changing the rule meant
+ * changing it twice, and a test of the default would not see the run's.
+ */
+function stopWhenFor(maxSteps: number): StopCondition<any, any>[] {
+  return [stepCountIs(maxSteps), stopMetaToolLoop];
+}
 
 /**
  * Ceiling on one reply. Generous — a synthesis over twenty pages is long — but
@@ -159,7 +167,7 @@ Rules:
 - When the user asks to list, extract, compare or tabulate things across the document (every payment term, all deadlines), answer with a Markdown table: one row per item, one column per attribute asked for, a citation marker right after every document value. Search and read until every occurrence is covered, and say which pages you went through. A value you could not find is "—" with no marker, never a guess. Keep \`|\` out of quotes in table cells.
 - If no document is loaded, ask the user to open a PDF.
 - A page already returned in full this turn comes back as a short marker, not its text; do not re-read it.
-- Tool results carry attachments beside the page text, one field each. \`marks\` are passages the reader singled out, with notes — their strongest signal of what matters, and read-only. \`links\` are hyperlink destinations, which live only in the PDF's annotations, never in the page text; the line each sits on is its context. \`figures\` / \`pagesWithFigures\` name pages where read_figure can look at a figure the text does not convey.
+- Tool results carry attachments beside the page text, one field each. \`marks\` are passages the reader singled out, with notes — their strongest signal of what matters, and read-only. \`links\` are hyperlink destinations, which live only in the PDF's annotations, never in the page text; the line each sits on is its context. The outline's \`pagesWithFigures\` names pages where read_figure can look at a figure the text does not convey.
 - A page that failed to index (missing key, vision error, timeout) is not blank: do not treat it as empty, do not re-read it, and tell the user indexing failed.`;
 
 /**
@@ -241,7 +249,7 @@ export function createDocAgent() {
     instructions: SYSTEM_INSTRUCTIONS,
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
-    stopWhen: AGENT_STOP_WHEN,
+    stopWhen: stopWhenFor(DEFAULT_MAX_AGENT_STEPS),
     // A provider that accepts the connection and then goes quiet used to leave
     // the run streaming with no end and no error. See agent-timeouts.ts for why
     // each number is as generous as it is.
@@ -386,7 +394,7 @@ export function createDocAgent() {
           rest.prompt as ReadonlyArray<{ role: string; content: unknown }> | undefined,
           viewHint,
         ) as typeof rest.prompt,
-        stopWhen: [stepCountIs(runMaxSteps), stopMetaToolLoop],
+        stopWhen: stopWhenFor(runMaxSteps),
         model: resolveModel(settings),
         reasoning: runReasoning,
         maxOutputTokens: MAX_OUTPUT_TOKENS,

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
-import { subscribeStoreUnreadable } from "./lib/store-health";
+import { subscribeStoreProblem, subscribeStoreUnreadable } from "./lib/store-health";
 import { useWorkbench } from "./session/useWorkbench";
 import { useI18n } from "./i18n";
 import { DropOverlay } from "./components/DropOverlay";
@@ -125,6 +125,20 @@ function AppContent() {
     () =>
       subscribeStoreUnreadable((store) =>
         showToast(t("toast.storeUnreadable", { file: store.file }), "error"),
+      ),
+    [showToast, t],
+  );
+
+  // A write a store held back on purpose: the file is a later version's, or
+  // the record is full. Nothing on disk is lost; what the reader just did is
+  // not saved, and that is the sentence they need (21.0).
+  useEffect(
+    () =>
+      subscribeStoreProblem(({ file, problem }) =>
+        showToast(
+          t(problem === "newer" ? "toast.storeNewer" : "toast.storeFull", { file }),
+          "error",
+        ),
       ),
     [showToast, t],
   );
@@ -532,9 +546,11 @@ function AppContent() {
                             s.document.setPage(target);
                             setRevealedFindingId(id);
                           },
-                          onRevealCitation: (target, rects) => {
+                          onRevealCitation: (target, rects, notice) => {
                             s.document.setPage(target);
                             setRevealedCitation(rects ? { page: target, rects, nonce: Date.now() } : null);
+                            // Nothing lit: say why, in the chip's words (21.0).
+                            if (notice) showToast(notice);
                           },
                           onSelectMark: (target, id) => {
                             s.document.setPage(target);

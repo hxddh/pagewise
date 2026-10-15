@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+
+/**
+ * The documents of a drop, after Rust has granted them (21.0). The webview's
+ * own drop event still drives the "dragging" state, but its paths are not
+ * opened: they are not granted, and nothing in the webview can grant them.
+ */
+export const DROPPED_EVENT = "pagewise://dropped";
 
 export function useTauriFileDrop(onDrop: (paths: string[]) => void) {
   const [isDragging, setIsDragging] = useState(false);
@@ -12,6 +20,7 @@ export function useTauriFileDrop(onDrop: (paths: string[]) => void) {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    let unlistenDropped: (() => void) | undefined;
 
     getCurrentWebview()
       .onDragDropEvent((event) => {
@@ -22,9 +31,6 @@ export function useTauriFileDrop(onDrop: (paths: string[]) => void) {
           setIsDragging(false);
         } else if (payload.type === "drop") {
           setIsDragging(false);
-          if (payload.paths.length > 0) {
-            onDropRef.current(payload.paths);
-          }
         }
       })
       .then((fn) => {
@@ -37,9 +43,21 @@ export function useTauriFileDrop(onDrop: (paths: string[]) => void) {
         // Not running inside Tauri (e.g. vite-only dev in browser)
       });
 
+    listen<string[]>(DROPPED_EVENT, (event) => {
+      if (event.payload.length > 0) onDropRef.current(event.payload);
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlistenDropped = fn;
+      })
+      .catch(() => {
+        // Not running inside Tauri.
+      });
+
     return () => {
       disposed = true;
       unlisten?.();
+      unlistenDropped?.();
     };
   }, []);
 

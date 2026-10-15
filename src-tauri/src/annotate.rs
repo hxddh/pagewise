@@ -266,7 +266,18 @@ pub fn annotate_file(src: &Path, out: &Path, annotations: &[AnnotationIn]) -> Re
     // leaves half a PDF where the reader asked for one.
     let tmp = out.with_extension("pdf.partial");
     doc.save(&tmp).map_err(|e| format!("Failed to write PDF: {e}"))?;
-    std::fs::rename(&tmp, out).map_err(|e| {
+    // Synced before the rename (21.0), so a crash cannot expose a renamed file
+    // whose bytes were only in the page cache. Inline rather than through
+    // `store_io`: this file is also compiled into the eval extractor.
+    let commit = (|| -> std::io::Result<()> {
+        std::fs::OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
+        std::fs::rename(&tmp, out)?;
+        if let Some(dir) = out.parent().and_then(|p| std::fs::File::open(p).ok()) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
+    })();
+    commit.map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("Failed to write PDF: {e}")
     })?;

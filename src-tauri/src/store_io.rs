@@ -83,7 +83,11 @@ fn store_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
 /// afterwards is what keeps the rename itself. The latter is best-effort —
 /// Windows cannot open a directory as a file — and the previous copy is still
 /// intact if it does not happen.
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+///
+/// The OCR cache and the Markdown export write through here too since 21.0 —
+/// the cache renamed an unsynced temp file and the export wrote in place.
+/// (The annotated PDF does the same steps inline in `annotate.rs`.)
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent)?;
     let mut tmp = path.as_os_str().to_os_string();
@@ -93,7 +97,6 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let write = (|| -> std::io::Result<()> {
         let mut file = std::fs::File::create(&tmp)?;
         file.write_all(bytes)?;
-        file.sync_all()?;
         Ok(())
     })();
     if let Err(e) = write {
@@ -101,7 +104,22 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         let _ = std::fs::remove_file(&tmp);
         return Err(e);
     }
-    std::fs::rename(&tmp, path)?;
+    commit_temp(&tmp, path)
+}
+
+/// Make a fully written temp file the file at `path`: fsync it, rename it over
+/// `path`, then fsync the directory (best-effort — Windows cannot open a
+/// directory as a file). The temp file is removed if any step fails.
+fn commit_temp(tmp: &Path, path: &Path) -> std::io::Result<()> {
+    let result = (|| -> std::io::Result<()> {
+        std::fs::OpenOptions::new().write(true).open(tmp)?.sync_all()?;
+        std::fs::rename(tmp, path)
+    })();
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(tmp);
+        return Err(e);
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
     if let Ok(dir) = std::fs::File::open(parent) {
         let _ = dir.sync_all();
     }

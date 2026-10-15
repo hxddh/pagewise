@@ -28,7 +28,7 @@ Verify:
 - [ ] Windows installer runs and the app starts (keys land in Credential Manager)
 - [ ] Linux `.AppImage` runs (keys land in Secret Service — needs a running keyring daemon)
 - [ ] Agent works with a tool-capable model
-- [ ] Keychain read/write in Settings → AI Provider
+- [ ] Keychain read/write in Settings → Assistant → Advanced
 
 ## Artifacts
 

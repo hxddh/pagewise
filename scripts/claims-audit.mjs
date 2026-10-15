@@ -11,8 +11,9 @@
  *   - the first chip is found, the second is "mismatch", naming the number;
  *   - the tally counts it, and "keep the verified" does not keep it;
  *   - the next question tells the model which number did not hold;
- *   - "Review citations" asks the model once per citation, with the passage,
- *     and each chip then carries the model's verdict.
+ *   - "Review citations" asks the model once for both citations (21.0: it
+ *     was once per citation), each with its passage, and each chip then
+ *     carries the model's verdict.
  *
  * Not a CI check — it needs the dev server and a browser, like ui-shots.
  */
@@ -59,16 +60,24 @@ const reviews = [];
 await p.route("**/chat/completions", async (route) => {
   const body = route.request().postDataJSON();
   if (!body.stream) {
-    // A review: the sentence with a number the passage lacks is contradicted.
-    const prompt = JSON.stringify(body.messages);
-    reviews.push(prompt);
-    const bad = prompt.includes("5 times");
+    // A review: one call for every citation of the answer (21.0); the
+    // sentence with a number the passage lacks is contradicted.
+    const text = body.messages
+      .map((m) => (typeof m.content === "string" ? m.content : (m.content ?? []).map((c) => c.text ?? "").join("")))
+      .join("\n");
+    reviews.push(text);
+    const blocks = text.split(/^Citation (\d+)$/m).slice(1);
+    const answers = [];
+    for (let i = 0; i < blocks.length; i += 2) {
+      const bad = blocks[i + 1].includes("5 times");
+      answers.push(bad
+        ? { item: Number(blocks[i]), verdict: "contradicts", reason: "The passage says \"labore on page 2\" once; it gives no count." }
+        : { item: Number(blocks[i]), verdict: "supports", reason: "The passage reads \"sed diam nonumy eirmod tempor invidunt ut labore\"." });
+    }
     return route.fulfill({
       status: 200,
       headers: { "content-type": "application/json" },
-      body: objectReply(bad
-        ? { verdict: "contradicts", reason: "The passage says \"labore on page 2\" once; it gives no count." }
-        : { verdict: "supports", reason: "The passage reads \"sed diam nonumy eirmod tempor invidunt ut labore\"." }),
+      body: objectReply({ reviews: answers }),
     });
   }
   chats.push(body);
@@ -119,7 +128,8 @@ const results = {
   "its title names the number": /but 5 in this sentence is not in that passage/.test(chips[1]?.title ?? ""),
   "the tally counts it (16.0: in levels)": /1 verified/.test(tally ?? "") && /1 to check/.test(tally ?? ""),
   "keep-verified offers only the sound sentence": /\(1\)/.test(keepLabel ?? ""),
-  "one review call per citation, each with its passage": reviews.length === 2 && reviews.every((r) => r.includes("Passage (page 2)")),
+  "one review call for both citations, each with its passage (21.0)":
+    reviews.length === 1 && (reviews[0].match(/Passage \(page 2\)/g) ?? []).length === 2,
   "the chips carry the model's verdicts": /cite-review-supports/.test(reviewed[0]?.cls ?? "") && /cite-review-contradicts/.test(reviewed[1]?.cls ?? ""),
   "a contradicting verdict lowers the chip to not found (16.0)": /cite-level-notFound/.test(reviewed[1]?.cls ?? "") && /cite-level-verified/.test(reviewed[0]?.cls ?? ""),
   "the verdict's reason is in the title": /it gives no count/.test(reviewed[1]?.title ?? ""),

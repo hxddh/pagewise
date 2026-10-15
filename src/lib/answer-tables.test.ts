@@ -7,7 +7,7 @@ vi.mock("./ocr/ocr-service", () => ({ ocrEnabled: () => false, ocrPage: async ()
 // The model review is billed and network-bound; the stub answers "supports".
 vi.mock("ai", () => ({
   generateObject: async () => ({
-    object: { verdict: "supports", reason: "原文：预付百分之三十" },
+    object: { reviews: [{ item: 1, verdict: "supports", reason: "原文：预付百分之三十" }] },
     usage: { inputTokens: 1, outputTokens: 1 },
   }),
 }));

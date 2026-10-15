@@ -50,3 +50,34 @@ describe("B11: a chip on screen when the document arrives (16.0)", () => {
     expect(chip.className).toContain("cite-tooShort");
   });
 });
+
+describe("a chip with nothing to light says why (21.0)", () => {
+  // A red chip used to turn the page and clear the highlight: "not on this
+  // page" read as a lookup that worked, the reason only in the tooltip.
+  const click = (check: unknown) => {
+    state.check = check;
+    const onReveal = vi.fn();
+    const view = render(
+      <CitationContext.Provider value={{ ...env, onReveal }}>
+        <CitationChip link={link} />
+      </CitationContext.Provider>,
+    );
+    (view.container.querySelector("button.cite") as HTMLButtonElement).click();
+    return onReveal;
+  };
+
+  it("hands the reason over with the page when the words were not found", () => {
+    const onReveal = click({ status: "unlocated", page: 2 });
+    expect(onReveal).toHaveBeenCalledTimes(1);
+    const [page, rects, notice] = onReveal.mock.calls[0]!;
+    expect(page).toBe(2);
+    expect(rects).toBeNull();
+    expect(notice).toContain("trust.unlocated.long");
+  });
+
+  it("lights the passage and says nothing more when the words were found", () => {
+    const rects = [{ x: 1, y: 2, width: 3, height: 4 }];
+    const onReveal = click({ status: "located", page: 2, rects });
+    expect(onReveal).toHaveBeenCalledWith(2, rects, undefined);
+  });
+});

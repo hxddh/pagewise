@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: write
+  # Read CI's result for the commit being released (the gate in `prepare`).
+  actions: read
 
 jobs:
   # Everything that can fail without compiling anything, so a bad tag or a
@@ -49,6 +51,40 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Release tag: $tag (VERSION=$file_version)"
+
+      - name: CI is green on this commit
+        # 17.0, 18.0, 19.0 and 20.0 were each released while CI on main was red
+        # for the very commit the tag pointed at — a test that assumed an
+        # event order, a missing Cargo feature, a stale import, a perf harness
+        # that did not know the new store commands — and each was fixed after
+        # the installers were already published. The gates CI runs (eval, perf,
+        # ui-inventory, windows-checks) are only gates if a release waits for
+        # them. Waits up to 30 minutes for a run still in progress.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 60); do
+            state="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
+              --commit "$GITHUB_SHA" --limit 1 --json status,conclusion \
+              --jq '.[0] | "\(.status) \(.conclusion)"')"
+            case "$state" in
+              "completed success")
+                echo "CI passed on $GITHUB_SHA"
+                exit 0 ;;
+              completed*)
+                echo "::error::CI on main for $GITHUB_SHA concluded '${state#completed }' — fix it before releasing"
+                exit 1 ;;
+              "")
+                # A tag pushed with its commit can arrive before CI's run is listed.
+                if [ "$attempt" -ge 6 ]; then
+                  echo "::error::No CI run on main for $GITHUB_SHA — push the commit to main first"
+                  exit 1
+                fi ;;
+            esac
+            sleep 30
+          done
+          echo "::error::CI on $GITHUB_SHA did not finish within 30 minutes"
+          exit 1
 
       - name: Build release notes from CHANGELOG
         # Without this the release page carries only GitHub's generated

@@ -202,7 +202,8 @@ await p.keyboard.press("Escape");
 // opens — so a control added to the everyday surface has to fit the budget.
 await p.keyboard.press("Control+,");
 await p.waitForTimeout(800);
-const rowSelector = ".settings-row-toggle, .settings-pill-row, .ui-field";
+// `.settings-row` too: the model row and the Advanced row (21.0).
+const rowSelector = ".settings-row-toggle, .settings-pill-row, .ui-field, .settings-row";
 const countRows = () => p.$$eval(rowSelector, visible);
 await p.getByRole("tab", { name: /general/i }).click().catch(() => p.getByText(/^General$/).first().click());
 await p.waitForTimeout(400);

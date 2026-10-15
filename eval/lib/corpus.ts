@@ -4,7 +4,7 @@
  * path), cached under `eval/out/`.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { TextItemRect } from "../../src/lib/types";
 
@@ -59,7 +59,14 @@ export function loadDoc(file: string): DumpDoc {
   const newest = Math.max(statSync(file).mtimeMs, statSync(BIN).mtimeMs, statSync(join(ROOT, "src-tauri/src/inspect.rs")).mtimeMs);
   if (!existsSync(cache) || statSync(cache).mtimeMs < newest) {
     const json = execFileSync(BIN, [file], { maxBuffer: 1 << 30 }).toString("utf8");
-    writeFileSync(cache, json);
+    // Written beside and renamed into place. The eval files run in parallel
+    // workers and every one of them loads the corpus: a plain write let one
+    // worker parse a dump another was still writing ("Unexpected end of JSON
+    // input"), and CI's fresh checkout makes every cache cold — it failed a
+    // docs-only commit on main (21.0).
+    const temp = `${cache}.${process.pid}.tmp`;
+    writeFileSync(temp, json);
+    renameSync(temp, cache);
   }
   const raw = JSON.parse(readFileSync(cache, "utf8")) as Omit<DumpDoc, "id">;
   return { id, ...raw };

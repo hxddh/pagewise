@@ -137,11 +137,17 @@ function measure() {
   // 5 for a page that shows 7.
   const generalSettings = read("src/components/settings/GeneralSettings.tsx");
   const assistantSettings = read("src/components/settings/AssistantSettings.tsx");
+  // Plain `settings-row`s before the Advanced block are rows too — the model
+  // row and the Advanced row itself, a title, a hint and a button each. They
+  // were in neither this count nor the inventory's selector until 21.0, so
+  // the number said 7 for a page that shows 9.
+  const assistantVisible = assistantSettings.split("{advancedOpen &&")[0] ?? "";
   const settingsRows =
     (generalSettings.match(/<PillRow\b/g)?.length ?? 0) +
     (generalSettings.match(/className="settings-row-toggle"/g)?.length ?? 0) +
     (assistantSettings.match(/className="settings-row-toggle"/g)?.length ?? 0) +
-    (assistantSettings.match(/className="ui-field"/g)?.length ?? 0);
+    (assistantSettings.match(/className="ui-field"/g)?.length ?? 0) +
+    (assistantVisible.match(/className="settings-row"/g)?.length ?? 0);
 
   const scanKnobs = ["settings.localOcr", "settings.cloudReading"].filter((key) =>
     generalSettings.includes(`t("${key}"`),

@@ -43,6 +43,13 @@ impl PendingOpen {
         Self(Mutex::new(path_from_args(&argv, &cwd)))
     }
 
+    /// Replace the pending path with what was granted for it, or drop it.
+    fn replace(&self, f: impl FnOnce(String) -> Option<String>) {
+        if let Ok(mut p) = self.0.lock() {
+            *p = p.take().and_then(f);
+        }
+    }
+
     fn set(&self, path: String) {
         if let Ok(mut p) = self.0.lock() {
             *p = Some(path);
@@ -56,14 +63,28 @@ pub fn take_pending_open(pending: State<'_, PendingOpen>) -> Option<String> {
     pending.0.lock().ok().and_then(|mut p| p.take())
 }
 
+/// Grant the file this launch was started with (21.0). A path that is not a
+/// document the reader can open is dropped rather than handed to the front end.
+pub fn grant_pending(app: &AppHandle) {
+    app.state::<PendingOpen>().replace(|path| {
+        crate::grants::grant_document(app, Path::new(&path))
+            .ok()
+            .map(|canon| canon.to_string_lossy().into_owned())
+    });
+}
+
 /// macOS: the files of an "open" event. The first one that is a local file.
 #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(dead_code))]
 pub fn opened(app: &AppHandle, urls: &[tauri::Url]) {
     let Some(path) = urls.iter().find_map(|u| u.to_file_path().ok()) else {
         return;
     };
+    // Granted before the front end is told (21.0).
+    let Ok(canon) = crate::grants::grant_document(app, &path) else {
+        return;
+    };
     app.state::<PendingOpen>()
-        .set(path.to_string_lossy().into_owned());
+        .set(canon.to_string_lossy().into_owned());
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();

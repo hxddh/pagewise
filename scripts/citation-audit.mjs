@@ -116,7 +116,11 @@ await b.close();
 
 const textOf = (content) =>
   typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => c?.text ?? "").join("") : "";
-const sys = String((reqs[0].messages ?? []).find((m) => m.role === "system")?.content ?? "");
+// An array of parts once it carries OpenAI's cache breakpoint (see table-audit).
+const systemContent = (reqs[0].messages ?? []).find((m) => m.role === "system")?.content ?? "";
+const sys = typeof systemContent === "string"
+  ? systemContent
+  : systemContent.map((part) => part.text ?? "").join("");
 const last = reqs[reqs.length - 1];
 const users = (last.messages ?? []).filter((m) => m.role === "user");
 const hint = textOf(users[users.length - 1]?.content);
@@ -128,7 +132,10 @@ const results = {
   "chip 1 located": /cite-located/.test(chips[0]?.cls ?? "") && /cite-level-verified/.test(chips[0]?.cls ?? ""),
   "chip 2 unlocated": /cite-unlocated/.test(chips[1]?.cls ?? "") && /cite-level-notFound/.test(chips[1]?.cls ?? ""),
   "chip 3 out of range": /cite-outOfRange/.test(chips[2]?.cls ?? ""),
-  "tally reads in levels (16.0)": /1 verified/.test(tally ?? "") && /2 not found/.test(tally ?? ""),
+  // 20.0 counts sentences, not citations: the second sentence carries both
+  // failing citations, so it is one sentence not found. This audit still
+  // expected "2 not found" — the citation count — until 21.0.
+  "tally reads in levels, counting sentences (20.0)": /1 verified/.test(tally ?? "") && /1 not found/.test(tally ?? ""),
   "located chip lights the words": lit > 0,
   "next question tells the model p1 was not found": /p1 'revenue fell by twelve percent' — these words are not on that page/.test(hint),
   "next question tells the model p9 does not exist": /p9 'totals for the year' — that page does not exist/.test(hint),

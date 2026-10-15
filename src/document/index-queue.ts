@@ -760,6 +760,12 @@ export function cancelIndex(path: string): void {
   // The terminal state belongs to the sweep it describes: a document being
   // closed (or a re-index replacing the queue) takes it along.
   readingStops.delete(path);
+  // And so do the failure reasons its pages left (21.0): fifty documents used
+  // to leave fifty documents' worth. The generation counter is deliberately
+  // kept — restarting it would let a cancelled read's late write match a new
+  // sweep's generation.
+  const prefix = `${path}\0`;
+  for (const key of [...pageIndexFailure.keys()]) if (key.startsWith(prefix)) pageIndexFailure.delete(key);
 }
 
 /**

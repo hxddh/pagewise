@@ -1,32 +1,21 @@
 mod annotate;
+mod grants;
 mod inspect;
 mod ocr_cache;
 mod open_path;
 mod secrets;
 mod store_io;
 
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use inspect::{DocumentModel, Rect, RegionText, TextItemRect};
 use tauri::{Emitter, Manager, State};
 
-#[derive(Default)]
-struct AllowedPaths(Mutex<HashSet<PathBuf>>);
-
-impl AllowedPaths {
-    fn contains(&self, path: &PathBuf) -> Result<bool, String> {
-        let set = self
-            .0
-            .lock()
-            .map_err(|_| "allowlist lock poisoned".to_string())?;
-        Ok(set.contains(path))
-    }
-}
+use grants::AllowedPaths;
 
 fn canonicalize(path: &str) -> Result<PathBuf, String> {
     std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {e}"))
@@ -34,7 +23,7 @@ fn canonicalize(path: &str) -> Result<PathBuf, String> {
 
 fn ensure_allowed(allowed: &AllowedPaths, path: &str) -> Result<PathBuf, String> {
     let canon = canonicalize(path)?;
-    if !allowed.contains(&canon)? {
+    if !allowed.can_read(&canon)? {
         return Err("path not authorized".to_string());
     }
     Ok(canon)
@@ -52,33 +41,8 @@ where
     }
 }
 
-// Authorizations are intentionally session-scoped: they accumulate for the life
-// of the process and are never revoked, so an already-open document or in-flight
-// asset load can't lose access mid-session. Growth is bounded in practice by the
-// number of distinct files touched this session and fully resets on restart (the
-// frontend re-registers only its capped recent-files list at startup), so no
-// eviction policy is needed here.
-#[tauri::command]
-async fn register_allowed_path(
-    path: String,
-    state: State<'_, AllowedPaths>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    let canon = canonicalize(&path)?;
-    // Grant the asset-protocol scope BEFORE recording the path, and don't hold
-    // the allowlist lock across that call: if allow_file fails, the set must not
-    // end up with a path the asset scope doesn't know about (IPC reads would
-    // work while asset URLs 404 for the rest of the session).
-    app.asset_protocol_scope()
-        .allow_file(&canon)
-        .map_err(|e| format!("asset scope: {e}"))?;
-    state
-        .0
-        .lock()
-        .map_err(|_| "allowlist lock poisoned".to_string())?
-        .insert(canon);
-    Ok(())
-}
+// Nothing in the webview grants a path (21.0): see `grants` for where grants
+// come from. `register_allowed_path` took any path the webview named.
 
 /// Freshness stamp (modification time + size) for an authorized file.
 ///
@@ -305,13 +269,7 @@ fn write_target(allowed: &AllowedPaths, path: &str) -> Result<(PathBuf, PathBuf)
         .ok_or_else(|| "Invalid path: no file name".to_string())?;
     let canon_parent = std::fs::canonicalize(parent).map_err(|e| format!("Invalid path: {e}"))?;
 
-    let authorized = {
-        let set = allowed
-            .0
-            .lock()
-            .map_err(|_| "allowlist lock poisoned".to_string())?;
-        set.contains(&canon_parent)
-    };
+    let authorized = allowed.can_write_in(&canon_parent)?;
 
     if !authorized {
         return Err("path not authorized".to_string());
@@ -368,7 +326,9 @@ async fn write_text_file(
     let (canon_parent, resolved) = write_target(&allowed, &path)?;
     tauri::async_runtime::spawn_blocking(move || {
         check_write_leaf(&resolved, &canon_parent)?;
-        std::fs::write(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
+        // Atomic like every other write (21.0): an export that fails midway
+        // leaves the file that was there, not half of a new one.
+        store_io::write_atomic(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -423,8 +383,11 @@ pub fn run() {
             // open it; this only carries it across.
             // Resolved against the second launch's directory, not ours: a
             // relative path typed in a terminal names a file there (16.0).
+            // Granted here, before the front end hears of it (21.0).
             if let Some(path) = open_path::path_from_args(&argv, Path::new(&cwd)) {
-                let _ = window.emit("pagewise://open-path", path);
+                if let Ok(canon) = grants::grant_document(app, Path::new(&path)) {
+                    let _ = window.emit("pagewise://open-path", canon.to_string_lossy());
+                }
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -442,8 +405,22 @@ pub fn run() {
         // closed started it empty.
         .manage(open_path::PendingOpen::from_launch())
         .manage(FileReadCancel::default())
+        .setup(|app| {
+            let handle = app.handle();
+            grants::restore(handle);
+            // The launch's own file, granted like any other the reader chose.
+            open_path::grant_pending(handle);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                grants::dropped(window.app_handle(), paths);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
-            register_allowed_path,
+            grants::pick_document,
+            grants::pick_save_path,
+            grants::path_granted,
             cancel_file_read_cmd,
             file_stamp_cmd,
             file_identity_cmd,

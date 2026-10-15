@@ -16,8 +16,7 @@
  * written is where the words are in the file as it is now.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
-import { allowPath } from "./fs-access";
+import { pickSavePath } from "./allowed-paths";
 import { placeFinding, type FindingPlacement } from "./finding-anchors";
 import type { Finding } from "./finding-store";
 import type { Trust } from "./finding-trust";
@@ -134,11 +133,9 @@ export async function saveAnnotatedPdf(
   defaultName: string,
   filterName: string,
 ): Promise<number | null> {
-  const out = await save({ defaultPath: defaultName, filters: [{ name: filterName, extensions: ["pdf"] }] });
+  // Writing into the chosen folder is granted by the dialog itself, in Rust
+  // (21.0), as for the Markdown exports (`save-markdown.ts`).
+  const out = await pickSavePath(defaultName, filterName, ["pdf"]);
   if (!out) return null;
-  // The chosen file may not exist yet; authorize its directory, as the
-  // Markdown exports do (`save-markdown.ts`).
-  const parent = out.replace(/[/\\][^/\\]*$/, "");
-  if (parent && parent !== out) await allowPath(parent);
   return invoke<number>("export_annotated_pdf", { path, outPath: out, annotations });
 }

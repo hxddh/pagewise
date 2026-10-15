@@ -121,7 +121,10 @@ function PageNav({
     if (editing) inputRef.current?.select();
   }, [editing]);
 
-  if (totalPages <= 1) return null;
+  // A one-page document has nowhere to go, but the strip keeps its centre:
+  // returning nothing let the file name and the tabs slide into the middle,
+  // so the header's balance changed with the document (21.0). Not a control.
+  if (totalPages <= 1) return <div className="toolbar-group toolbar-group-page" aria-hidden="true" />;
 
   function commit() {
     // A printed number first, when the document prints any: a reader looking

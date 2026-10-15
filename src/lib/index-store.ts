@@ -167,19 +167,25 @@ function capDocPages(pages: PageText[]): PageText[] {
   return kept;
 }
 
-async function readDocs(): Promise<StoredDoc[]> {
+async function readStored(): Promise<{ docs: StoredDoc[]; newer: boolean }> {
   const s = await runtime.store();
   const raw = await s.get<unknown>(KEY);
   const outcome = migrateStored(raw, VERSION, MIGRATIONS);
   if (outcome.status === "newer") {
     // Written by a later PageWise and this one has been downgraded. Keep the
     // blob beside the key, never overwritten, so going back to the later
-    // version finds the pages it paid for; reading it as empty here would
-    // otherwise replace them on the next save.
+    // version finds the pages it paid for. Until 21.0 the store was then read
+    // as empty and the next save wrote this build's pages over the key — and
+    // nothing reads the stash back, so the later version lost them anyway.
+    // Now a downgraded build does not write the cache at all (see the callers).
     await preserveNewer(s, KEY, raw).catch(() => {});
-    return [];
+    return { docs: [], newer: true };
   }
-  return sanitizeStoredIndex(raw);
+  return { docs: sanitizeStoredIndex(raw), newer: false };
+}
+
+async function readDocs(): Promise<StoredDoc[]> {
+  return (await readStored()).docs;
 }
 
 async function writeDocs(docs: StoredDoc[]): Promise<void> {
@@ -226,7 +232,8 @@ export async function loadIndexedPages(path: string, stamp: string, identity?: s
       if (moved) {
         doc = moved;
         await runtime.withStoreLock(async () => {
-          const current = await readDocs();
+          const { docs: current, newer } = await readStored();
+          if (newer) return;
           const next = current
             .filter((d) => d.path !== path)
             .map((d) => (d.path === moved.path && d.identity === identity ? { ...d, path, stamp } : d));
@@ -268,7 +275,11 @@ async function flushPending(): Promise<void> {
 
   await runtime.withStoreLock(async () => {
     try {
-      const docs = await readDocs();
+      const { docs, newer } = await readStored();
+      // A later version's cache: this session's pages stay in memory and are
+      // not written (re-reading them later is the price; the later version's
+      // paid pages are the thing being kept).
+      if (newer) return;
       const byPath = new Map(docs.map((d) => [d.path, d]));
       const now = Date.now();
 

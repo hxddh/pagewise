@@ -61,6 +61,8 @@ export interface ReadResult extends ReadAttachments {
   rangeClamped?: boolean;
   /** Pages inside the range that could not be indexed, as compressed ranges. */
   indexingFailedPages?: string;
+  /** Why those pages failed (missing key, vision error, timeout), once each. */
+  indexingFailedReasons?: string[];
   /** Pages skipped because the scan allowance ran out. */
   unscannedPages?: string;
   /** The section a read resolved to, when it was reached by name. */

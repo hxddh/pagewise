@@ -6,9 +6,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pdfjsRoot = join(root, "node_modules", "pdfjs-dist");
 const destRoot = join(root, "public", "pdfjs");
 
+// A missing directory fails the build (21.0): it used to be skipped with a
+// warning, so a bundle could ship without the decoders scanned PDFs need.
 if (!existsSync(pdfjsRoot)) {
-  console.warn("[copy-pdfjs-assets] pdfjs-dist not installed — skipping");
-  process.exit(0);
+  console.error("[copy-pdfjs-assets] pdfjs-dist is not installed");
+  process.exit(1);
 }
 
 // `wasm/` holds the JPEG 2000 and JBIG2 decoders and the colour-management
@@ -19,7 +21,10 @@ const ASSET_DIRS = ["cmaps", "standard_fonts", "wasm", "iccs"];
 
 rmSync(destRoot, { recursive: true, force: true });
 for (const dir of ASSET_DIRS) {
-  if (!existsSync(join(pdfjsRoot, dir))) continue;
+  if (!existsSync(join(pdfjsRoot, dir))) {
+    console.error(`[copy-pdfjs-assets] missing pdfjs-dist/${dir}`);
+    process.exit(1);
+  }
   mkdirSync(join(destRoot, dir), { recursive: true });
   cpSync(join(pdfjsRoot, dir), join(destRoot, dir), { recursive: true });
 }
