@@ -73,6 +73,14 @@ jobs:
       - name: Raw-button check
         run: npm run check:buttons
 
+      # The eight-number complexity budget. It was in no gate at all until
+      # 20.0 — `rg check:budget` found it only in package.json and the
+      # CHANGELOG — so a surface could come back without anything going red.
+      # It runs in `prebuild` too; this step is the Windows run, because these
+      # scripts are where the last three Windows-only CI breaks came from.
+      - name: Complexity budget
+        run: npm run check:budget
+
       # The suite's own path-and-line-ending invariants — css-hygiene.test.mjs
       # runs each of the scripts above as a subprocess and reads their output,
       # so it is the one place a script that silently prints nothing is caught.

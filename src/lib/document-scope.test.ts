@@ -34,6 +34,13 @@ import { docCache } from "./doc-cache";
 import { addMark, getMarks } from "./mark-store";
 import { addFinding, getFindings } from "./finding-store";
 import { getPageIndexState } from "./index-events";
+import { __indexIdentitySizeForTests, __resetIndexStoreForTests, loadIndexedPages } from "./index-store";
+import {
+  addDocumentVisionUsage,
+  getDocumentVisionUsage,
+  getVisionCallCount,
+  recordVisionCall,
+} from "./usage-tracker";
 import type { LoadedDocument } from "./types";
 
 const A = "/docs/a.pdf";
@@ -57,6 +64,7 @@ afterEach(() => {
   docCache.clear();
   createDocumentScope("/docs/none.pdf").dispose();
   __resetDocumentScopeForTests();
+  __resetIndexStoreForTests();
 });
 
 describe("document scope", () => {
@@ -92,6 +100,28 @@ describe("document scope", () => {
     expect(getPageIndexState(B, 1)).toBeUndefined();
     createDocumentScope(B);
     expect(getPageIndexState(A, 1)).toBeUndefined();
+  });
+
+  it("closes the vision spend and the fingerprint of the document being left (20.0)", async () => {
+    // The two maps outside the list until 20.0. The call count is what the
+    // scan-all confirmation shows, so its leak was visible: a document
+    // reopened said it had "used N scan calls so far this session" — N from
+    // the previous time it was open. The fingerprint is the index store's
+    // memory of the open file, written beside its pages on the next flush.
+    createDocumentScope(A);
+    recordVisionCall(A);
+    addDocumentVisionUsage(A, { inputTokens: 1_200, outputTokens: 40 });
+    await loadIndexedPages(A, "stamp-1", "fp-a");
+
+    expect(getVisionCallCount(A)).toBe(1);
+    expect(getDocumentVisionUsage(A).calls).toBe(1);
+    expect(__indexIdentitySizeForTests()).toBe(1);
+
+    createDocumentScope(B);
+
+    expect(getVisionCallCount(A)).toBe(0);
+    expect(getDocumentVisionUsage(A)).toEqual({ inputTokens: 0, outputTokens: 0, calls: 0 });
+    expect(__indexIdentitySizeForTests()).toBe(0);
   });
 
   it("disposing twice is safe, and creating the same path again reuses it", () => {

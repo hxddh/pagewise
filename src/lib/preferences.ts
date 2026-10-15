@@ -23,8 +23,10 @@ export interface AppPreferences {
   includeViewingPageDefault: boolean;
   previewQuality: PreviewQuality;
   /**
-   * Pages the automatic vision sweep may index per document (0 = off). Each one
-   * is a billed vision call, so the default stays conservative; full coverage is
+   * Pages one automatic sweep may send to the model per document (0 = none).
+   * Each one is a billed vision call, so the default stays conservative. It
+   * bounds the sweep's CALLS; the pages it READS cost CPU instead and are
+   * bounded by `DEFAULT_AUTO_INDEX_PAGES` whatever this says. Full coverage is
    * available on demand from the preview.
    */
   autoIndexPages: number;

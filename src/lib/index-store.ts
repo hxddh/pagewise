@@ -13,11 +13,26 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { createStoreRuntime } from "./json-store";
+import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
 import type { PageText } from "./types";
 
 const STORE_PATH = "index-cache.json";
 const KEY = "index";
+/**
+ * The schema version of the stored blob, stated here and written with every
+ * save. It was 1 since 13.0; 20.0 gave the store the migration chain every
+ * other versioned store has (`store-migrate.ts`), so this number can move
+ * without the reader's paid-for text being dropped.
+ */
 const VERSION = 1;
+
+/**
+ * How a blob of an older version reaches this one. Empty while VERSION is 1 —
+ * there is nothing older — and the place the first bump adds its step, rather
+ * than the "return []" this store used to answer a version it did not
+ * recognise with.
+ */
+const MIGRATIONS: readonly Migration[] = [];
 
 /** Retained documents. Beyond this the least-recently-saved are dropped. */
 export const MAX_CACHED_INDEX_DOCS = 24;
@@ -90,13 +105,17 @@ function isValidDoc(value: unknown): value is StoredDoc {
 /**
  * Coerce arbitrary stored data into valid documents. A corrupt cache must never
  * block a document from opening — bad entries are dropped, not thrown on.
+ *
+ * Version handling goes through `migrateStored`, like marks and findings: an
+ * OLDER blob is migrated, a NEWER one is preserved beside the key (see
+ * `readDocs`) rather than discarded — this store holds text the reader paid for
+ * per page, and answering a version mismatch with `[]` re-billed every page of
+ * it after one downgrade.
  */
 export function sanitizeStoredIndex(raw: unknown): StoredDoc[] {
-  if (!raw || typeof raw !== "object") return [];
-  const parsed = raw as Partial<StoredIndex>;
-  // An index written by a newer/unknown schema is discarded rather than
-  // misread; it will be rewritten on the next save.
-  if (parsed.version !== VERSION) return [];
+  const outcome = migrateStored(raw, VERSION, MIGRATIONS);
+  if (outcome.status !== "current" && outcome.status !== "migrated") return [];
+  const parsed = outcome.value as Partial<StoredIndex>;
   if (!Array.isArray(parsed.docs)) return [];
   const seen = new Set<string>();
   const docs: StoredDoc[] = [];
@@ -150,7 +169,17 @@ function capDocPages(pages: PageText[]): PageText[] {
 
 async function readDocs(): Promise<StoredDoc[]> {
   const s = await runtime.store();
-  return sanitizeStoredIndex(await s.get<unknown>(KEY));
+  const raw = await s.get<unknown>(KEY);
+  const outcome = migrateStored(raw, VERSION, MIGRATIONS);
+  if (outcome.status === "newer") {
+    // Written by a later PageWise and this one has been downgraded. Keep the
+    // blob beside the key, never overwritten, so going back to the later
+    // version finds the pages it paid for; reading it as empty here would
+    // otherwise replace them on the next save.
+    await preserveNewer(s, KEY, raw).catch(() => {});
+    return [];
+  }
+  return sanitizeStoredIndex(raw);
 }
 
 async function writeDocs(docs: StoredDoc[]): Promise<void> {
@@ -162,6 +191,23 @@ async function writeDocs(docs: StoredDoc[]): Promise<void> {
 
 /** Fingerprints of the documents opened this session, written beside their pages. */
 const identityByPath = new Map<string, string>();
+
+/**
+ * Drop the fingerprint remembered for a closed document (20.0).
+ *
+ * A flush uses the open document's fingerprint to write it beside its pages;
+ * once the document is closed it is of no use to anyone, and until 20.0 the
+ * map only ever grew — one entry per document opened this session. Registered
+ * with the document scope like every other per-document cache.
+ */
+export function forgetIndexIdentity(path: string): void {
+  identityByPath.delete(path);
+}
+
+/** Test seam — how many fingerprints the module is holding. */
+export function __indexIdentitySizeForTests(): number {
+  return identityByPath.size;
+}
 
 /**
  * Pages persisted for `path`, or `[]` when the file changed or nothing is cached.
@@ -418,6 +464,7 @@ export function __resetIndexStoreForTests(): void {
     flushTimer = null;
   }
   pending.clear();
+  identityByPath.clear();
   runtime.resetStore();
   runtime.resetLock();
   flushInFlight = Promise.resolve();

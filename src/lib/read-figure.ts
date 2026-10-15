@@ -17,6 +17,28 @@ const FIGURE_PROMPT =
 const FIGURE_TIMEOUT_MS = 60_000;
 
 /**
+ * The render a figure gets: 1,568px on its long edge, JPEG q0.85 — the only
+ * place the larger render survives, and the number is the reason.
+ *
+ * A figure is read for what a page render cannot give it. The page path sends
+ * 1,024px for the whole page; a figure occupying 416pt of a letter page —
+ * measured on `eval/corpus/fetched/geobase-data-model.pdf`, page 13, a UML
+ * diagram of labelled boxes — is only ~538px across inside that render, versus
+ * 1,568px here (2.9× the resolution per axis, 8.5× the pixels). That is the
+ * difference between reading a class name and guessing one, on the call whose
+ * entire purpose is the labels and values the text layer does not carry.
+ *
+ * What it costs, measured the same way (pypdfium2 + Pillow, the OCR eval's
+ * method): the crop encodes to 288 KB here against 146 KB at the page path's
+ * 1,024/q0.80 — 2.0×, in the same band as the page render's own 2.0–2.2×,
+ * and against 82 KB for a whole page at 1,024. It is one deliberate call per
+ * figure, drawn from the question's scan allowance, and the background sweep
+ * never takes this path.
+ */
+const FIGURE_MAX_EDGE = 1_568;
+const FIGURE_QUALITY = 0.85;
+
+/**
  * Figures worth offering the model, largest first.
  *
  * Documents embed decorative images — rules, bullets, logos — that cost a
@@ -70,7 +92,14 @@ export async function describeFigure(
   const settings = await loadVisionSettings();
   assertApiKeyForAgent(settings);
 
-  const bytes = await renderRegionToJpegBytes(path, page, figure.rect, 1568, 0.85, signal);
+  const bytes = await renderRegionToJpegBytes(
+    path,
+    page,
+    figure.rect,
+    FIGURE_MAX_EDGE,
+    FIGURE_QUALITY,
+    signal,
+  );
   recordVisionCall(path);
 
   const fetchSignal = signal

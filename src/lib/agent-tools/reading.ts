@@ -171,6 +171,37 @@ export function markDelivered(budget: ReadBudget, path: string, page: number, ru
   budget.delivered.add(`${path}#${page}`);
 }
 
+/**
+ * Has this run already had this figure described?
+ *
+ * The page rule, applied to figures (20.0). A page's text is handed over once
+ * per run; a figure was handed over once per CALL, so asking about the same
+ * chart twice sent the same crop and paid for the description a second time.
+ * Same set and same generation guard as `markDelivered`; the key names the
+ * figure — `path#figure:page:index`, the index being the figure's rank on the
+ * page, which is what the model asked by.
+ */
+export function alreadyDeliveredFigure(
+  budget: ReadBudget,
+  path: string,
+  page: number,
+  index: number,
+): boolean {
+  return budget.delivered.has(`${path}#figure:${page}:${index}`);
+}
+
+/** Record that this run's model has seen this figure's description. */
+export function markFigureDelivered(
+  budget: ReadBudget,
+  path: string,
+  page: number,
+  index: number,
+  runGen?: number,
+): void {
+  if (runGen !== undefined && budget.gen !== runGen) return;
+  budget.delivered.add(`${path}#figure:${page}:${index}`);
+}
+
 /** How many of the longest pages a survey names. Enough to point, not to list. */
 export const DENSEST_PAGE_COUNT = 5;
 
@@ -349,6 +380,14 @@ export const SCAN_LIMIT_NOTE =
  * text it replaces is a few messages above, and repeating it buys nothing.
  */
 export const ALREADY_READ_NOTE = "[already returned in full earlier in this turn]";
+
+/**
+ * Stands in for a figure this run already described. The description it
+ * replaces is a few messages above; a second crop and a second billed vision
+ * call would buy the same words back (20.0).
+ */
+export const ALREADY_DESCRIBED_NOTE =
+  "[already described earlier in this turn — see the description above]";
 
 /** Said once, by the outline itself, instead of withdrawing the tool. */
 export const ONCE_SURVEYED_NOTE =

@@ -60,6 +60,19 @@ export function createReadFigureTool(
             };
           }
 
+          // Already described in this run. Answered before the scan allowance
+          // is spent and before the vision call, so a repeat costs neither the
+          // allowance nor a second (billed) description of the same crop.
+          if (R.alreadyDeliveredFigure(budget, path, page, index)) {
+            return {
+              page,
+              figureIndex: index,
+              figureCount: figures.length,
+              description: R.ALREADY_DESCRIBED_NOTE,
+              alreadyRead: true,
+            };
+          }
+
           // A figure costs a billed vision call, so it draws on the same
           // per-question allowance as scanning an unreadable page.
           if (budget.scans >= budget.maxScans) {
@@ -71,6 +84,7 @@ export function createReadFigureTool(
           throwIfAborted(signal);
           const description = await describeFigure(path, page, figure, signal);
           throwIfAborted(signal);
+          R.markFigureDelivered(budget, path, page, index, runGen);
 
           const result = { page, figureIndex: index, figureCount: figures.length, description };
           chargeBudget(runGen, R.estimateTokens(JSON.stringify(result)));

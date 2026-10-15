@@ -82,3 +82,17 @@ export function getDocumentVisionUsage(path: string): IndexUsageSnapshot {
   const usage = docVisionUsage.get(path);
   return usage ? { ...usage } : { inputTokens: 0, outputTokens: 0, calls: 0 };
 }
+
+/**
+ * Forget what one document spent (20.0).
+ *
+ * Both maps are keyed by path and only ever grew, so they are part of one
+ * document's state — and must be closed with it, or the scan-all confirmation
+ * for a reopened document shows the previous session's call count (App.tsx)
+ * and fifty opened documents leave fifty entries behind. Registered with the
+ * document scope.
+ */
+export function forgetDocumentUsage(path: string): void {
+  docVisionCalls.delete(path);
+  docVisionUsage.delete(path);
+}

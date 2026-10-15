@@ -2,8 +2,8 @@
 /**
  * The complexity budget: the numbers 19.0 is supposed to move down.
  *
- *   npm run budget           # check against the recorded numbers
- *   npm run budget -- --update   # re-record (say why in the commit)
+ *   npm run check:budget           # check against the recorded numbers
+ *   npm run check:budget -- --update   # re-record (say why in the commit)
  *
  * 19.0's whole thesis is "fewer things, done deeper", and a thesis you cannot
  * count is a slogan. Every number below was measured by hand during the 19.0
@@ -38,6 +38,12 @@
  *
  * A number that has to go UP is fine — but it has to be re-recorded here, in
  * the commit that raises it, so the diff says which surface came back.
+ *
+ * Where it runs (20.0): in `prebuild` — so `npm run build`, and CI's `test`
+ * job, go red — and as its own step in the `windows-checks` job. Until then
+ * nothing ran it: `rg check:budget` found only its definition in package.json
+ * and this CHANGELOG, so all eight numbers could have moved back with every
+ * check green.
  */
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
@@ -109,25 +115,34 @@ function countKeys(value) {
 function measure() {
   const commands = read("src/hooks/useAppCommands.ts").match(/^\s+id: "/gm)?.length ?? 0;
 
-  // Sidebar tabs come from the union, the panel's from its own array, settings
-  // from TABS — three places, counted together because a reader counts them
-  // together.
+  // Tab stops come from the union that declares them — the sidebar's own type,
+  // and the header's `setPanelTab` — plus the settings TABS array: three
+  // places, counted together because a reader counts them together.
+  //
+  // The panel term used to read `PANEL_TABS|["chat", "record"] ? 2 : 2`: the
+  // array it looked for had moved to WorkspaceHeader.tsx, and both branches
+  // returned 2, so the number could not move whatever the header did.
   const sidebarTabs = read("src/features/preview/sidebar-tabs.ts").match(
     /export type SidebarTab = ([^;]+);/,
   )?.[1].split("|").length ?? 0;
-  const panelTabs = read("src/pages/ChatPanel.tsx").match(/PANEL_TABS|\["chat", "record"\]/) ? 2 : 2;
+  const panelTabs =
+    read("src/components/WorkspaceHeader.tsx").match(/setPanelTab: \(tab: ([^)]+)\)/)?.[1].split("|").length ?? 0;
   const settingsTabs = read("src/components/SettingsDrawer.tsx").match(/const TABS = \[([^\]]+)\]/)?.[1].split(",").length ?? 0;
 
-  // Settings rows a reader sees with Advanced closed: the toggle rows, the pill
-  // rows and the fields that are not inside the disclosure.
-  const settingsSources = ["GeneralSettings.tsx", "AssistantSettings.tsx", "SetupAssistant.tsx"].map((f) =>
-    read(`src/components/settings/${f}`),
-  );
-  const settingsRows = settingsSources
-    .join("\n")
-    .match(/settings-row-toggle|settings-pill-row/g)?.length ?? 0;
-
+  // Settings rows a reader sees with Advanced closed: the same rows
+  // `ui:inventory` counts in the running app (`.settings-row-toggle`,
+  // `.settings-pill-row`, `.ui-field`), counted where they are RENDERED. The
+  // old count matched the class names in the source, which counted the
+  // `PillRow` component's definition once for the four pill rows it draws —
+  // 5 for a page that shows 7.
   const generalSettings = read("src/components/settings/GeneralSettings.tsx");
+  const assistantSettings = read("src/components/settings/AssistantSettings.tsx");
+  const settingsRows =
+    (generalSettings.match(/<PillRow\b/g)?.length ?? 0) +
+    (generalSettings.match(/className="settings-row-toggle"/g)?.length ?? 0) +
+    (assistantSettings.match(/className="settings-row-toggle"/g)?.length ?? 0) +
+    (assistantSettings.match(/className="ui-field"/g)?.length ?? 0);
+
   const scanKnobs = ["settings.localOcr", "settings.cloudReading"].filter((key) =>
     generalSettings.includes(`t("${key}"`),
   ).length;
@@ -165,7 +180,7 @@ let budget;
 try {
   budget = JSON.parse(readFileSync(SNAPSHOT, "utf8"));
 } catch {
-  console.error("scripts/complexity.snapshot.json is missing — run `npm run budget -- --update`.");
+  console.error("scripts/complexity.snapshot.json is missing — run `npm run check:budget -- --update`.");
   process.exit(2);
 }
 
@@ -182,7 +197,7 @@ for (const [key, value] of Object.entries(measured)) {
 if (failed > 0) {
   console.error(
     `\n${failed} measure(s) above the recorded budget. Either remove the thing that came back, ` +
-      `or re-record with \`npm run budget -- --update\` in the commit that adds it, and say which surface it is.`,
+      `or re-record with \`npm run check:budget -- --update\` in the commit that adds it, and say which surface it is.`,
   );
   process.exit(1);
 }

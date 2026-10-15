@@ -1088,11 +1088,13 @@ async function paintDetached(
 /**
  * The default render for the vision model: 1,024px long edge, JPEG q0.80.
  *
- * It was 1,568px q0.85 (18.0): a page image is billed per call, and the larger
- * render measures roughly three to four times the bytes for print the model can
- * already read at this size. `renderPageToJpegBytes` keeps the larger numbers
- * available for the one case where they earn their cost — a page local OCR
- * tried and read poorly (see `visionImageBytes` in `document/index-queue.ts`).
+ * It was a 1,568px render at the higher quality (18.0). 20.0 deleted the second
+ * path — a page local OCR read poorly used to be sent at the old size — after
+ * re-measuring the byte claim that justified it: the larger render is 2.0–2.2×
+ * the bytes, not the "three to four" the comment said, and the same model reads
+ * the page at this size. `renderPageToJpegBytes` is now the only page render; a
+ * figure's region is rendered by `renderRegionToJpegBytes`, whose one caller
+ * names its own resolution and says why.
  */
 export const VISION_MAX_EDGE = 1_024;
 export const VISION_QUALITY = 0.8;
@@ -1165,7 +1167,8 @@ export async function renderPageForOcr(
  * Largest page canvas we will paint to crop a figure out of.
  *
  * A small figure would otherwise demand an enormous page render to reach the
- * target resolution — a 20pt logo at 1568px means painting the page at 78×.
+ * caller's target resolution — a 20pt logo at the figure path's 1,568px means
+ * painting the page at 78×.
  */
 export const MAX_CROP_PAGE_EDGE = 4096;
 
@@ -1203,13 +1206,17 @@ export function regionRenderScale(
  * page with the figure somewhere in it. `rect` is in PDF points with a
  * bottom-left origin, as `DocumentModel.figures` reports it; both corners go
  * through the viewport transform so a rotated page crops the right area.
+ *
+ * `maxEdge` and `quality` are required, not defaulted: this renders whatever
+ * the caller asks for, and the one caller (`read-figure.ts`) owns the numbers
+ * and the measurement that justifies them.
  */
 export async function renderRegionToJpegBytes(
   path: string,
   pageNumber: number,
   rect: PdfRect,
-  maxEdge = 1568,
-  quality = 0.85,
+  maxEdge: number,
+  quality: number,
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
   throwIfAborted(signal);

@@ -1,10 +1,11 @@
 /**
  * One document's module state, in one place.
  *
- * Eleven modules keep per-document state at module level — rendered pages,
+ * Thirteen modules keep per-document state at module level — rendered pages,
  * loaded text, marks, findings, finding anchors, citation checks, claim
- * reviews, OCR results, the indexing queue, page-index events, the pending
- * agent message context — and the only thing that cleaned them up was a
+ * reviews, OCR results, the indexing queue, page-index events, vision spend,
+ * the index store's fingerprint for the open file, the pending agent message
+ * context — and the only thing that cleaned them up was a
  * hand-written list in the session provider. The bug class this file exists
  * for is recorded three times in the repository's history: something a reader
  * saw in document A showing up under document B.
@@ -22,8 +23,10 @@ import { clearFindingAnchors } from "./finding-anchors";
 import { flushFindingStore, forgetFindings } from "./finding-store";
 import { clearDocumentIndexState } from "./index-events";
 import { flushMarkStore, forgetMarks } from "./mark-store";
+import { forgetIndexIdentity } from "./index-store";
 import { clearPdfCache, setActivePdfPath } from "./pdf";
 import { forgetOcr } from "./ocr/ocr-service";
+import { forgetDocumentUsage } from "./usage-tracker";
 import { cancelIndex } from "../document/index-queue";
 
 /** How one module's per-document state starts and stops. */
@@ -61,6 +64,13 @@ const REGISTRATIONS: DocumentState[] = [
   { name: "citation-check", dispose: (path) => clearCitationChecks(path) },
   { name: "claim-review", dispose: (path) => clearReviews(path) },
   { name: "index-events", dispose: (path) => clearDocumentIndexState(path) },
+  // Vision spend and the fingerprint the index store writes beside a
+  // document's pages: both keyed by path, both part of one document's state,
+  // and both outside this list until 20.0 — so the scan-all confirmation
+  // showed a reopened document the previous session's call count, and the two
+  // maps kept an entry per document opened all session.
+  { name: "usage-tracker", dispose: (path) => forgetDocumentUsage(path) },
+  { name: "index-store-identity", dispose: (path) => forgetIndexIdentity(path) },
   { name: "agent-view-context", dispose: () => clearAgentMessageContext() },
   {
     name: "pdf-render",

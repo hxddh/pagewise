@@ -128,9 +128,9 @@ export function GeneralSettings({
 
   /**
    * One control for reading pages in the cloud: how many pages of a document
-   * may be read in the background, and — at the same step — how many the
-   * assistant may send while answering one question. Two settings that always
-   * moved together are one.
+   * may be read in the cloud in the background, and — at the same step — how
+   * many the assistant may send while answering one question. Two settings
+   * that always moved together are one.
    *
    * `All` is the whole-document scan: the standing budget and the action the
    * reader asked for are one click, and the confirmation is where the bill is

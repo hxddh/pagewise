@@ -10,10 +10,23 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   },
 }));
 
+// `describeFigure` is the one part of the figure path that calls the vision
+// model and bills for it; everything else (which figures a page offers) is the
+// module's own logic and stays real.
+vi.mock("../read-figure", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../read-figure")>();
+  return { ...actual, describeFigure: vi.fn(async () => "A chart of miss rates.") };
+});
+
 import { asSchema } from "ai";
 import { createDocumentTools, newReadBudget } from "./index";
 import type { ReadBudget } from "./reading";
-import { ALREADY_READ_NOTE, DEFAULT_PAGE_MAX_CHARS } from "./reading";
+import {
+  ALREADY_DESCRIBED_NOTE,
+  ALREADY_READ_NOTE,
+  DEFAULT_PAGE_MAX_CHARS,
+} from "./reading";
+import { describeFigure } from "../read-figure";
 import { docCache } from "../doc-cache";
 
 const PATH = "/docs/paper.pdf";
@@ -27,6 +40,7 @@ function loadDoc(
   pages: Array<{ page: number; text: string }>,
   pageLabels?: string[],
   annotations?: unknown[],
+  figures?: unknown[],
 ) {
   // Clear first. `docCache.set` MERGES page text on reload — reopening the same
   // path keeps whatever text is longer — so without this a 12,000-character
@@ -43,7 +57,7 @@ function loadDoc(
     pages: pages.map((p) => ({ ...p, needs_vision: false, has_table: false })),
     outline: [],
     links: [],
-    figures: [],
+    figures: figures ?? [],
     pageLabels,
     annotations,
   } as never);
@@ -235,6 +249,69 @@ describe("read tool contract: a page is handed over once", () => {
     };
     expect(inside.alreadyRead, "page 2 was already sent as part of 1-3").toBe(true);
     expect(budget.used).toBe(charged);
+  });
+});
+
+describe("read tool contract: a figure is described once", () => {
+  /** Two figures on page 1 — a wide one and a small one — and none on page 2. */
+  const FIGURES = [
+    { page: 1, rect: { x: 40, y: 400, width: 400, height: 300 } }, // largest
+    { page: 1, rect: { x: 40, y: 100, width: 200, height: 150 } },
+    { page: 2, rect: { x: 40, y: 100, width: 10, height: 10 } }, // a rule, skipped
+  ];
+
+  beforeEach(() => {
+    loadDoc([1, 2].map((page) => ({ page, text: pageText(page) })), undefined, undefined, FIGURES);
+    vi.mocked(describeFigure).mockClear();
+  });
+
+  it("answers a repeat with a note instead of a second billed call", async () => {
+    // A figure costs a vision call every time it is read, and until 20.0 the
+    // same chart could be described twice in one turn — the same crop, the
+    // same words, billed again. Pages have been handed over once per run since
+    // 7.2; figures now share that rule and that delivered-set.
+    const { budget, t } = tools();
+    const first = (await t.read_figure!.execute({ page: 1 }, options)) as {
+      description: string;
+    };
+    expect(first.description).toBe("A chart of miss rates.");
+    expect(describeFigure).toHaveBeenCalledTimes(1);
+    const charged = budget.used;
+    const scans = budget.scans;
+
+    const again = (await t.read_figure!.execute({ page: 1 }, options)) as {
+      description: string;
+      alreadyRead: boolean;
+    };
+    expect(describeFigure, "the second read must not reach the model").toHaveBeenCalledTimes(1);
+    expect(again.alreadyRead).toBe(true);
+    expect(again.description).toBe(ALREADY_DESCRIBED_NOTE);
+    expect(budget.scans, "a repeat spends none of the scan allowance").toBe(scans);
+    expect(budget.used, "a repeat costs nothing").toBe(charged);
+  });
+
+  it("still describes a different figure on the same page", async () => {
+    // The dedup key names the figure, not the page: index 2 is another chart.
+    const { t } = tools();
+    await t.read_figure!.execute({ page: 1, index: 2 }, options);
+    await t.read_figure!.execute({ page: 1, index: 2 }, options);
+    await t.read_figure!.execute({ page: 1, index: 1 }, options);
+    expect(describeFigure).toHaveBeenCalledTimes(2);
+  });
+
+  it("describes the figure again in the next run", async () => {
+    // What `prepareCall` does between questions: a fresh budget for a fresh
+    // answer. The description is in the previous turn's transcript, not this
+    // one, so the model has to be able to ask for it again.
+    const { budget, t } = tools();
+    await t.read_figure!.execute({ page: 1 }, options);
+    budget.used = 0;
+    budget.scans = 0;
+    budget.gen += 1;
+    budget.delivered.clear();
+
+    await t.read_figure!.execute({ page: 1 }, options);
+    expect(describeFigure).toHaveBeenCalledTimes(2);
   });
 });
 

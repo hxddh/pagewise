@@ -64,8 +64,8 @@ vi.mock("../lib/doc-cache", () => ({
 vi.mock("../lib/pdf", () => ({
   readAuthorizedFileBytes: vi.fn(async () => new Uint8Array([1])),
   renderPageToJpegBytes: vi.fn(async () => new Uint8Array([2])),
-  // The render defaults the queue passes through; this mock replaces the
-  // renderer, not the numbers. A page OCR read poorly asks for the larger ones.
+  // The render the queue passes through; this mock replaces the renderer, not
+  // the numbers — one path, 1,024/q0.80 (20.0).
   VISION_MAX_EDGE: 1_024,
   VISION_QUALITY: 0.8,
 }));
@@ -319,17 +319,22 @@ describe("automatic sweep budget", () => {
     }
   });
 
-  it("spends nothing when the budget is 0", async () => {
+  it("makes no billed call, and reads nothing it can settle, when the budget is 0", async () => {
+    // The budget is the money: 0 means no page may be sent to the model. The
+    // sweep still VISITS its window (that is the one thing that lets OCR keep
+    // reading pages for free), but with local OCR off there is nothing it can
+    // settle, so every page ends idle and no text is written.
     setAutoIndexCap(0);
     const path = uniquePath();
     const doc = seed(path, 5);
 
     scheduleIndex(doc);
-    // Let any scheduled work start before asserting it never did.
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    await vi.waitFor(() => expect(statusesFor(path, 5)).toContain("idle"));
 
     expect(h.visionCalls).toHaveLength(0);
-    expect(h.events.filter((e) => e.path === path)).toHaveLength(0);
+    for (const page of [1, 2, 3, 4, 5]) {
+      expect(h.store.get(path)?.pages.find((p) => p.page === page)?.text).toBe("");
+    }
   });
 });
 
@@ -520,6 +525,46 @@ describe("local OCR first (14.0)", () => {
     expect(h.store.get(path)!.pages.map((p) => p.text.length > 0)).toEqual([true, false, true, true]);
   });
 
+  it("does not read past DEFAULT_AUTO_INDEX_PAGES, however large the cloud budget is (20.0)", async () => {
+    // The page window is the CPU bound: OCR is free but 2.64s a page, and a
+    // 300-page scan used to mean every page was recognised — about 6.6 minutes
+    // of it. The reader's cloud preference bounds the billed CALLS, not the
+    // local reading, so even "All" (200) sweeps 50 pages.
+    h.ocr.enabled = true;
+    setAutoIndexCap(200);
+    const path = uniquePath();
+    const doc = seed(path, DEFAULT_AUTO_INDEX_PAGES + 10);
+    const readWell = { text: "The filter admits a newcomer only if it is popular.", confidence: 92 };
+    for (let p = 1; p <= DEFAULT_AUTO_INDEX_PAGES + 10; p++) h.ocr.pages.set(p, readWell);
+
+    scheduleIndex(doc);
+    await vi.waitFor(() => expect(h.ocr.calls.length).toBe(DEFAULT_AUTO_INDEX_PAGES));
+    // A beat, in case a 51st read is on its way (it is not — the window is
+    // fixed before the pool starts).
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(h.ocr.calls.length).toBe(DEFAULT_AUTO_INDEX_PAGES);
+    expect(h.visionCalls).toHaveLength(0);
+    expect(h.store.get(path)!.pages.filter((p) => p.text.length > 0)).toHaveLength(
+      DEFAULT_AUTO_INDEX_PAGES,
+    );
+  });
+
+  it("lets an explicit whole-document index read past the window", async () => {
+    // The other half of the cap: "Read pages with no text" is the reader's
+    // own action, it shows the page count first, and it is the only way past
+    // the automatic window (there is no `cap: null` sweep any more).
+    h.ocr.enabled = true;
+    const path = uniquePath();
+    seed(path, DEFAULT_AUTO_INDEX_PAGES + 10);
+    const readWell = { text: "The filter admits a newcomer only if it is popular.", confidence: 92 };
+    for (let p = 1; p <= DEFAULT_AUTO_INDEX_PAGES + 10; p++) h.ocr.pages.set(p, readWell);
+
+    expect(pendingIndexPages(path)).toHaveLength(DEFAULT_AUTO_INDEX_PAGES + 10);
+    expect(indexWholeDocument(path)).toBe(DEFAULT_AUTO_INDEX_PAGES + 10);
+
+    await vi.waitFor(() => expect(h.ocr.calls.length).toBe(DEFAULT_AUTO_INDEX_PAGES + 10));
+  });
+
   it("does not pay to improve a page the reader is only looking at", async () => {
     h.ocr.enabled = true;
     const path = uniquePath();
@@ -552,11 +597,11 @@ describe("local OCR first (14.0)", () => {
     expect(h.visionOpts[0]).toMatchObject({ attributeUsage: true });
   });
 
-  it("sends the larger render only for a page OCR read poorly", async () => {
-    // 18.0 lowered the page render to 1,024px q0.80; the larger 1,568 q0.85
-    // survives for the page where the extra pixels decide between a usable
-    // transcription and a second billed call. A page OCR read nothing on gets
-    // the default — resolution does not rescue a photograph.
+  it("sends the same page render for every page, whatever OCR made of it (20.0)", async () => {
+    // 18.0 lowered the page render to 1,024px q0.80; 20.0 deleted the branch
+    // that sent a page OCR read poorly at 1,568 q0.85 instead. The larger
+    // render is 2.0–2.2× the bytes, not the "3–4×" the comment claimed, and
+    // the same model reads the page at the default size.
     h.ocr.enabled = true;
     const path = uniquePath();
     seed(path, 2);
@@ -567,7 +612,7 @@ describe("local OCR first (14.0)", () => {
 
     const render = renderPageToJpegBytes as unknown as { mock: { calls: unknown[][] } };
     expect(render.mock.calls.map((c) => [c[1], c[2], c[3]])).toEqual([
-      [1, 1_568, 0.85],
+      [1, 1_024, 0.8],
       [2, 1_024, 0.8],
     ]);
   });

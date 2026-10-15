@@ -1,10 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * The store the module opens, in memory. `preserveNewer` and the migration
+ * chain both go through a real `get`/`set`/`save`, so the plugin is stood in
+ * for rather than bypassed.
+ */
+const h = vi.hoisted(() => ({ data: new Map<string, unknown>() }));
+
+vi.mock("@tauri-apps/plugin-store", () => ({
+  LazyStore: class {
+    async get<T>(key: string): Promise<T | undefined> {
+      return h.data.get(key) as T | undefined;
+    }
+    async set(key: string, value: unknown): Promise<void> {
+      h.data.set(key, value);
+    }
+    async save(): Promise<void> {}
+  },
+}));
+
 import {
   docChars,
   evictToBudget,
+  loadIndexedPages,
   MAX_CACHED_INDEX_DOCS,
   MAX_INDEX_CHARS,
   sanitizeStoredIndex,
+  __resetIndexStoreForTests,
 } from "./index-store";
 
 function doc(path: string, savedAt: number, pageCount: number, textLen = 100) {
@@ -25,7 +47,9 @@ describe("sanitizeStoredIndex", () => {
     expect(sanitizeStoredIndex(undefined)).toEqual([]);
     expect(sanitizeStoredIndex("nope")).toEqual([]);
     expect(sanitizeStoredIndex({ docs: [doc("/a.pdf", 1, 1)] })).toEqual([]);
-    // A newer schema is discarded rather than misread as v1.
+    // A newer schema is not read as v1. What happens to the blob is
+    // `readDocs`' job, not this one's: it is preserved, not dropped — see the
+    // downgrade tests below.
     expect(sanitizeStoredIndex({ version: 2, docs: [doc("/a.pdf", 1, 1)] })).toEqual([]);
   });
 
@@ -61,6 +85,44 @@ describe("sanitizeStoredIndex", () => {
   it("drops a document left with no usable pages", () => {
     const empty = { ...doc("/a.pdf", 1, 1), pages: [{ page: 1, text: "" }] };
     expect(sanitizeStoredIndex({ version: 1, docs: [empty] })).toEqual([]);
+  });
+});
+
+/**
+ * A version this build does not know is preserved, not dropped (20.0).
+ *
+ * `index-cache.json` holds text the reader paid for one page at a time, and
+ * until 20.0 a version it did not recognise was answered with `[]` — and then
+ * written back over the file — so one launch of an older build re-bought every
+ * page of every scan in it. The store now does what marks and findings have
+ * done since 12.0: the blob is kept under `index.newer` until the version that
+ * wrote it comes back.
+ */
+describe("a downgrade does not throw paid pages away", () => {
+  const v2 = {
+    version: 2,
+    docs: [doc("/scan.pdf", 1, 2)],
+  };
+
+  beforeEach(() => {
+    h.data.clear();
+    __resetIndexStoreForTests();
+  });
+
+  it("keeps a newer blob under index.newer and reads the store as empty", async () => {
+    h.data.set("index", v2);
+    expect(await loadIndexedPages("/scan.pdf", "s1")).toEqual([]);
+    expect(h.data.get("index.newer")).toEqual(v2);
+    // The newer blob is still there too: the read must not replace it.
+    expect(h.data.get("index")).toEqual(v2);
+  });
+
+  it("never overwrites a blob already stashed by an earlier downgrade", async () => {
+    const stashed = { version: 3, docs: [doc("/other.pdf", 1, 1)] };
+    h.data.set("index", v2);
+    h.data.set("index.newer", stashed);
+    await loadIndexedPages("/scan.pdf", "s1");
+    expect(h.data.get("index.newer")).toEqual(stashed);
   });
 });
 

@@ -4,8 +4,12 @@
  * Since 14.0 a page with no text layer is read by local OCR first — free,
  * private, and with word boxes, so the page's citations can be checked. The
  * vision model is the fallback: for a page OCR could not read, or read with
- * low confidence. It is billed per page, so it stays behind the same budgets
- * as before; OCR is behind none.
+ * low confidence, and it is billed per page, so it sits behind a budget.
+ *
+ * OCR costs no money, but it is not free: it costs CPU — 2.64s a page for
+ * English at 200dpi, measured for the 20.0 review. The automatic sweep is
+ * therefore bounded in PAGES as well — `DEFAULT_AUTO_INDEX_PAGES` — for both
+ * readers; only an explicit whole-document index reads past it.
  */
 import { docCache } from "../lib/doc-cache";
 import { ensureProviderCompatibleImage } from "../lib/image-transcode";
@@ -39,10 +43,16 @@ type VisionUsage = "run" | "document" | "none";
 
 const VISION_TIMEOUT_MS = 60_000;
 /**
- * Pages the automatic background sweep will index without being asked. Every one
- * of them costs a vision call, so this stays deliberately small; a user who
- * wants full coverage raises it in Settings or runs an explicit whole-document
- * index (which shows the page count up front).
+ * Pages one automatic sweep will read, whatever the vision budget says.
+ *
+ * This is the CPU bound, and 20.0 is where it exists. OCR costs no money but
+ * 2.64s of CPU a page (measured for the 20.0 review), and until this cap a
+ * sweep with OCR on read EVERY page with no text: a 300-page scan was about
+ * 6.6 minutes of recognition, because the budget only applied when OCR was
+ * off. Both readers now read at most this many pages per sweep.
+ *
+ * The money is bounded separately, by the reader's preference
+ * (`autoIndexCap`): that is how many of these pages may go on to the model.
  */
 export const DEFAULT_AUTO_INDEX_PAGES = 50;
 const CONCURRENCY = 3;
@@ -50,7 +60,8 @@ const CONCURRENCY = 3;
 let autoIndexCap = DEFAULT_AUTO_INDEX_PAGES;
 
 /**
- * Set the automatic sweep budget (0 disables automatic indexing entirely).
+ * Set the automatic sweep's vision budget — the most of its pages that may be
+ * sent to the model (0 sends none; the sweep still reads locally).
  * Kept as module state rather than read per sweep so page selection stays
  * synchronous; the app applies the stored preference at startup and on change.
  */
@@ -90,14 +101,6 @@ export function getAgentScanCap(): number {
  * vision transcription is worth its cost where a budget allows one.
  */
 export const OCR_TRUSTED_CONFIDENCE = 70;
-
-/**
- * The render a page gets when OCR read it poorly: the larger one (18.0).
- * Named here, next to the confidence floor that selects it, so the two cannot
- * drift apart unnoticed.
- */
-const VISION_OCR_POOR_MAX_EDGE = 1_568;
-const VISION_OCR_POOR_QUALITY = 0.85;
 
 /** Whether this page's words came from OCR that read it poorly. */
 export function isPoorlyRecognised(path: string, page: number): boolean {
@@ -240,7 +243,6 @@ function isCurrentGeneration(path: string, generation: number): boolean {
   return (pathGenerations.get(path) ?? 0) === generation;
 }
 
-/** Pages with no usable text yet. `cap` of `null` means "no budget limit". */
 /**
  * Pages with no usable text yet. `cap` of `null` means "no budget limit".
  *
@@ -256,16 +258,27 @@ function sparsePages(doc: LoadedDocument, cap: number | null): number[] {
   return cap === null ? pages : pages.slice(0, cap);
 }
 
-function sweepPages(
-  doc: LoadedDocument,
-  options?: { allPages?: boolean; cap?: number | null },
-): number[] {
-  const cap = options?.cap === undefined ? autoIndexCap : options.cap;
-  if (options?.allPages) {
-    const all = docCache.getPages(doc.path).map((p) => p.page);
-    return cap === null ? all : all.slice(0, cap);
-  }
-  return sparsePages(doc, cap);
+/**
+ * The pages one automatic sweep reads.
+ *
+ * Bounded by `DEFAULT_AUTO_INDEX_PAGES` for both readers: the page count is
+ * the CPU bound, and OCR is behind it now as well as vision. The vision budget
+ * is applied page by page as the sweep runs (`visionLeft`), so a sweep never
+ * makes more billed calls than the reader allowed either.
+ */
+function sweepPages(doc: LoadedDocument): number[] {
+  return sparsePages(doc, DEFAULT_AUTO_INDEX_PAGES);
+}
+
+/**
+ * The window a re-index may clear and rescan: the reader's vision budget, in
+ * pages. Only these pages are thrown away, and only these are paid for again —
+ * see `reindexDocument`. A re-index re-scans with vision, so the money bound is
+ * the one that matters here, not the sweep's CPU window.
+ */
+function reindexPages(doc: LoadedDocument): number[] {
+  const all = docCache.getPages(doc.path).map((p) => p.page);
+  return all.slice(0, autoIndexCap);
 }
 
 /** Pages an explicit whole-document index would have to send to vision. */
@@ -296,13 +309,12 @@ function emitIdle(path: string, page: number): void {
 /**
  * The page render a vision call sends.
  *
- * 1,024px q0.80 is the default (18.0; it was 1,568 q0.85): a page image is
- * billed per call and the larger render is roughly three to four times the
- * bytes. A page local OCR tried and read poorly keeps the larger one — that is
- * the case where the extra pixels decide between a usable transcription and a
- * second billed call. A page OCR read nothing at all does not: vision is then
- * the only reader, and most of those pages are photographs and line art that
- * resolution does not rescue. With OCR off, every page takes the default.
+ * 1,024px at JPEG quality 80, one path for every page (18.0 lowered it from a
+ * 1,568px render; 20.0 deleted the branch that brought the larger one back for
+ * a page OCR read poorly). That branch rested on a comment claiming the larger
+ * render was three to four times the bytes; re-measured it is 2.0–2.2×, and it
+ * buys no better transcription — the same model reads the page at this size.
+ * With OCR off, every page takes the same render, as before.
  */
 async function visionImageBytes(
   path: string,
@@ -317,13 +329,12 @@ async function visionImageBytes(
       visionMediaType(path),
     );
   }
-  const poorlyRead = isPoorlyRecognised(path, page);
   return {
     bytes: await renderPageToJpegBytes(
       path,
       page,
-      poorlyRead ? VISION_OCR_POOR_MAX_EDGE : VISION_MAX_EDGE,
-      poorlyRead ? VISION_OCR_POOR_QUALITY : VISION_QUALITY,
+      VISION_MAX_EDGE,
+      VISION_QUALITY,
       signal,
     ),
     mediaType: "image/jpeg",
@@ -625,17 +636,18 @@ function stopVisionForQueue(path: string): void {
 /**
  * Cancel any in-flight queue for this path and start a new sweep.
  *
- * With OCR on, a sweep reads every page it is given — that costs nothing —
- * and `visionBudget` (default: the automatic sweep budget) caps how many of
- * them may go on to vision. With OCR off, the budget caps the pages instead,
- * as it always has.
+ * The sweep reads at most `DEFAULT_AUTO_INDEX_PAGES` pages — the CPU bound,
+ * for OCR and vision alike — and the reader's cloud preference
+ * (`autoIndexCap`) bounds how many of those go on to the model, which is the
+ * money. An explicit whole-document action — `indexWholeDocument`,
+ * `reindexDocument` — reads past the window by handing in its own `pages`: it
+ * names the pages up front and the reader agrees to the count before any of it
+ * runs.
  */
 export function scheduleIndex(
   doc: LoadedDocument,
   options?: {
-    allPages?: boolean;
     pages?: number[];
-    cap?: number | null;
     visionBudget?: number | null;
     skipOcr?: boolean;
   },
@@ -643,7 +655,6 @@ export function scheduleIndex(
   queues.get(doc.path)?.abort.abort();
   const generation = nextGeneration(doc.path);
   const controller = new AbortController();
-  const local = ocrEnabled() && !options?.skipOcr;
   const entry: QueueEntry = {
     abort: controller,
     generation,
@@ -653,9 +664,7 @@ export function scheduleIndex(
   };
   queues.set(doc.path, entry);
 
-  const pages =
-    options?.pages ??
-    sweepPages(doc, local && options?.cap === undefined ? { ...options, cap: null } : options);
+  const pages = options?.pages ?? sweepPages(doc);
   if (pages.length === 0) return;
   entry.pages = pages;
   notifyProgress();
@@ -696,7 +705,7 @@ export function cancelIndex(path: string): void {
 export function reindexDocument(path: string): number {
   const fresh = docCache.get(path);
   if (!fresh) return 0;
-  const pages = sweepPages(fresh, { allPages: true });
+  const pages = reindexPages(fresh);
   if (pages.length === 0) return 0;
   // The persisted copy of the pages being discarded goes with them, or the next
   // open would restore exactly what the user asked to re-scan. Only those pages:
