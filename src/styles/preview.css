@@ -572,6 +572,14 @@
  * page itself.
  */
 .page-gutter-column {
+  /* The free margin left of the cards (20.0): where the ties' lanes run, and
+     where the cards begin. 14px holds three 2px lanes with 4px between them —
+     the separation that makes two ties read as two objects rather than one
+     dashed line. */
+  --tie-gutter: calc(var(--space-md) + var(--space-sm));
+  /* The tie's ink when its card has no accent of its own (a state-less
+     answer): the card's ink classes override it on the tie itself. */
+  --note-ink: var(--text-secondary);
   align-items: stretch;
   gap: 0;
   margin-left: 0;
@@ -581,7 +589,7 @@
 .gutter-note {
   --note-ink: var(--border-strong);
   position: absolute;
-  left: var(--space-md);
+  left: var(--tie-gutter);
   right: var(--space-sm);
   display: flex;
   flex-direction: column;
@@ -624,25 +632,72 @@
 }
 
 /* The tie from a card the collision rule pushed down to the passage it is
-   about (20.0): a hairline at the card's own left edge, from the passage's
-   place on the page to the card's top, with a tick across the gutter at the
-   passage end. A card drawn at its passage needs none — the card itself is
-   the tie. */
+   about (20.0): a 2px line in the card's own ink, from the passage's place on
+   the page to the card's top, with a tick across the free margin at the
+   passage end and a short elbow into the card's corner. A card drawn at its
+   passage needs none — the card itself is the tie.
+
+   THE LANES. Every tie runs in one of the free margin's lanes, left of where
+   the cards begin (`--tie-gutter`): three 2px lanes 4px apart, so two ties in
+   different lanes sit 6px apart and cannot read as one broken line — the
+   failure the first capture showed, where they shared the card's own edge
+   1px apart. `PageGutter` ranks the page's ties by the passage they come from
+   — the topmost passage takes the lane nearest the cards, each later one
+   steps left — so a tie can never run along or under a card. The lanes also
+   keep two ties apart: a lower tie's tick stops before the nearest lane above
+   it, so no tie crosses another. Two ties that leave the *same* passage share
+   the one tick — the passage is one place, and the two lanes leaving it are
+   the honest drawing.
+
+   THE INK AND THE PASSAGE END. The tie wears the card's own accent — the same
+   classes that colour the card's border (`gutter-note-mark`,
+   `gutter-note-finding`, the state classes below) carry `--note-ink` onto it —
+   so a tie says which card it belongs to, and two ties are told apart by hue
+   as well as by lane. The passage end is the loud end: the tick runs the free
+   margin to the tie's own lane, and a 6px cap at the page's own edge anchors
+   it, so the tie visibly leaves the page. Measured in the capture, against
+   the strip's own pixels (#151519): violet 4.3:1, highlighter 10.2:1, the
+   state-less fallback 7.1:1 — the old hairline in `--text-muted` was 3.8:1,
+   which is why the foot did not read. */
 .gutter-note-leader {
+  --tie-lane: calc(var(--tie-gutter) - 2px);
   position: absolute;
-  left: var(--space-md);
-  width: 1px;
-  background: color-mix(in srgb, var(--text-muted) 75%, transparent);
+  left: var(--tie-lane);
+  width: 2px;
+  background: var(--note-ink);
   pointer-events: none;
 }
 
+/* The lanes, nearest the cards first — the ranks `PageGutter` hands out. All
+   of them end at or before `--tie-gutter`, so no card covers a tie. */
+.gutter-note-leader[data-tie-lane="1"] { --tie-lane: var(--space-sm); }
+.gutter-note-leader[data-tie-lane="2"] { --tie-lane: 0px; }
+
+/* The passage end, as one element: the tick across the free margin from the
+   page's edge to the tie's own lane, and the cap at the edge itself. Two
+   gradients on one box — the tick at y 2..4, the cap at x 0..2 — drawn at the
+   passage's own y, `top: -2px` centring the cap on the line the tie leaves. */
 .gutter-note-leader::before {
   content: "";
   position: absolute;
   right: 0;
-  top: 0;
-  width: calc(var(--space-md) + 1px);
-  height: 1px;
+  top: -2px;
+  width: calc(var(--tie-lane) + 2px);
+  height: 6px;
+  background:
+    linear-gradient(var(--note-ink), var(--note-ink)) 0 2px / 100% 2px no-repeat,
+    linear-gradient(var(--note-ink), var(--note-ink)) 0 0 / 2px 100% no-repeat;
+}
+
+/* The elbow into the card's corner: from the tie's lane to the card's left
+   edge, at the card's top. */
+.gutter-note-leader::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: calc(var(--tie-gutter) - var(--tie-lane));
+  height: 2px;
   background: inherit;
 }
 

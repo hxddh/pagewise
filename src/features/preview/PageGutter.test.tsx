@@ -152,22 +152,38 @@ describe("PageGutter", () => {
     // The two marks and the finding are all anchored at the same run, so the
     // column's no-overlap rule pushes the second and third cards down. The
     // first card sits at its passage and needs no tie; the pushed ones draw a
-    // hairline from the passage's own place on the page to the card's top.
+    // line from the passage's own place on the page to the card's top.
     const { container } = renderGutter({ column: true });
     await waitFor(() => expect(container.querySelectorAll(".gutter-note-leader")).toHaveLength(2));
-    const cards = [...container.querySelectorAll<HTMLElement>(".gutter-note")].map((c) =>
-      parseFloat(c.style.top),
-    );
-    const ties = [...container.querySelectorAll<HTMLElement>(".gutter-note-leader")].map((l) => ({
+    const cards = [...container.querySelectorAll<HTMLElement>(".gutter-note")];
+    const tops = cards.map((c) => parseFloat(c.style.top));
+    const leaders = [...container.querySelectorAll<HTMLElement>(".gutter-note-leader")];
+    const ties = leaders.map((l) => ({
       from: parseFloat(l.style.top),
       to: parseFloat(l.style.top) + parseFloat(l.style.height),
+      lane: l.dataset.tieLane,
     }));
     expect(cards).toHaveLength(3);
     // The tie starts where the card's passage is — the first card's own top,
     // since it sits at its passage — and ends at the pushed card's top.
-    expect(ties[0]!.from).toBeCloseTo(cards[0]!, 1);
-    expect(ties[0]!.to).toBeCloseTo(cards[1]!, 1);
-    expect(ties[1]!.to).toBeCloseTo(cards[2]!, 1);
+    expect(ties[0]!.from).toBeCloseTo(tops[0]!, 1);
+    expect(ties[0]!.to).toBeCloseTo(tops[1]!, 1);
+    expect(ties[1]!.to).toBeCloseTo(tops[2]!, 1);
+    // Each tie takes its own lane — ranked by the passage it comes from, the
+    // topmost first (20.0) — so a second tie can never run along the first or
+    // hide under a card's edge. The lanes' geometry is `preview.css`'s; this
+    // pins that the two ties are told apart.
+    expect(ties.map((t) => t.lane)).toEqual(["0", "1"]);
+    // And each tie wears the ink of the card it belongs to: the classes that
+    // carry `--note-ink` are the card's own, and `preview.css` draws the tie
+    // with them — so a tie says which card it came from, and two ties are told
+    // apart by hue as well as by lane.
+    const ink = (el: HTMLElement, base: string) =>
+      [...el.classList].filter((c) => c !== base).sort();
+    expect(leaders.map((l) => ink(l, "gutter-note-leader"))).toEqual([
+      ink(cards[1]!, "gutter-note"),
+      ink(cards[2]!, "gutter-note"),
+    ]);
   });
 
   it("says a sentence's state in the reader's words, not the check's own status", () => {

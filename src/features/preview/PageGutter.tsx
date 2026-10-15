@@ -127,6 +127,15 @@ interface ColumnPlacement {
 const COLUMN_TIE_MIN = 0.005;
 
 /**
+ * How many lanes the margin's ties may use (20.0): the free margin left of the
+ * cards (`--tie-gutter`, 14px — see `preview.css`) holds three 2px lanes 4px
+ * apart. A page with more pushed cards than lanes reuses the outermost — at
+ * that density the margin is past what it is for, and the panel is the page's
+ * record. The lanes are the stylesheet's; this is only how many there are.
+ */
+const MAX_TIE_LANES = 3;
+
+/**
  * The page's outer margin: a dot per mark, finding and citing answer while the
  * panel is open, and the column (20.0) while it is closed.
  *
@@ -140,9 +149,15 @@ const COLUMN_TIE_MIN = 0.005;
  * of the page's height (`columnTops`), and carry the words: a short answer's
  * sentence with the state of its evidence, so the reader does not have to open
  * the panel for the common case. Where two passages are close enough that the
- * collision rule pushes a card down, the card draws a tie — a hairline from
- * the passage's own place on the page to the card — so a card is never merely
- * far from the passage it is about. The note on hover is the `title`
+ * collision rule pushes a card down, the card draws a tie — a line from the
+ * passage's own place on the page to the card, in the card's own ink, with a
+ * tick across the margin and a cap at the page's edge at the passage end, and
+ * an elbow into the card's corner — so a card is never merely far from the
+ * passage it is about. The page's ties take separate lanes (the margin's free
+ * left edge), ranked by the passage each comes from, so each tie reaches its
+ * own passage without crossing another or running under a card, and two ties
+ * in different lanes sit far enough apart to read as two objects. The note on
+ * hover is the `title`
  * attribute, deliberately — a styled tooltip would have to draw outside the
  * strip, and the strip lives inside the scroller, whose `overflow: auto` would
  * clip it at the page edge. The native tooltip is drawn by the platform,
@@ -202,6 +217,23 @@ export const PageGutter = memo(function PageGutter({
       cancelled = true;
     };
   }, [column, path, page, totalPages, entries]);
+
+  // The lane each tie runs in, keyed by entry index: the page's ties ranked by
+  // the passage they come from — the topmost takes the lane nearest the cards,
+  // each later one steps left (`preview.css`). Two ties from one passage keep
+  // the DOM's order. A page with more ties than lanes reuses the outermost
+  // (`MAX_TIE_LANES`); the tie itself is still the caller's rule below.
+  const tieLanes = useMemo(() => {
+    const lanes = new Map<number, number>();
+    placement.tops
+      .map((top, i) => ({ top, anchor: placement.anchors[i], i }))
+      .filter((tie): tie is { top: number; anchor: number; i: number } =>
+        tie.anchor !== undefined && tie.top - tie.anchor > COLUMN_TIE_MIN,
+      )
+      .sort((a, b) => a.anchor - b.anchor || a.i - b.i)
+      .forEach((tie, rank) => lanes.set(tie.i, Math.min(rank, MAX_TIE_LANES - 1)));
+    return lanes;
+  }, [placement]);
 
   if (entries.length === 0) return null;
 
@@ -289,14 +321,21 @@ export const PageGutter = memo(function PageGutter({
         const anchor = placement.anchors[i];
         // The collision rule may have pushed this card below its passage; the
         // tie is the line from the passage's own place on the page to the
-        // card, drawn only when the card is no longer beside it.
+        // card, drawn only when the card is no longer beside it. Its lane is
+        // the rank of the passage among the page's ties (`tieLanes`).
         const tieFrom = anchor !== undefined && top - anchor > COLUMN_TIE_MIN ? anchor : null;
+        const tieLane = tieLanes.get(i);
+        // The card's own ink classes, shared by the card's border and its tie
+        // (`preview.css`): the tie is drawn in the accent its card already
+        // wears, so it says which card it belongs to.
+        const ink = `gutter-note-${entry.kind}${reason ? ` gutter-note-${level}` : ""}`;
         return (
           <Fragment key={`${entry.kind}-${entry.id}-${i}`}>
             {tieFrom !== null && (
               <span
-                className="gutter-note-leader"
+                className={`gutter-note-leader ${ink}`}
                 aria-hidden
+                data-tie-lane={tieLane ?? 0}
                 style={{ top: `${tieFrom * 100}%`, height: `${(top - tieFrom) * 100}%` }}
               />
             )}
@@ -305,9 +344,7 @@ export const PageGutter = memo(function PageGutter({
                 label. */}
             <button
               type="button"
-              className={`gutter-note gutter-note-${entry.kind}${
-                reason ? ` gutter-note-${level}` : ""
-              }`}
+              className={`gutter-note ${ink}`}
               data-gutter-kind={entry.kind}
               data-gutter-state={entry.state}
               style={{ top: `${top * 100}%` }}
