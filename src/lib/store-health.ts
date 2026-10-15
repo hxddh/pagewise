@@ -37,6 +37,49 @@ export function reportStoreUnreadable(file: string, message: string): void {
   }
 }
 
+/**
+ * Why a store held a write back, the two cases that are not a failed read:
+ * - `newer` — the file was written by a later PageWise, so this build reads it
+ *   as empty and never writes it (a write would replace the reader's record);
+ * - `full` — an edit would take the store past its total, so it stays in
+ *   memory and the disk keeps the document as it was.
+ * Either way nothing on disk is lost, and the reader must hear that what they
+ * just did is not saved (21.0).
+ */
+export type StoreProblem = "newer" | "full";
+
+export interface StoreProblemReport {
+  file: string;
+  problem: StoreProblem;
+}
+
+const problems = new Set<string>();
+const problemListeners = new Set<(report: StoreProblemReport) => void>();
+
+/** Record that `file` held a write back. Reported once per file and kind. */
+export function reportStoreProblem(file: string, problem: StoreProblem): void {
+  const id = `${problem}:${file}`;
+  if (problems.has(id)) return;
+  problems.add(id);
+  for (const listener of problemListeners) {
+    try {
+      listener({ file, problem });
+    } catch {
+      // A misbehaving subscriber must not break a flush.
+    }
+  }
+}
+
+/** Called for each store problem reported while subscribed. */
+export function subscribeStoreProblem(
+  listener: (report: StoreProblemReport) => void,
+): () => void {
+  problemListeners.add(listener);
+  return () => {
+    problemListeners.delete(listener);
+  };
+}
+
 /** Forget a report — the file was read successfully after all. */
 export function clearStoreUnreadable(file: string): void {
   unreadable.delete(file);
@@ -61,4 +104,6 @@ export function subscribeStoreUnreadable(
 export function __resetStoreHealthForTests(): void {
   unreadable.clear();
   listeners.clear();
+  problems.clear();
+  problemListeners.clear();
 }

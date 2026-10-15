@@ -84,6 +84,7 @@ const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
  * reader has not saved yet. The shared store owns both.
  */
 const marks = createDocumentStore<StoredDoc, Mark>(runtime, {
+  file: STORE_PATH,
   key: KEY,
   version: VERSION,
   migrations: MIGRATIONS,

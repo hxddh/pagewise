@@ -2,6 +2,15 @@
 
 All notable changes to PageWise are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+v21: what the reader keeps and what the tools tell the model, made true before anything is added. From the independent v21 review (`docs/reviews/2026-10-15-pagewise-v21-independent-review.md`).
+
+- **A blank page no longer ends a range read** (`src/lib/agent-tools/reading.ts`, `src/lib/agent-tools/tools/read-page.ts`). Measured against the budget, an empty page affords 0 characters, so `read_pdf_range` stopped at the first one with `budgetExceeded` and the note telling the model to stop reading and answer from what it had — and `nextStart` pointed back at the same blank page. A scan's first blank separator page cut every whole-document answer short there, silently. The v21 evaluation recorded this as fixed; it was not. Now an empty page says `[this page has no text]` (both readers), costs nothing, and the range carries on. A page that could not be indexed is marked in place and its reason travels in `indexingFailedReasons` — the reason was consumed when read, and a range kept only the page numbers. And a page already returned in this run is answered before it is read, as the single-page reader always did, so a repeat inside a range no longer pays a second vision call for a page that failed. Pinned by four contract tests, two of which fail on 20.0.
+- **A downgraded build never writes a later version's record** (`src/lib/json-store.ts`, `src/lib/index-store.ts`). A store written by a later PageWise was read as empty, its blob stashed under `<key>.newer`, and the next flush wrote the open documents over the key — after which the findings sidecar's prune deleted the bodies of every other document, and nothing reads `.newer` back, so going back to the later version did not restore them either. Now such a store is not written at all: marks and findings keep the edit in memory and say so (`toast.storeNewer`), the index cache keeps this session's pages in memory only. `src/lib/store-held-back.test.ts`, `src/lib/index-store.test.ts`.
+- **The total cap never drops another document** (`src/lib/json-store.ts`). It was applied at flush by skipping whole documents in file order, so one edit near 5,000 findings or 20,000 marks could make another document's record vanish from disk — and its bodies be pruned — while the screen still showed it. Now a document the flush did not touch always keeps its place; an edit that would pass the total leaves the disk's copy of that document as it was, stays in memory for when there is room, and the reader is told (`toast.storeFull`).
+- Budget re-recorded in this commit: `copyKeys` **482 → 484** (the two toasts above), `srcLines` **41,036 → 41,202**. No surface came back.
+
 ## [20.0.0] - 2026-10-15
 
 The structural debt the 20.0 evaluation found, paid — ten changes, each with a number and, where a number is the point, a gate behind it — and the answer's sentences now carry states, in the page margin. No new surface, no new setting.

@@ -402,7 +402,9 @@
     "annotatedNothing": "暂无可写入的内容：没有已找到原文的结论，也没有标记",
     "tableExported": "表格已连同出处导出",
     "reportExported": "报告已导出",
-    "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖"
+    "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖",
+    "storeNewer": "{{file}} 由更新版本的 PageWise 保存 —— 已保持原样，在此做的改动不会保存，请更新应用",
+    "storeFull": "{{file}} 已满 —— 这次改动没有保存；删除不再需要的条目以腾出空间"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",

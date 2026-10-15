@@ -389,6 +389,15 @@ export const ALREADY_READ_NOTE = "[already returned in full earlier in this turn
 export const ALREADY_DESCRIBED_NOTE =
   "[already described earlier in this turn — see the description above]";
 
+/**
+ * Stands in for a page whose text layer and recognition both came back empty.
+ * Said, so the model does not read a blank as a missing result and ask again.
+ */
+export const EMPTY_PAGE_NOTE = "[this page has no text]";
+
+/** Stands in, inside a range, for a page that could not be indexed. */
+export const INDEX_FAILED_MARK = "[could not be indexed — see indexingFailedReasons]";
+
 /** Said once, by the outline itself, instead of withdrawing the tool. */
 export const ONCE_SURVEYED_NOTE =
   "This structure is now in the conversation above; consult it there rather than surveying again.";
@@ -535,6 +544,9 @@ export async function readPageRange(
         let budgetExceeded = false;
         let scanLimitReached = false;
         const failedPages: number[] = [];
+        // Why they failed, once each: the reason is consumed when it is read,
+        // so a range that only kept page numbers lost it for good.
+        const failureReasons: string[] = [];
         const unscannedPages: number[] = [];
         // Pages whose text this result actually carries. Attachments hang on
         // these, not on the range that was asked for — a page pointed at rather
@@ -550,6 +562,19 @@ export async function readPageRange(
             break;
           }
 
+          // Already handed over whole in this run: answered before the page is
+          // read, so a repeat costs neither its tokens nor — for a page with no
+          // text layer — a second billed vision call (the single-page reader's
+          // order since 16.0; the range reader read first until 21.0).
+          if ((page !== from || offset === 0) && alreadyDelivered(budget, path, page)) {
+            const header = `--- Page ${page} ---\n`;
+            const separator = parts.length > 0 ? 2 : 0;
+            parts.push(`${header}${ALREADY_READ_NOTE}`);
+            charCount += separator + header.length + ALREADY_READ_NOTE.length;
+            lastPage = page;
+            continue;
+          }
+
           const { text, indexFailure, scanLimit } = await readPageText(path, page, budget, runGen);
           // The allowance is gone: keep walking the range so already-indexed
           // pages further in are still returned, but record what was skipped
@@ -561,19 +586,28 @@ export async function readPageRange(
           }
           // Record pages that couldn't be indexed so the model doesn't read
           // their absence as "empty page".
-          if (!text && indexFailure) failedPages.push(page);
+          if (!text && indexFailure) {
+            failedPages.push(page);
+            if (!failureReasons.includes(indexFailure)) failureReasons.push(indexFailure);
+          }
           const pageOffset = page === from ? Math.min(offset, text.length) : 0;
           const remainingText = text.slice(pageOffset);
           const header = `--- Page ${page}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
           const separator = parts.length > 0 ? 2 : 0;
 
-          // Already handed over in this run: point at it instead of paying for
-          // a second copy — before any room is measured, or a page
-          // too long for what is left is sent again in part (16.0, B14). Only whole, untruncated deliveries count, so a page
-          // that was cut short can still be continued with an offset.
-          if (pageOffset === 0 && alreadyDelivered(budget, path, page)) {
-            parts.push(`${header}${ALREADY_READ_NOTE}`);
-            charCount += separator + header.length + ALREADY_READ_NOTE.length;
+          // Nothing to hand over: a page with no text, or a continuation that
+          // starts at the page's end. Measured against the budget, an empty
+          // page affords 0 characters, which used to end the whole range as
+          // "budget reached" — a scan's first blank page stopped every range
+          // read there, and told the model to stop reading (21.0). An empty page
+          // costs nothing and says so; a failed one is listed below instead.
+          if (remainingText.length === 0) {
+            if (text.length === 0) {
+              const marker = indexFailure ? INDEX_FAILED_MARK : EMPTY_PAGE_NOTE;
+              parts.push(`${header}${marker}`);
+              charCount += separator + header.length + marker.length;
+              if (!indexFailure) markDelivered(budget, path, page, runGen);
+            }
             lastPage = page;
             continue;
           }
@@ -628,6 +662,7 @@ export async function readPageRange(
           ...(failedPages.length > 0
             ? {
                 indexingFailedPages: compressPageRanges(failedPages),
+                indexingFailedReasons: failureReasons,
               }
             : {}),
           ...(scanLimitReached

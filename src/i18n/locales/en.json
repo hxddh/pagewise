@@ -402,7 +402,9 @@
     "annotatedNothing": "Nothing to write yet: no found evidence and no marks",
     "tableExported": "Table exported with its sources",
     "reportExported": "Report exported",
-    "storeUnreadable": "{{file}} could not be read — it was left as it is, and nothing will overwrite it"
+    "storeUnreadable": "{{file}} could not be read — it was left as it is, and nothing will overwrite it",
+    "storeNewer": "{{file}} was saved by a newer PageWise — it is left as it is, and changes made here are not saved until you update",
+    "storeFull": "{{file}} is full — this change is not saved; remove entries you no longer need to make room"
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",

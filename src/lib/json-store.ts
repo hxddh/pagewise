@@ -20,6 +20,7 @@
  * plugin's `save()` and swallowed load error cost.
  */
 import type { StoreHandle } from "./atomic-store";
+import { reportStoreProblem } from "./store-health";
 import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
 
 export interface StoreRuntime<Handle> {
@@ -118,6 +119,8 @@ export function createPathListeners(): PathListeners {
 }
 
 export interface DocumentStoreOptions<Doc, Entry> {
+  /** The store's file name, as the reader is told it when a write is held back. */
+  file: string;
   /** Key inside the store's file. */
   key: string;
   /** Current schema version, and how older blobs reach it. */
@@ -198,8 +201,19 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
   runtime: StoreRuntime<StoreHandle>,
   options: DocumentStoreOptions<Doc, Entry>,
 ): DocumentStore<Doc, Entry> {
-  const { key, version, migrations, flushDelayMs, maxPerDoc, maxTotal, entriesOf, build, sanitize, sidecar } =
-    options;
+  const {
+    file,
+    key,
+    version,
+    migrations,
+    flushDelayMs,
+    maxPerDoc,
+    maxTotal,
+    entriesOf,
+    build,
+    sanitize,
+    sidecar,
+  } = options;
 
   /** Entries held in memory for open documents, and their fingerprints. */
   const byPath = new Map<string, Entry[]>();
@@ -211,17 +225,27 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let flushInFlight: Promise<void> = Promise.resolve();
 
-  async function readDocs(): Promise<Doc[]> {
+  /**
+   * Documents as stored, and whether a later PageWise wrote them.
+   *
+   * A later version's record is read as empty and kept aside, and this build
+   * must then never write the store: a flush would replace the record with the
+   * documents open in memory, and the sidecar's prune would delete the bodies of
+   * every other document — the reader's text, gone, on a downgrade (21.0).
+   */
+  async function readStored(): Promise<{ docs: Doc[]; newer: boolean }> {
     const s = await runtime.store();
     const raw = await s.get<unknown>(key);
     const outcome = migrateStored(raw, version, migrations);
     if (outcome.status === "newer") {
-      // Written by a later PageWise. Kept aside, never overwritten: reading the
-      // store as empty and then flushing would otherwise replace it.
       await preserveNewer(s, key, raw).catch(() => {});
-      return [];
+      return { docs: [], newer: true };
     }
-    return sanitize(raw);
+    return { docs: sanitize(raw), newer: false };
+  }
+
+  async function readDocs(): Promise<Doc[]> {
+    return (await readStored()).docs;
   }
 
   async function writeDocs(docs: Doc[]): Promise<void> {
@@ -304,8 +328,15 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
       dirty.clear();
       flushInFlight = runtime
         .withStoreLock(async () => {
-          const docs = await readDocs();
-          const stored = new Map(docs.map((d) => [d.path, d] as const));
+          const { docs, newer } = await readStored();
+          if (newer) {
+            // Held back, not dropped: the edits stay in memory and dirty, and
+            // the reader is told why they will not reach the disk.
+            reportStoreProblem(file, "newer");
+            throw new Error(`${file} was written by a later PageWise`);
+          }
+          const before = new Map(docs.map((d) => [d.path, d] as const));
+          const stored = new Map(before);
           for (const path of paths) {
             // Not in memory: nothing here to write, and an empty list would read
             // as "the reader removed them all" (16.0).
@@ -317,13 +348,33 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
               stored.set(path, build(path, entries.slice(0, maxPerDoc), identity));
             }
           }
+          // The total cap. A document this flush did not touch is on disk
+          // already and keeps its place whatever the count: until 21.0 the cap
+          // skipped whole documents in file order, so one edit near the total
+          // could make another document's record vanish (and its bodies be
+          // pruned) while the screen still showed it. Now only an edited
+          // document can be refused, it falls back to what the disk had, its
+          // edit stays in memory for when there is room, and the reader is told.
+          const touched = new Set(paths);
           let total = 0;
-          const kept: Doc[] = [];
-          for (const doc of stored.values()) {
-            if (total + entriesOf(doc).length > maxTotal) continue;
-            total += entriesOf(doc).length;
-            kept.push(doc);
+          for (const doc of stored.values()) if (!touched.has(doc.path)) total += entriesOf(doc).length;
+          const refused: string[] = [];
+          for (const path of paths) {
+            const doc = stored.get(path);
+            if (!doc) continue;
+            const n = entriesOf(doc).length;
+            if (total + n <= maxTotal) {
+              total += n;
+              continue;
+            }
+            refused.push(path);
+            const previous = before.get(path);
+            if (previous) {
+              stored.set(path, previous);
+              total += entriesOf(previous).length;
+            } else stored.delete(path);
           }
+          const kept = [...stored.values()];
           // The side files first: a crash between the two writes leaves a body
           // nothing refers to (pruned later), never a finding that refers to a
           // body that is not there.
@@ -332,6 +383,10 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
           // Dropping a body whose finding is gone is housekeeping: a failure
           // costs a file, never the reader's record.
           if (sidecar) await sidecar.prune(kept).catch(() => {});
+          if (refused.length > 0) {
+            for (const path of refused) dirty.add(path);
+            reportStoreProblem(file, "full");
+          }
           for (const path of paths) if (!dirty.has(path)) forgetNow(path);
         })
         .catch(() => {

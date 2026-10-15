@@ -5,9 +5,11 @@ import { storeKey, useMemoryStoreBackend } from "./store-testkit";
 import {
   docChars,
   evictToBudget,
+  flushIndexStore,
   loadIndexedPages,
   MAX_CACHED_INDEX_DOCS,
   MAX_INDEX_CHARS,
+  rememberIndexedPage,
   sanitizeStoredIndex,
   __resetIndexStoreForTests,
 } from "./index-store";
@@ -106,6 +108,17 @@ describe("a downgrade does not throw paid pages away", () => {
     expect(await loadIndexedPages("/scan.pdf", "s1")).toEqual([]);
     expect(stashed()).toEqual(v2);
     // The newer blob is still there too: the read must not replace it.
+    expect(blob.peek()).toEqual(v2);
+  });
+
+  it("does not write this build's pages over the newer blob (21.0)", async () => {
+    // Nothing reads the stash back, so a downgraded build that wrote its own
+    // pages to the key left the later version to find this build's cache and
+    // re-pay for everything it had read before the downgrade.
+    blob.seed(v2);
+    await loadIndexedPages("/scan.pdf", "s1");
+    rememberIndexedPage("/scan.pdf", "s1", 3, 1, "y".repeat(200));
+    await flushIndexStore();
     expect(blob.peek()).toEqual(v2);
   });
 
