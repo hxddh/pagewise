@@ -27,6 +27,7 @@ import {
   BUDGET_NOTE,
   DEFAULT_PAGE_MAX_CHARS,
   EMPTY_PAGE_NOTE,
+  FIGURE_LIMIT_NOTE,
 } from "./reading";
 import { describeFigure } from "../read-figure";
 import { docCache } from "../doc-cache";
@@ -347,6 +348,14 @@ describe("read tool contract: a figure is described once", () => {
   beforeEach(() => {
     loadDoc([1, 2].map((page) => ({ page, text: pageText(page) })), undefined, undefined, FIGURES);
     vi.mocked(describeFigure).mockClear();
+  });
+
+  it("says the figure was not looked at when the allowance is spent, not that the page has no text", async () => {
+    const { budget, t } = tools();
+    budget.scans = budget.maxScans;
+    const out = (await t.read_figure!.execute({ page: 1 }, options)) as { note?: string };
+    expect(out.note).toBe(FIGURE_LIMIT_NOTE);
+    expect(describeFigure).not.toHaveBeenCalled();
   });
 
   it("answers a repeat with a note instead of a second billed call", async () => {

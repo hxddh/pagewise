@@ -376,6 +376,15 @@ export const SCAN_LIMIT_NOTE =
   "palette (\"Read pages with no text\") or raise the limit in Settings.";
 
 /**
+ * Said when a figure is asked for and the allowance is spent. Until 21.0 the
+ * page's note answered here — "this page has no extracted text" — about a
+ * page whose text the model may well have just read.
+ */
+export const FIGURE_LIMIT_NOTE =
+  "The vision allowance for this question is used up, so this figure cannot be looked at now. " +
+  "Do not retry it. Answer from the text you have and tell the user the figure was not examined.";
+
+/**
  * Stands in for a page this run already returned in full. Short by design: the
  * text it replaces is a few messages above, and repeating it buys nothing.
  */

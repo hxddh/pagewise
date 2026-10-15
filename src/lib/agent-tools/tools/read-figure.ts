@@ -76,7 +76,7 @@ export function createReadFigureTool(
           // A figure costs a billed vision call, so it draws on the same
           // per-question allowance as scanning an unreadable page.
           if (budget.scans >= budget.maxScans) {
-            return { page, scanLimitReached: true, note: R.SCAN_LIMIT_NOTE };
+            return { page, scanLimitReached: true, note: R.FIGURE_LIMIT_NOTE };
           }
           budget.scans += 1;
 

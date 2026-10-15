@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
+import { DOCUMENT_TOOL_NAMES } from "./document-tool-names";
 import {
   segmentMessageParts,
   summarizeToolSteps,
+  toolActivityLabel,
   toolStepLabel,
   type ToolStepInfo,
 } from "./tool-steps-summary";
@@ -254,5 +256,35 @@ describe("page anchors on tool steps", () => {
     expect(read?.count).toBe(2);
     expect(read?.page).toBe(12);
     expect(details.find((d) => d.label === "s")?.page).toBeUndefined();
+  });
+});
+
+describe("every document tool has its own step sentence (21.0)", () => {
+  // `read_figure`, `read_section`, `note_finding` and `revise_finding` had
+  // sentences in the catalogue — their progress lines used them — and fell to
+  // "Working…" in the step list. A tool added without a case here fails this.
+  const tKeys = (key: string, vars?: Record<string, string | number>) =>
+    vars ? `${key}:${JSON.stringify(vars)}` : key;
+  const inputs: Record<string, unknown> = {
+    read_pdf_page: { page: 2 },
+    read_pdf_range: { start: 1, end: 3 },
+    read_section: { title: "Terms" },
+    read_figure: { page: 4 },
+    search_in_document: { query: "fee" },
+    document_outline: {},
+    note_finding: { claim: "x", pages: [1] },
+    revise_finding: { id: "abc123", claim: "y" },
+  };
+
+  it.each(DOCUMENT_TOOL_NAMES.map((name) => [name]))("%s", (name) => {
+    const step = toolStepLabel(name, inputs[name], tKeys);
+    expect(step.label).not.toMatch(/toolWorking|activityWorking/);
+    expect(toolActivityLabel(name, tKeys, inputs[name])).not.toMatch(/activityWorking/);
+  });
+
+  it("names the page of a figure and the title of a section", () => {
+    expect(toolStepLabel("read_figure", { page: 4 }, tKeys).label).toBe('agent.activityFigure:{"page":4}');
+    expect(toolStepLabel("read_figure", { page: 4 }, tKeys).page).toBe(4);
+    expect(toolStepLabel("read_section", { title: "Terms" }, tKeys).bucket).toBe("read");
   });
 });

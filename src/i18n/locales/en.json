@@ -359,7 +359,7 @@
     "navigate": "↑↓ navigate",
     "run": "↵ run",
     "close": "esc close",
-    "closeOverlay": "Close overlay",
+    "closeOverlay": "Close a menu or dialog (Zen has its own key, above)",
     "sectionFile": "File",
     "sectionDocument": "Document",
     "sectionExport": "Export",

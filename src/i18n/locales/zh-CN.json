@@ -359,7 +359,7 @@
     "navigate": "↑↓ 选择",
     "run": "↵ 执行",
     "close": "esc 关闭",
-    "closeOverlay": "关闭浮层",
+    "closeOverlay": "关闭菜单或对话框（退出专注模式用上一行的快捷键）",
     "sectionFile": "文件",
     "sectionDocument": "文档",
     "sectionExport": "导出",

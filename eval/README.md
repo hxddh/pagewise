@@ -54,13 +54,23 @@ re-measured; the times are new.
 |---|---:|---:|---:|
 | single-column English | 231 | 229 (99.1%) | ≥ 95% |
 | Chinese prose | 90 | 79 (87.8%) | ≥ 85% |
-| two-column (reported) | 159 | 124 (78.0%) | — |
-| table cells (reported) | 182 | 125 (68.7%) | — |
+| two-column (not a promise) | 159 | 124 (78.0%) | — |
+| table cells (not a promise) | 182 | 125 (68.7%) | — |
 | **generated corpus** | 662 | **557 (84.1%)** | ≥ 80% |
 | fetched, incl. the real Vicksburg scan (reported) | 360 | 236 (65.6%) | — |
 | altered quotes wrongly located | 1,997 | 1 (0.05%) | ≤ 1% |
 
 Every gate passes; the tightest is Chinese prose, 2.8 points above its floor.
+
+**Scanned tables and two-column scans are not a promise** (21.0). About a
+third of the table cells on a scan are not found among the recognised words —
+recognition reads across cells and columns in an order that does not match the
+quote — and no gate holds that number. A citation into a scanned table that is
+not found shows as *unconfirmed*, the same state any unmatched quote on a scan
+gets; nothing else in the app claims more. Raising this to a gate needs a
+region-level recognition path or another engine, measured on this same harness
+first (see `docs/reviews/v20-ocr-spike.md`); until then the rows above are a
+record, not a commitment.
 Time per page from the same run's per-page `ms` (median = the middle page, as
 the suite's own median is computed; p90 = nearest rank):
 

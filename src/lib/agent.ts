@@ -159,7 +159,7 @@ Rules:
 - When the user asks to list, extract, compare or tabulate things across the document (every payment term, all deadlines), answer with a Markdown table: one row per item, one column per attribute asked for, a citation marker right after every document value. Search and read until every occurrence is covered, and say which pages you went through. A value you could not find is "—" with no marker, never a guess. Keep \`|\` out of quotes in table cells.
 - If no document is loaded, ask the user to open a PDF.
 - A page already returned in full this turn comes back as a short marker, not its text; do not re-read it.
-- Tool results carry attachments beside the page text, one field each. \`marks\` are passages the reader singled out, with notes — their strongest signal of what matters, and read-only. \`links\` are hyperlink destinations, which live only in the PDF's annotations, never in the page text; the line each sits on is its context. \`figures\` / \`pagesWithFigures\` name pages where read_figure can look at a figure the text does not convey.
+- Tool results carry attachments beside the page text, one field each. \`marks\` are passages the reader singled out, with notes — their strongest signal of what matters, and read-only. \`links\` are hyperlink destinations, which live only in the PDF's annotations, never in the page text; the line each sits on is its context. The outline's \`pagesWithFigures\` names pages where read_figure can look at a figure the text does not convey.
 - A page that failed to index (missing key, vision error, timeout) is not blank: do not treat it as empty, do not re-read it, and tell the user indexing failed.`;
 
 /**

@@ -1,8 +1,12 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 import {
   DOCUMENT_OUTLINE_TOOL,
+  NOTE_FINDING_TOOL,
+  READ_FIGURE_TOOL,
   READ_PDF_PAGE_TOOL,
   READ_PDF_RANGE_TOOL,
+  READ_SECTION_TOOL,
+  REVISE_FINDING_TOOL,
   SEARCH_IN_DOCUMENT_TOOL,
 } from "./document-tool-names";
 
@@ -36,7 +40,8 @@ function numArg(value: unknown): number | undefined {
   return undefined;
 }
 
-export function toolActivityLabel(toolName: string, t: TranslateFn): string {
+export function toolActivityLabel(toolName: string, t: TranslateFn, input?: unknown): string {
+  const args = (input ?? {}) as Record<string, unknown>;
   switch (toolName) {
     case READ_PDF_PAGE_TOOL:
     case READ_PDF_RANGE_TOOL:
@@ -45,6 +50,23 @@ export function toolActivityLabel(toolName: string, t: TranslateFn): string {
       return t("agent.activityIndex");
     case SEARCH_IN_DOCUMENT_TOOL:
       return t("agent.activitySearch");
+    // The four tools 9.0–19.0 added had their own sentences in the catalogue,
+    // used by their progress lines, and fell to "Working…" here: a step list
+    // that named half the tools it ran (21.0).
+    case READ_SECTION_TOOL:
+      return typeof args.title === "string" && args.title
+        ? t("agent.activityReadSection", { title: args.title })
+        : t("agent.activityReadRange");
+    case READ_FIGURE_TOOL: {
+      // Its sentence names the page; while the input is still streaming there
+      // is none to name yet.
+      const page = numArg(args.page);
+      return page !== undefined ? t("agent.activityFigure", { page }) : t("agent.activityWorking");
+    }
+    case NOTE_FINDING_TOOL:
+      return t("agent.activityNoteFinding");
+    case REVISE_FINDING_TOOL:
+      return t("agent.activityReviseFinding");
     default:
       return t("agent.activityWorking");
   }
@@ -56,6 +78,7 @@ function toolBucket(toolName: string): ToolStepBucket {
       return "search";
     case READ_PDF_PAGE_TOOL:
     case READ_PDF_RANGE_TOOL:
+    case READ_SECTION_TOOL:
       return "read";
     case DOCUMENT_OUTLINE_TOOL:
       return "index";
@@ -97,6 +120,21 @@ export function toolStepLabel(
     }
     case DOCUMENT_OUTLINE_TOOL:
       return { label: t("agent.toolIndex"), key: "index", bucket };
+    case READ_SECTION_TOOL: {
+      const title = typeof args.title === "string" ? args.title : "";
+      const label = title ? t("agent.activityReadSection", { title }) : t("agent.activityReadRange");
+      return { label, key: `section:${title}`, bucket };
+    }
+    case READ_FIGURE_TOOL: {
+      const page = numArg(args.page);
+      const label =
+        page !== undefined ? t("agent.activityFigure", { page }) : t("agent.toolWorking");
+      return { label, key: `figure:${page ?? "?"}:${numArg(args.index) ?? 1}`, bucket, page };
+    }
+    case NOTE_FINDING_TOOL:
+      return { label: t("agent.activityNoteFinding"), key: `note:${String(args.claim ?? "")}`, bucket };
+    case REVISE_FINDING_TOOL:
+      return { label: t("agent.activityReviseFinding"), key: `revise:${String(args.id ?? "")}`, bucket };
     default:
       return { label: t("agent.toolWorking"), key: `other:${toolName}`, bucket: "other" };
   }
@@ -125,7 +163,7 @@ export function toolStepFromPart(part: ToolPart, t: TranslateFn): ToolStepInfo {
   }
   const resolved = running
     ? {
-        label: toolActivityLabel(toolName, t),
+        label: toolActivityLabel(toolName, t, (part as { input?: unknown }).input),
         key: `${toolName}:${(part as { toolCallId?: string }).toolCallId ?? "running"}`,
         bucket: toolBucket(toolName),
         page: undefined as number | undefined,
@@ -199,9 +237,8 @@ export function summarizeToolSteps(steps: ToolStepInfo[], t: TranslateFn): ToolS
 
   if (anyRunning) {
     const doneSummary = doneSteps.length > 0 ? completedSummary(doneSteps, t) : null;
-    const runningLabel = runningStep
-      ? toolActivityLabel(runningStep.toolName, t)
-      : t("agent.activityWorking");
+    // The step's own label, which saw its input: a figure names its page.
+    const runningLabel = runningStep ? runningStep.label : t("agent.activityWorking");
     return {
       aggregate: true,
       summary: doneSummary ? `${doneSummary} · ${runningLabel}` : runningLabel,
