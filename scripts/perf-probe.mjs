@@ -337,7 +337,7 @@ async function openDocument(page) {
 }
 
 /** A page wired to the mocked shell, the model server and the dist server. */
-async function newPage(browser, { pdf, doc, appPort, modelPort, settings }) {
+async function newPage(browser, { pdf, doc, appPort, modelPort, settings, files }) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   const problems = [];
   page.on("pageerror", (e) => problems.push(String(e)));
@@ -346,6 +346,7 @@ async function newPage(browser, { pdf, doc, appPort, modelPort, settings }) {
     pdfB64: pdf.toString("base64"),
     doc,
     apiKey: "sk-perf",
+    files,
     settings: settings ?? {
       llm: {
         version: 2,
@@ -541,7 +542,8 @@ async function scenarioLongChat(browser, ctx) {
   }
   const { page, problems } = await newPage(browser, {
     ...ctx,
-    settings: { ...ctx.settings, [ctx.doc.path ?? "/perf/longchat.pdf"]: history },
+    settings: ctx.settings,
+    files: { "pagewise-v3-chats.json": { [ctx.doc.path ?? "/perf/longchat.pdf"]: history } },
   });
   const out = {};
   const mark = await page.evaluate(() => performance.now());

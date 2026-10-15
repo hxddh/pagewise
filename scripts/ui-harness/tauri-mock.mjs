@@ -122,8 +122,14 @@ export function sampleDocument(pageCount = FIXTURE_PAGE_COUNT) {
  *
  * Takes its data as one argument because `addInitScript` passes exactly one.
  */
-export function installTauriMock({ pdfB64, doc, apiKey, settings, runs, runsByPage, identity }) {
+export function installTauriMock({ pdfB64, doc, apiKey, settings, files: seedFiles, runs, runsByPage, identity }) {
   const store = new Map(Object.entries(settings ?? {}));
+  // The other store files, seeded by name (20.0 split the app's one store into
+  // settings.json, pagewise-v3-chats.json, marks.json, …). Values may be given
+  // as objects; the app reads text.
+  const files = new Map(
+    Object.entries(seedFiles ?? {}).map(([name, value]) => [name, typeof value === "string" ? value : JSON.stringify(value)]),
+  );
   // What local OCR wrote, per document fingerprint (14.0). Exposed so a
   // harness can read back what would have reached the disk.
   const ocrCache = new Map();
@@ -206,6 +212,38 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, runs, runsByPa
       if (cmd === "export_annotated_pdf") {
         window.__HARNESS_EXPORTS__ = [...(window.__HARNESS_EXPORTS__ ?? []), args];
         return (args?.annotations ?? []).length;
+      }
+      // The app's own store files (20.0): one JSON object per file, read and
+      // written whole, plus the side directory of kept answer bodies. The
+      // harness seeds `settings` as the payload the app reads back.
+      if (cmd === "store_read_cmd") {
+        if (args?.name === "settings.json") return JSON.stringify(Object.fromEntries(store));
+        return files.get(args?.name) ?? null;
+      }
+      if (cmd === "store_write_cmd") {
+        const name = args?.name;
+        const contents = args?.contents ?? "";
+        files.set(name, contents);
+        if (name === "settings.json") {
+          try {
+            const parsed = JSON.parse(contents);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              store.clear();
+              for (const [k, v] of Object.entries(parsed)) store.set(k, v);
+            }
+          } catch {
+            // A torn write is the app's to report; the harness keeps the bytes.
+          }
+        }
+        return null;
+      }
+      if (cmd === "store_list_cmd") {
+        const dir = `${args?.dir}/`;
+        return [...files.keys()].filter((k) => k.startsWith(dir)).map((k) => k.slice(dir.length));
+      }
+      if (cmd === "store_delete_cmd") {
+        for (const n of args?.names ?? []) files.delete(n);
+        return null;
       }
       // [value, exists] — see the note at the top of this file.
       if (cmd?.startsWith("plugin:store|get")) {
