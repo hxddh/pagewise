@@ -404,6 +404,9 @@ pub fn run() {
         .manage(FileReadCancel::default())
         .setup(|app| {
             let handle = app.handle();
+            if let Ok(dir) = handle.path().app_data_dir() {
+                store_io::sweep_stale_temps(&dir);
+            }
             grants::restore(handle);
             // The launch's own file, granted like any other the reader chose.
             open_path::grant_pending(handle);

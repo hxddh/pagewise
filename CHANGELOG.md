@@ -2,6 +2,19 @@
 
 All notable changes to PageWise are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [21.1.2] - 2026-10-15
+
+Fixes from the review of 21.1 (`docs/reviews/2026-10-15-pagewise-v23-evaluation.md` §1).
+
+- **A scan that switched to both OCR models stays switched** (`src/lib/ocr/ocr-service.ts`). A page read and saved in English before the switch — a cover, a blank page — made the English cache section non-empty, and an all-short section counted as confident English, so the next open picked English and read the whole scan again, every time. The section with more pages now wins, and pages too short to judge no longer count as English.
+- **A page read in English is not saved as a both-models reading** (same file). Pages read before the switch were written into the both-models section and trusted from then on, garbage and all. Each page now records the models it was read with, and a section only receives its own; the English pages are read again with both models next time.
+- **Vision models of text-only families are let through** (`src/lib/model-capabilities.ts`). `qwen3-vl` matched `qwen3` and `mistral-small3.x` matched `mistral` by prefix, both text-only, so 21.1.0's vision check stopped every figure and scan for readers who had chosen them in Ollama. They have their own entries, and a name that says it sees is not taken for text-only because of its family's prefix.
+- **The line under an answer follows a change of OCR language** (`src/components/MessageAssistantFooter.tsx`). It kept the old counts, and "ask the model" sent the old words; it now recounts when the checks are forgotten.
+- **The annotated PDF goes through an exclusive temp file** (`src-tauri/src/annotate.rs`). It was saved through `<file>.pdf.partial` with `File::create`, which truncated a reader's file of that name and followed a symlink there; a failed save left the file behind.
+- **Temp files are short-named, and leftovers are swept** (`src-tauri/src/store_io.rs`, `lib.rs`). `<file>.<pid>.<n>.pagewise-tmp` pushed a long but legal file name past 255 bytes and the export failed; temps are now `.pagewise-<pid>-<n>.tmp` beside the file. One a crash left in the app's data folder is removed at the next launch.
+- Comments that still described the save dialog as granting a whole folder now say one file, once.
+- Budget re-recorded: `srcLines` **41,924 → 41,973**.
+
 ## [21.1.1] - 2026-10-15
 
 Page numbers show again, and v22's last item (`docs/reviews/2026-10-15-pagewise-v22-evaluation.md` §3.3 item 12): measure the six things the v20, v21 and v22 reviews could only mark "not measured", then fix what is over. One was.

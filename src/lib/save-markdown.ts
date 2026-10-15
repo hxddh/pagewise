@@ -16,8 +16,8 @@ export async function saveTextFile(
   filterName: string,
   extensions: string[],
 ): Promise<boolean> {
-  // The dialog runs in Rust, which grants writing into the folder chosen
-  // (21.0); the webview can no longer grant a folder itself.
+  // The dialog runs in Rust, which grants one write to the file chosen
+  // (21.1.0); the webview cannot grant a path itself.
   const path = await pickSavePath(defaultName, filterName, extensions);
   if (!path) return false;
 

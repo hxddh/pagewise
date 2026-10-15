@@ -263,14 +263,31 @@ pub fn annotate_file(src: &Path, out: &Path, annotations: &[AnnotationIn]) -> Re
         .unwrap_or(0);
     let written = annotate_document(&mut doc, annotations, now)?;
     // Written beside the target and renamed over it, so a failure midway never
-    // leaves half a PDF where the reader asked for one.
-    let tmp = out.with_extension("pdf.partial");
-    doc.save(&tmp).map_err(|e| format!("Failed to write PDF: {e}"))?;
-    // Synced before the rename (21.0), so a crash cannot expose a renamed file
-    // whose bytes were only in the page cache. Inline rather than through
-    // `store_io`: this file is also compiled into the eval extractor.
+    // leaves half a PDF where the reader asked for one. The temp is created
+    // exclusively under a name of ours (21.1.2): it was `<file>.pdf.partial`
+    // through `File::create`, which truncated a reader's file of that name
+    // and followed a symlink there — the hole 21.1.0 closed in `store_io`
+    // only. Inline rather than through `store_io`: this file is also compiled
+    // into the eval extractor.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let parent = out.parent().unwrap_or_else(|| Path::new("."));
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // `store_io`'s pattern, numbered from 2^40 so the two counters never meet.
+    let tmp = parent.join(format!(".pagewise-{}-{}.tmp", std::process::id(), (1u64 << 40) + seq));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(|e| format!("Failed to write PDF: {e}"))?;
+    // Ours from here: removed on any failure, the save's included.
     let commit = (|| -> std::io::Result<()> {
-        std::fs::OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
+        let written = (|| -> std::io::Result<()> {
+            doc.save_to(&mut file).map_err(|e| std::io::Error::other(e.to_string()))?;
+            file.sync_all()
+        })();
+        // Closed before the rename: Windows will not rename an open file.
+        drop(file);
+        written?;
         std::fs::rename(&tmp, out)?;
         if let Some(dir) = out.parent().and_then(|p| std::fs::File::open(p).ok()) {
             let _ = dir.sync_all();
@@ -415,5 +432,28 @@ mod tests {
         assert_eq!(pdf_date(0), "D:19700101000000Z");
         assert_eq!(pdf_date(1_790_000_000), "D:20260921141320Z");
         assert_eq!(pdf_date(951_782_400), "D:20000229000000Z");
+    }
+
+    #[test]
+    fn a_file_named_like_the_old_temp_is_left_alone() {
+        // 21.1.1 and before saved through `<out>.pdf.partial` with
+        // `File::create`: a reader's file of that name was truncated and
+        // renamed away (21.1.2).
+        let dir = std::env::temp_dir().join(format!("pagewise-annotate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let theirs = dir.join("out.pdf.partial");
+        std::fs::write(&theirs, b"the reader's own file").unwrap();
+        let out = dir.join("out.pdf");
+        annotate_file(&fixture("text-pages.pdf"), &out, &[]).expect("annotate");
+        assert_eq!(std::fs::read(&theirs).unwrap(), b"the reader's own file");
+        assert!(std::fs::read(&out).unwrap().starts_with(b"%PDF"));
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

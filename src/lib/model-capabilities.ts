@@ -43,6 +43,11 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
   "qwen3": cap(false, true),
   mistral: cap(false, true),
   mixtral: cap(false, true),
+  // Multimodal members of the families above (21.1.2): without their own
+  // entry they matched "qwen3" / "mistral" by prefix and read as text-only.
+  "qwen3-vl": cap(true, true),
+  "mistral-small3.1": cap(true, true),
+  "mistral-small3.2": cap(true, true),
   // Vision-first local families (no reliable tool calling).
   "llama3.2-vision": cap(true, false),
   "qwen2.5vl": cap(true, false),
@@ -93,7 +98,12 @@ export function canSeeWith(model: string): boolean {
 
 export function isKnownNonVisionModel(model: string): boolean {
   const known = lookupCapabilities(model);
-  return known !== undefined && !known.vision;
+  if (known === undefined || known.vision) return false;
+  // A name that says it sees ("-vl", "-vision") is not taken for text-only
+  // because a text-only family's name prefixes it (21.1.2): the gate this
+  // feeds stops every image the reader's model could have read.
+  const exact = MODEL_CAPABILITIES[model] ?? MODEL_CAPABILITIES[normalizeModelId(model)];
+  return exact !== undefined || !looksLikeVisionModel(model);
 }
 
 /** Heuristic for unknown model ids that are likely multimodal. */

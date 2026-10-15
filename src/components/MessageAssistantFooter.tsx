@@ -14,7 +14,7 @@ import {
 } from "../lib/answer-sentences";
 import { longKey, shortKey } from "../lib/trust-text";
 import { CitationContext } from "./CitationChip";
-import { checkAnswer, tallyCitations, type CitationTally } from "../lib/citation-check";
+import { checkAnswer, checksEpoch, subscribeChecks, tallyCitations, type CitationTally } from "../lib/citation-check";
 import { AnchoredMenu } from "./AnchoredMenu";
 import { ListRow } from "./ui/ListRow";
 import { useI18n } from "../i18n";
@@ -236,6 +236,9 @@ function MessageAssistantFooterInner({
   const citationEnv = useContext(CitationContext);
   const [tally, setTally] = useState<CitationTally | null>(null);
   const [keptVerified, setKeptVerified] = useState(false);
+  // Checks forgotten — the page's words were read again (21.1.2): the counts,
+  // and the passages a review would send, are worked out again with them.
+  const checksEpochNow = useSyncExternalStore(subscribeChecks, checksEpoch);
   useEffect(() => {
     if (!citationEnv || !markdownText) {
       setTally(null);
@@ -250,7 +253,7 @@ function MessageAssistantFooterInner({
     return () => {
       alive = false;
     };
-  }, [citationEnv, markdownText]);
+  }, [citationEnv, markdownText, checksEpochNow]);
   // Changes whenever a review lands, so a sentence a model contradicted stops
   // reading as verified.
   const reviewRev = useSyncExternalStore(subscribeReviews, reviewRevision);

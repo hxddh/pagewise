@@ -282,9 +282,9 @@ pub async fn pick_document(app: AppHandle) -> Result<Option<String>, String> {
     Ok(Some(for_front_end(&canon)))
 }
 
-/// Ask the reader where to save, and grant writing into the folder they chose
-/// for the rest of this session. Returns the path they chose, not canonical —
-/// the file may not exist yet.
+/// Ask the reader where to save, and grant one write to the file they chose
+/// (21.1.0: it was their whole folder, for the rest of the session). Returns
+/// the path they chose, not canonical — the file may not exist yet.
 #[tauri::command]
 pub async fn pick_save_path(
     app: AppHandle,

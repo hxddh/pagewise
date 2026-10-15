@@ -79,6 +79,44 @@ fn store_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
 /// Distinguishes the temp files of concurrent writes in one process.
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
+const TMP_PREFIX: &str = ".pagewise-";
+const TMP_SUFFIX: &str = ".tmp";
+
+/// `.pagewise-<pid>-<n>.tmp`: unique within the process, and the pid says
+/// whose it is when a crash leaves one behind.
+fn temp_name(seq: u64) -> String {
+    format!("{TMP_PREFIX}{}-{seq}{TMP_SUFFIX}", std::process::id())
+}
+
+/// The pid a temp file of ours was written by, or None for any other name.
+fn temp_owner(name: &str) -> Option<u32> {
+    let rest = name.strip_prefix(TMP_PREFIX)?.strip_suffix(TMP_SUFFIX)?;
+    let (pid, seq) = rest.split_once('-')?;
+    seq.parse::<u64>().ok()?;
+    pid.parse().ok()
+}
+
+/// Remove temp files another run left in `dir` and its direct subfolders
+/// (21.1.2): a crash between create and rename left one there for good, since
+/// no later write reuses its name. Only our own pattern, never this process's.
+pub(crate) fn sweep_stale_temps(dir: &Path) {
+    let me = std::process::id();
+    let mut dirs = vec![dir.to_path_buf()];
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        dirs.extend(entries.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).map(|e| e.path()));
+    }
+    for d in dirs {
+        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let is_file = entry.file_type().is_ok_and(|t| t.is_file());
+            if is_file && name.to_str().and_then(temp_owner).is_some_and(|pid| pid != me) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
 /// Write through a sibling temp file and a rename, with the bytes flushed
 /// before the rename makes them visible.
 ///
@@ -98,10 +136,10 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // temp used to be `<file>.tmp`, opened with `create` — an existing file
     // of that name in the reader's folder was truncated and renamed away, and
     // a symlink there was followed. `create_new` refuses anything already at
-    // the name, a symlink included.
-    let mut tmp = path.as_os_str().to_os_string();
-    tmp.push(format!(".{}.{}.pagewise-tmp", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
-    let tmp = PathBuf::from(tmp);
+    // the name, a symlink included. Short and not built from the file's name
+    // (21.1.2): `<file>.<pid>.<n>.pagewise-tmp` pushed a long but legal name
+    // past the 255-byte limit, and the export failed.
+    let tmp = parent.join(temp_name(TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
 
     // A file already at the name is not ours: refused, and left where it is.
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
@@ -341,7 +379,7 @@ mod tests {
         let mut names = Vec::new();
         // The name this write takes, and the next ones in case another test writes first.
         for n in seq..seq + 64 {
-            let taken = dir.join(format!("notes.md.{}.{n}.pagewise-tmp", std::process::id()));
+            let taken = dir.join(temp_name(n));
             std::fs::write(&taken, b"not ours").unwrap();
             names.push(taken);
         }
@@ -349,6 +387,43 @@ mod tests {
         assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
         for taken in &names {
             assert_eq!(std::fs::read(taken).unwrap(), b"not ours", "{} was removed", taken.display());
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_long_name_that_is_legal_is_written() {
+        // 21.1.1 built the temp name from the file's, ~20 bytes longer: a name
+        // of 240 bytes was legal and its temp was not.
+        let dir = std::env::temp_dir().join(format!("pagewise-store-long-{}", std::process::id()));
+        let name = format!("{}.md", "a".repeat(240));
+        write_atomic(&dir.join(&name), b"export").expect("a legal name is written");
+        assert_eq!(std::fs::read(dir.join(&name)).unwrap(), b"export");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_crash_leftover_is_swept_and_nothing_else() {
+        let dir = std::env::temp_dir().join(format!("pagewise-store-sweep-{}", std::process::id()));
+        let sub = dir.join("finding-bodies");
+        std::fs::create_dir_all(&sub).unwrap();
+        let other = std::process::id().wrapping_add(1);
+        let stale = [dir.join(format!(".pagewise-{other}-3.tmp")), sub.join(format!(".pagewise-{other}-0.tmp"))];
+        let kept = [
+            dir.join(format!(".pagewise-{}-7.tmp", std::process::id())),
+            dir.join("settings.json"),
+            dir.join(".pagewise-notes.tmp"),
+            dir.join("report.md.tmp"),
+        ];
+        for f in stale.iter().chain(kept.iter()) {
+            std::fs::write(f, b"x").unwrap();
+        }
+        sweep_stale_temps(&dir);
+        for f in &stale {
+            assert!(!f.exists(), "{} should be swept", f.display());
+        }
+        for f in &kept {
+            assert!(f.exists(), "{} should be kept", f.display());
         }
         std::fs::remove_dir_all(&dir).ok();
     }
