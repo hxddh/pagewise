@@ -2,9 +2,9 @@
 
 All notable changes to PageWise are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [21.1.1] - 2026-10-15
 
-v22's last item (`docs/reviews/2026-10-15-pagewise-v22-evaluation.md` §3.3 item 12): measure the six things the v20, v21 and v22 reviews could only mark "not measured", then fix what is over. One was.
+Page numbers show again, and v22's last item (`docs/reviews/2026-10-15-pagewise-v22-evaluation.md` §3.3 item 12): measure the six things the v20, v21 and v22 reviews could only mark "not measured", then fix what is over. One was.
 
 - **Page numbers show again** (`src/features/preview/PageSlot.tsx`, `src/styles/preview.css`). The number sits in the gap below each page, and the page slot clipped its content so a mark could not draw over the next page — which hid the number on every page. The clip is now an inner box (`.pdf-page-clip`) around the canvas, the text layer and the overlays; the number is outside it. `ui:inventory` checks it: page numbers and margin cards are drawn and none is cut by a box that clips it.
 - **Five measurements join the perf probe** (`scripts/perf-probe.mjs`, `src/lib/perf-counters.ts`), each recorded first and budgeted with the probe's usual room:
