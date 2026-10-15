@@ -26,14 +26,15 @@ vi.mock("./doc-cache", () => ({
 }));
 
 import { clearFindingAnchors } from "./finding-anchors";
+import { MIN_QUOTE_CHARS } from "./quote-locate";
 import {
   cachedCitationCheck,
   checkAnswer,
   checkCitation,
   clearCitationChecks,
   tallyCitations,
-  verifiedSentences,
 } from "./citation-check";
+import { verifiedSentences } from "./answer-sentences";
 
 const PATH = "/docs/contract.pdf";
 const run = (text: string, y = 700): TextItemRect => ({ text, rect: { x: 72, y, width: 400, height: 12 } });
@@ -86,10 +87,14 @@ describe("checkCitation", () => {
     expect(reads).toBe(0);
   });
 
-  it("treats a page-only citation, or a quote too short to mean anything, as unchecked", async () => {
+  it("treats a page-only citation as unchecked, and a quote too short to check as tooShort", async () => {
     pages[2] = [run("Revenue fell.")];
     expect((await checkCitation(PATH, 3, { pages: [2], quote: null })).status).toBe("unchecked");
-    expect((await checkCitation(PATH, 3, { pages: [2], quote: "fell" })).status).toBe("unchecked");
+    // A quote under MIN_QUOTE_CHARS is its own state (20.0): the reader is
+    // told it is too short, rather than shown nothing at all.
+    expect("fell".length).toBeLessThan(MIN_QUOTE_CHARS);
+    expect((await checkCitation(PATH, 3, { pages: [2], quote: "fell" })).status).toBe("tooShort");
+    expect((await checkCitation(PATH, 3, { pages: [2], quote: "Revenue fell" })).status).toBe("located");
   });
 
   it("reads each page once and remembers the answer for a synchronous caller", async () => {
@@ -149,7 +154,7 @@ describe("tallyCitations", () => {
     const md = 'A〔p1 "quick brown fox"〕 B〔p1 "slow green turtle"〕 C〔p1〕 D〔p9 "x y z w"〕 A again〔p1 "quick brown fox"〕';
     expect(tallyCitations(PATH, md)).toMatchObject({ total: 4, pending: 4 });
     const tally = await checkAnswer(PATH, 3, md);
-    expect(tally).toEqual({ total: 4, located: 1, unlocated: 1, unreadable: 0, unconfirmed: 0, mismatch: 0, unchecked: 1, outOfRange: 1, pending: 0 });
+    expect(tally).toEqual({ total: 4, located: 1, unlocated: 1, unreadable: 0, unconfirmed: 0, mismatch: 0, unchecked: 1, tooShort: 0, outOfRange: 1, pending: 0 });
   });
 });
 

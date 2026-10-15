@@ -8,7 +8,7 @@ import {
   getInFlightAssistantMessage,
   hasSubstantialAnswerText,
 } from "../../lib/messages-utils";
-import type { VerifiedSentence } from "../../lib/citation-check";
+import type { VerifiedSentence } from "../../lib/answer-sentences";
 import { MessageRow } from "./MessageRow";
 
 export interface MessageListProps {

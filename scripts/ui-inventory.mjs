@@ -84,6 +84,19 @@ const chipLevels = await p.$$eval("button.cite", (els) => [
 ]);
 
 /*
+ * The line under an answer counts sentences, not citations (20.0).
+ *
+ * The scripted answer above is three sentences — one prose sentence carrying
+ * two markers, and two table rows — with four chips on screen. So the tally's
+ * counts must sum to 3 and the chips to 4: if the denominator ever goes back
+ * to citations, the sum becomes 4 and this fails. It also must be there at
+ * all while the answer is live, which is the other half of the change.
+ */
+const tally = await p.$eval(".message.assistant .citation-tally", (el) => el.textContent ?? "");
+const tallyTotal = (tally.match(/\d+/g) ?? []).reduce((n, d) => n + Number(d), 0);
+const chips = await p.$$eval(".message.assistant button.cite", (els) => els.length);
+
+/*
  * The reading surface (17.0), measured rather than asserted in a stylesheet:
  * how wide the answer's column opens, whether its headings step, whether a
  * table has rules, and whether the two labelled actions under an answer are
@@ -178,6 +191,7 @@ const results = {
   "settings: at most 12 rows": settingsRows <= 12,
   "settings: the assistant group is on the page": assistantGroup >= 1,
   "citations in at most three levels": chipLevels.filter((l) => l !== "cite-level-none").length <= 3,
+  "the line counts 3 sentences, not 4 citations": tallyTotal === 3 && chips === 4,
   "reading column at least 420px": reading.columnWidth >= 420,
   "answer headings step by 1.2x the body": reading.bodySize > 0 && reading.h2Size / reading.bodySize >= 1.2,
   "answer tables are ruled": reading.cellPadding >= 6 && reading.cellRule >= 1,
@@ -185,7 +199,7 @@ const results = {
 };
 console.log(
   JSON.stringify(
-    { footerButtons, menuExports, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, reading },
+    { footerButtons, menuExports, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, tally, tallyTotal, chips, reading },
     null,
     2,
   ),

@@ -1,5 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The model review is billed and network-bound; the stub answers "contradicts"
+// so the brief's line is the one the chip would show for it.
+vi.mock("ai", () => ({
+  generateObject: async () => ({
+    object: { verdict: "contradicts", reason: "原文说的不是这样" },
+    usage: { inputTokens: 1, outputTokens: 1 },
+  }),
+}));
+vi.mock("./settings", () => ({ loadSettings: async () => ({ provider: "openai", model: "m", apiKey: "k" }) }));
+vi.mock("./llm", () => ({ resolveModel: () => "model", assertApiKeyForAgent: () => undefined }));
+
 import { briefToMarkdown, BRIEF_LABELS_ZH, pageRef, type BriefEntry } from "./export-brief";
+import { clearReviews, reviewClaim } from "./claim-review";
 import type { Finding } from "./finding-store";
 import type { LoadedDocument } from "./types";
 
@@ -104,5 +117,26 @@ describe("briefToMarkdown", () => {
     expect(md).toContain("## 结论");
     expect(md).toContain("第 2 页 · _原文已在页面上找到_");
     expect(md).toContain("## 待复核");
+  });
+
+  it("files the reader's model verdict beside the local reason, labelled as the model's (20.0)", async () => {
+    // The reader asked their model about this claim; the key is the claim and
+    // the quote the chip read, which a kept-verified entry carries as evidence.
+    await reviewClaim("/tmp/report.pdf", "The trial ran eight weeks.", "…ran for eight weeks…", "…", 2);
+    const reviewed = finding({ id: "a" });
+    const untouched = finding({ id: "b", claim: "Another claim.", evidence: "…other words…" });
+    const md = briefToMarkdown(
+      doc(),
+      [
+        { finding: reviewed, trust: "located" },
+        { finding: untouched, trust: "located" },
+      ],
+      undefined,
+      new Date(0),
+    );
+    expect(md).toContain("The trial ran eight weeks. — p. 2 · _wording found on the page_ · _Model review: the passage says otherwise_");
+    // A claim nobody asked about files no verdict, in either language.
+    expect(md.split("Another claim.")[1]!.split("\n")[0]).not.toContain("Model review");
+    clearReviews();
   });
 });

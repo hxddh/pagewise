@@ -2,8 +2,11 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+/** What the local check answers for the chip; each test sets it. */
+const state = vi.hoisted(() => ({ check: null as unknown }));
+
 vi.mock("../lib/citation-check", () => ({
-  cachedCitationCheck: () => null,
+  cachedCitationCheck: () => state.check,
   checkCitation: () => new Promise(() => {}),
   withClaim: (c: unknown) => c,
 }));
@@ -33,5 +36,17 @@ describe("B11: a chip on screen when the document arrives (16.0)", () => {
       ),
     ).not.toThrow();
     expect(view.container.querySelector("button.cite")).not.toBeNull();
+  });
+
+  it("says a quote too short to check is too short, rather than showing nothing (20.0)", () => {
+    state.check = { status: "tooShort" };
+    const view = render(
+      <CitationContext.Provider value={env}>
+        <CitationChip link={{ pages: [2], quote: "fell", claim: "Revenue fell." }} />
+      </CitationContext.Provider>,
+    );
+    const chip = view.container.querySelector("button.cite")!;
+    expect(chip.getAttribute("title")).toContain("trust.tooShort.long");
+    expect(chip.className).toContain("cite-tooShort");
   });
 });

@@ -31,6 +31,7 @@ import en from "../i18n/locales/en.json";
 import zhCN from "../i18n/locales/zh-CN.json";
 import type { Locale } from "../i18n";
 import type { CitationStatus } from "./citation-check";
+import type { ReviewVerdict } from "./claim-review";
 import type { Trust } from "./finding-trust";
 import type { TrustLevel } from "./trust-level";
 
@@ -39,10 +40,11 @@ export type CitationReason = CitationStatus | "pending";
 
 /**
  * Everything the app can say about why: the nine trusts the record works out
- * (`finding-trust.ts`) and the eight a citation's check can end in
- * (`citation-check.ts`), in the order those files declare them.
+ * (`finding-trust.ts`), the nine a citation's check can end in
+ * (`citation-check.ts`), and `noMarker` — a sentence of an answer with no
+ * marker at all (20.0), whose word is "not checked".
  */
-export type TrustReason = Trust | CitationReason;
+export type TrustReason = Trust | CitationReason | "noMarker";
 
 export interface TrustText {
   /** Which of the three words the reader is shown, once this reason is worked out. */
@@ -86,6 +88,8 @@ export const TRUST_TEXT: Record<TrustReason, TrustText> = {
   stale: { level: "check", long: "trust.stale.long", brief: "trust.stale.brief" },
   retracted: { level: "notFound", long: "trust.retracted.long" },
   unchecked: { level: "none", short: "trust.unchecked.short", long: "trust.unchecked.long" },
+  tooShort: { level: "none", short: "trust.tooShort.short", long: "trust.tooShort.long" },
+  noMarker: { level: "none", long: "trust.noMarker.long" },
   outOfRange: { level: "notFound", short: "trust.outOfRange.short", long: "trust.outOfRange.long" },
   pending: { level: "none", short: "trust.pending.short", long: "trust.pending.long" },
 };
@@ -120,6 +124,22 @@ export function briefReasons(locale: Locale): Record<Exclude<Trust, "retracted">
     unreadable: said(locale, briefKey("unreadable")),
     unconfirmed: said(locale, briefKey("unconfirmed")),
     stale: said(locale, briefKey("stale")),
+  };
+}
+
+/**
+ * The model's reading of a citation, as the exported CSV and brief file it —
+ * always labelled as the model's (`cite.review.*`, the same words the chip
+ * shows beside the local verdict), never as a local check. The verdict is the
+ * reader's own, asked for by hand and kept in memory only, so an export made
+ * after the document was reopened has no verdicts to file: nothing else is
+ * persisted.
+ */
+export function reviewReasons(locale: Locale): Record<ReviewVerdict, string> {
+  return {
+    supports: said(locale, "cite.review.supports"),
+    contradicts: said(locale, "cite.review.contradicts"),
+    insufficient: said(locale, "cite.review.insufficient"),
   };
 }
 

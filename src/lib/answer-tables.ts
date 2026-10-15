@@ -19,6 +19,7 @@
 import { citationRe, claimSpanBefore, extractCitations, stripCitations, type Citation } from "./citations";
 import { citationLevel, type TrustLevel } from "./trust-level";
 import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
+import { cachedReview, type ReviewVerdict } from "./claim-review";
 import { markdownToPlainText } from "./markdown-text";
 
 export interface AnswerRow {
@@ -121,6 +122,12 @@ export interface CsvLabels {
   status: Record<CitationStatus | "pending", string>;
   /** The three words the chips use (16.0); the status follows in parentheses. */
   level: Record<Exclude<TrustLevel, "none">, string>;
+  /**
+   * The model's reading of a citation, where the reader asked for one (20.0).
+   * Always the labelled words from `cite.review.*` — the same the chip shows —
+   * so the export cannot file a model's verdict as a local check.
+   */
+  review: Record<ReviewVerdict, string>;
   /** "2 of 3 found". */
   found: (located: number, total: number) => string;
   none: string;
@@ -139,8 +146,12 @@ function pagesOf(c: Pick<Citation, "pages">): string {
 /**
  * The answer's tables as CSV — each with its headers plus two columns: the
  * pages each row cites with what the check found there, and how many of its
- * quotes were found. Tables are separated by a blank line. A byte-order mark
- * leads, so spreadsheet programs read Chinese as Chinese.
+ * quotes were found. A citation the reader had their model review carries the
+ * model's verdict beside the local check, labelled as the model's (20.0) —
+ * the verdict is in-memory and per-citation, so an export without a review in
+ * this session simply has nothing to add. Tables are separated by a blank
+ * line. A byte-order mark leads, so spreadsheet programs read Chinese as
+ * Chinese.
  */
 export function tablesToCsv(path: string, markdown: string, labels: CsvLabels): string {
   const blocks: string[] = [];
@@ -154,7 +165,11 @@ export function tablesToCsv(path: string, markdown: string, labels: CsvLabels): 
       const sources = citations.map((c) => {
         const level = citationLevel(statusOf(c));
         const said = labels.status[statusOf(c)];
-        return level === "none" ? `${pagesOf(c)} ${said}` : `${pagesOf(c)} ${labels.level[level]} (${said})`;
+        const review = c.quote ? cachedReview(path, claimBefore(markdown, c.index), c.quote) : null;
+        const verdict = review ? ` · ${labels.review[review.verdict]}` : "";
+        return level === "none"
+          ? `${pagesOf(c)} ${said}${verdict}`
+          : `${pagesOf(c)} ${labels.level[level]} (${said})${verdict}`;
       });
       const quoted = citations.filter((c) => c.quote);
       const located = quoted.filter((c) => statusOf(c) === "located").length;

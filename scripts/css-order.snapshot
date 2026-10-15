@@ -128,6 +128,7 @@ button.pages-read-chip:hover
 .citation-tally-verified
 .citation-tally-check
 .citation-tally-notFound
+.citation-tally-checking
 .message-usage-line
 .markdown-stream-caret
 @keyframes markdown-caret-blink

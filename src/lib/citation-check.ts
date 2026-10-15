@@ -24,11 +24,10 @@ import { locateQuote } from "./quote-locate";
 import {
   citationKey,
   extractCitations,
-  sentenceBefore,
   type Citation,
 } from "./citations";
 import type { PdfRect } from "./types";
-import { claimBefore, rowAt, rowClaim } from "./answer-tables";
+import { claimBefore } from "./answer-tables";
 import { passageAround } from "./passage";
 import { unstatedQuantities } from "./quantities";
 
@@ -65,8 +64,15 @@ export type CitationStatus =
    * model is not told its citation failed.
    */
   | "unconfirmed"
-  /** No quote, or one too short to mean anything: a page to turn to, not a claim to check. */
+  /** No quote: a page to turn to, not a claim to check. */
   | "unchecked"
+  /**
+   * A quote too short to mean anything (20.0): under `MIN_QUOTE_CHARS`, four
+   * characters occur on almost every page, so both "found" and "not found"
+   * would be noise. Its own state, so the reader is told the quote is too
+   * short rather than being shown nothing at all.
+   */
+  | "tooShort"
   /** Names a page the document does not have. */
   | "outOfRange";
 
@@ -175,7 +181,7 @@ async function resolve(
       const passage = passageAround(runs.items, outcome.rects);
       return settled({ status: "located", page, rects: outcome.rects, passage });
     }
-    if (outcome.status === "uncheckable") return settled({ status: "unchecked" });
+    if (outcome.status === "uncheckable") return settled({ status: "tooShort" });
     if (outcome.status === "unreadable") sawUnreadable = true;
     if (outcome.status === "absent") {
       sawAbsent = true;
@@ -197,6 +203,7 @@ export interface CitationTally {
   unconfirmed: number;
   mismatch: number;
   unchecked: number;
+  tooShort: number;
   outOfRange: number;
   /** Not resolved yet. */
   pending: number;
@@ -211,6 +218,7 @@ export function emptyTally(): CitationTally {
     unconfirmed: 0,
     mismatch: 0,
     unchecked: 0,
+    tooShort: 0,
     outOfRange: 0,
     pending: 0,
   };
@@ -238,48 +246,4 @@ export async function checkAnswer(path: string, totalPages: number, markdown: st
     extractCitations(markdown).map((c) => checkCitation(path, totalPages, c).catch(() => null)),
   );
   return tallyCitations(path, markdown);
-}
-
-/** A sentence of an answer whose citation was found on its page. */
-export interface VerifiedSentence {
-  claim: string;
-  page: number;
-  quote: string;
-}
-
-/**
- * The sentences of an answer that carry a located citation, each with the
- * page and the words that confirm it. What "keep the verified sentences"
- * writes to the record: each becomes an entry whose evidence is already known
- * to be on its page, so it arrives in the record as *found on page N* rather
- * than as a claim to be checked.
- */
-export function verifiedSentences(path: string, markdown: string): VerifiedSentence[] {
-  const out: VerifiedSentence[] = [];
-  const seen = new Set<string>();
-  const all = extractCitations(markdown);
-  // Located, and — since 15.0 — without a number the passage does not state.
-  const holds = (c: Citation) =>
-    withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote)?.status === "located";
-  for (const c of all) {
-    if (!c.quote || !holds(c)) continue;
-    const check = cachedCitationCheck(path, c)!;
-    if (!check.page) continue;
-    // A citation in a table cell supports its row, not the text before the
-    // marker — which, in a table, is a run of cells from the row above.
-    const inRow = rowAt(markdown, c.index);
-    // And a row is only as verified as its least-verified cell: keeping it
-    // would put every value in it into the record.
-    if (
-      inRow &&
-      all.some((rc) => rc.index >= inRow.row.start && rc.index <= inRow.row.end && rc.quote && !holds(rc))
-    ) {
-      continue;
-    }
-    const claim = inRow ? rowClaim(inRow.table, inRow.row) : sentenceBefore(markdown, c.index);
-    if (!claim || seen.has(claim)) continue;
-    seen.add(claim);
-    out.push({ claim, page: check.page, quote: c.quote });
-  }
-  return out;
 }

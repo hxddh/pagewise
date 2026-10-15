@@ -19,7 +19,7 @@ npm run eval         # builds eval/extract (Rust) on first run, then measures
 | `ocr.eval.ts` | Every page rendered to an image and read by the local OCR the app ships (14.0) — are the same quotes found among the recognised words? | English single-column ≥ 95%, Chinese prose ≥ 85%, generated corpus ≥ 80%, altered quotes ≤ 1% wrongly located, median ≤ 5 s a page |
 | `annotate.eval.ts` | Located quotes written into the PDF as highlights by the app's export code (14.1), read back with pdf.js — is each there, and is the quote the text under it? | all read back, ≥ 97% with the quote under the highlight (measured 626 of 629) |
 | `numbers.eval.ts` | Corpus sentences stating a quantity, cited and read against their passage (15.0): honest and reworded claims must not be flagged; claims with one number changed should be | ≤ 0.5% false alarms (measured 0 of 231), ≥ 85% caught (measured 94.0%) |
-| `live-score.eval.ts` | Recorded answers from real models (below): how many cite, how many quotes are on their pages, how many cite a right page. | none — it measures models, not this repository |
+| `live-score.eval.ts` | Recorded answers from real models (below): how many cite, how many quotes are on their pages, how many cite a right page — and every sentence through the app's own sentence table (20.0): sentences, marked, verified, unchecked, and how many unchecked sentences' numbers the text they cite states. | none — it measures models, not this repository |
 
 No model is called by the gated suites. The quotes are cut from exactly the text
 the model is given, so a miss is one the model could not have avoided by copying
@@ -72,6 +72,11 @@ the extractor's output, and forwards the app's model requests to
 never written to a recording. With no key it runs a scripted model, so the whole
 path can be checked for free. Recordings worth keeping for comparison can be
 committed under `eval/baselines/`.
+
+The sentence columns run each recorded answer through the same split and the
+same state rule the app's line under an answer uses (`answer-sentences.ts`),
+over the corpus pages the recording was made against — so the number the reader
+would see is measured, not a copy of it.
 
 ## Corpus
 

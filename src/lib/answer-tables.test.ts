@@ -4,9 +4,20 @@ import type { TextItemRect } from "./types";
 let pages: Record<number, TextItemRect[]> = {};
 vi.mock("./pdf", () => ({ pageTextItems: async (_p: string, page: number) => pages[page] ?? [] }));
 vi.mock("./ocr/ocr-service", () => ({ ocrEnabled: () => false, ocrPage: async () => null }));
+// The model review is billed and network-bound; the stub answers "supports".
+vi.mock("ai", () => ({
+  generateObject: async () => ({
+    object: { verdict: "supports", reason: "原文：预付百分之三十" },
+    usage: { inputTokens: 1, outputTokens: 1 },
+  }),
+}));
+vi.mock("./settings", () => ({ loadSettings: async () => ({ provider: "openai", model: "m", apiKey: "k" }) }));
+vi.mock("./llm", () => ({ resolveModel: () => "model", assertApiKeyForAgent: () => undefined }));
 
 import { answerTables, rowClaim, tablesToCsv, type CsvLabels } from "./answer-tables";
-import { checkAnswer, clearCitationChecks, verifiedSentences } from "./citation-check";
+import { checkAnswer, clearCitationChecks } from "./citation-check";
+import { clearReviews, reviewClaim } from "./claim-review";
+import { verifiedSentences } from "./answer-sentences";
 import { clearFindingAnchors } from "./finding-anchors";
 
 const PATH = "/docs/contract.pdf";
@@ -34,10 +45,16 @@ const labels: CsvLabels = {
     unconfirmed: "unconfirmed",
     mismatch: "numbers differ",
     unchecked: "not checked",
+    tooShort: "too short",
     outOfRange: "no such page",
     pending: "pending",
   },
   level: { verified: "Verified", check: "Check the page", notFound: "Not found" },
+  review: {
+    supports: "Model review: supported",
+    contradicts: "Model review: the passage says otherwise",
+    insufficient: "Model review: the passage does not settle it",
+  },
   found: (a, b) => `${a} of ${b} found`,
   none: "no quote",
 };
@@ -46,6 +63,7 @@ beforeEach(() => {
   pages = {};
   clearFindingAnchors();
   clearCitationChecks();
+  clearReviews();
 });
 
 describe("answerTables", () => {
@@ -85,6 +103,19 @@ describe("tables leave as CSV with their evidence", () => {
     expect(lines[1]).toBe("Deposit,30%,On signing,p. 3 Verified (found); p. 3 Verified (found),2 of 2 found");
     expect(lines[2]).toBe("Delivery,60%,After acceptance,p. 3 Not found (not found),0 of 1 found");
     expect(lines[3]).toBe("Warranty | retention,10%,—,p. 4 Not found (not found),0 of 1 found");
+  });
+
+  it("files the reader's model verdict beside the local check, labelled as the model's (20.0)", async () => {
+    pages[3] = [run("甲方应在合同生效后十个工作日内预付合同总价的百分之三十")];
+    await checkAnswer(PATH, 10, ANSWER);
+    // The reader asked their model about the deposit row's citation; the key
+    // is the claim the chip read (the cell before the marker) and the quote.
+    await reviewClaim(PATH, "30%", "预付合同总价的百分之三十", "…", 3);
+    const csv = tablesToCsv(PATH, ANSWER, labels);
+    const lines = csv.slice(1).trim().split("\r\n");
+    expect(lines[1]).toContain("p. 3 Verified (found) · Model review: supported");
+    // A citation nobody asked about files no verdict — nothing is guessed.
+    expect(lines[2]).not.toContain("Model review");
   });
 
   it("writes a cell a spreadsheet would run as a formula as text (16.0)", () => {

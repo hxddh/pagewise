@@ -6,7 +6,9 @@ describe("three levels for the reader (16.0)", () => {
     expect(citationLevel("located")).toBe("verified");
     for (const s of ["mismatch", "unconfirmed", "unreadable"] as const) expect(citationLevel(s)).toBe("check");
     for (const s of ["unlocated", "outOfRange"] as const) expect(citationLevel(s)).toBe("notFound");
-    for (const s of ["unchecked", "pending"] as const) expect(citationLevel(s)).toBe("none");
+    // A quote too short to check is a state of its own (20.0), but makes no
+    // claim either way — the same level as a page-only citation.
+    for (const s of ["unchecked", "tooShort", "pending"] as const) expect(citationLevel(s)).toBe("none");
   });
 
   it("lets a contradicting review lower a citation, never raise it", () => {
@@ -14,6 +16,7 @@ describe("three levels for the reader (16.0)", () => {
     expect(citationLevel("mismatch", "supports")).toBe("check");
     expect(citationLevel("unlocated", "supports")).toBe("notFound");
     expect(citationLevel("unchecked", "contradicts")).toBe("none");
+    expect(citationLevel("tooShort", "contradicts")).toBe("none");
   });
 
   it("maps every record trust", () => {

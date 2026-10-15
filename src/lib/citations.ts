@@ -118,6 +118,17 @@ export function hideOpenCitation(text: string): string {
 
 /** Sentence ends. A full stop between two digits is a decimal point, not an end (16.0). */
 const SENTENCE_END = /(?<!\d)\.|\.(?!\d)|[!?。！？\n]/g;
+
+/**
+ * The same rule as a fresh matcher, for a caller walking its own string — the
+ * sentence table (`answer-sentences.ts`) splits by it, so a sentence there is
+ * bounded by the same characters `sentenceBefore` treats as its start. A
+ * factory, never a shared `/g` object: see `citationRe` for the freeze one
+ * cost.
+ */
+export function sentenceEndRe(): RegExp {
+  return new RegExp(SENTENCE_END.source, "g");
+}
 /** Stands in for an earlier marker when a claim starts after it. */
 const MARKER_STOP = "\u0001";
 

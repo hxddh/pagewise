@@ -18,10 +18,11 @@
  * named here is a page the reader can turn to in any viewer.
  */
 import { citationsToText } from "./citations";
+import { cachedReview, type ReviewVerdict } from "./claim-review";
 import type { Finding } from "./finding-store";
 import { labelForPage } from "./page-labels";
 import { TRUST_KNOWN, type Trust } from "./finding-trust";
-import { briefReasons } from "./trust-text";
+import { briefReasons, reviewReasons } from "./trust-text";
 import type { LoadedDocument } from "./types";
 
 export interface BriefEntry {
@@ -45,6 +46,13 @@ export interface BriefLabels {
   nothingHere: string;
   page: (ref: string) => string;
   trust: Record<Exclude<Trust, "retracted">, string>;
+  /**
+   * The model's reading of a claim, where the reader asked for one (20.0).
+   * Labelled as the model's — the same `cite.review.*` words the chip shows —
+   * because the brief files local checks and a model's verdict side by side
+   * and they must never be read as one another.
+   */
+  review: Record<ReviewVerdict, string>;
   keptFromAnswer: string;
 }
 
@@ -59,6 +67,7 @@ export const BRIEF_LABELS_EN: BriefLabels = {
   nothingHere: "Nothing yet.",
   page: (ref) => `p. ${ref}`,
   trust: briefReasons("en"),
+  review: reviewReasons("en"),
   keptFromAnswer: "Kept from an answer",
 };
 
@@ -73,6 +82,7 @@ export const BRIEF_LABELS_ZH: BriefLabels = {
   nothingHere: "暂无。",
   page: (ref) => `第 ${ref} 页`,
   trust: briefReasons("zh-CN"),
+  review: reviewReasons("zh-CN"),
   keptFromAnswer: "留自一条回答",
 };
 
@@ -92,6 +102,21 @@ function quote(text: string): string[] {
     .trim()
     .split(/\r?\n/)
     .map((line) => `> ${line}`);
+}
+
+/**
+ * The model's verdict on an entry, where the reader asked for one and this
+ * session still holds it — the labelled line from `cite.review.*`, appended
+ * beside the local reason. The review is keyed by the claim and the quote the
+ * answer's chip read; a kept entry carries both, so the common case matches
+ * exactly, and an entry whose claim is a whole answer's summary simply files
+ * no verdict. Nothing is guessed from a near match.
+ */
+function reviewLine(doc: LoadedDocument, finding: Finding, labels: BriefLabels): string {
+  const evidence = finding.evidence.trim();
+  if (!evidence) return "";
+  const review = cachedReview(doc.path, finding.claim, evidence);
+  return review ? ` · _${labels.review[review.verdict]}_` : "";
 }
 
 /**
@@ -129,7 +154,7 @@ export function briefToMarkdown(
     const n = numberOf.get(finding.id)!;
     const reason = labels.trust[trust as Exclude<Trust, "retracted">];
     lines.push(
-      `${n}. ${finding.claim} — ${labels.page(pagesRef(doc, finding.pages))} · _${reason}_`,
+      `${n}. ${finding.claim} — ${labels.page(pagesRef(doc, finding.pages))} · _${reason}_${reviewLine(doc, finding, labels)}`,
     );
     if (finding.body) {
       lines.push("", `   _${labels.keptFromAnswer}:_`, "");
@@ -153,7 +178,7 @@ export function briefToMarkdown(
     const n = numberOf.get(finding.id)!;
     const reason = labels.trust[trust as Exclude<Trust, "retracted">];
     lines.push(
-      `${n}. ${finding.claim} — ${labels.page(pagesRef(doc, finding.pages))} · _${reason}_`,
+      `${n}. ${finding.claim} — ${labels.page(pagesRef(doc, finding.pages))} · _${reason}_${reviewLine(doc, finding, labels)}`,
     );
     if (finding.evidence.trim()) lines.push("", ...quote(finding.evidence).map((l) => `   ${l}`));
     lines.push("");

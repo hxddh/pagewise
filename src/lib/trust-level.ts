@@ -36,6 +36,7 @@ const CITATION: Record<CitationStatus, TrustLevel> = {
   unlocated: "notFound",
   outOfRange: "notFound",
   unchecked: "none",
+  tooShort: "none",
   pending: "none",
 };
 

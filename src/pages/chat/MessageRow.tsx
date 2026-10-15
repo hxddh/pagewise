@@ -7,7 +7,7 @@ import { Button } from "../../components/ui/Button";
 import { TextArea } from "../../components/ui/Field";
 import { extractUserText } from "../../lib/messages-utils";
 import type { PageWiseUIMessage } from "../../lib/message-metadata";
-import type { VerifiedSentence } from "../../lib/citation-check";
+import type { VerifiedSentence } from "../../lib/answer-sentences";
 
 export interface MessageRowProps {
   message: UIMessage;

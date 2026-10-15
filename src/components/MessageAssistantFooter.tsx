@@ -5,17 +5,16 @@ import { cachedCitationCheck, withClaim } from "../lib/citation-check";
 import { claimBefore } from "../lib/answer-tables";
 import { extractCitations } from "../lib/citations";
 import { cachedReview, reviewAll, reviewRevision, subscribeReviews } from "../lib/claim-review";
-import { answerLevels } from "../lib/answer-levels";
-import { TRUST_LEVELS } from "../lib/trust-level";
-import { shortKey } from "../lib/trust-text";
-import { CitationContext } from "./CitationChip";
 import {
-  checkAnswer,
-  tallyCitations,
+  SENTENCE_STATES,
+  sentenceStates,
+  sentenceTally,
   verifiedSentences,
-  type CitationTally,
   type VerifiedSentence,
-} from "../lib/citation-check";
+} from "../lib/answer-sentences";
+import { longKey, shortKey } from "../lib/trust-text";
+import { CitationContext } from "./CitationChip";
+import { checkAnswer, tallyCitations, type CitationTally } from "../lib/citation-check";
 import { AnchoredMenu } from "./AnchoredMenu";
 import { ListRow } from "./ui/ListRow";
 import { useI18n } from "../i18n";
@@ -230,14 +229,15 @@ function MessageAssistantFooterInner({
     [live, metadata, t, keepPages.length],
   );
 
-  // What the answer's citations turned out to be, once it has finished
-  // streaming. The chips check themselves; this waits on the same checks
-  // (shared by `citation-check.ts`) to say it in one line.
+  // Every sentence of the answer, in the state its evidence put it in (20.0).
+  // The chips check themselves as each marker closes, so this is computed —
+  // and shown — while the answer streams: the counts land as the checks do,
+  // instead of a line appearing only once the answer has settled.
   const citationEnv = useContext(CitationContext);
   const [tally, setTally] = useState<CitationTally | null>(null);
   const [keptVerified, setKeptVerified] = useState(false);
   useEffect(() => {
-    if (!citationEnv || live || !markdownText) {
+    if (!citationEnv || !markdownText) {
       setTally(null);
       return;
     }
@@ -250,10 +250,23 @@ function MessageAssistantFooterInner({
     return () => {
       alive = false;
     };
-  }, [citationEnv, live, markdownText]);
+  }, [citationEnv, markdownText]);
+  // Changes whenever a review lands, so a sentence a model contradicted stops
+  // reading as verified.
+  const reviewRev = useSyncExternalStore(subscribeReviews, reviewRevision);
+  const sentences = useMemo(
+    () => (citationEnv ? sentenceStates(citationEnv.path, markdownText) : null),
+    // `tally` and `reviewRev` are what change when a check or a review lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [citationEnv, tally, reviewRev, markdownText],
+  );
+  const counts = useMemo(() => (sentences ? sentenceTally(sentences) : null), [sentences]);
+  // Keep stays what it was: the verified sentences of a settled answer. A
+  // half-written answer has no sentence set worth keeping — the record is
+  // append-and-revise, so a partial keep cannot be corrected.
   const verified = useMemo(
-    () => (citationEnv && tally && tally.located > 0 ? verifiedSentences(citationEnv.path, markdownText) : []),
-    [citationEnv, tally, markdownText],
+    () => (!live && citationEnv && tally?.located ? verifiedSentences(citationEnv.path, markdownText) : []),
+    [live, citationEnv, tally, markdownText],
   );
 
   const hasTable = useMemo(() => !live && hasAnswerTable(markdownText), [live, markdownText]);
@@ -273,10 +286,18 @@ function MessageAssistantFooterInner({
         unconfirmed: t(shortKey("unconfirmed")),
         mismatch: t(shortKey("mismatch")),
         unchecked: t(shortKey("unchecked")),
+        tooShort: t(shortKey("tooShort")),
         outOfRange: t(shortKey("outOfRange")),
         pending: t(shortKey("pending")),
       },
       level: { verified: t("level.verified"), check: t("level.check"), notFound: t("level.notFound") },
+      // The model's reading where the reader asked for one (20.0), labelled as
+      // the model's — the same words the chip shows beside the local verdict.
+      review: {
+        supports: t("cite.review.supports"),
+        contradicts: t("cite.review.contradicts"),
+        insufficient: t("cite.review.insufficient"),
+      },
       found: (located, total) => t("table.found", { located: String(located), total: String(total) }),
       none: t("table.noQuote"),
     };
@@ -339,14 +360,6 @@ function MessageAssistantFooterInner({
       counts.contradicts > 0 ? "error" : "success",
     );
   }, [citationEnv, reviewing, reviewable, showToast, t]);
-  // The line under the answer, in the chips' three levels (16.0).
-  const reviewRev = useSyncExternalStore(subscribeReviews, reviewRevision);
-  const levels = useMemo(
-    () => (citationEnv && tally ? answerLevels(citationEnv.path, markdownText) : null),
-    // `tally` and `reviewRev` are what change when a check or review lands.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [citationEnv, tally, reviewRev, markdownText],
-  );
   const reviewedAll =
     reviewable.length > 0 && citationEnv
       ? reviewable.every((r) => cachedReview(citationEnv.path, r.claim, r.quote))
@@ -436,16 +449,27 @@ function MessageAssistantFooterInner({
           <MoreHorizontal size={14} />
         </Button>
         </div>
-        {levels && levels.total > 0 && (
+        {counts && counts.total > 0 && (
           <p className="citation-tally" aria-live="polite">
-            {levels.verified + levels.check + levels.notFound === 0
-              ? t("cite.tallyNone")
-              : TRUST_LEVELS.filter((l) => levels[l] > 0).map((l, i) => (
-                  <span key={l} className={`citation-tally-${l}`}>
-                    {i > 0 ? " · " : ""}
-                    {t(`cite.tallyLevel.${l}`, { count: String(levels[l]) })}
-                  </span>
-                ))}
+            {SENTENCE_STATES.filter((state) => counts[state] > 0).map((state, i) => (
+              <span
+                key={state}
+                className={`citation-tally-${state}`}
+                // What the state means, from the one table of those words —
+                // "nothing says where this sentence came from", for the class
+                // that had no word before 20.0.
+                title={state === "unchecked" ? t(longKey("noMarker")) : undefined}
+              >
+                {i > 0 ? " · " : ""}
+                {t(`cite.tallyLevel.${state}`, { count: String(counts[state]) })}
+              </span>
+            ))}
+            {counts.pending > 0 && (
+              <span className="citation-tally-checking">
+                {counts.total - counts.pending > 0 ? " · " : ""}
+                {t("cite.tallyChecking", { count: String(counts.pending) })}
+              </span>
+            )}
           </p>
         )}
         {/* What this answer cost, from the metadata the popover below shows in

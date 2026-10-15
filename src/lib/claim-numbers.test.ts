@@ -8,7 +8,8 @@ let pages: Record<number, TextItemRect[]> = {};
 vi.mock("./pdf", () => ({ pageTextItems: async (_p: string, page: number) => pages[page] ?? [] }));
 vi.mock("./ocr/ocr-service", () => ({ ocrEnabled: () => false, ocrPage: async () => null }));
 
-import { checkAnswer, clearCitationChecks, tallyCitations, verifiedSentences } from "./citation-check";
+import { checkAnswer, clearCitationChecks, tallyCitations } from "./citation-check";
+import { verifiedSentences } from "./answer-sentences";
 import { clearFindingAnchors, placeFinding } from "./finding-anchors";
 import { trustOf } from "./finding-trust";
 import { buildCitationFeedback } from "./agent-citation-context";

@@ -457,7 +457,6 @@
     "confirmed": "Checked by the reader"
   },
   "cite": {
-    "tallyNone": "No citations to check",
     "keepVerified": "Keep the verified sentences ({{count}})",
     "keptVerified": "Kept {{count}} verified sentences to the record",
     "reviewAction": "Ask your model whether each passage supports its sentence ({{count}} short calls)",
@@ -472,8 +471,11 @@
     "tallyLevel": {
       "verified": "{{count}} verified",
       "check": "{{count}} to check",
-      "notFound": "{{count}} not found"
-    }
+      "notFound": "{{count}} not found",
+      "noQuote": "{{count}} no quote",
+      "unchecked": "{{count}} not checked"
+    },
+    "tallyChecking": "{{count}} checking"
   },
   "table": {
     "export": "Export table as CSV, with sources",
@@ -537,6 +539,13 @@
     "pending": {
       "short": "not checked yet",
       "long": "Checking page {{pages}}…"
+    },
+    "tooShort": {
+      "short": "too short",
+      "long": "Too short to check against the page"
+    },
+    "noMarker": {
+      "long": "Not checked: nothing in this sentence says where it came from"
     }
   },
   "export": {

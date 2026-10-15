@@ -659,6 +659,14 @@ button.pages-read-chip:hover {
   color: var(--danger);
 }
 
+/* A check still running (20.0): the same quiet treatment as a pending chip.
+   The states with nothing to check — no quote, no marker — keep the line's
+   own muted ink: they are quiet by nature, and colouring them would read as
+   a verdict. */
+.citation-tally-checking {
+  opacity: 0.6;
+}
+
 /*
  * What a question cost, under the answer (18.0).
  *
