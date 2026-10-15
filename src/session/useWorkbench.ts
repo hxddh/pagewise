@@ -362,9 +362,11 @@ export function useWorkbench(): Workbench {
         // with the document rather than on first paint.
         await loadMarks(doc.path, doc.identity);
         const findings = await loadFindings(doc.path, doc.identity);
-        // The reader's model reviews of this file, kept since 21.0. Not awaited
-        // into the open: a chip shows its verdict when it lands.
-        void loadReviews(doc.path, doc.stamp ?? "");
+        // The reader's model reviews of this file, kept since 21.0 — read
+        // before the document is ready, so "Review citations" never offers
+        // (and bills) a citation whose verdict is still on its way from disk.
+        // A local read; a failure is no reviews, never a failed open.
+        await loadReviews(doc.path, doc.stamp ?? "");
         // Where each finding's quote sits on the page, resolved once now so
         // the first question's record note can read it — see `trustOf`.
         void prewarmPlacements(doc.path, findings);

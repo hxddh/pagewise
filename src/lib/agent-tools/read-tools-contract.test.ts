@@ -249,6 +249,25 @@ describe("read tool contract: a blank page is a page, not the end of the budget"
     expect(out.text).toContain(`--- Page 2 ---\n${EMPTY_PAGE_NOTE}`);
   });
 
+  it("counts its marker against maxChars, and says where to go on", async () => {
+    // Codex review on #154: forty blank pages at the 2,000-character minimum
+    // passed the cap while reporting the range whole.
+    loadDoc(Array.from({ length: 80 }, (_, i) => ({ page: i + 1, text: "" })));
+    const { t } = tools();
+    const out = (await t.read_pdf_range!.execute({ start: 1, end: 80, maxChars: 2000 }, options)) as {
+      text: string;
+      truncated: boolean;
+      nextStart: number | null;
+      nextOffset: number | null;
+      budgetExceeded?: boolean;
+    };
+    expect(out.text.length).toBeLessThanOrEqual(2000);
+    expect(out.truncated).toBe(true);
+    expect(out.nextStart).toBeGreaterThan(1);
+    expect(out.nextOffset).toBe(0);
+    expect(out.budgetExceeded, "the cap, not the budget").toBeUndefined();
+  });
+
   it("costs nothing", async () => {
     const { budget, t } = tools();
     await t.read_pdf_range!.execute({ start: 2, end: 2 }, options);

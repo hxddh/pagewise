@@ -32,7 +32,8 @@ What the reader keeps and what the tools tell the model, made true before anythi
 - **Closing a document takes its index failure reasons and pending corrections with it** (`src/document/index-queue.ts`, `src/lib/document-scope.ts`). `cancelIndex` left each page's failure reason behind, and `clearSteerNotes` had no caller in the app, so a correction typed for one document's run could reach the next.
 - **A one-page document keeps the header's centre** (`src/components/WorkspaceHeader.tsx`): the page control returned nothing, and the name and tabs slid into the middle.
 - **Two audits read the prompt again** (`scripts/table-audit.mjs`, `scripts/citation-audit.mjs`). The system message is an array of parts once it carries OpenAI's cache breakpoint, and `String()` of it was "[object Object]", so "system prompt asks for cited tables" failed on every run, main included. `audit:citations` also still counted citations where 20.0 counts sentences.
-- Budget re-recorded: `settingsRows` **7 → 9** (counted, not added), `srcLines` **41,395 → 41,433**.
+- From the review of this release: the kept model reviews are read before the document is ready, so "Review citations" never sends (and bills) a citation whose verdict is still on its way from disk; and a range's blank- and failed-page markers count against `maxChars`, so a run of blank pages stops with `nextStart` instead of passing the cap while reporting the range whole.
+- Budget re-recorded: `settingsRows` **7 → 9** (counted, not added), `srcLines` **41,395 → 41,443**.
 - Budget re-recorded in this commit: `copyKeys` **482 → 484** (the two toasts above), `srcLines` **41,036 → 41,202**. No surface came back.
 
 ## [20.0.0] - 2026-10-15

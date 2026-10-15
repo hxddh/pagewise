@@ -613,6 +613,14 @@ export async function readPageRange(
           if (remainingText.length === 0) {
             if (text.length === 0) {
               const marker = indexFailure ? INDEX_FAILED_MARK : EMPTY_PAGE_NOTE;
+              // The markers count against `maxChars` like text does: a run of
+              // blank pages must not pass the cap while saying it is whole.
+              if (charCount + separator + header.length + marker.length > maxChars) {
+                truncated = true;
+                nextStart = page;
+                nextOffset = 0;
+                break;
+              }
               parts.push(`${header}${marker}`);
               charCount += separator + header.length + marker.length;
               if (!indexFailure) markDelivered(budget, path, page, runGen);
