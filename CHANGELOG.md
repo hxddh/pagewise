@@ -2,6 +2,14 @@
 
 All notable changes to PageWise are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [21.0.1] - 2026-10-15
+
+A fix for a data loss 21.0 introduced on macOS, found by the review after the release.
+
+- **Opening a document from Finder no longer forgets the library** (`src-tauri/src/grants.rs`). macOS hands a double-clicked file to the app as an `Opened` event *before* `didFinishLaunching`, so before 21.0's `restore` had read the granted-documents list back. The grant wrote the list as it stood in memory — that one file — over the list on disk; `restore` then read one entry, the front end saw every other recent document as ungranted, removed it from the library and pruned its chat. A grant before `restore` is now held in memory, and `restore` merges it into the list it reads (`merge_persisted`, tested) and writes once.
+- **Windows paths reach the app without the `\\?\` prefix** (`src-tauri/src/grants.rs`, `open_path.rs`, `lib.rs`). `canonicalize` returns the verbatim form, and 21.0 handed it to the front end from the dialog, a drop and a launch: the same file became a second recent entry beside 20.0's, the prefix showed in the library, and a kept model review (keyed by path) did not carry over. `for_front_end` strips it (`\\?\UNC\…` becomes `\\…`); grants are still checked against the canonical form.
+- **The release gate says why when a commit has no CI run** (`.github/workflows/release.yml`). `.[0]` of an empty run list printed `null null`, so the "push the commit to main first" branch never ran and such a release waited 30 minutes before failing for the wrong reason.
+
 ## [21.0.0] - 2026-10-15
 
 What the reader keeps and what the tools tell the model, made true before anything is added. No new surface, no new setting: a blank page no longer cuts a whole-document answer short, a downgrade or a full record no longer deletes the reader's text, nothing in the webview can grant itself a file, a release waits for its own CI, and the model's review of the citations is one call and survives reopening. From the independent v21 review (`docs/reviews/2026-10-15-pagewise-v21-independent-review.md`).

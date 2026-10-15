@@ -386,7 +386,7 @@ pub fn run() {
             // Granted here, before the front end hears of it (21.0).
             if let Some(path) = open_path::path_from_args(&argv, Path::new(&cwd)) {
                 if let Ok(canon) = grants::grant_document(app, Path::new(&path)) {
-                    let _ = window.emit("pagewise://open-path", canon.to_string_lossy());
+                    let _ = window.emit("pagewise://open-path", grants::for_front_end(&canon));
                 }
             }
         }))

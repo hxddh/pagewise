@@ -69,7 +69,7 @@ pub fn grant_pending(app: &AppHandle) {
     app.state::<PendingOpen>().replace(|path| {
         crate::grants::grant_document(app, Path::new(&path))
             .ok()
-            .map(|canon| canon.to_string_lossy().into_owned())
+            .map(|canon| crate::grants::for_front_end(&canon))
     });
 }
 
@@ -84,7 +84,7 @@ pub fn opened(app: &AppHandle, urls: &[tauri::Url]) {
         return;
     };
     app.state::<PendingOpen>()
-        .set(canon.to_string_lossy().into_owned());
+        .set(crate::grants::for_front_end(&canon));
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
