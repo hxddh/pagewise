@@ -12,14 +12,24 @@
  * never in place of it: a model can misread too, and "the words are on page
  * 12" must not become less certain because a model said something about them.
  *
- * Never automatic. Each citation reviewed is one short, billed call, and the
- * button says how many before anything is sent.
+ * Never automatic. The button says how many citations before anything is
+ * sent.
+ *
+ * 21.0: one call reviews up to `REVIEW_BATCH` citations (it was one call
+ * each, the instructions resent every time), and the verdicts are kept on
+ * disk beside the file's stamp (they lived in memory, so a reopened document
+ * exported an empty model column — "never reviewed" where the truth was "the
+ * review was not kept" — and asking again paid again). A changed file drops
+ * them: they were readings of a passage that may no longer be there.
  */
 import { generateObject } from "ai";
 import { z } from "zod";
+import { createAtomicStore } from "./atomic-store";
+import { createStoreRuntime } from "./json-store";
 import { resolveModel } from "./llm";
 import { loadSettings } from "./settings";
 import { assertApiKeyForAgent } from "./llm";
+import { reportStoreProblem } from "./store-health";
 import { addIndexUsage } from "./usage-tracker";
 
 export type ReviewVerdict = "supports" | "contradicts" | "insufficient";
@@ -30,15 +40,30 @@ export interface ClaimReview {
   reason: string;
 }
 
-export const claimReviewSchema = z.object({
-  verdict: z.enum(["supports", "contradicts", "insufficient"]),
-  reason: z.string(),
+const verdictSchema = z.enum(["supports", "contradicts", "insufficient"]);
+
+export const claimReviewBatchSchema = z.object({
+  reviews: z.array(
+    z.object({
+      /** The citation's number in the prompt, from 1. */
+      item: z.number().int(),
+      verdict: verdictSchema,
+      reason: z.string(),
+    }),
+  ),
 });
 
 const MAX_PASSAGE = 3000;
 const MAX_REASON = 400;
+/**
+ * Citations per call. Eight passages at the 3,000-character cap is a prompt
+ * of ~25,000 characters — well inside every preset model's window — and an
+ * answer with more citations than that is rare; it becomes a few calls.
+ */
+export const REVIEW_BATCH = 8;
 
-const reviews = new Map<string, ClaimReview>();
+/** Keyed by path, sentence and quote; the parts kept too, since either may hold a newline. */
+const reviews = new Map<string, { claim: string; quote: string; review: ClaimReview }>();
 const listeners = new Set<() => void>();
 let revision = 0;
 
@@ -57,7 +82,7 @@ function key(path: string, claim: string, quote: string): string {
 }
 
 export function cachedReview(path: string, claim: string, quote: string): ClaimReview | null {
-  return reviews.get(key(path, claim, quote)) ?? null;
+  return reviews.get(key(path, claim, quote))?.review ?? null;
 }
 
 /** Be told when a review lands, so a chip already on screen can show it. */
@@ -66,26 +91,45 @@ export function subscribeReviews(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Forget reviews held in memory (a document closing). What is on disk stays. */
 export function clearReviews(path?: string): void {
-  if (path === undefined) reviews.clear();
-  else for (const k of [...reviews.keys()]) if (k.startsWith(`${path}\n`)) reviews.delete(k);
+  if (path === undefined) {
+    reviews.clear();
+    stampByPath.clear();
+  } else {
+    for (const k of [...reviews.keys()]) if (k.startsWith(`${path}\n`)) reviews.delete(k);
+    stampByPath.delete(path);
+  }
   notifyReviews();
 }
 
-export function reviewPrompt(claim: string, quote: string, passage: string, page: number): string {
-  return `You are checking one sentence of an answer against the passage of a document it cites. Decide only from the passage.
+export interface ReviewItem {
+  claim: string;
+  quote: string;
+  passage: string;
+  page: number;
+}
 
-Passage (page ${page}):
+export function reviewPrompt(items: readonly ReviewItem[]): string {
+  const blocks = items
+    .map(
+      (r, i) => `Citation ${i + 1}
+Passage (page ${r.page}):
 """
-${passage.slice(0, MAX_PASSAGE)}
+${r.passage.slice(0, MAX_PASSAGE)}
 """
-
-The answer quoted from it: "${quote}"
-
+The answer quoted from it: "${r.quote}"
 The sentence to check:
 """
-${claim}
-"""
+${r.claim}
+"""`,
+    )
+    .join("\n\n");
+  return `You are checking sentences of an answer against the passages of a document they cite. Decide each one only from its own passage.
+
+${blocks}
+
+For every citation, give its number as item, and:
 
 verdict:
 - "supports": the passage states what the sentence says — the same figures, parties, conditions and polarity.
@@ -95,39 +139,31 @@ verdict:
 reason: one short sentence in the sentence's own language, quoting the words of the passage your verdict turns on.`;
 }
 
-/** Ask the reader's model about one citation. Throws when there is no key or the call fails. */
-export async function reviewClaim(
-  path: string,
-  claim: string,
-  quote: string,
-  passage: string,
-  page: number,
+/**
+ * Ask the reader's model about these citations in one call. Resolves to one
+ * entry per item: the review, or null for an item the answer left out or
+ * answered twice — one bad entry never discards the others. Throws when
+ * there is no key or the call fails.
+ */
+export async function askModel(
+  items: readonly ReviewItem[],
   signal?: AbortSignal,
-): Promise<ClaimReview> {
-  const hit = cachedReview(path, claim, quote);
-  if (hit) return hit;
+): Promise<(ClaimReview | null)[]> {
   const settings = await loadSettings();
   assertApiKeyForAgent(settings);
   const { object, usage } = await generateObject({
     model: resolveModel(settings),
-    schema: claimReviewSchema,
-    prompt: reviewPrompt(claim, quote, passage, page),
+    schema: claimReviewBatchSchema,
+    prompt: reviewPrompt(items),
     abortSignal: signal,
   });
   addIndexUsage(usage);
-  const review: ClaimReview = { verdict: object.verdict, reason: object.reason.slice(0, MAX_REASON) };
-  // Asked for a document that has since closed: not kept for it (16.0).
-  if (signal?.aborted) throw new DOMException("Review cancelled", "AbortError");
-  reviews.set(key(path, claim, quote), review);
-  notifyReviews();
-  return review;
-}
-
-export interface ReviewItem {
-  claim: string;
-  quote: string;
-  passage: string;
-  page: number;
+  const byItem = new Map<number, ClaimReview | null>();
+  for (const r of object.reviews) {
+    const review = { verdict: r.verdict, reason: r.reason.slice(0, MAX_REASON) };
+    byItem.set(r.item, byItem.has(r.item) ? null : review);
+  }
+  return items.map((_, i) => byItem.get(i + 1) ?? null);
 }
 
 export interface ReviewOutcome {
@@ -138,27 +174,178 @@ export interface ReviewOutcome {
 }
 
 /**
- * Review each item in turn, stopping at once when `signal` aborts — the
- * document closed or the answer went away — so no further billed call is made
- * for it (16.0, B12).
+ * Review the items not already reviewed, `REVIEW_BATCH` per call, stopping at
+ * once when `signal` aborts — the document closed or the answer went away — so
+ * no further billed call is made for it (16.0, B12). Verdicts are kept in
+ * memory and written to disk after each call that lands.
  */
 export async function reviewAll(
   path: string,
   items: readonly ReviewItem[],
   signal: AbortSignal,
-  review: typeof reviewClaim = reviewClaim,
+  ask: typeof askModel = askModel,
 ): Promise<ReviewOutcome> {
   const counts: Record<ReviewVerdict, number> = { supports: 0, contradicts: 0, insufficient: 0 };
   let failed = 0;
+  const pending: ReviewItem[] = [];
   for (const r of items) {
+    const hit = cachedReview(path, r.claim, r.quote);
+    if (hit) counts[hit.verdict] += 1;
+    else pending.push(r);
+  }
+  for (let i = 0; i < pending.length; i += REVIEW_BATCH) {
     if (signal.aborted) return { counts, failed, cancelled: true };
+    const chunk = pending.slice(i, i + REVIEW_BATCH);
+    let answers: (ClaimReview | null)[];
     try {
-      const verdict = await review(path, r.claim, r.quote, r.passage, r.page, signal);
-      counts[verdict.verdict] += 1;
+      answers = await ask(chunk, signal);
     } catch {
       if (signal.aborted) return { counts, failed, cancelled: true };
-      failed += 1;
+      failed += chunk.length;
+      continue;
     }
+    // Asked for a document that has since closed: not kept for it (16.0).
+    if (signal.aborted) return { counts, failed, cancelled: true };
+    chunk.forEach((r, j) => {
+      const review = answers[j];
+      if (!review) {
+        failed += 1;
+        return;
+      }
+      reviews.set(key(path, r.claim, r.quote), { claim: r.claim, quote: r.quote, review });
+      counts[review.verdict] += 1;
+    });
+    notifyReviews();
+    await saveReviews(path).catch(() => {});
   }
   return { counts, failed, cancelled: false };
+}
+
+/** One citation — the batch path with a batch of one. */
+export async function reviewClaim(
+  path: string,
+  claim: string,
+  quote: string,
+  passage: string,
+  page: number,
+  signal?: AbortSignal,
+): Promise<ClaimReview> {
+  const hit = cachedReview(path, claim, quote);
+  if (hit) return hit;
+  const controller = new AbortController();
+  signal?.addEventListener("abort", () => controller.abort(), { once: true });
+  const { failed, cancelled } = await reviewAll(path, [{ claim, quote, passage, page }], controller.signal);
+  const review = cachedReview(path, claim, quote);
+  if (cancelled) throw new DOMException("Review cancelled", "AbortError");
+  if (failed > 0 || !review) throw new Error("review failed");
+  return review;
+}
+
+// --- On disk ------------------------------------------------------------
+
+const STORE_FILE = "claim-reviews.json";
+const STORE_KEY = "reviews";
+const STORE_VERSION = 1;
+/** Kept per document, and documents kept: a cache of the model's words, oldest first out. */
+export const MAX_REVIEWS_PER_DOC = 500;
+export const MAX_REVIEW_DOCS = 100;
+
+interface StoredEntry extends ClaimReview {
+  claim: string;
+  quote: string;
+}
+interface StoredDoc {
+  path: string;
+  /** The file's stamp when these were asked; another stamp means another file. */
+  stamp: string;
+  savedAt: number;
+  entries: StoredEntry[];
+}
+
+const runtime = createStoreRuntime(() => createAtomicStore(STORE_FILE));
+/** The stamp each open document was loaded with — what its reviews are written beside. */
+const stampByPath = new Map<string, string>();
+
+function isVerdict(v: unknown): v is ReviewVerdict {
+  return v === "supports" || v === "contradicts" || v === "insufficient";
+}
+
+/** Stored documents, or `newer: true` for a file a later PageWise wrote. */
+async function readStored(): Promise<{ docs: StoredDoc[]; newer: boolean }> {
+  const s = await runtime.store();
+  const raw = (await s.get<unknown>(STORE_KEY)) as { version?: unknown; docs?: unknown } | null | undefined;
+  if (!raw || typeof raw !== "object") return { docs: [], newer: false };
+  if (typeof raw.version === "number" && raw.version > STORE_VERSION) return { docs: [], newer: true };
+  if (raw.version !== STORE_VERSION || !Array.isArray(raw.docs)) return { docs: [], newer: false };
+  const docs: StoredDoc[] = [];
+  for (const d of raw.docs as Partial<StoredDoc>[]) {
+    if (typeof d?.path !== "string" || typeof d.stamp !== "string" || !Array.isArray(d.entries)) continue;
+    const entries = d.entries.filter(
+      (e): e is StoredEntry =>
+        typeof e?.claim === "string" &&
+        typeof e.quote === "string" &&
+        isVerdict(e.verdict) &&
+        typeof e.reason === "string",
+    );
+    docs.push({ path: d.path, stamp: d.stamp, savedAt: Number(d.savedAt) || 0, entries });
+  }
+  return { docs, newer: false };
+}
+
+/**
+ * Bring a document's kept verdicts back when it opens, if the file is the one
+ * they were asked about. A failed read is no reviews — never an error that
+ * blocks opening a document.
+ */
+export async function loadReviews(path: string, stamp: string): Promise<void> {
+  if (!stamp) return;
+  stampByPath.set(path, stamp);
+  try {
+    const { docs } = await runtime.withStoreLock(readStored);
+    const doc = docs.find((d) => d.path === path && d.stamp === stamp);
+    if (!doc || stampByPath.get(path) !== stamp) return;
+    for (const e of doc.entries) {
+      reviews.set(key(path, e.claim, e.quote), {
+        claim: e.claim,
+        quote: e.quote,
+        review: { verdict: e.verdict, reason: e.reason },
+      });
+    }
+    notifyReviews();
+  } catch {
+    // A cache miss: the reader can ask again.
+  }
+}
+
+/** Write a document's verdicts beside its stamp. Unknown stamp: not written. */
+async function saveReviews(path: string): Promise<void> {
+  const stamp = stampByPath.get(path);
+  if (!stamp) return;
+  const prefix = `${path}\n`;
+  const entries: StoredEntry[] = [];
+  for (const [k, { claim, quote, review }] of reviews) {
+    if (k.startsWith(prefix)) entries.push({ claim, quote, ...review });
+  }
+  await runtime.withStoreLock(async () => {
+    const { docs, newer } = await readStored();
+    // A later PageWise's file is not written by this one (21.0, batch 1).
+    if (newer) {
+      reportStoreProblem(STORE_FILE, "newer");
+      return;
+    }
+    const others = docs.filter((d) => d.path !== path);
+    const mine: StoredDoc = { path, stamp, savedAt: Date.now(), entries: entries.slice(-MAX_REVIEWS_PER_DOC) };
+    const kept = [...others.sort((a, b) => a.savedAt - b.savedAt), mine].slice(-MAX_REVIEW_DOCS);
+    const s = await runtime.store();
+    await s.set(STORE_KEY, { version: STORE_VERSION, docs: kept });
+    await s.save();
+  });
+}
+
+/** Test seam — drop memory and the store handle. */
+export function __resetClaimReviewsForTests(): void {
+  reviews.clear();
+  stampByPath.clear();
+  runtime.resetStore();
+  runtime.resetLock();
 }

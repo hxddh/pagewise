@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 // so the brief's line is the one the chip would show for it.
 vi.mock("ai", () => ({
   generateObject: async () => ({
-    object: { verdict: "contradicts", reason: "原文说的不是这样" },
+    object: { reviews: [{ item: 1, verdict: "contradicts", reason: "原文说的不是这样" }] },
     usage: { inputTokens: 1, outputTokens: 1 },
   }),
 }));

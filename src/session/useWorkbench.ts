@@ -18,6 +18,7 @@ import {
 import { docCache } from "../lib/doc-cache";
 import { getMarks, loadMarks } from "../lib/mark-store";
 import { loadFindings, subscribeFindings } from "../lib/finding-store";
+import { loadReviews } from "../lib/claim-review";
 import { prewarmPlacements } from "../lib/finding-anchors";
 import { trustedFindings } from "../lib/agent-record-context";
 import { TRUST_DOUBTFUL } from "../lib/finding-trust";
@@ -361,6 +362,9 @@ export function useWorkbench(): Workbench {
         // with the document rather than on first paint.
         await loadMarks(doc.path, doc.identity);
         const findings = await loadFindings(doc.path, doc.identity);
+        // The reader's model reviews of this file, kept since 21.0. Not awaited
+        // into the open: a chip shows its verdict when it lands.
+        void loadReviews(doc.path, doc.stamp ?? "");
         // Where each finding's quote sits on the page, resolved once now so
         // the first question's record note can read it — see `trustOf`.
         void prewarmPlacements(doc.path, findings);

@@ -11,7 +11,7 @@ vi.mock("./ocr/ocr-service", () => ({ ocrEnabled: () => false, ocrPage: async ()
 // "contradicts", so the test can watch it lower a sentence and nothing else.
 vi.mock("ai", () => ({
   generateObject: async () => ({
-    object: { verdict: "contradicts", reason: "原文说的不是这样" },
+    object: { reviews: [{ item: 1, verdict: "contradicts", reason: "原文说的不是这样" }] },
     usage: { inputTokens: 1, outputTokens: 1 },
   }),
 }));

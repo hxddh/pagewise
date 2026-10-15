@@ -463,7 +463,7 @@
   "cite": {
     "keepVerified": "Keep the verified sentences ({{count}})",
     "keptVerified": "Kept {{count}} verified sentences to the record",
-    "reviewAction": "Ask your model whether each passage supports its sentence ({{count}} short calls)",
+    "reviewAction": "Ask your model whether each passage supports its sentence ({{count}} citations, {{calls}} calls)",
     "reviewed": "Citations reviewed by your model",
     "reviewDone": "Model review: {{supports}} supported, {{contradicts}} contradicted, {{insufficient}} not settled by the passage",
     "reviewFailed": "The model review could not run — check the model settings",
