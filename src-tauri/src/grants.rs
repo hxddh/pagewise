@@ -25,6 +25,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -52,6 +53,10 @@ pub struct AllowedPaths {
     write_dirs: Mutex<HashSet<PathBuf>>,
     /// The persisted documents, oldest first, as they are written to disk.
     persisted: Mutex<Vec<PathBuf>>,
+    /// Whether `restore` has read the list back. Until it has, the list in
+    /// memory is not the list on disk, and writing it would replace the disk's
+    /// (21.0.1: macOS hands a double-clicked file to the app before setup).
+    restored: AtomicBool,
 }
 
 impl AllowedPaths {
@@ -137,6 +142,15 @@ fn persist(app: &AppHandle, canon: &Path) {
     list.push(canon.to_path_buf());
     let excess = list.len().saturating_sub(MAX_PERSISTED);
     list.drain(..excess);
+    // Before `restore`, the list in memory holds only what this launch granted
+    // so far. In 21.0 it was written as it stood: a document double-clicked in
+    // Finder arrives as an `Opened` event before `didFinishLaunching`, so the
+    // list on disk became that one file, `restore` read it back, and the front
+    // end pruned every other recent document — and its chat — as ungranted.
+    // `restore` merges what is held here and writes once.
+    if !state.restored.load(Ordering::SeqCst) {
+        return;
+    }
     let Some(file) = list_path(app) else {
         return;
     };
@@ -173,14 +187,42 @@ pub fn restore(app: &AppHandle) {
             kept.push(canon);
         }
     }
-    let excess = kept.len().saturating_sub(MAX_PERSISTED);
-    kept.drain(..excess);
-    if let Ok(json) = serde_json::to_vec(&kept) {
+    let state = app.state::<AllowedPaths>();
+    let Ok(mut list) = state.persisted.lock() else {
+        return;
+    };
+    // Documents granted before this ran (an `Opened` event at launch) are the
+    // newest, so they go last; then the cap.
+    let merged = merge_persisted(kept, &list);
+    if let Ok(json) = serde_json::to_vec(&merged) {
         let _ = crate::store_io::write_atomic(&file, &json);
     }
-    if let Ok(mut list) = app.state::<AllowedPaths>().persisted.lock() {
-        *list = kept;
+    *list = merged;
+    state.restored.store(true, Ordering::SeqCst);
+}
+
+/// The list `restore` writes: what was on disk and still exists, then what was
+/// granted before `restore` ran, without duplicates, the newest `MAX_PERSISTED`.
+pub fn merge_persisted(stored: Vec<PathBuf>, early: &[PathBuf]) -> Vec<PathBuf> {
+    let mut merged: Vec<PathBuf> = stored.into_iter().filter(|p| !early.contains(p)).collect();
+    merged.extend(early.iter().cloned());
+    let excess = merged.len().saturating_sub(MAX_PERSISTED);
+    merged.drain(..excess);
+    merged
+}
+
+/// A canonical path as the front end shows and stores it. On Windows
+/// `canonicalize` returns the verbatim form (`\\?\C:\…`, `\\?\UNC\…`); 21.0
+/// handed that to the webview, so a document opened through a dialog or a
+/// drop was a different recent entry from the same file in 20.0's list, and
+/// the prefix showed in the library. The Rust side still checks grants
+/// against the canonical form: `path_granted` canonicalizes what it is given.
+pub fn for_front_end(canon: &Path) -> String {
+    let s = canon.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
     }
+    s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or_else(|| s.into_owned())
 }
 
 fn legacy_documents(app: &AppHandle) -> Vec<PathBuf> {
@@ -225,7 +267,7 @@ pub async fn pick_document(app: AppHandle) -> Result<Option<String>, String> {
     };
     let path = picked.into_path().map_err(|e| format!("Invalid path: {e}"))?;
     let canon = grant_document(&app, &path)?;
-    Ok(Some(canon.to_string_lossy().into_owned()))
+    Ok(Some(for_front_end(&canon)))
 }
 
 /// Ask the reader where to save, and grant writing into the folder they chose
@@ -279,7 +321,7 @@ pub fn dropped(app: &AppHandle, paths: &[PathBuf]) {
     let granted: Vec<String> = paths
         .iter()
         .filter_map(|p| grant_document(app, p).ok())
-        .map(|p| p.to_string_lossy().into_owned())
+        .map(|p| for_front_end(&p))
         .collect();
     if !granted.is_empty() {
         let _ = app.emit("pagewise://dropped", granted);
@@ -305,6 +347,32 @@ mod tests {
         assert_eq!(got, vec![PathBuf::from("/a/paper.pdf"), PathBuf::from("/a/out")]);
         assert!(legacy_paths(b"not json").is_empty());
         assert!(legacy_paths(br#"{"paths":"nope"}"#).is_empty());
+    }
+
+    #[test]
+    fn a_grant_before_restore_joins_the_list_instead_of_replacing_it() {
+        let stored = vec![PathBuf::from("/a.pdf"), PathBuf::from("/b.pdf"), PathBuf::from("/c.pdf")];
+        let early = vec![PathBuf::from("/b.pdf"), PathBuf::from("/new.pdf")];
+        assert_eq!(
+            merge_persisted(stored, &early),
+            vec![
+                PathBuf::from("/a.pdf"),
+                PathBuf::from("/c.pdf"),
+                PathBuf::from("/b.pdf"),
+                PathBuf::from("/new.pdf"),
+            ],
+        );
+        let many: Vec<PathBuf> = (0..MAX_PERSISTED + 5).map(|i| PathBuf::from(format!("/{i}.pdf"))).collect();
+        let merged = merge_persisted(many, &[PathBuf::from("/last.pdf")]);
+        assert_eq!(merged.len(), MAX_PERSISTED);
+        assert_eq!(merged.last(), Some(&PathBuf::from("/last.pdf")));
+    }
+
+    #[test]
+    fn the_front_end_gets_a_path_without_the_verbatim_prefix() {
+        assert_eq!(for_front_end(Path::new(r"\\?\C:\Docs\a.pdf")), r"C:\Docs\a.pdf");
+        assert_eq!(for_front_end(Path::new(r"\\?\UNC\srv\share\a.pdf")), r"\\srv\share\a.pdf");
+        assert_eq!(for_front_end(Path::new("/home/me/a.pdf")), "/home/me/a.pdf");
     }
 
     #[test]

@@ -66,7 +66,7 @@ jobs:
           for attempt in $(seq 1 60); do
             state="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
               --commit "$GITHUB_SHA" --limit 1 --json status,conclusion \
-              --jq '.[0] | "\(.status) \(.conclusion)"')"
+              --jq 'if length == 0 then "" else .[0] | "\(.status) \(.conclusion)" end')"
             case "$state" in
               "completed success")
                 echo "CI passed on $GITHUB_SHA"
@@ -75,7 +75,10 @@ jobs:
                 echo "::error::CI on main for $GITHUB_SHA concluded '${state#completed }' — fix it before releasing"
                 exit 1 ;;
               "")
-                # A tag pushed with its commit can arrive before CI's run is listed.
+                # No run listed (21.0.1: `.[0]` of an empty list printed "null null",
+                # so this branch never ran and a commit never pushed to main waited
+                # the full 30 minutes). A tag pushed with its commit can arrive
+                # before CI's run is listed, hence the few retries.
                 if [ "$attempt" -ge 6 ]; then
                   echo "::error::No CI run on main for $GITHUB_SHA — push the commit to main first"
                   exit 1
