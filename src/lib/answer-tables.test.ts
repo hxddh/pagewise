@@ -146,3 +146,15 @@ describe("keeping verified rows", () => {
     expect(verifiedSentences(PATH, ANSWER)).toEqual([]);
   });
 });
+
+describe("the CSV says the chip's level (v23)", () => {
+  it("files a citation not found that the model read as supported as check, as the chip does", async () => {
+    const PAGE = "甲方应在合同生效后十个工作日内预付合同总价的百分之三十";
+    pages[3] = [run(PAGE)];
+    const md = '| Amount |\n|---|\n| 30%〔p3 "预付合同总价百分之三十的款项"〕 |';
+    await checkAnswer(PATH, 10, md);
+    await reviewClaim(PATH, "30%", "预付合同总价百分之三十的款项", PAGE, 3);
+    const lines = tablesToCsv(PATH, md, labels).slice(1).trim().split("\r\n");
+    expect(lines[1]).toContain("p. 3 Check the page (not found) · Model review: supported");
+  });
+});

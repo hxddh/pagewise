@@ -33,7 +33,7 @@
   },
   "welcome": {
     "title": "Welcome to PageWise",
-    "subtitle": "Connect AI, then open a document to ask questions.",
+    "subtitle": "Open a document to read, search and OCR it on this computer. Connect AI to ask questions about it.",
     "apiHint": "Connect an AI provider to start chatting.",
     "toolsHint": "The current model cannot use tools, which the assistant needs — pick another model in Settings.",
     "subtitleReady": "Open a document and ask about it — every answer says which page it came from."
@@ -350,7 +350,9 @@
     "setupAdvanced": "Advanced",
     "setupNote": "The model is chosen automatically. Change it later in Settings.",
     "setupModelHint": "Only change this if you know the model you want.",
-    "customNeedsEndpoint": "A base URL and a model id are both required."
+    "customNeedsEndpoint": "A base URL and a model id are both required.",
+    "reportProblem": "Report a problem",
+    "reportProblemAction": "Open a GitHub issue"
   },
   "commands": {
     "title": "Command palette",

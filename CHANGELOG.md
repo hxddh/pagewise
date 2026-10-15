@@ -2,6 +2,20 @@
 
 All notable changes to PageWise are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+Until 21.0 each round of work took a new major number whether or not anything broke. From 21.1 the numbers mean what SemVer says: the v22 round shipped as 21.1.0–21.1.1, with no breaking change, and the major number now moves only for one (`docs/RELEASE.md`, "When to release").
+
+## [Unreleased]
+
+v23, "first a reader" (`docs/reviews/2026-10-15-pagewise-v23-evaluation.md` §3.2).
+
+- **Report a problem** (`src/lib/report-issue.ts`, Settings → About). Opens a pre-filled GitHub issue with the version, the OS family and the interface language — never a document's name, path or text — and an issue template. Nothing is sent unless the reader submits it; no telemetry.
+- **The welcome screen says what works without AI**: reading, search and local OCR. It said "Connect AI, then open a document", which read as if nothing worked until a key was set.
+- **When to release** is written down (`docs/RELEASE.md`): data-loss fixes at once, everything else at most weekly, the major number only for a breaking change.
+- **The CSV says the chip's level** (`src/lib/answer-tables.ts`). Its level column ignored the model's review: a citation the model read as contradicted exported as "Verified", and one not found that the model read as supported as "Not found", where the chip said "not found" and "check". (From the review of 21.1, §1 #6.)
+- **A report export waits at most 4 s for its entries' checks** (`src/session/useWorkbench.ts`). 21.1.0 ran them first so the model's verdicts are filed against the page as it reads now; a scanned page not read yet is an OCR reading or two, and the export sat with nothing on screen. An entry whose check is still running files no verdict, as before 21.1. (§1 #9.)
+- **The AppImage stays as it is.** Its three identical 11 MB copies of librsvg looked like 22 MB to save; measured, squashfs already stores identical files once — the image is 94,228,480 bytes either way — so the item in the v23 evaluation is dropped.
+- Budget re-recorded: `copyKeys` **484 → 486** (the About row's label and action), `srcLines` **41,973 → 42,047**.
+
 ## [21.1.2] - 2026-10-15
 
 Fixes from the review of 21.1 (`docs/reviews/2026-10-15-pagewise-v23-evaluation.md` §1).
