@@ -163,11 +163,14 @@ export function tablesToCsv(path: string, markdown: string, labels: CsvLabels): 
       const statusOf = (c: Citation) =>
         withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote)?.status ?? "pending";
       const sources = citations.map((c) => {
-        const level = citationLevel(statusOf(c));
-        const said = labels.status[statusOf(c)];
         const review = c.quote
           ? cachedReview(path, claimBefore(markdown, c.index), c.quote, reviewBasis(cachedCitationCheck(path, c)))
           : null;
+        // The chip's level, review included (v23): the CSV said "verified"
+        // for a citation the model read as contradicted, and "not found" for
+        // one it read as supported, where the chip said otherwise.
+        const level = citationLevel(statusOf(c), review?.verdict);
+        const said = labels.status[statusOf(c)];
         const verdict = review ? ` · ${labels.review[review.verdict]}` : "";
         return level === "none"
           ? `${pagesOf(c)} ${said}${verdict}`

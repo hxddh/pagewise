@@ -1,5 +1,21 @@
 # Release guide
 
+## When to release (v23)
+
+From 17.0 to 21.1 a release went out with almost every merge — eleven on
+14–15 October alone — to a product with no updater and, on macOS, one
+`xattr` step per installed version. Anyone who installed was behind within
+the day. So:
+
+- **A fix that loses or corrupts the reader's data ships as a patch at once**
+  (21.0.1 is the example).
+- **Everything else collects on `main` and ships at most once a week**, as one
+  minor release, with one changelog section.
+- **The major number is for a change that breaks something a reader has**:
+  a store format an older build cannot read, a removed feature, a changed
+  file on disk. Not for "the next round of work". (v22 shipped as 21.1.x for
+  that reason; see the note at the top of `CHANGELOG.md`.)
+
 ## Version bump
 
 1. Edit [`VERSION`](../VERSION) (canonical semver, e.g. `0.2.1`)

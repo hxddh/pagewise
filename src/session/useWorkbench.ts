@@ -52,6 +52,9 @@ import { saveMarkdownFile } from "../lib/save-markdown";
 import type { LoadedDocument } from "../lib/types";
 import type { LoadProgress } from "../lib/load-progress";
 
+/** How long a report export waits for its entries' checks before it files what it has (v23). */
+const EXPORT_CHECK_WAIT_MS = 4000;
+
 export type AppPhase = "empty" | "switching" | "ready";
 
 export interface Workbench {
@@ -521,16 +524,22 @@ export function useWorkbench(): Workbench {
       const entries = trustedFindings(doc.path).filter((e) => e.trust !== "retracted");
       // The model's verdicts are filed against the passage each entry's check
       // finds now (22.0), so the checks run first; each is cached, so one an
-      // answer's chip already ran costs nothing.
-      await Promise.all(
-        entries.map(({ finding }) =>
-          finding.evidence.trim()
-            ? checkCitation(doc.path, doc.totalPages, { pages: finding.pages, quote: finding.evidence.trim() }).catch(
-                () => null,
-              )
-            : null,
+      // answer's chip already ran costs nothing. Waited for a few seconds at
+      // most (v23): a scanned page not read yet is an OCR reading or two, and
+      // the export sat there with nothing on screen. An entry whose check is
+      // still running files no verdict, as before 21.1.
+      await Promise.race([
+        Promise.all(
+          entries.map(({ finding }) =>
+            finding.evidence.trim()
+              ? checkCitation(doc.path, doc.totalPages, { pages: finding.pages, quote: finding.evidence.trim() }).catch(
+                  () => null,
+                )
+              : null,
+          ),
         ),
-      );
+        new Promise((resolve) => setTimeout(resolve, EXPORT_CHECK_WAIT_MS)),
+      ]);
       const parts: string[] = [];
       if (entries.length > 0) {
         parts.push(briefToMarkdown(doc, entries, locale === "zh-CN" ? BRIEF_LABELS_ZH : BRIEF_LABELS_EN).trimEnd());

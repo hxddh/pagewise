@@ -33,7 +33,7 @@
   },
   "welcome": {
     "title": "欢迎使用 PageWise",
-    "subtitle": "配置 AI 后打开文档，即可开始提问。",
+    "subtitle": "打开文档即可在本机阅读、搜索、识别扫描页；配置 AI 后可以就文档提问。",
     "apiHint": "配置 AI 后即可开始对话。",
     "toolsHint": "当前模型不支持助手工具调用，请换用支持工具的模型。",
     "subtitleReady": "打开文档即可提问，每个回答都注明出自哪一页。"
@@ -350,7 +350,9 @@
     "setupAdvanced": "高级",
     "setupNote": "模型会自动选择，之后可在设置中更改。",
     "setupModelHint": "除非你明确知道自己要用的模型，否则不用改。",
-    "customNeedsEndpoint": "Base URL 与模型 ID 都需要填写。"
+    "customNeedsEndpoint": "Base URL 与模型 ID 都需要填写。",
+    "reportProblem": "报告问题",
+    "reportProblemAction": "在 GitHub 上提交"
   },
   "commands": {
     "title": "命令面板",
