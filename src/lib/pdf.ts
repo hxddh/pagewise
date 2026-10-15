@@ -109,7 +109,6 @@ interface PaintResult {
 }
 
 const pageCache = new Map<string, PageRenderSnapshot>();
-const fitScaleCache = new Map<string, number>();
 /**
  * TextContent per page (scale-independent), LRU-bounded: dense pages run
  * 100KB+ each, so an unbounded cache browsing a large document accumulates
@@ -160,14 +159,39 @@ export function quantizeWidth(width: number): number {
   return Math.max(WIDTH_QUANTUM, Math.round(width / WIDTH_QUANTUM) * WIDTH_QUANTUM);
 }
 
+/**
+ * The cache key for one page's raster, at one scale.
+ *
+ * A fit-width key names the three things that decide what the bitmap looks
+ * like: the container width it was fitted into, the reserved margin, and the
+ * scale that came out. Until 20.0 it named only the first, which was wrong the
+ * moment the resolved scale changed while the container width did not — a
+ * landscape page measured mid-document, or the margin column opening (the page
+ * narrows, fit-width zooms out, the container stays the same). The stale
+ * bitmap was then painted back at its own inline pixel width (`applySnapshot`
+ * writes the size it was rendered at) and the slot's `overflow: hidden` cut
+ * off whatever no longer fitted.
+ *
+ * The scale is quantized in the same 32px steps the width is (one step ≈ the
+ * change a 32px width step makes to a ~1000px page), so a window resize still
+ * re-renders about as often as it always did, while any change that moves the
+ * page by a step or more — a column toggle is ~20% — misses the cache and
+ * re-renders at the right scale.
+ *
+ * A fixed zoom needs only the scale: it is the scale, and the reserve does not
+ * enter the arithmetic.
+ */
 export function buildScaleKey(
   zoom: "fit-width" | number,
   containerWidth: number,
   resolvedScale: number,
+  reservedWidth = 0,
 ): string {
+  if (zoom !== "fit-width") return `fixed:${resolvedScale.toFixed(4)}`;
   const qWidth = quantizeWidth(containerWidth);
-  if (zoom === "fit-width") return `fit:${qWidth}`;
-  return `fixed:${resolvedScale.toFixed(4)}`;
+  const qScale = quantizeWidth(resolvedScale * 1000);
+  const qReserve = Math.round(reservedWidth);
+  return `fit:${qWidth}:${qScale}:${qReserve}`;
 }
 
 function cacheKey(
@@ -973,7 +997,6 @@ export function clearPdfCache(): void {
   }
   pdfBytesCache.clear();
   pdfBytesCacheOrder.length = 0;
-  fitScaleCache.clear();
   textLayerCache.clear();
   for (const snap of pageCache.values()) snap.bitmap.close();
   pageCache.clear();

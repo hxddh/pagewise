@@ -433,6 +433,18 @@
   /* Wheel and trackpad scroll the document; nothing intercepts them to flip a
      page any more. */
   overscroll-behavior: contain;
+  /*
+   * The page's margins, as the scroller's own padding: fixed on the left, the
+   * margin column's reserve on the right (set inline by `PageScroller`).
+   *
+   * The right is a MOVEMENT (20.0): the column arrives as the panel leaves,
+   * both on the same transition, so the page never narrows for a column and
+   * then widens again as the panel finishes. The value is read back from the
+   * computed style for the fit, so the page follows it frame by frame.
+   */
+  padding-left: 24px;
+  padding-right: 24px;
+  transition: padding-right var(--transition);
 }
 
 .pdf-scroller-column {
@@ -451,6 +463,13 @@
  */
 .pdf-page-slot {
   position: absolute;
+  /*
+   * Centred in the scroller's content box, which excludes the two reserves:
+   * the left is fixed and the right is the margin column's, so a page fitted
+   * to the width lands exactly the left reserve from the left whether the
+   * column is there or not — toggling it moves nothing the reader is looking
+   * at.
+   */
   left: 50%;
   transform: translateX(-50%);
   background: #fff;
@@ -541,6 +560,71 @@
   opacity: 1;
   transform: scale(1.4);
 }
+
+/*
+ * The margin column (20.0). While the panel is closed the margin carries its
+ * entries' words — the sentences of answers that cite this page with the state
+ * of their evidence, the findings, the reader's own marks — so a short answer
+ * and its states sit beside the page and the panel does not have to open for
+ * the common case. The strip is as tall as the page and as wide as the margin
+ * it was given; each entry is pinned to the passage it is about, as a fraction
+ * of the page's height (`columnTops`), and clipped at the page's edge like the
+ * page itself.
+ */
+.page-gutter-column {
+  align-items: stretch;
+  gap: 0;
+  margin-left: 0;
+  overflow: hidden;
+}
+
+.gutter-note {
+  --note-ink: var(--border-strong);
+  position: absolute;
+  left: var(--space-md);
+  right: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--note-ink);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.gutter-note:hover {
+  background: var(--bg-hover);
+}
+
+/* The words: a sentence, a claim, a note — as much of it as three lines hold.
+   The full text is the card's title, and the panel holds the whole answer. */
+.gutter-note-text {
+  max-height: 4.05em;
+  overflow: hidden;
+}
+
+.gutter-note-state {
+  font-size: var(--text-xs);
+  color: var(--note-ink);
+}
+
+/* The three inks the margin already draws: the reader's highlighter, the
+   assistant's conclusions, and an answer's sentence in the colour of its
+   state — the same three levels as the chip in the panel. */
+.gutter-note-mark { --note-ink: var(--mark-highlight-strong); }
+.gutter-note-finding { --note-ink: var(--finding); }
+.gutter-note-verified { --note-ink: var(--finding-text); }
+.gutter-note-check { --note-ink: var(--warning); }
+.gutter-note-notFound { --note-ink: var(--danger); }
 
 /* The reading line (19.0): which page is being recognised, and the way to stop
    the pass. It only exists while a sweep is running. */

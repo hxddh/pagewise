@@ -6,6 +6,7 @@ import {
   pageAtScroll,
   PAGE_GAP,
   scrollShiftForRelayout,
+  scrollShiftForScale,
   visibleRange,
   type PageSize,
 } from "./page-layout";
@@ -206,15 +207,27 @@ describe("fitWidthScale", () => {
     // One landscape page mid-document must not reflow the column as the
     // reader passes it.
     const sizes = [A4, { width: 1000, height: 600 }, A4];
-    expect(fitWidthScale(sizes, 1020, 10)).toBeCloseTo(1);
+    expect(fitWidthScale(sizes, 1020, { left: 10, right: 10 })).toBeCloseTo(1);
   });
 
   it("ignores pages that have not been measured", () => {
-    expect(fitWidthScale([undefined, A4], 620, 10)).toBeCloseTo(1);
+    expect(fitWidthScale([undefined, A4], 620, { left: 10, right: 10 })).toBeCloseTo(1);
   });
 
   it("returns 1 when nothing is known", () => {
-    expect(fitWidthScale([], 800, 10)).toBe(1);
+    expect(fitWidthScale([], 800, { left: 10, right: 10 })).toBe(1);
+  });
+
+  it("reserves an asymmetric margin — the page keeps its left edge", () => {
+    // The margin column (20.0): 24px on the left, 240 on the right. A page
+    // fitted to the width fills what is left between them, so its left edge is
+    // the same 24px whether the column is there or not.
+    const sizes = [A4];
+    const withColumn = fitWidthScale(sizes, 1200, { left: 24, right: 240 });
+    const withDots = fitWidthScale(sizes, 1200, { left: 24, right: 24 });
+    expect(withColumn * A4.width).toBeCloseTo(1200 - 24 - 240);
+    expect(withDots * A4.width).toBeCloseTo(1200 - 24 - 24);
+    expect(withColumn).toBeLessThan(withDots);
   });
 });
 
@@ -267,5 +280,54 @@ describe("scrollShiftForRelayout", () => {
     // place" to hold, and guessing one would throw the reader somewhere random.
     expect(scrollShiftForRelayout(guessed, layoutPages([short], 4, 1, PAGE_GAP), 900, 600)).toBe(0);
     expect(scrollShiftForRelayout(layoutPages([], 0, 1), layoutPages([], 0, 1), 0, 600)).toBe(0);
+  });
+});
+
+/**
+ * Holding the reader's place when the column's scale changes (20.0).
+ *
+ * The margin column opening narrows the page, so fit-width zooms out; a
+ * landscape page measured mid-document does the same to every page at once;
+ * ⌘+ and ⌘- are the reader asking for it. Until 20.0 the scroller excluded
+ * scale changes from its anchoring and the page-sync effect jumped to the
+ * page's top — the reader lost the paragraph they were in. The correction is
+ * by ratio, so the same text stays under the same point of the viewport.
+ */
+describe("scrollShiftForScale", () => {
+  const sizes = Array.from({ length: 10 }, () => A4);
+  const before = layoutPages(sizes, 10, 1, PAGE_GAP);
+  // The column opening: the page narrows by ~20%, so every page grows by it.
+  const after = layoutPages(sizes, 10, 1.2, PAGE_GAP);
+
+  it("keeps the same page and the same fraction of the way down it", () => {
+    const scrollTop = before.tops[4]! + before.heights[4]! * 0.5;
+    const shift = scrollShiftForScale(before, after, scrollTop);
+    const landed = scrollTop + shift;
+    expect(landed).toBeGreaterThanOrEqual(after.tops[4]!);
+    expect(landed).toBeLessThan(after.tops[4]! + after.heights[4]!);
+    // Halfway down page 5 before, halfway down page 5 after.
+    expect((landed - after.tops[4]!) / after.heights[4]!).toBeCloseTo(0.5, 2);
+  });
+
+  it("does not drift the text more than a line", () => {
+    // The same place in the page means the text under the viewport top is the
+    // same text. Rounding the layout to whole pixels is the whole error.
+    for (const ratio of [0, 0.25, 0.5, 0.75]) {
+      const scrollTop = before.tops[6]! + before.heights[6]! * ratio;
+      const landed = scrollTop + scrollShiftForScale(before, after, scrollTop);
+      expect(Math.abs(landed - (after.tops[6]! + after.heights[6]! * ratio))).toBeLessThan(24);
+    }
+  });
+
+  it("never scrolls above the top of the document", () => {
+    // Shrinking (⌘-) near the top can demand a shift past the document's edge.
+    const smaller = layoutPages(sizes, 10, 0.5, PAGE_GAP);
+    const shift = scrollShiftForScale(before, smaller, 30);
+    expect(30 + shift).toBeGreaterThanOrEqual(0);
+  });
+
+  it("holds its peace when the two layouts are not comparable", () => {
+    expect(scrollShiftForScale(before, layoutPages(sizes, 4, 1.2, PAGE_GAP), 900)).toBe(0);
+    expect(scrollShiftForScale(before, before, 900)).toBe(0);
   });
 });

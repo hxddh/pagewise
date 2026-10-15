@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
 import { subscribeStoreUnreadable } from "./lib/store-health";
 import { useWorkbench } from "./session/useWorkbench";
@@ -28,7 +28,9 @@ import { useTheme } from "./hooks/useTheme";
 import { useWorkbenchPrefs } from "./hooks/useWorkbenchPrefs";
 import { openableRecentFiles } from "./lib/recent-files";
 import { getMarks, subscribeMarks } from "./lib/mark-store";
-import { citationsByPage } from "./lib/page-citations";
+import { citationsByPage, answerNotesByPage } from "./lib/page-citations";
+import { subscribeChecks, checksRevision } from "./lib/citation-check";
+import { subscribeReviews, reviewRevision } from "./lib/claim-review";
 import { SearchScopeProvider, focusMessageRow } from "./components/SearchScope";
 import { WorkspaceChromeProvider } from "./components/WorkspaceHeader";
 import type { RevealedCitation } from "./features/preview/CitationHighlight";
@@ -282,6 +284,20 @@ function AppContent() {
   // Which answers cite which page, for the page margin's indigo dots (19.0).
   const citedPages = useMemo(() => citationsByPage(agent.messages.list), [agent.messages.list]);
 
+  // The margin column's entries (20.0): every sentence of every answer that
+  // cites a page, with the state its evidence put it in. Recomputed when a
+  // check lands — the column has no chip of its own to re-render it — and when
+  // a model review lands, since a review can lower a sentence's state.
+  const checksRev = useSyncExternalStore(subscribeChecks, checksRevision);
+  const reviewsRev = useSyncExternalStore(subscribeReviews, reviewRevision);
+  const marginNotes = useMemo(
+    () => (doc ? answerNotesByPage(doc.path, agent.messages.list) : null),
+    // `checksRev` and `reviewsRev` are the subscription: they change exactly
+    // when a check or a review lands and a state could have moved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doc?.path, agent.messages.list, checksRev, reviewsRev],
+  );
+
   // The header's slot, and the chrome it draws (tabs + overflow actions).
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const workspaceChrome = useMemo(
@@ -473,6 +489,8 @@ function AppContent() {
                       onSelectMark={setSelectedMarkId}
                       revealedCitation={revealedCitation}
                       citations={citedPages}
+                      notes={marginNotes}
+                      marginColumn={!s.assistant.open}
                       onRevealMessage={gotoMessage}
                     />
                   </Suspense>

@@ -97,7 +97,36 @@ const tallyTotal = (tally.match(/\d+/g) ?? []).reduce((n, d) => n + Number(d), 0
 const chips = await p.$$eval(".message.assistant button.cite", (els) => els.length);
 
 /*
- * The reading surface (17.0), measured rather than asserted in a stylesheet:
+ * The margin column's width (20.0), measured rather than asserted in a
+ * stylesheet: with the panel closed the column reserves 240px of the page's
+ * right margin — the dock's 52px is part of that band — so the page is
+ * ≥1,090px at 1440; with the panel open the column is dots and reserves
+ * nothing, so the page is back under 1,000. Both states also check the
+ * bitmap: the canvas is exactly as wide as its slot, which is what a stale
+ * cache key (a bitmap rendered at another scale) breaks — `overflow: hidden`
+ * would cut the page instead of re-rendering it.
+ */
+const pageWidth = async () =>
+  p.evaluate(() => {
+    const slot = document.querySelector(".pdf-page-slot");
+    const canvas = slot?.querySelector("canvas");
+    return {
+      width: slot ? Math.round(slot.getBoundingClientRect().width) : 0,
+      canvasWidth: canvas ? Math.round(parseFloat(canvas.style.width)) : 0,
+    };
+  });
+await p.locator(".workspace-header-slot").getByRole("button", { name: /more actions/i }).click();
+await p.waitForTimeout(300);
+await p.getByRole("menuitem", { name: /hide assistant panel/i }).click();
+await p.waitForTimeout(1000);
+const pageClosed = await pageWidth();
+await p.locator(".workspace-header-slot").getByRole("button", { name: /more actions/i }).click();
+await p.waitForTimeout(300);
+await p.getByRole("menuitem", { name: /show assistant panel/i }).click();
+await p.waitForTimeout(1000);
+const pageOpen = await pageWidth();
+
+/* The reading surface (17.0), measured rather than asserted in a stylesheet:
  * how wide the answer's column opens, whether its headings step, whether a
  * table has rules, and whether the two labelled actions under an answer are
  * readable text. All four were defects found by measurement — 45 characters a
@@ -192,6 +221,9 @@ const results = {
   "settings: the assistant group is on the page": assistantGroup >= 1,
   "citations in at most three levels": chipLevels.filter((l) => l !== "cite-level-none").length <= 3,
   "the line counts 3 sentences, not 4 citations": tallyTotal === 3 && chips === 4,
+  "the margin column reserves width when the panel is closed: page ≥ 1090": pageClosed.width >= 1090,
+  "the column leaves no width when the panel is open: page < 1000": pageOpen.width < 1000,
+  "the bitmap matches its slot in both states": pageClosed.canvasWidth === pageClosed.width && pageOpen.canvasWidth === pageOpen.width,
   "reading column at least 420px": reading.columnWidth >= 420,
   "answer headings step by 1.2x the body": reading.bodySize > 0 && reading.h2Size / reading.bodySize >= 1.2,
   "answer tables are ruled": reading.cellPadding >= 6 && reading.cellRule >= 1,
@@ -199,7 +231,7 @@ const results = {
 };
 console.log(
   JSON.stringify(
-    { footerButtons, menuExports, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, tally, tallyTotal, chips, reading },
+    { footerButtons, menuExports, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, tally, tallyTotal, chips, pageClosed, pageOpen, reading },
     null,
     2,
   ),

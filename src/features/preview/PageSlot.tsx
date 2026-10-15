@@ -25,6 +25,11 @@ export interface PageSlotProps {
   hurried: boolean;
   /** Container width, which is what a fit-width scale key is keyed on. */
   containerWidth: number;
+  /**
+   * The margin the column reserves, which a fit-width key names as well: the
+   * scale it produced is what decides the bitmap's size.
+   */
+  reservedWidth: number;
   /** The zoom mode, for the same reason. */
   zoom: "fit-width" | number;
   /**
@@ -55,6 +60,7 @@ export const PageSlot = memo(function PageSlot({
   quality,
   hurried,
   containerWidth,
+  reservedWidth,
   zoom,
   renderOverlays,
 }: PageSlotProps) {
@@ -75,7 +81,7 @@ export const PageSlot = memo(function PageSlot({
     // shows nothing more. Scrolling fast is the same trade for a moment.
     const raster = isRasterHeavyPage(textLen) || hurried;
     const effective = effectiveRenderQuality(quality, raster);
-    const scaleKey = buildScaleKey(zoom, containerWidth, scale);
+    const scaleKey = buildScaleKey(zoom, containerWidth, scale, reservedWidth);
 
     void (async () => {
       const canvas = canvasRef.current;
@@ -112,7 +118,7 @@ export const PageSlot = memo(function PageSlot({
     return () => {
       cancelled = true;
     };
-  }, [path, page, scale, quality, hurried, zoom, containerWidth, textLen, t]);
+  }, [path, page, scale, quality, hurried, zoom, containerWidth, reservedWidth, textLen, t]);
 
   // The text layer is what makes a page selectable. It is skipped on pages with
   // no extracted text — there would be nothing in it — and while scrolling

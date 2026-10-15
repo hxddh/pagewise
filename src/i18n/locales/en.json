@@ -545,6 +545,7 @@
       "long": "Too short to check against the page"
     },
     "noMarker": {
+      "short": "not checked",
       "long": "Not checked: nothing in this sentence says where it came from"
     }
   },

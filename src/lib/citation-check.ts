@@ -95,6 +95,34 @@ const transient = new Set<string>();
 const readWithoutOcr = new Set<string>();
 const pending = new Map<string, Promise<CitationCheck>>();
 
+/**
+ * Told when a check lands (20.0), so a reader can re-read what it says.
+ *
+ * The chips each own their own result, but the margin column draws a
+ * *sentence's* state — several checks at once — and has no chip to re-render
+ * it. The same shape `claim-review.ts` uses for the model's verdicts: a
+ * revision the subscribers watch, bumped whenever a result is stored or
+ * cleared.
+ */
+const listeners = new Set<() => void>();
+let revision = 0;
+
+export function subscribeChecks(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function checksRevision(): number {
+  return revision;
+}
+
+function notifyChecks(): void {
+  revision += 1;
+  for (const listener of [...listeners]) listener();
+}
+
 function key(path: string, c: Pick<Citation, "pages" | "quote">): string {
   return `${path}\n${citationKey(c)}`;
 }
@@ -106,6 +134,7 @@ export function clearCitationChecks(path?: string): void {
     pending.clear();
     transient.clear();
     readWithoutOcr.clear();
+    notifyChecks();
     return;
   }
   const prefix = `${path}\n`;
@@ -113,6 +142,7 @@ export function clearCitationChecks(path?: string): void {
   for (const k of [...transient]) if (k.startsWith(prefix)) transient.delete(k);
   for (const k of [...readWithoutOcr]) if (k.startsWith(prefix)) readWithoutOcr.delete(k);
   for (const k of [...pending.keys()]) if (k.startsWith(prefix)) pending.delete(k);
+  notifyChecks();
 }
 
 /** The check already worked out for this citation, or null if nobody has asked yet. */
@@ -147,6 +177,9 @@ export function checkCitation(
       else transient.delete(k);
       if (emptyPage && !ocrEnabled()) readWithoutOcr.add(k);
       else readWithoutOcr.delete(k);
+      // The margin column draws whole sentences, several checks at once, and
+      // has no chip to re-render it (20.0).
+      notifyChecks();
     }
     return check;
   });

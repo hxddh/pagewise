@@ -89,7 +89,11 @@ export const TRUST_TEXT: Record<TrustReason, TrustText> = {
   retracted: { level: "notFound", long: "trust.retracted.long" },
   unchecked: { level: "none", short: "trust.unchecked.short", long: "trust.unchecked.long" },
   tooShort: { level: "none", short: "trust.tooShort.short", long: "trust.tooShort.long" },
-  noMarker: { level: "none", long: "trust.noMarker.long" },
+  noMarker: {
+    level: "none",
+    short: "trust.noMarker.short",
+    long: "trust.noMarker.long",
+  },
   outOfRange: { level: "notFound", short: "trust.outOfRange.short", long: "trust.outOfRange.long" },
   pending: { level: "none", short: "trust.pending.short", long: "trust.pending.long" },
 };
@@ -99,9 +103,9 @@ export function longKey(reason: TrustReason): string {
   return TRUST_TEXT[reason].long;
 }
 
-/** The one-line label of a citation's check, for the CSV's "Checked" column. */
-export function shortKey(status: CitationReason): string {
-  return TRUST_TEXT[status].short ?? TRUST_TEXT[status].long;
+/** The one-line label of a check or a sentence's state, for a chip or a card. */
+export function shortKey(reason: TrustReason): string {
+  return TRUST_TEXT[reason].short ?? TRUST_TEXT[reason].long;
 }
 
 /** A trust as the exported brief files it. */

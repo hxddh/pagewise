@@ -96,7 +96,7 @@ async function frame() {
 }
 
 /** The scroller as the app wires it: it reports the page, and is told it back. */
-function Controlled({ totalPages }: { totalPages: number }) {
+function Controlled({ totalPages, marginColumn }: { totalPages: number; marginColumn?: boolean }) {
   const [page, setPage] = useState(1);
   return (
     <PageScroller
@@ -105,6 +105,7 @@ function Controlled({ totalPages }: { totalPages: number }) {
       onPageChange={setPage}
       zoom="fit-width"
       quality="crisp"
+      marginColumn={marginColumn}
     />
   );
 }
@@ -319,5 +320,68 @@ describe("PageScroller", () => {
     expect(scroller.scrollTop).toBeGreaterThan(0);
     // Scrolling itself to a page must not echo back as the reader navigating.
     expect(onPageChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("scale changes (20.0)", () => {
+  it("keeps the page, and the reader's place in it, when the margin column opens", async () => {
+    // The column opening narrows the page, so fit-width zooms out — every page
+    // grows, and the text under the reader moves unless the scroll moves with
+    // it. Until 20.0 the scroller excluded scale changes from its anchoring and
+    // the page-sync effect jumped to the page's top: mid-sentence, the reader
+    // lost their place. The fix anchors by ratio — same page, same fraction of
+    // the way down it — so the drift is the layout's rounding.
+    const { container, rerender } = render(<Controlled totalPages={40} />);
+    const scroller = container.querySelector(".pdf-scroller")! as HTMLDivElement;
+    await waitFor(() => expect(mountedPages(container).length).toBeGreaterThan(0));
+
+    // 300px into page 5 rather than at its top: at a page top the old
+    // jump-to-page-top behaviour lands in the right place on its own, and a
+    // test written there passes whether the anchoring works or not.
+    const pageStride = Math.round((792 * (VIEWPORT_W - 48)) / 612) + 16;
+    scrollTo(scroller, pageStride * 4 + 300);
+    await frame();
+    await waitFor(() => expect(mountedPages(container)).toContain(5));
+
+    const slot = () => container.querySelector('.pdf-page-slot[data-page="5"]') as HTMLElement;
+    const top = () => parseFloat(slot().style.top);
+    const height = () => parseFloat(slot().style.height);
+    const before = { top: top(), height: height(), scroll: scroller.scrollTop };
+    const ratio = (before.scroll - before.top) / before.height;
+
+    rerender(<Controlled totalPages={40} marginColumn />);
+    await waitFor(() => expect(height()).not.toBe(before.height));
+
+    // The same fraction of the same page, and the text therefore within a line
+    // of where it was.
+    const after = { top: top(), height: height(), scroll: scroller.scrollTop };
+    expect((after.scroll - after.top) / after.height).toBeCloseTo(ratio, 2);
+    expect(Math.abs(after.scroll - (after.top + ratio * after.height))).toBeLessThan(24);
+    // And the page under the reader is still the page they were reading.
+    await waitFor(() => expect(mountedPages(container)).toContain(5));
+  });
+
+  it("keeps the reader's place when the column closes again", async () => {
+    const { container, rerender } = render(<Controlled totalPages={40} marginColumn />);
+    const scroller = container.querySelector(".pdf-scroller")! as HTMLDivElement;
+    await waitFor(() => expect(mountedPages(container).length).toBeGreaterThan(0));
+
+    const pageStride = Math.round((792 * (VIEWPORT_W - 24 - 188)) / 612) + 16;
+    scrollTo(scroller, pageStride * 6 + 200);
+    await frame();
+    await waitFor(() => expect(mountedPages(container)).toContain(7));
+
+    const slot = () => container.querySelector('.pdf-page-slot[data-page="7"]') as HTMLElement;
+    const top = () => parseFloat(slot().style.top);
+    const height = () => parseFloat(slot().style.height);
+    const before = { top: top(), height: height(), scroll: scroller.scrollTop };
+    const ratio = (before.scroll - before.top) / before.height;
+
+    rerender(<Controlled totalPages={40} />);
+    await waitFor(() => expect(height()).not.toBe(before.height));
+
+    const after = { top: top(), height: height(), scroll: scroller.scrollTop };
+    expect((after.scroll - after.top) / after.height).toBeCloseTo(ratio, 2);
+    expect(Math.abs(after.scroll - (after.top + ratio * after.height))).toBeLessThan(24);
   });
 });

@@ -10,11 +10,40 @@ import {
   pageAtScroll,
   PAGE_GAP,
   scrollShiftForRelayout,
+  scrollShiftForScale,
   visibleRange,
   type PageSize,
 } from "./page-layout";
 
-const SIDE_PADDING = 24;
+const PAD_LEFT = 24;
+/**
+ * The margin the page keeps on its right when the column is showing dots
+ * (panel open) — the strip the dots sit in.
+ */
+const DOT_PADDING = 24;
+/**
+ * The margin column's width when the panel is closed (20.0).
+ *
+ * The column is where a short answer, its sentence states, a finding and the
+ * reader's own marks sit beside the page — so the panel does not have to open
+ * for the common case. It is reserved only while the panel is closed: with the
+ * panel open the reader has already bought those answers, and a column would
+ * spend a quarter of the page's width on something already on screen.
+ */
+const MARGIN_COLUMN = 240;
+/**
+ * The collapsed panel's handle, which sits at the window's right edge and is
+ * part of the column's band. `.agent-dock`'s width in `02-shell-layout.css`.
+ */
+const AGENT_DOCK_WIDTH = 52;
+/**
+ * The scroller's right padding while the column is showing: the band less the
+ * dock that occupies its right edge. The padding is the scroller's own, set
+ * inline and transitioned (`preview.css`), so the column arrives as the panel
+ * leaves — one movement, not a page that first narrows for a column and then
+ * grows as the panel finishes leaving.
+ */
+const COLUMN_PADDING = MARGIN_COLUMN - AGENT_DOCK_WIDTH;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 /** Below this, a scroll is treated as reading rather than seeking. */
@@ -30,6 +59,14 @@ interface PageScrollerProps {
   onPageChange: (page: number) => void;
   zoom: "fit-width" | number;
   quality: PreviewQuality;
+  /**
+   * True while the panel is closed and the margin column is showing.
+   *
+   * The column reserves width then, and only then (20.0): the page narrows and
+   * fit-width zooms out so the notes fit beside it, while with the panel open
+   * the margin collapses back to its dots.
+   */
+  marginColumn?: boolean;
   /** Rendered inside each page, positioned against that page. */
   renderOverlays?: (page: number, state: { textLayerActive: boolean }) => React.ReactNode;
   /**
@@ -60,6 +97,7 @@ export function PageScroller({
   onPageChange,
   zoom,
   quality,
+  marginColumn = false,
   renderOverlays,
   renderGutter,
   containerRef,
@@ -69,6 +107,10 @@ export function PageScroller({
   const [containerWidth, setContainerWidth] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  // The scroller's right padding, read back from the computed style: it is
+  // what the margin column reserves, and it is transitioned, so the value
+  // mid-animation is the one the fit has to use.
+  const [padRight, setPadRight] = useState(DOT_PADDING);
   const [hurried, setHurried] = useState(false);
 
   const nodeRef = useRef<HTMLDivElement | null>(null);
@@ -96,11 +138,15 @@ export function PageScroller({
   // page mid-document narrows the column once. Measuring every page up front to
   // avoid that costs an unbounded chain of `getPage` on every open, for pages
   // most readers never reach — the one reflow is the cheaper of the two.
+  //
+  // The right padding is what the margin column reserves; the scroller carries
+  // it as its own padding, so the page is laid out in what is left between the
+  // two reserves and keeps its left edge whether the column is there or not.
   const scale = useMemo(() => {
     if (zoom !== "fit-width") return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
     if (containerWidth <= 0) return 1;
-    return fitWidthScale(sizes, containerWidth, SIDE_PADDING);
-  }, [zoom, sizes, containerWidth]);
+    return fitWidthScale(sizes, containerWidth, { left: PAD_LEFT, right: padRight });
+  }, [zoom, sizes, containerWidth, padRight]);
 
   const layout = useMemo(
     () => layoutPages(sizes, pageCount, scale, PAGE_GAP),
@@ -153,17 +199,32 @@ export function PageScroller({
     };
   }, [doc.path, pageCount, first, last]);
 
+  // The scroller's own geometry, read back from the node: the padding is the
+  // column's reserve and it is transitioned, so the value mid-animation is the
+  // one the fit has to use — the ResizeObserver fires on content-box changes,
+  // which is exactly what an animating padding produces.
+  const readLayout = useCallback(() => {
+    const node = nodeRef.current;
+    if (!node) return;
+    setContainerWidth(node.clientWidth);
+    setViewportHeight(node.clientHeight);
+    setPadRight(parseFloat(getComputedStyle(node).paddingRight) || 0);
+  }, []);
+
+  // Re-read when the reserve is told to change as well: in a browser the
+  // transition is only starting here (the observer follows it), but without a
+  // layout engine the inline padding is the whole truth.
+  useEffect(() => {
+    readLayout();
+  }, [readLayout, marginColumn]);
+
   const bind = useCallback(
     (node: HTMLDivElement | null) => {
       nodeRef.current = node;
       containerRef?.(node);
       if (!node) return;
-      setContainerWidth(node.clientWidth);
-      setViewportHeight(node.clientHeight);
-      const ro = new ResizeObserver(() => {
-        setContainerWidth(node.clientWidth);
-        setViewportHeight(node.clientHeight);
-      });
+      readLayout();
+      const ro = new ResizeObserver(readLayout);
       ro.observe(node);
       // React 19 calls this cleanup instead of re-invoking the ref with null,
       // so anything holding the node has to be told here or it keeps pointing
@@ -174,7 +235,7 @@ export function PageScroller({
         containerRef?.(null);
       };
     },
-    [containerRef],
+    [containerRef, readLayout],
   );
 
   // Hold the reader's place when the column reflows under them.
@@ -185,14 +246,44 @@ export function PageScroller({
   // before the page-sync effect below so that effect sees the corrected scroll
   // and has nothing left to do.
   //
-  // A scale change is excluded: zoom is meant to re-anchor to the page, and the
-  // effect below already does that.
+  // A scale change is anchored by ratio rather than by page top (20.0): the
+  // margin column opening, a landscape page being measured, a zoom. The reader
+  // stays on the same page, the same fraction of the way down it, instead of
+  // being thrown back to the page's top.
   const relayoutRef = useRef({ layout, scale });
+  // Set when a scale change re-anchored the reader: the page under them was
+  // re-derived there, and the page-sync effect must not read the app's page
+  // from before the change and jump back to its top.
+  const scaleAnchoredRef = useRef(false);
+  // The latest `onPageChange`, so the anchor effect can report a page that
+  // changed under the reader without re-running on every parent render.
+  const onPageChangeRef = useRef(onPageChange);
+  onPageChangeRef.current = onPageChange;
   useLayoutEffect(() => {
     const node = nodeRef.current;
     const prev = relayoutRef.current;
     relayoutRef.current = { layout, scale };
-    if (!node || prev.scale !== scale) return;
+    if (!node) return;
+    if (prev.scale !== scale) {
+      const shift = scrollShiftForScale(prev.layout, layout, node.scrollTop);
+      if (shift !== 0) {
+        selfScrollRef.current = true;
+        node.scrollTop += shift;
+        setScrollTop(node.scrollTop);
+        requestAnimationFrame(() => {
+          selfScrollRef.current = false;
+        });
+      }
+      const next = pageAtScroll(layout, node.scrollTop, node.clientHeight);
+      if (next !== pageRef.current) {
+        onPageChangeRef.current(next);
+        // The page under the reader changed with the scale; the app is about
+        // to hear about it. This commit's `page` predates the change, so the
+        // page-sync effect must not read it and jump back to that page's top.
+        scaleAnchoredRef.current = true;
+      }
+      return;
+    }
     const shift = scrollShiftForRelayout(prev.layout, layout, node.scrollTop, node.clientHeight);
     if (shift === 0) return;
     selfScrollRef.current = true;
@@ -208,6 +299,12 @@ export function PageScroller({
   // change, or the two would fight.
   useLayoutEffect(() => {
     const node = nodeRef.current;
+    if (scaleAnchoredRef.current) {
+      // The scale change above has just re-derived the page under the reader;
+      // this commit's `page` predates it.
+      scaleAnchoredRef.current = false;
+      return;
+    }
     if (!node || layout.tops.length === 0) return;
     const current = pageAtScroll(layout, node.scrollTop, node.clientHeight);
     if (current === page) return;
@@ -270,19 +367,24 @@ export function PageScroller({
         quality={quality}
         hurried={hurried}
         containerWidth={containerWidth}
+        reservedWidth={padRight}
         zoom={zoom}
         renderOverlays={renderOverlays}
       />,
     );
     if (renderGutter) {
       // The same numbers the slot above was placed with: the page is centred
-      // in the column, so its outer edge is half the column plus half the page.
+      // in the scroller's content box, so its outer edge is half the column
+      // plus half the page. The strip's width is the settled reserve, not the
+      // animating one: the cards keep their size and slide in with the column
+      // rather than re-wrapping word by word as it arrives.
       gutters.push(
         <div key={`gutter-${p}`} className="page-gutter-slot">
           {renderGutter(p, {
             top: layout.tops[i] ?? 0,
             left: `calc(50% + ${Math.round((layout.widths[i] ?? 0) / 2)}px)`,
             height: layout.heights[i] ?? 0,
+            width: marginColumn ? COLUMN_PADDING : DOT_PADDING,
           })}
         </div>,
       );
@@ -290,11 +392,20 @@ export function PageScroller({
   }
 
   return (
-    <div ref={bind} className="pdf-scroller preview-focusable" onScroll={onScroll} tabIndex={0}>
-      <div
-        className="pdf-scroller-column"
-        style={{ height: layout.total, minWidth: widest + SIDE_PADDING * 2 }}
-      >
+    <div
+      ref={bind}
+      className="pdf-scroller preview-focusable"
+      onScroll={onScroll}
+      tabIndex={0}
+      // The column's reserve, as the scroller's own padding: the page is laid
+      // out in what is left, and the padding is transitioned (preview.css) so
+      // the column arrives as the panel leaves.
+      style={{
+        paddingLeft: PAD_LEFT,
+        paddingRight: marginColumn ? COLUMN_PADDING : DOT_PADDING,
+      }}
+    >
+      <div className="pdf-scroller-column" style={{ height: layout.total, minWidth: widest }}>
         {slots}
         {gutters}
       </div>

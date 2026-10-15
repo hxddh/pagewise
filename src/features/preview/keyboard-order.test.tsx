@@ -152,9 +152,11 @@ describe("the keyboard's walk through the page margin", () => {
       <PageGutter
         path={PATH}
         page={2}
-        box={{ top: 0, left: "calc(50% + 300px)", height: 792 }}
+        box={{ top: 0, left: "calc(50% + 300px)", height: 792, width: 24 }}
         revision={1}
+        column={false}
         citations={citations}
+        totalPages={3}
         onSelectMark={() => {}}
         onSelectFinding={() => {}}
         onRevealMessage={() => {}}

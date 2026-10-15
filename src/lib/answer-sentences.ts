@@ -94,6 +94,12 @@ export interface SentenceRow {
   /** The marker status that decided the state; `noMarker` when the sentence has none. */
   reason: SentenceReason;
   /**
+   * For a `mismatch`: the numbers the sentence states that the passage around
+   * its quote does not, as written. What the chip's title and the margin
+   * column's card name when they say "found, but a number differs".
+   */
+  unstated?: string[];
+  /**
    * For a sentence with no marker: whether every number it states is stated in
    * the text the answer's located citations rest on. Always false otherwise.
    */
@@ -341,7 +347,7 @@ export function sentenceStates(path: string, markdown: string): SentenceRow[] {
       };
     }
     const levels: TrustLevel[] = [];
-    let worst: { reason: SentenceReason; level: TrustLevel } | null = null;
+    let worst: { reason: SentenceReason; level: TrustLevel; unstated?: string[] } | null = null;
     let checking = false;
     for (const c of sentence.citations) {
       const claim = claimBefore(markdown, c.index);
@@ -351,12 +357,15 @@ export function sentenceStates(path: string, markdown: string): SentenceRow[] {
       if (!check) checking = true;
       const level = citationLevel(reason, review?.verdict);
       levels.push(level);
-      if (!worst || SEVERITY[level] > SEVERITY[worst.level]) worst = { reason, level };
+      if (!worst || SEVERITY[level] > SEVERITY[worst.level]) {
+        worst = { reason, level, unstated: check?.unstated };
+      }
     }
     return {
       sentence,
       state: sentenceState(levels, checking),
       reason: worst!.reason,
+      ...(worst!.unstated ? { unstated: worst!.unstated } : {}),
       numbersInEvidence: false,
     };
   });

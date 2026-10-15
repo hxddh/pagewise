@@ -44,7 +44,7 @@ import { OutlineSidebar } from "../../components/OutlineSidebar";
 import { usableOutline } from "../../lib/outline-nav";
 import { DocumentSearch } from "../../components/DocumentSearch";
 import { Tabs } from "../../components/ui/Tabs";
-import type { PageCitation } from "../../lib/page-citations";
+import type { AnswerNote, PageCitation } from "../../lib/page-citations";
 
 /** How long the page has to stay put before it counts as being read. */
 const INDEX_SETTLE_MS = 500;
@@ -66,8 +66,16 @@ interface PreviewPaneProps {
   revealedCitation?: RevealedCitation | null;
   /** Answers citing each page, for the margin's indigo dots. */
   citations?: Map<number, PageCitation[]> | null;
+  /** Answers' sentences citing each page, with their states, for the column. */
+  notes?: Map<number, AnswerNote[]> | null;
   /** Bring the answer that cited a page back in front of the reader. */
   onRevealMessage?: (messageId: string) => void;
+  /**
+   * True while the panel is closed: the margin is then the column (20.0) and
+   * reserves its width, so a short answer and its states sit beside the page
+   * without the panel having to open.
+   */
+  marginColumn?: boolean;
 }
 
 function PreviewPaneInner({
@@ -83,7 +91,9 @@ function PreviewPaneInner({
   onSelectMark,
   revealedCitation = null,
   citations = null,
+  notes = null,
   onRevealMessage,
+  marginColumn = false,
 }: PreviewPaneProps) {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -414,8 +424,9 @@ function PreviewPaneInner({
   );
 
   // The margin, one strip per mounted page. Its dots are the three things the
-  // page carries beyond its own text: what the reader marked, what the
-  // assistant concluded, and which answers talked about it.
+  // page carries beyond its own text — what the reader marked, what the
+  // assistant concluded, and which answers talked about it. While the panel is
+  // closed the strip is the column (20.0) and the entries carry their words.
   const renderGutter = useCallback(
     (slotPage: number, box: PageMarginBox) => (
       <PageGutter
@@ -423,7 +434,10 @@ function PreviewPaneInner({
         page={slotPage}
         box={box}
         revision={markRevision}
+        column={marginColumn}
         citations={citations}
+        notes={notes}
+        totalPages={totalPages}
         onSelectMark={(target, id) => {
           onPageChange(target);
           onSelectMark?.(id);
@@ -435,7 +449,18 @@ function PreviewPaneInner({
         onRevealMessage={onRevealMessage}
       />
     ),
-    [doc.path, markRevision, citations, onPageChange, onSelectMark, onSelectFinding, onRevealMessage],
+    [
+      doc.path,
+      markRevision,
+      marginColumn,
+      citations,
+      notes,
+      totalPages,
+      onPageChange,
+      onSelectMark,
+      onSelectFinding,
+      onRevealMessage,
+    ],
   );
 
   const canvasBody = (
@@ -471,6 +496,7 @@ function PreviewPaneInner({
           onPageChange={onPageChange}
           zoom={viewer.zoom}
           quality={viewer.quality}
+          marginColumn={marginColumn}
           containerRef={bindScroller}
           renderOverlays={renderOverlays}
           renderGutter={renderGutter}

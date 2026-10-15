@@ -219,17 +219,91 @@ export function offsetForPage(layout: PageLayout, page: number, gap: number = PA
 }
 
 /**
+ * The index of the page whose top edge the reader is looking at.
+ *
+ * Not `pageAtScroll`: that answers "which page is the reader on" — the one
+ * covering most of the viewport, or one that fits entirely — and at a page
+ * boundary the two disagree. Anchoring has to use the page the text under the
+ * viewport actually belongs to, or the ratio is measured against the wrong
+ * page and the correction lands the reader somewhere else.
+ */
+function pageIndexAtScroll(layout: PageLayout, scrollTop: number): number {
+  let found = 0;
+  for (let i = 0; i < layout.tops.length; i++) {
+    if (layout.tops[i]! > scrollTop) break;
+    found = i;
+  }
+  return found;
+}
+
+/**
+ * How far the scroll has to move to keep the reader on the same page, at the
+ * same place within it, when the column's scale changes.
+ *
+ * A scale change is not a reflow of the pages but of everything at once: the
+ * margin column opening (the page narrows, so fit-width zooms out), a
+ * landscape page being measured mid-document, the reader pressing ⌘+ or ⌘-.
+ * Until 20.0 the scroller simply excluded these from its anchoring and let the
+ * page-sync effect jump to the page's top, which on a zoom or a panel toggle
+ * threw away the reader's place in the page.
+ *
+ * The correction is by ratio, not by pixels: at a larger scale the same
+ * paragraph is the same fraction of the way down a taller page, not the same
+ * number of pixels. The fraction is measured against the page under the top of
+ * the viewport (not the page the toolbar names — at a boundary those differ),
+ * and moving the scroll by exactly the distance between the two positions
+ * leaves the text the reader is reading where it was, to within the layout's
+ * rounding.
+ *
+ * Returns 0 when the two layouts are not comparable (a different document),
+ * because then there is no "same place" to hold.
+ */
+export function scrollShiftForScale(
+  prev: PageLayout,
+  next: PageLayout,
+  scrollTop: number,
+): number {
+  if (prev === next) return 0;
+  if (prev.tops.length !== next.tops.length || prev.tops.length === 0) return 0;
+  const i = pageIndexAtScroll(prev, scrollTop);
+  const beforeTop = prev.tops[i];
+  const afterTop = next.tops[i];
+  if (beforeTop === undefined || afterTop === undefined) return 0;
+  const beforeHeight = Math.max(1, prev.heights[i] ?? 1);
+  const afterHeight = Math.max(1, next.heights[i] ?? 1);
+  // The offset is not clamped to the page: at the very top of the document the
+  // reader is in the gap above page 1, and a ratio of 0 there would scroll them
+  // down to the page's top. The scale ratio maps that offset like any other, and
+  // the guard below keeps a stale position (the column shrank under it) from
+  // throwing the reader more than a page away.
+  const ratio = Math.min(2, Math.max(-1, (scrollTop - beforeTop) / beforeHeight));
+  const target = afterTop + ratio * afterHeight;
+  // Never scroll above the top of the document to honour a shift, and never
+  // move for less than a pixel: the layout is whole pixels, and a correction
+  // smaller than one cannot change what is on screen — while treating it as a
+  // movement would suppress the reader's own scroll for that frame.
+  const shift = Math.max(-scrollTop, target - scrollTop);
+  return Math.abs(shift) < 1 ? 0 : shift;
+}
+
+/**
  * Scale that fits the widest known page into `containerWidth`.
  *
  * The widest rather than the current one: a landscape page mid-document must
  * not force the column to reflow every page around it as the reader passes.
+ *
+ * The padding is asymmetric since 20.0: the left is the usual page margin, the
+ * right is whatever the margin column reserves (240px while the panel is
+ * closed, a dot's width while it is open). The page keeps its left edge either
+ * way — the column takes its width out of the right, so toggling the column
+ * moves nothing the reader is looking at.
  */
 export function fitWidthScale(
   sizes: ReadonlyArray<PageSize | undefined>,
   containerWidth: number,
-  padding: number,
+  padding: { left: number; right: number },
 ): number {
-  const usable = Math.max(1, containerWidth - padding * 2);
+  const usable = Math.max(1, containerWidth - padding.left - padding.right);
   let widest = 0;
   for (const size of sizes) {
     if (size && size.width > widest) widest = size.width;

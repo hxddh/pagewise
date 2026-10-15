@@ -36,7 +36,7 @@ vi.mock("../../i18n", () => ({ useI18n: () => ({ t: (k: string) => k }) }));
 
 const { PageGutter } = await import("./PageGutter");
 
-const box = { top: 24, left: "calc(50% + 306px)", height: 792 };
+const box = { top: 24, left: "calc(50% + 306px)", height: 792, width: 24 };
 
 function renderGutter(handlers: Partial<Parameters<typeof PageGutter>[0]> = {}) {
   return render(
@@ -45,7 +45,9 @@ function renderGutter(handlers: Partial<Parameters<typeof PageGutter>[0]> = {}) 
       page={2}
       box={box}
       revision={1}
+      column={false}
       citations={citations}
+      totalPages={3}
       onSelectMark={() => {}}
       onSelectFinding={() => {}}
       onRevealMessage={() => {}}
