@@ -155,14 +155,18 @@ export const PageSlot = memo(function PageSlot({
       data-page={page}
       aria-label={t("preview.pageHit", { page })}
     >
-      <canvas ref={canvasRef} className="preview-canvas" />
-      <div
-        ref={textLayerRef}
-        className={`pdf-text-layer${textLayerActive ? " pdf-text-layer-active" : ""}`}
-        aria-hidden={!textLayerActive}
-      />
-      {renderOverlays?.(page, { textLayerActive })}
-      {error && <div className="pdf-page-error">{error}</div>}
+      {/* The page clips its own content, not its number (22.0): the number
+          sits in the gap below the page, and a clipping slot hid it. */}
+      <div className="pdf-page-clip">
+        <canvas ref={canvasRef} className="preview-canvas" />
+        <div
+          ref={textLayerRef}
+          className={`pdf-text-layer${textLayerActive ? " pdf-text-layer-active" : ""}`}
+          aria-hidden={!textLayerActive}
+        />
+        {renderOverlays?.(page, { textLayerActive })}
+        {error && <div className="pdf-page-error">{error}</div>}
+      </div>
       <span className="pdf-page-number" aria-hidden>
         {page}
       </span>

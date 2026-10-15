@@ -40,6 +40,20 @@
  *                   would measure the harness. The bounded caches in
  *                   src/lib/pdf.ts (128MB of bitmaps, three documents of
  *                   bytes) still get exercised by the scroll scenarios.
+ *   idle          — main-thread work per second with the document open and
+ *                   nothing happening, read from the DevTools protocol's
+ *                   TaskDuration (22.0), with the probe's own frame recorder
+ *                   stopped.
+ *   geometry      — `getPageGeometry` calls per mounted page once the open
+ *                   settles: each overlay layer asks on its own (22.0).
+ *   flingRasters  — pages rasterized from the end of a fling to the settle:
+ *                   the end of "hurry" re-renders what was drawn rough, and
+ *                   the question is whether it re-renders more (22.0).
+ *   outline       — a 1,000-entry outline (the Rust cap on a synthesized
+ *                   one): time to the first row, rows mounted, long tasks.
+ *   bm25          — `rankPages` over 500 pages, in Node: the first call builds
+ *                   the index (what each newly indexed page costs the next
+ *                   search), the second reads it.
  *
  * It does NOT measure WebKitGTK, WebView2 or a real window: Chromium here,
  * a mocked Tauri shell (scripts/ui-harness/tauri-mock.mjs), no Rust. The model
@@ -100,6 +114,29 @@ const BUDGETS = {
   // (the failure mode: a text layer that waits forever) fails the gate.
   largeFileFirstTextLayerMs: 40_000,
   heapAfterAnswerMb: 120,
+  // 22.0's measurements, each recorded first (docs/reviews/2026-10-15-pagewise
+  // -v22-evaluation.md §3.3 item 12) and given the same room. None was over
+  // what it is compared with, so none was "fixed".
+  //
+  // Measured 2.3ms/s with the recorder stopped: nothing polls or animates
+  // while a document sits open. A spinner or an interval left running is
+  // tens of ms/s.
+  idleCpuMsPerS: 8,
+  // 1.5 with one overlay (a link) on every page: 3 calls for 2 mounted pages.
+  // Each layer with something to draw asks once; a layer asking per render
+  // is the regression.
+  geometryPerPageMax: 3,
+  // 1.0: the end of "hurry" re-renders each mounted page once, at full
+  // quality — the pages it drew rough. Twice is the waste the 20.0 review
+  // feared and the effect deps would allow.
+  flingRastersPerSlotMax: 2,
+  // 1,000 rows mounted, not windowed: 243–337ms to the first row and one
+  // long task (186ms). Under the thumbnails' 600ms, so windowing waits.
+  outlineFirstRowMs: 900,
+  outlineLongTasks: 2,
+  // 130–157ms to build the index over 500 pages; 1.4ms to read it. Every
+  // newly indexed page makes the next agent search build it again.
+  bm25BuildMs: 450,
 };
 
 // ---------------------------------------------------------------- fixtures
@@ -277,8 +314,20 @@ async function installProbes(page) {
   await page.evaluate(() => {
     window.__perf = { frames: [], long: [] };
     const tick = (t) => {
+      if (window.__perf.paused) {
+        window.__perf.ticking = false;
+        return;
+      }
       window.__perf.frames.push(t);
       requestAnimationFrame(tick);
+    };
+    window.__perf.ticking = true;
+    window.__perf.resume = () => {
+      window.__perf.paused = false;
+      if (!window.__perf.ticking) {
+        window.__perf.ticking = true;
+        requestAnimationFrame(tick);
+      }
     };
     requestAnimationFrame(tick);
     try {
@@ -313,6 +362,11 @@ async function state(page) {
     heapMb: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
     scrollTop: Math.round(document.querySelector(".pdf-scroller")?.scrollTop ?? -1),
   }));
+}
+
+/** The app's own counts (`src/lib/perf-counters.ts`). */
+async function counters(page) {
+  return page.evaluate(() => ({ raster: 0, geometry: 0, ...(globalThis.__pagewiseCounters ?? {}) }));
 }
 
 /** Open the mocked document and wait for the first rasterized page. */
@@ -388,7 +442,25 @@ async function scenarioReader(browser, ctx) {
   Object.assign(out, await openDocument(page));
   out.openLongTasks = await page.evaluate(() => window.__perf.long.slice());
   await page.waitForTimeout(2000);
-  out.open = { ...(await state(page)) };
+  out.open = { ...(await state(page)), ...(await counters(page)) };
+  out.geometryPerPage = out.open.slots ? Math.round((out.open.geometry / out.open.slots) * 10) / 10 : null;
+
+  // Nothing happening: what the open document costs the main thread anyway.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  const taskSeconds = async () =>
+    (await cdp.send("Performance.getMetrics")).metrics.find((m) => m.name === "TaskDuration")?.value ?? 0;
+  // The frame recorder stops for it: an rAF loop is exactly the idle work
+  // this is meant to find, and the probe's own would be all it found.
+  await page.evaluate(() => {
+    window.__perf.paused = true;
+  });
+  await page.waitForTimeout(100);
+  const idleFrom = await taskSeconds();
+  const idleStart = Date.now();
+  await page.waitForTimeout(5000);
+  out.idleCpuMsPerS = Math.round((((await taskSeconds()) - idleFrom) * 1000 * 10) / ((Date.now() - idleStart) / 1000)) / 10;
+  await page.evaluate(() => window.__perf.resume());
 
   const scroll = async (pxPerFrame, frames) => {
     const meta = await page.evaluate(
@@ -420,6 +492,7 @@ async function scenarioReader(browser, ctx) {
   out.scrollReading = await scroll(80, 60);
   await page.waitForTimeout(800);
   out.scrollFling = await scroll(500, 40);
+  const afterFling = await counters(page);
 
   const settleStart = Date.now();
   await page.waitForTimeout(300);
@@ -430,6 +503,9 @@ async function scenarioReader(browser, ctx) {
   );
   await page.waitForTimeout(300);
   out.flingSettleMs = Date.now() - settleStart;
+  const settled = { ...(await counters(page)), ...(await state(page)) };
+  out.flingRasters = { rasters: settled.raster - afterFling.raster, slots: settled.slots };
+  out.flingRastersPerSlot = settled.slots ? Math.round((out.flingRasters.rasters / settled.slots) * 10) / 10 : null;
 
   await page.evaluate(() => {
     window.__perf.long.length = 0;
@@ -589,6 +665,63 @@ async function scenarioLongChat(browser, ctx) {
   return out;
 }
 
+async function scenarioOutline(browser, ctx) {
+  const { page, problems } = await newPage(browser, ctx);
+  const out = {};
+  await openDocument(page);
+  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: /more actions/i }).first().click();
+  await page.waitForTimeout(250);
+  await page.getByRole("menuitem", { name: /thumbnails/i }).first().click();
+  await page.waitForTimeout(600);
+  const mark = await page.evaluate(() => {
+    window.__perf.long.length = 0;
+    return performance.now();
+  });
+  await page.getByRole("tab", { name: /outline/i }).first().click();
+  await page.waitForFunction(() => document.querySelectorAll(".outline-item").length > 0, null, {
+    timeout: 30_000,
+    polling: 16,
+  });
+  out.firstRowMs = Math.round((await page.evaluate(() => performance.now())) - mark);
+  await page.waitForTimeout(1000);
+  out.rows = await page.evaluate(() => document.querySelectorAll(".outline-item").length);
+  out.entries = ctx.doc.outline.length;
+  out.longTasks = await page.evaluate(() => window.__perf.long.slice());
+  out.problems = problems;
+  return out;
+}
+
+/**
+ * BM25 over 500 pages of the reader's prose, in Node through Vite's SSR
+ * loader — the module as the app compiles it. The first call builds the index;
+ * every newly indexed page makes the next search do that again.
+ */
+async function measureBm25() {
+  const { createServer: createVite } = await import("vite");
+  const vite = await createVite({ root: ROOT, logLevel: "error", server: { middlewareMode: true }, appType: "custom" });
+  try {
+    const { rankPages } = await vite.ssrLoadModule("/src/lib/ranked-search.ts");
+    const pages = Array.from({ length: 500 }, (_, i) => ({ page: i + 1, text: pageProse(i + 1) }));
+    const time = (fn) => {
+      const t0 = performance.now();
+      fn();
+      return Math.round((performance.now() - t0) * 10) / 10;
+    };
+    const builds = [];
+    for (let i = 0; i < 3; i++) builds.push(time(() => rankPages([...pages], "measurements records")));
+    const cached = pages.slice();
+    rankPages(cached, "measurements records");
+    return {
+      pages: pages.length,
+      buildMs: Math.min(...builds),
+      cachedMs: time(() => rankPages(cached, "measurements records")),
+    };
+  } finally {
+    await vite.close();
+  }
+}
+
 async function scenarioLargeFile(browser, ctx) {
   const { page, problems } = await newPage(browser, ctx);
   const out = {};
@@ -693,7 +826,19 @@ async function main() {
     },
   };
 
-  const readerDoc = { ...textDoc(120, "Reader 120"), path: fixtures.textPath };
+  const readerDoc = {
+    ...textDoc(120, "Reader 120"),
+    path: fixtures.textPath,
+    // One link a page, so every mounted page has an overlay that asks for its
+    // geometry (22.0): without one the layers ask for nothing, and the count
+    // would say nothing.
+    links: Array.from({ length: 120 }, (_, i) => ({
+      page: i + 1,
+      url: `https://example.org/section-${i + 1}`,
+      context: `Section ${i + 1}`,
+      rect: { x: 72, y: 700, width: 200, height: 14 },
+    })),
+  };
   const searchDoc = { ...textDoc(500, "Search 500"), path: fixtures.searchPath };
   const scan = { ...scanDoc(30, "Scan 30"), path: fixtures.scanPath };
 
@@ -723,6 +868,18 @@ async function main() {
     // The first request the question after 100 turns sends: its body is the
     // history the app chose to resend, which is what this budget is about.
     results.stages.longchat.requestBytes = modelLog[callsBeforeLongChat]?.bytes ?? null;
+    results.stages.outline = await scenarioOutline(browser, {
+      pdf: readFileSync(fixtures.textPath),
+      doc: {
+        ...readerDoc,
+        // The Rust cap on a synthesized outline, pointing round the 120 pages.
+        outline: Array.from({ length: 1000 }, (_, i) => ({ title: `Heading ${i + 1}`, page: (i % 120) + 1, level: 1 + (i % 3) })),
+      },
+      appPort,
+      modelPort,
+      settings: textSettings,
+    });
+    results.stages.bm25 = await measureBm25();
     results.stages.largefile = await scenarioLargeFile(browser, {
       pdf: readFileSync(fixtures.scanPath),
       doc: scan,
@@ -749,6 +906,8 @@ async function main() {
   const search = results.stages.search ?? {};
   const longchat = results.stages.longchat ?? {};
   const large = results.stages.largefile ?? {};
+  const outline = results.stages.outline ?? {};
+  const bm25 = results.stages.bm25 ?? {};
 
   check("boot.appReadyMs", reader.boot?.appReadyMs, BUDGETS.bootAppReadyMs);
   check("open.firstRasterMs", reader.firstRasterMs, BUDGETS.openFirstRasterMs);
@@ -775,6 +934,12 @@ async function main() {
   check("longchat.requestBytes", longchat.requestBytes, BUDGETS.longchatRequestBytesMax, "B");
   check("largefile.firstRasterMs", large.firstRasterMs, BUDGETS.largeFileFirstRasterMs);
   check("largefile.firstTextLayerMs", large.firstTextLayerMs, BUDGETS.largeFileFirstTextLayerMs);
+  check("idle.cpuMsPerS", reader.idleCpuMsPerS, BUDGETS.idleCpuMsPerS, "ms/s");
+  check("open.geometryPerPage", reader.geometryPerPage, BUDGETS.geometryPerPageMax, "calls");
+  check("fling.rastersPerSlot", reader.flingRastersPerSlot, BUDGETS.flingRastersPerSlotMax, "x");
+  check("outline.firstRowMs", outline.firstRowMs, BUDGETS.outlineFirstRowMs);
+  check("outline.longTasks", outline.longTasks?.length, BUDGETS.outlineLongTasks, "tasks");
+  check("bm25.buildMs", bm25.buildMs, BUDGETS.bm25BuildMs);
 
   const pad = (s, n) => String(s).padEnd(n);
   console.log(`\nfixtures: ${JSON.stringify(results.fixtures)} (bytes)\n`);

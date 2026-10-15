@@ -11,7 +11,8 @@
  *     the same dialog of three;
  *   - at most 12 settings rows on the settings surface, and the assistant
  *     group is present on it;
- *   - citation chips in at most three levels (plus the unmarked "none").
+ *   - citation chips in at most three levels (plus the unmarked "none");
+ *   - no page number and no margin card cut by a box that clips it (22.0).
  *
  * A scripted model answers with a table and three citations — found, found
  * with a number the passage lacks, and not found — so every footer action
@@ -120,6 +121,41 @@ await p.waitForTimeout(300);
 await p.getByRole("menuitem", { name: /hide assistant panel/i }).click();
 await p.waitForTimeout(1000);
 const pageClosed = await pageWidth();
+
+/*
+ * Cut, not hidden (22.0). The page number and the margin cards sit at the
+ * edges of the page's box, where an `overflow: hidden` ancestor would trim
+ * them and nothing on screen would say so — the v21 and v22 reviews could
+ * only read the CSS and say "not measured". With the panel closed the cards
+ * are in the column. A box that clips counts on both axes; the scroller only
+ * across, and the boxes around it not at all (what is scrolled out of view
+ * is not cut).
+ */
+const clipped = await p.evaluate(() => {
+  const found = [];
+  const seen = { pageNumbers: 0, cards: 0 };
+  for (const el of document.querySelectorAll(".pdf-page-number, .gutter-note")) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    if (el.classList.contains("gutter-note")) seen.cards += 1;
+    else seen.pageNumbers += 1;
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const style = getComputedStyle(a);
+      const clips = (v) => v !== "visible";
+      const scrolls = (v) => v === "auto" || v === "scroll";
+      const b = a.getBoundingClientRect();
+      const cutX = clips(style.overflowX) && (r.left < b.left - 0.5 || r.right > b.right + 0.5);
+      const cutY = clips(style.overflowY) && !scrolls(style.overflowY) && (r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5);
+      if (cutX || cutY) {
+        found.push(`${el.className} cut by ${a.className || a.tagName}`);
+        break;
+      }
+      // Past the scroller, where the element is depends on the scroll.
+      if (scrolls(style.overflowY)) break;
+    }
+  }
+  return { seen, found };
+});
 await p.locator(".workspace-header-slot").getByRole("button", { name: /more actions/i }).click();
 await p.waitForTimeout(300);
 await p.getByRole("menuitem", { name: /show assistant panel/i }).click();
@@ -224,6 +260,7 @@ const results = {
   "the line counts 3 sentences, not 4 citations": tallyTotal === 3 && chips === 4,
   "the margin column reserves width when the panel is closed: page ≥ 1090": pageClosed.width >= 1090,
   "the column leaves no width when the panel is open: page < 1000": pageOpen.width < 1000,
+  "page numbers and margin cards are drawn, and none is cut": clipped.seen.pageNumbers > 0 && clipped.seen.cards > 0 && clipped.found.length === 0,
   "the bitmap matches its slot in both states": pageClosed.canvasWidth === pageClosed.width && pageOpen.canvasWidth === pageOpen.width,
   "reading column at least 420px": reading.columnWidth >= 420,
   "answer headings step by 1.2x the body": reading.bodySize > 0 && reading.h2Size / reading.bodySize >= 1.2,
@@ -232,7 +269,7 @@ const results = {
 };
 console.log(
   JSON.stringify(
-    { footerButtons, menuExports, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, tally, tallyTotal, chips, pageClosed, pageOpen, reading },
+    { footerButtons, menuExports, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, tally, tallyTotal, chips, pageClosed, pageOpen, clipped, reading },
     null,
     2,
   ),
