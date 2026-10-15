@@ -2,9 +2,9 @@
 
 All notable changes to PageWise are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [21.1.0] - 2026-10-15
 
-v22: the first open has to work. From `docs/reviews/2026-10-15-pagewise-v22-evaluation.md`.
+v22: the first open has to work. No breaking change, so a minor release under the SemVer policy. From `docs/reviews/2026-10-15-pagewise-v22-evaluation.md`.
 
 - **A Chinese scan reads under an English interface** (`src/lib/ocr/ocr-language.ts`, `src/lib/ocr/ocr-service.ts`, `eval/ocr.eval.ts`). Local OCR's models followed the interface language alone, so a Chinese scan opened under an English interface was read with English only: **2.2%** of its quotes located, against **87.8%** with both models — every citation "unconfirmed", and nothing said why. Each document now reads with English first; a page whose words come back under a mean confidence of 50 is read again with both models, and when they do at least 10 points better the document reads with them from then on. The choice is remembered with the OCR cache. A page with little text, or a document where two such tries did not help (a photo, a form), stays with English. The OCR eval gates it: Chinese prose under an English interface **87.8%** (≥ 85%), all 10 Chinese pages read again; of the 41 pages read with English, 1 is read again (a poorly scanned page of the fetched GeoBase document) — reported by the suite as the rule's cost. No setting was added.
 - **A failed OCR cache read no longer drops the other language's pages** (`src/lib/ocr/ocr-store.ts`). The write after it was taken for a fresh file and carried one language's section alone; now it does not happen, and the pages stay dirty for the next try.
