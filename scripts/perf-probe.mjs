@@ -712,6 +712,7 @@ async function main() {
       modelPort,
       settings: textSettings,
     });
+    const callsBeforeLongChat = modelLog.length;
     results.stages.longchat = await scenarioLongChat(browser, {
       pdf: readFileSync(fixtures.textPath),
       doc: readerDoc,
@@ -719,6 +720,9 @@ async function main() {
       modelPort,
       settings: textSettings,
     });
+    // The first request the question after 100 turns sends: its body is the
+    // history the app chose to resend, which is what this budget is about.
+    results.stages.longchat.requestBytes = modelLog[callsBeforeLongChat]?.bytes ?? null;
     results.stages.largefile = await scenarioLargeFile(browser, {
       pdf: readFileSync(fixtures.scanPath),
       doc: scan,
@@ -765,6 +769,10 @@ async function main() {
   check("answer.heapMb", answerStage.heapMb, BUDGETS.heapAfterAnswerMb, "MB");
   check("longchat.renderMs", longchat.renderMs, BUDGETS.longchatRenderMs);
   check("longchat.scroll.p95", longchat.scroll?.p95, BUDGETS.longchatScrollP95Ms);
+  // Written into the budgets since the long-chat scenario was added and never
+  // compared until 21.0: the probe recorded each body's length and nothing
+  // read it against 40,000.
+  check("longchat.requestBytes", longchat.requestBytes, BUDGETS.longchatRequestBytesMax, "B");
   check("largefile.firstRasterMs", large.firstRasterMs, BUDGETS.largeFileFirstRasterMs);
   check("largefile.firstTextLayerMs", large.firstTextLayerMs, BUDGETS.largeFileFirstTextLayerMs);
 

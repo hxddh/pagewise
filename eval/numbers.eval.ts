@@ -23,7 +23,7 @@
  * will ignore the real one too.
  */
 import { describe, expect, it } from "vitest";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { locateQuote } from "../src/lib/quote-locate";
 import { passageAround } from "../src/lib/passage";
@@ -31,7 +31,7 @@ import { chineseNumeral, quantities, unstatedQuantities } from "../src/lib/quant
 import { markdownToPlainText } from "../src/lib/markdown-text";
 import { claimBefore } from "../src/lib/answer-tables";
 import { extractCitations } from "../src/lib/citations";
-import { corpusFiles, loadDoc, OUT, type DumpDoc } from "./lib/corpus";
+import { CORPUS, corpusFiles, loadDoc, OUT, type DumpDoc } from "./lib/corpus";
 import { rng } from "./lib/quotes";
 
 export const NUMBER_GATES = { falseAlarms: 0.005, caught: 0.85 };
@@ -178,7 +178,15 @@ describe("numbers in a claim, read against the passage it cites", () => {
       JSON.stringify({ located, honest, honestFlagged, reworded, rewordedFlagged, wrong, caught, wrongElsewhere, notQuantity, alarms, misses }, null, 2),
     );
 
-    expect(honest).toBeGreaterThan(150);
+    // The sample floor counts the fetched documents too: without them the
+    // corpus yields ~120 honest claims, and the bare "121 > 150" this used to
+    // fail with read like a regression rather than a missing step (21.0).
+    expect(
+      honest,
+      existsSync(join(CORPUS, "fetched"))
+        ? "too few claims to measure on"
+        : "the fetched documents are missing — run `npm run eval:fetch` first",
+    ).toBeGreaterThan(150);
     expect(reworded).toBeGreaterThan(30);
     expect((honestFlagged + rewordedFlagged) / (honest + reworded)).toBeLessThanOrEqual(NUMBER_GATES.falseAlarms);
     expect(caught / wrong).toBeGreaterThanOrEqual(NUMBER_GATES.caught);

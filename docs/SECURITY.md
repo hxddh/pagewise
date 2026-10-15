@@ -20,7 +20,7 @@ The mirror is not a dead end: it is offered to the keychain again whenever Setti
 
 ### Local files
 
-Every JSON store the app keeps is written atomically — a temp file, `fsync`, rename — and a file that cannot be read is left exactly as it is and reported, never read as empty and written over (20.0). Store files are addressed by a validated single-component name under the app data directory, by our own Rust commands; the webview has no general file access to them.
+Every JSON store the app keeps is written atomically — a temp file, `fsync`, rename — and a file that cannot be read is left exactly as it is and reported, never read as empty and written over (20.0). The OCR cache, the Markdown export and the annotated PDF are written the same way since 21.0; before that the first two renamed or wrote without `fsync`, and the export wrote in place. A store written by a later PageWise is not written by an earlier one at all (21.0). Store files are addressed by a validated single-component name under the app data directory, by our own Rust commands; the webview has no general file access to them.
 
 ### What leaves your machine
 

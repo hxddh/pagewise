@@ -62,7 +62,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Vite dev server only |
-| `npm run perf` | The performance probe: nine scenarios, twenty budgets (build first) |
+| `npm run perf` | The performance probe: four scenarios, twenty-two budgets (build first) |
 | `npm run tauri dev` | Desktop app (recommended) |
 | `npm run build` | Frontend production build |
 | `npm run tauri build` | Desktop installers for the current platform |

@@ -27,10 +27,9 @@ const FILES = [
   ["@tesseract.js-data/chi_sim/4.0.0_best_int/chi_sim.traineddata.gz", "lang/chi_sim.traineddata.gz"],
 ];
 
-if (!existsSync(join(nm, "tesseract.js"))) {
-  console.warn("[copy-ocr-assets] tesseract.js not installed — skipping");
-  process.exit(0);
-}
+// No "not installed — skipping" exit: a build without these files is a build
+// whose local OCR cannot start, and until 21.0 it succeeded with a warning.
+// Every file is required; a missing one fails the build below.
 rmSync(dest, { recursive: true, force: true });
 for (const [from, to] of FILES) {
   const src = join(nm, from);

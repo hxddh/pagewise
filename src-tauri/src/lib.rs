@@ -368,7 +368,9 @@ async fn write_text_file(
     let (canon_parent, resolved) = write_target(&allowed, &path)?;
     tauri::async_runtime::spawn_blocking(move || {
         check_write_leaf(&resolved, &canon_parent)?;
-        std::fs::write(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
+        // Atomic like every other write (21.0): an export that fails midway
+        // leaves the file that was there, not half of a new one.
+        store_io::write_atomic(&resolved, content.as_bytes()).map_err(|e| format!("Write failed: {e}"))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?

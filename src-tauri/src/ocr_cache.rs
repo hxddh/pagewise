@@ -81,12 +81,11 @@ pub fn prune(dir: &Path, budget: u64, keep: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Write via a sibling temp file and a rename, so a crash mid-write leaves the
-/// previous copy rather than half a JSON document.
+/// Write via a sibling temp file, fsync and a rename, so a crash mid-write
+/// leaves the previous copy rather than half a JSON document — the stores'
+/// own write (21.0: this one renamed an unsynced temp file).
 pub fn write_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, content)?;
-    std::fs::rename(&tmp, path)
+    crate::store_io::write_atomic(path, content)
 }
 
 #[tauri::command]

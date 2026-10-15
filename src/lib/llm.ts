@@ -204,7 +204,7 @@ function imageInputErrorMessage(t: TranslateFn | undefined, kind: LlmErrorKind):
   }
   return (
     t?.("llm.visionNotSupported") ??
-    "This model does not support image input — pick another scan model in Settings → AI Provider."
+    "This model does not support image input — pick another scan model in Settings → Assistant → Advanced."
   );
 }
 
@@ -345,7 +345,7 @@ export function formatLlmError(
       (!hasStatus && (msg.includes("401") || msg.toLowerCase().includes("authentication")))
     ) {
       return (
-        t?.("llm.invalidApiKey") ?? "Invalid API key — check Settings → AI Provider."
+        t?.("llm.invalidApiKey") ?? "Invalid API key — check Settings → Assistant → Advanced."
       );
     }
     if (
@@ -354,7 +354,7 @@ export function formatLlmError(
     ) {
       return (
         t?.("llm.toolsNotSupportedOpenRouter") ??
-        "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → AI Provider."
+        "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → Assistant → Advanced."
       );
     }
     if (statusCode === 404 || (!hasStatus && msg.includes("404"))) {
@@ -382,7 +382,7 @@ export function formatLlmError(
     ) {
       return (
         t?.("llm.reasoningNotSupported") ??
-        "This provider does not support the reasoning setting — turn off Extended thinking in Settings → AI Provider."
+        "This provider does not support the reasoning setting — turn off Extended thinking in Settings → Assistant → Advanced."
       );
     }
     return msg;
