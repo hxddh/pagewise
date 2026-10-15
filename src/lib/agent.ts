@@ -89,7 +89,15 @@ function toMetaLoopSnapshot(steps: ReadonlyArray<{ toolCalls: ReadonlyArray<unkn
 const stopMetaToolLoop: StopCondition<any, any> = ({ steps }) =>
   isMetaToolOnlyLoop(toMetaLoopSnapshot(steps));
 
-const AGENT_STOP_WHEN = [stepCountIs(DEFAULT_MAX_AGENT_STEPS), stopMetaToolLoop];
+/**
+ * When a run stops: its step budget, or a loop of meta tools. One function,
+ * used by the constructor's default and by `prepareCall`'s per-run budget —
+ * the two were written out separately until 21.0, so changing the rule meant
+ * changing it twice, and a test of the default would not see the run's.
+ */
+function stopWhenFor(maxSteps: number): StopCondition<any, any>[] {
+  return [stepCountIs(maxSteps), stopMetaToolLoop];
+}
 
 /**
  * Ceiling on one reply. Generous — a synthesis over twenty pages is long — but
@@ -241,7 +249,7 @@ export function createDocAgent() {
     instructions: SYSTEM_INSTRUCTIONS,
     tools,
     toolsContext: buildToolsContext(defaultRuntime),
-    stopWhen: AGENT_STOP_WHEN,
+    stopWhen: stopWhenFor(DEFAULT_MAX_AGENT_STEPS),
     // A provider that accepts the connection and then goes quiet used to leave
     // the run streaming with no end and no error. See agent-timeouts.ts for why
     // each number is as generous as it is.
@@ -386,7 +394,7 @@ export function createDocAgent() {
           rest.prompt as ReadonlyArray<{ role: string; content: unknown }> | undefined,
           viewHint,
         ) as typeof rest.prompt,
-        stopWhen: [stepCountIs(runMaxSteps), stopMetaToolLoop],
+        stopWhen: stopWhenFor(runMaxSteps),
         model: resolveModel(settings),
         reasoning: runReasoning,
         maxOutputTokens: MAX_OUTPUT_TOKENS,

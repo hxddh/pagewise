@@ -15,6 +15,7 @@
  * cache for the one being left, and a new scope disposes the previous one on
  * its own. `pdf.ts`'s cache internals are registered here, not rewritten.
  */
+import { clearSteerNotes } from "./agent-steer";
 import { clearAgentMessageContext } from "./agent-view-context";
 import { clearCitationChecks } from "./citation-check";
 import { clearReviews } from "./claim-review";
@@ -72,6 +73,9 @@ const REGISTRATIONS: DocumentState[] = [
   { name: "usage-tracker", dispose: (path) => forgetDocumentUsage(path) },
   { name: "index-store-identity", dispose: (path) => forgetIndexIdentity(path) },
   { name: "agent-view-context", dispose: () => clearAgentMessageContext() },
+  // Corrections typed for a run on the document being left: never delivered
+  // to the next document's run (21.0 — nothing in the app called this).
+  { name: "agent-steer", dispose: () => clearSteerNotes() },
   {
     name: "pdf-render",
     create: (path) => setActivePdfPath(path),

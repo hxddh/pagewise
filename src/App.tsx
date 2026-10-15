@@ -546,9 +546,11 @@ function AppContent() {
                             s.document.setPage(target);
                             setRevealedFindingId(id);
                           },
-                          onRevealCitation: (target, rects) => {
+                          onRevealCitation: (target, rects, notice) => {
                             s.document.setPage(target);
                             setRevealedCitation(rects ? { page: target, rects, nonce: Date.now() } : null);
+                            // Nothing lit: say why, in the chip's words (21.0).
+                            if (notice) showToast(notice);
                           },
                           onSelectMark: (target, id) => {
                             s.document.setPage(target);

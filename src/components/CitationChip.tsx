@@ -16,7 +16,12 @@ export interface CitationEnv {
   path: string;
   totalPages: number;
   /** Turn to `page`; with `rects`, light up where the words are. */
-  onReveal: (page: number, rects: PdfRect[] | null) => void;
+  /**
+   * Go to the cited page and light the passage. `notice` is said when there is
+   * no passage to light — the words were not found — so the click is not a
+   * jump that silently shows nothing (21.0).
+   */
+  onReveal: (page: number, rects: PdfRect[] | null, notice?: string) => void;
 }
 
 export const CitationContext = createContext<CitationEnv | null>(null);
@@ -92,9 +97,19 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
       className={`cite cite-level-${level} cite-${status}${review ? ` cite-review-${review.verdict}` : ""}`}
       title={title}
       aria-label={title}
-      onClick={() =>
-        env.onReveal(read?.page ?? link.pages[0]!, read?.rects ?? null)
-      }
+      onClick={() => {
+        const rects = read?.rects ?? null;
+        // A chip whose words were not found has nothing to light. Until 21.0
+        // the click still turned the page and cleared the highlight, so "not
+        // on this page" read as a lookup that worked; the reason was only in
+        // the tooltip. It is said now, in the chip's own words.
+        const nothingToLight = !rects && status !== "pending" && status !== "located";
+        env.onReveal(
+          read?.page ?? link.pages[0]!,
+          rects,
+          nothingToLight ? `${headline}${verdict}` : undefined,
+        );
+      }}
     >
       {label}
     </button>

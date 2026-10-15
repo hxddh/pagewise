@@ -89,7 +89,13 @@ await p.waitForTimeout(1200);
 const recordText = await p.locator(".record-panel, [class*=record]").first().innerText().catch(() => "");
 await b.close();
 
-const sys = String((reqs[0]?.messages ?? []).find((m) => m.role === "system")?.content ?? "");
+// The system message is an array of parts once it carries OpenAI's cache
+// breakpoint; `String()` of that was "[object Object]", and this check failed
+// on every run since — on main too — while the prompt said exactly this.
+const systemContent = (reqs[0]?.messages ?? []).find((m) => m.role === "system")?.content ?? "";
+const sys = typeof systemContent === "string"
+  ? systemContent
+  : systemContent.map((part) => part.text ?? "").join("");
 const lines = csv.replace(/^﻿/, "").trim().split("\r\n");
 const results = {
   "system prompt asks for cited tables": /answer with a Markdown table: one row per item/.test(sys),

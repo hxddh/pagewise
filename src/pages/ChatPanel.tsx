@@ -62,7 +62,7 @@ export interface ChatPanelProps {
   reveal: {
     onJumpToPage?: (page: number) => void;
     onRevealFinding?: (id: string, page: number) => void;
-    onRevealCitation?: (page: number, rects: PdfRect[] | null) => void;
+    onRevealCitation?: (page: number, rects: PdfRect[] | null, notice?: string) => void;
     /** Turn to a mark and open its note. */
     onSelectMark?: (page: number, id: string) => void;
   };
@@ -96,8 +96,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         ? {
             path: doc.path,
             totalPages: doc.totalPages ?? 0,
-            onReveal: (target, rects) => {
-              if (reveal.onRevealCitation) reveal.onRevealCitation(target, rects);
+            onReveal: (target, rects, notice) => {
+              if (reveal.onRevealCitation) reveal.onRevealCitation(target, rects, notice);
               else reveal.onJumpToPage?.(target);
             },
           }
