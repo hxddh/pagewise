@@ -1,23 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-/**
- * The store the module opens, in memory. `preserveNewer` and the migration
- * chain both go through a real `get`/`set`/`save`, so the plugin is stood in
- * for rather than bypassed.
- */
-const h = vi.hoisted(() => ({ data: new Map<string, unknown>() }));
-
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get<T>(key: string): Promise<T | undefined> {
-      return h.data.get(key) as T | undefined;
-    }
-    async set(key: string, value: unknown): Promise<void> {
-      h.data.set(key, value);
-    }
-    async save(): Promise<void> {}
-  },
-}));
+import { storeKey, useMemoryStoreBackend } from "./store-testkit";
 
 import {
   docChars,
@@ -28,6 +11,15 @@ import {
   sanitizeStoredIndex,
   __resetIndexStoreForTests,
 } from "./index-store";
+
+/**
+ * The store's disk, in memory: a real read and a real atomic write, so
+ * `preserveNewer` and the migration chain are exercised rather than bypassed.
+ */
+const store = useMemoryStoreBackend();
+const FILE = "index-cache.json";
+const blob = storeKey(store, FILE, "index");
+const stashed = () => store.peek<Record<string, unknown>>(FILE)?.["index.newer"];
 
 function doc(path: string, savedAt: number, pageCount: number, textLen = 100) {
   return {
@@ -105,24 +97,24 @@ describe("a downgrade does not throw paid pages away", () => {
   };
 
   beforeEach(() => {
-    h.data.clear();
+    store.reset();
     __resetIndexStoreForTests();
   });
 
   it("keeps a newer blob under index.newer and reads the store as empty", async () => {
-    h.data.set("index", v2);
+    blob.seed(v2);
     expect(await loadIndexedPages("/scan.pdf", "s1")).toEqual([]);
-    expect(h.data.get("index.newer")).toEqual(v2);
+    expect(stashed()).toEqual(v2);
     // The newer blob is still there too: the read must not replace it.
-    expect(h.data.get("index")).toEqual(v2);
+    expect(blob.peek()).toEqual(v2);
   });
 
   it("never overwrites a blob already stashed by an earlier downgrade", async () => {
-    const stashed = { version: 3, docs: [doc("/other.pdf", 1, 1)] };
-    h.data.set("index", v2);
-    h.data.set("index.newer", stashed);
+    const earlier = { version: 3, docs: [doc("/other.pdf", 1, 1)] };
+    blob.seed(v2);
+    store.seed(FILE, { index: v2, "index.newer": earlier });
     await loadIndexedPages("/scan.pdf", "s1");
-    expect(h.data.get("index.newer")).toEqual(stashed);
+    expect(stashed()).toEqual(earlier);
   });
 });
 

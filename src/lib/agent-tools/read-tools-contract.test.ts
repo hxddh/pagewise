@@ -1,14 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return null;
-    }
-    async set() {}
-    async save() {}
-  },
-}));
 
 // `describeFigure` is the one part of the figure path that calls the vision
 // model and bills for it; everything else (which figures a page offers) is the

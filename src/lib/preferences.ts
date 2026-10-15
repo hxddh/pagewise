@@ -1,4 +1,4 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAtomicStore } from "./atomic-store";
 import type { PreviewQuality } from "./types";
 import { createStoreRuntime } from "./json-store";
 
@@ -114,7 +114,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   readingScale: 1,
 };
 
-const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
+const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
 
 const THEME_MODES: ThemeMode[] = ["dark", "light", "paper", "system"];
 const LOCALE_MODES: LocaleMode[] = ["en", "zh-CN", "system"];

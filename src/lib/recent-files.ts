@@ -1,4 +1,4 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAtomicStore } from "./atomic-store";
 import { isSupportedDocument } from "./load-document";
 import { createStoreRuntime } from "./json-store";
 
@@ -34,7 +34,7 @@ export type RecentProgress = Pick<
  * read-modify-write cycles (e.g. startup restore racing a user opening a file)
  * can't interleave and drop entries via last-write-wins.
  */
-const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
+const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
 
 /** Unlocked read — callers hold the lock (or accept a snapshot) themselves. */
 async function readRecentFiles(): Promise<RecentFile[]> {

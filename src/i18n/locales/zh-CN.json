@@ -399,7 +399,8 @@
     "annotatedExported": "已在 PDF 副本中写入 {{count}} 条批注",
     "annotatedNothing": "暂无可写入的内容：没有已找到原文的结论，也没有标记",
     "tableExported": "表格已连同出处导出",
-    "reportExported": "报告已导出"
+    "reportExported": "报告已导出",
+    "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖"
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",

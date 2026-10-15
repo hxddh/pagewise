@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { storeKey, useMemoryStoreBackend } from "./store-testkit";
 
 /**
  * A renamed scan keeps the pages already paid for (13.0).
@@ -8,26 +10,23 @@ import { describe, expect, it, vi } from "vitest";
  * costs the reader money — was keyed on path alone, so renaming a scan
  * re-billed every page of it.
  */
-const h = vi.hoisted(() => ({ saved: undefined as unknown }));
+const { __resetIndexStoreForTests, loadIndexedPages } = await import("./index-store");
 
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return h.saved;
-    }
-    async set(_key: string, value: unknown) {
-      h.saved = value;
-    }
-    async save() {}
-  },
-}));
-
-const { loadIndexedPages } = await import("./index-store");
+/** The store's disk, in memory, and the blob it keeps under `index`. */
+const store = useMemoryStoreBackend();
+const blob = storeKey(store, "index-cache.json", "index");
 
 const text = (n: number) => `page ${n} ${"x".repeat(60)}`;
 
+beforeEach(() => {
+  // A fresh session: the store re-opens the file, so a test's seed is what it
+  // reads (the same thing `loadIndexedPages` sees after a restart).
+  store.reset();
+  __resetIndexStoreForTests();
+});
+
 function seed(identity?: string) {
-  h.saved = {
+  blob.seed({
     version: 1,
     docs: [
       {
@@ -42,7 +41,7 @@ function seed(identity?: string) {
         ],
       },
     ],
-  };
+  });
 }
 
 describe("loadIndexedPages across a rename", () => {
@@ -50,7 +49,7 @@ describe("loadIndexedPages across a rename", () => {
     seed("fp-abc");
     const pages = await loadIndexedPages("/new/renamed.pdf", "s1", "fp-abc");
     expect(pages.map((p) => p.page)).toEqual([1, 2]);
-    const docs = (h.saved as { docs: Array<{ path: string }> }).docs;
+    const docs = blob.peek<{ docs: Array<{ path: string }> }>()!.docs;
     expect(docs.map((d) => d.path)).toEqual(["/new/renamed.pdf"]);
   });
 

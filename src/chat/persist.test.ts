@@ -1,19 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory Store double: preserves insertion order like the real plugin.
-const store = new Map<string, unknown>();
+import { storeFile, useMemoryStoreBackend } from "../lib/store-testkit";
 
-vi.mock("@tauri-apps/plugin-store", () => ({
-  Store: {
-    load: async () => ({
-      get: async (k: string) => store.get(k) ?? null,
-      set: async (k: string, v: unknown) => void store.set(k, v),
-      delete: async (k: string) => void store.delete(k),
-      keys: async () => [...store.keys()],
-      save: async () => {},
-    }),
-  },
-}));
+/**
+ * The chat store's file, in memory. It holds one key per document — plus the
+ * saved-at and fingerprint keys — so the tests read and seed it as the map of
+ * keys it is.
+ */
+const disk = useMemoryStoreBackend();
+const store = storeFile(disk, "pagewise-v3-chats.json");
 
 // hydrate path pulls in settings; not needed for the prune tests.
 vi.mock("../lib/messages-utils", () => ({
@@ -26,7 +21,7 @@ vi.mock("../lib/persist-messages", () => ({
 
 describe("pruneOrphanedChats", () => {
   beforeEach(() => {
-    store.clear();
+    disk.reset();
     vi.resetModules();
   });
 
@@ -35,7 +30,7 @@ describe("pruneOrphanedChats", () => {
     const { pruneOrphanedChats } = await import("./persist");
     // Only 2 recents, but 20 chats < cap → nothing pruned (N1 regression guard).
     await pruneOrphanedChats(["/doc-0.pdf", "/doc-1.pdf"], 100);
-    expect(store.size).toBe(20);
+    expect(store.size()).toBe(20);
   });
 
   it("trims oldest non-recent chats down to the cap, always keeping recents", async () => {
@@ -44,7 +39,7 @@ describe("pruneOrphanedChats", () => {
     // Cap 8: must drop 4. Keep recents (the two NEWEST) even though they're
     // last in insertion order; drop the 4 oldest non-recent keys.
     await pruneOrphanedChats(["/doc-10.pdf", "/doc-11.pdf"], 8);
-    expect(store.size).toBe(8);
+    expect(store.size()).toBe(8);
     expect(store.has("/doc-10.pdf")).toBe(true);
     expect(store.has("/doc-11.pdf")).toBe(true);
     // Oldest four dropped.
@@ -59,13 +54,13 @@ describe("pruneOrphanedChats", () => {
     const recents = ["/r-0.pdf", "/r-1.pdf", "/r-2.pdf", "/r-3.pdf", "/r-4.pdf"];
     await pruneOrphanedChats(recents, 2);
     // Nothing is droppable (all recent) → store untouched despite exceeding cap.
-    expect(store.size).toBe(5);
+    expect(store.size()).toBe(5);
   });
 });
 
 describe("a chat follows its file", () => {
   beforeEach(() => {
-    store.clear();
+    disk.reset();
     vi.resetModules();
   });
 
@@ -87,22 +82,18 @@ describe("a chat follows its file", () => {
   });
 
   it("B8: drops the least recently saved, not the first key the store lists (16.0)", async () => {
-    const { pruneOrphanedChats, saveChat } = await import("./persist");
-    vi.useFakeTimers();
-    try {
-      // Saved in this order, but the store lists keys in another: the real
-      // plugin keeps a hash map, so keys() has no order at all.
-      for (const [i, name] of ["/a.pdf", "/b.pdf", "/c.pdf", "/d.pdf"].entries()) {
-        vi.setSystemTime(1_000 + i);
-        await saveChat(name, [{ id: "m" } as never]);
-      }
-      const shuffled = new Map([...store.entries()].reverse());
-      store.clear();
-      for (const [k, v] of shuffled) store.set(k, v);
-      await pruneOrphanedChats([], 2);
-    } finally {
-      vi.useRealTimers();
-    }
+    // The file on disk was written by an earlier session, and its keys are in
+    // no meaningful order — the store plugin kept a hash map, so `keys()` has
+    // none at all. The prune has to sort by the recorded save time instead.
+    store.write({
+      "/d.pdf": [{ id: "m" }],
+      "/b.pdf": [{ id: "m" }],
+      "pagewise:saved-at": { "/a.pdf": 1_000, "/b.pdf": 1_001, "/c.pdf": 1_002, "/d.pdf": 1_003 },
+      "/c.pdf": [{ id: "m" }],
+      "/a.pdf": [{ id: "m" }],
+    });
+    const { pruneOrphanedChats } = await import("./persist");
+    await pruneOrphanedChats([], 2);
     expect(store.has("/a.pdf")).toBe(false);
     expect(store.has("/b.pdf")).toBe(false);
     expect(store.has("/c.pdf")).toBe(true);

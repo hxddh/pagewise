@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
+import { subscribeStoreUnreadable } from "./lib/store-health";
 import { useWorkbench } from "./session/useWorkbench";
 import { useI18n } from "./i18n";
 import { DropOverlay } from "./components/DropOverlay";
@@ -113,6 +114,18 @@ function AppContent() {
     setRevealedCitation(null);
     setZen(false);
   }, [doc?.path]);
+
+  // A store file the app could not read is the one failure the stores cannot
+  // report through their return values — they answer a failed read the only way
+  // they can, as "no data". Say it out loud instead, and say the one thing that
+  // matters to the reader: the file was left exactly as it was (20.0).
+  useEffect(
+    () =>
+      subscribeStoreUnreadable((store) =>
+        showToast(t("toast.storeUnreadable", { file: store.file }), "error"),
+      ),
+    [showToast, t],
+  );
 
   useEffect(() => {
     setRecordRevision((n) => n + 1);

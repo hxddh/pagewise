@@ -42,7 +42,13 @@ tauri-plugin-dialog = "2.7.1"
 # file manager started a second copy of PageWise with its own empty state.
 tauri-plugin-window-state = "2"
 tauri-plugin-single-instance = "2"
-tauri-plugin-store = "2.4.3"
+# `tauri-plugin-store` is deliberately absent since 20.0: its `save()` was a
+# plain `fs::write` (a torn write read back as an empty store, which the next
+# save wrote over the reader's work), it swallowed the load error so the app
+# could not tell "unreadable" from "empty", and its `load` command took a full
+# path from the webview — `PathBuf::push` replaces the base directory for an
+# absolute one, so `store:default` was a read/write primitive for any JSON file
+# the app could touch. `store_io.rs` replaces all three.
 # keyring 4 is a different crate. Its own docs say an application that wants to
 # control which credential stores it uses "should not be linking to this library
 # at all" — it should link keyring-core plus the specific stores it wants. What

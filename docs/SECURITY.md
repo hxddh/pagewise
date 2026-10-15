@@ -16,6 +16,12 @@ Implementation: `src-tauri/src/secrets.rs`, `src/lib/api-key-store.ts`.
 
 If the keychain is unavailable, the app may temporarily persist the key in the local `settings.json` inside the Tauri app data directory. This file is **never** committed to git (see `.gitignore`). Users should prefer environments where keychain access works.
 
+The mirror is not a dead end: it is offered to the keychain again whenever Settings is opened, and after any later successful keychain write, and it is removed from disk once the keychain has read the key back (20.0 — before that, nothing ever re-offered, so a key that landed on disk once stayed there). A keychain holding a *different* key is never written over.
+
+### Local files
+
+Every JSON store the app keeps is written atomically — a temp file, `fsync`, rename — and a file that cannot be read is left exactly as it is and reported, never read as empty and written over (20.0). Store files are addressed by a validated single-component name under the app data directory, by our own Rust commands; the webview has no general file access to them.
+
 ### What leaves your machine
 
 - Extracted document text sent to your configured LLM endpoint
@@ -26,8 +32,11 @@ If the keychain is unavailable, the app may temporarily persist the key in the l
 
 - PDF/image files (read from paths you choose)
 - Chat threads (`pagewise-v3-chats.json`, one thread per document path)
-- Provider profiles without keys (`settings.json`)
-- Recent files list
+- Provider profiles without keys (`settings.json`, `preferences.json`)
+- Recent files list and the paths you have authorized (`recent.json`, `allowed-paths.json`)
+- The reader's marks (`marks.json`) and the record of findings (`findings.json`), with each kept answer's full text in `finding-bodies/<id>.json` beside it
+- The vision page cache (`index-cache.json`) — text the reader paid for, kept so it is not paid for twice
+- Recognised text for scanned documents (`ocr/`, one file per document fingerprint, pruned to 256 MB)
 
 ### Asset protocol
 

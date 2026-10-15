@@ -1,30 +1,27 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { storeKey, useMemoryStoreBackend } from "./store-testkit";
+
+/** The Rust commands this module calls: `register_allowed_path`. */
 const invokeMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
-vi.mock("@tauri-apps/plugin-store", () => {
-  let stored: unknown = null;
-  return {
-    LazyStore: class {
-      async get() {
-        return stored;
-      }
-      async set(_key: string, value: unknown) {
-        stored = value;
-      }
-      async save() {}
-    },
-  };
-});
+/**
+ * The store's disk, in memory, and the list it keeps under `paths`. The store
+ * layer writes through this backend rather than through `invoke`, so the mock
+ * above sees the Rust commands and nothing else.
+ */
+const store = useMemoryStoreBackend();
+const disk = storeKey(store, "allowed-paths.json", "paths");
 
 describe("allowed-paths", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue(undefined);
+    store.reset();
     vi.resetModules();
   });
 
@@ -71,9 +68,7 @@ describe("allowed-paths", () => {
       allowPathPersisted("/Users/me/b/two.pdf"),
     ]);
 
-    const storeMod = await import("@tauri-apps/plugin-store");
-    const store = new storeMod.LazyStore("");
-    const persisted = (await store.get("paths")) as string[];
+    const persisted = disk.peek<string[]>() ?? [];
 
     expect(persisted).toContain("/Users/me/a/one.pdf");
     expect(persisted).toContain("/Users/me/b/two.pdf");
@@ -83,9 +78,7 @@ describe("allowed-paths", () => {
   });
 
   it("reports failed paths on restore and prunes them from storage", async () => {
-    const storeMod = await import("@tauri-apps/plugin-store");
-    const store = new storeMod.LazyStore("");
-    await store.set("paths", ["/gone/report.pdf", "/ok/report.pdf"]);
+    disk.seed(["/gone/report.pdf", "/ok/report.pdf"]);
 
     invokeMock.mockImplementation((_cmd: string, args: { path: string }) => {
       if (args.path === "/gone/report.pdf") return Promise.reject(new Error("missing"));
@@ -98,7 +91,7 @@ describe("allowed-paths", () => {
     expect(result.failed).toContain("/gone/report.pdf");
     expect(result.restored).toBeGreaterThan(0);
 
-    const remaining = (await store.get("paths")) as string[];
+    const remaining = disk.peek<string[]>() ?? [];
     expect(remaining).not.toContain("/gone/report.pdf");
   });
 });

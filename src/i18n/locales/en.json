@@ -399,7 +399,8 @@
     "annotatedExported": "Wrote {{count}} annotations into the PDF copy",
     "annotatedNothing": "Nothing to write yet: no found evidence and no marks",
     "tableExported": "Table exported with its sources",
-    "reportExported": "Report exported"
+    "reportExported": "Report exported",
+    "storeUnreadable": "{{file}} could not be read — it was left as it is, and nothing will overwrite it"
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",

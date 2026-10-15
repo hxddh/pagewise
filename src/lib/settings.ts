@@ -1,4 +1,5 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAtomicStore, type StoreHandle } from "./atomic-store";
+import { createStoreRuntime } from "./json-store";
 import { getApiKey, setApiKey, deleteApiKey } from "./api-key-store";
 import {
   ALL_PROVIDER_IDS,
@@ -51,7 +52,12 @@ type StoredPayload = LegacyPayload;
 type KeychainGet = (provider: ProviderId) => Promise<string>;
 type KeychainSet = (provider: ProviderId, key: string) => Promise<void>;
 
-let store: LazyStore | null = null;
+/**
+ * The store handle and the write lock, exactly as every other store takes them
+ * (`json-store.ts`). Until 20.0 this module had its own byte-identical copy of
+ * the lock — the seventh of seven.
+ */
+const runtime = createStoreRuntime<StoreHandle>(() => getStore());
 
 /**
  * Session-level record of a keychain we couldn't reach (denied/blocked prompt).
@@ -96,7 +102,8 @@ export function __resetSettingsStoreForTests(opts?: {
   keychain?: { get?: KeychainGet; set?: KeychainSet } | null;
 }): void {
   memoryStore = { value: opts?.store ?? null };
-  store = null;
+  runtime.resetStore();
+  runtime.resetLock();
   keychainBlockedThisSession = false;
   forgetSessionKey();
   keychainGet = opts?.keychain?.get ?? getApiKey;
@@ -108,7 +115,8 @@ export function __peekSettingsStoreForTests(): StoredPayload | null {
   return memoryStore ? memoryStore.value : null;
 }
 
-async function getStore(): Promise<LazyStore> {
+/** The real store, or the in-memory one tests install. */
+function getStore(): StoreHandle {
   if (memoryStore) {
     const mem = memoryStore;
     return {
@@ -117,24 +125,13 @@ async function getStore(): Promise<LazyStore> {
         if (key === SETTINGS_KEY) mem.value = value as StoredPayload;
       },
       save: async () => {},
-    } as unknown as LazyStore;
+    } as unknown as StoreHandle;
   }
-  if (!store) {
-    store = new LazyStore(STORE_PATH);
-  }
-  return store;
+  return createAtomicStore(STORE_PATH);
 }
 
 /** Serializes every write so two saves can't interleave their set/save cycles. */
-let writeLock: Promise<unknown> = Promise.resolve();
-function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const result = writeLock.then(fn, fn);
-  writeLock = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
+const withStoreLock = runtime.withStoreLock;
 
 export function defaultProviderProfile(provider: ProviderId): ProviderProfile {
   if (provider === "custom") {
@@ -339,13 +336,19 @@ async function migrateToV3(raw: StoredPayload | null): Promise<LlmStoreV3> {
  * a non-empty key the keychain accepted is not written to disk, one it refused
  * has to be (or the next launch loses it), and an empty key is a tombstone —
  * `null`, which stops the keychain from ever being asked for that provider again.
+ *
+ * `movedToKeychain` is the second way, added in 20.0: providers whose plaintext
+ * mirror has just moved into the keychain are dropped from the map. The merge
+ * below is a union with what is already on disk, so a removal has to be said out
+ * loud or the mirror would simply be kept.
  */
 async function writePayload(
   storeData: LlmStoreV3,
   keyUpdate?: { provider: ProviderId; apiKey: string; keychainOk?: boolean },
+  movedToKeychain: readonly ProviderId[] = [],
 ): Promise<void> {
   return withStoreLock(async () => {
-    const s = await getStore();
+    const s = await runtime.store();
     const prior = await s.get<StoredPayload>(SETTINGS_KEY);
     // The payload being written wins: it carries the migration's tombstones and
     // mirrors. Anything only the prior read knows about is kept as a floor.
@@ -362,6 +365,7 @@ async function writePayload(
         keys[keyUpdate.provider] = null;
       }
     }
+    for (const provider of movedToKeychain) delete keys[provider];
 
     const payload: LlmStoreV3 = {
       version: 3,
@@ -379,7 +383,7 @@ async function writePayload(
 }
 
 async function readPayload(): Promise<LlmStoreV3> {
-  const s = await getStore();
+  const s = await runtime.store();
   const raw = await s.get<StoredPayload>(SETTINGS_KEY);
   if (isLlmStoreV3(raw)) return raw;
   return migrateToV3(raw ?? null);
@@ -393,6 +397,62 @@ async function plaintextMirrors(): Promise<Partial<Record<ProviderId, string>>> 
     if (typeof value === "string" && value.trim()) out[provider as ProviderId] = value.trim();
   }
   return out;
+}
+
+/**
+ * Offer one plaintext mirror to the keychain again.
+ *
+ * The mirror exists for the machine where the keychain refused the key — but a
+ * refusal is not permanent: an unsigned build gets a new signature, the OS asks
+ * again, the reader unlocks their login keychain. Until 20.0 nothing ever
+ * re-offered, so a key that landed on disk once stayed there for good — the
+ * only exit was to type a *different* key, because re-saving the same one left
+ * the mirror in place. This is the exit, and it is careful about the two ways
+ * it can be wrong: a keychain holding a *different* key is the reader's current
+ * one and is never written over, and the mirror is only dropped once the
+ * keychain has read the key back. Returns true when the key is in the keychain;
+ * never logs or returns it.
+ */
+async function moveMirrorToKeychain(provider: ProviderId, mirror: string): Promise<boolean> {
+  try {
+    const existing = (await keychainGet(provider)).trim();
+    if (existing && existing !== mirror) return false;
+    if (!existing) {
+      await keychainSet(provider, mirror);
+      if ((await keychainGet(provider)).trim() !== mirror) return false;
+    }
+    sessionKeys.set(provider, mirror);
+    return true;
+  } catch {
+    keychainBlockedThisSession = true;
+    return false;
+  }
+}
+
+/**
+ * Move every plaintext mirror into the keychain, now that it may be reachable.
+ *
+ * Called when the reader opens Settings — an explicit action, and the moment a
+ * system prompt is expected — and after a key is re-saved (see
+ * `saveProviderProfile`). Returns how many mirrors came off the disk. The keys
+ * themselves are never returned, printed or logged; what lands on disk is only
+ * ever the absence of one.
+ */
+export async function reofferPlaintextMirrors(): Promise<number> {
+  const payload = await readPayload();
+  const mirrors = Object.entries(payload.keys ?? {}).filter(
+    ([, value]) => typeof value === "string" && value.trim().length > 0,
+  );
+  if (mirrors.length === 0) return 0;
+  const moved: ProviderId[] = [];
+  for (const [provider, value] of mirrors) {
+    if (keychainBlockedThisSession) break;
+    if (await moveMirrorToKeychain(provider as ProviderId, (value as string).trim())) {
+      moved.push(provider as ProviderId);
+    }
+  }
+  if (moved.length > 0) await writePayload(payload, undefined, moved);
+  return moved.length;
 }
 
 async function persistApiKey(provider: ProviderId, apiKey: string): Promise<boolean> {
@@ -568,7 +628,16 @@ export async function saveProviderProfile(
     const keychainOk = await persistApiKey(provider, resolvedKey);
     await writePayload(payload, { provider, apiKey: resolvedKey, keychainOk });
   } else if (resolvedKey === undefined) {
-    await writePayload(payload);
+    // The reader kept the key they already had. If that key is a plaintext
+    // mirror the keychain once refused, this is the second exit (20.0): the
+    // write that follows is the next successful keychain write, and the mirror
+    // comes off the disk with it.
+    const mirror = payload.keys?.[provider];
+    const moved =
+      typeof mirror === "string" && mirror.trim()
+        ? await moveMirrorToKeychain(provider, mirror.trim())
+        : false;
+    await writePayload(payload, undefined, moved ? [provider] : []);
     resolvedKey = await loadApiKey(provider);
   } else {
     forgetSessionKey(provider);

@@ -13,21 +13,12 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// The marks and findings stores write through the Tauri store plugin; without
-// an in-memory stand-in their flush never lands and the in-memory forget they
-// chain behind it stays deferred (that deferral is deliberate — see json-store).
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    private data = new Map<string, unknown>();
-    async get<T>(key: string): Promise<T | undefined> {
-      return this.data.get(key) as T | undefined;
-    }
-    async set(key: string, value: unknown): Promise<void> {
-      this.data.set(key, value);
-    }
-    async save(): Promise<void> {}
-  },
-}));
+import { useMemoryStoreBackend } from "./store-testkit";
+
+// The marks and findings stores write through the store layer; without an
+// in-memory disk their flush never lands and the in-memory forget they chain
+// behind it stays deferred (that deferral is deliberate — see json-store).
+const store = useMemoryStoreBackend();
 
 import { __resetDocumentScopeForTests, createDocumentScope } from "./document-scope";
 import { docCache } from "./doc-cache";
@@ -61,6 +52,7 @@ function doc(path: string, text: string): LoadedDocument {
 }
 
 afterEach(() => {
+  store.reset();
   docCache.clear();
   createDocumentScope("/docs/none.pdf").dispose();
   __resetDocumentScopeForTests();

@@ -1,22 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    private data = new Map<string, unknown>();
-    async get<T>(key: string): Promise<T | undefined> {
-      return this.data.get(key) as T | undefined;
-    }
-    async set(key: string, value: unknown): Promise<void> {
-      const g = globalThis as { __failStoreSets?: number };
-      if (g.__failStoreSets) {
-        g.__failStoreSets -= 1;
-        throw new Error("disk full");
-      }
-      this.data.set(key, value);
-    }
-    async save(): Promise<void> {}
-  },
-}));
+import { useMemoryStoreBackend } from "./store-testkit";
 
 import {
   addMark,
@@ -37,6 +21,9 @@ import {
   __resetMarkStoreForTests,
 } from "./mark-store";
 
+/** The store's disk, in memory: the same bytes a file would hold. */
+const store = useMemoryStoreBackend();
+
 const PATH = "/docs/contract.pdf";
 const RECT = { x: 10, y: 20, width: 100, height: 12 };
 
@@ -46,6 +33,7 @@ function add(page: number, text = "a marked passage", stamp = "s1") {
 
 describe("mark-store", () => {
   beforeEach(() => {
+    store.reset();
     __resetMarkStoreForTests();
   });
 
@@ -196,12 +184,11 @@ describe("B6: a failed write, then a document switch (16.0)", () => {
   });
 
   it("keeps the closed document's marks on disk", async () => {
-    const g = globalThis as { __failStoreSets?: number };
     await loadMarks(PATH);
     add(1, "saved");
     await flushMarkStore();
     add(2, "unsaved");
-    g.__failStoreSets = 1;
+    store.failNextWrite();
     await flushMarkStore();
     forgetMarks(PATH);
     await loadMarks("/docs/other.pdf");

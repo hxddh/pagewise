@@ -10,7 +10,7 @@
  * Only vision-derived text is persisted: natively extracted text is free to
  * recompute on open, so caching it would spend the size budget on nothing.
  */
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAtomicStore } from "./atomic-store";
 import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { createStoreRuntime } from "./json-store";
 import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
@@ -74,7 +74,7 @@ export interface IndexCacheStats {
  * three concurrent workers, so an unserialized read-modify-write would drop
  * paid-for pages via last-write-wins.
  */
-const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
+const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
 
 function isValidPage(value: unknown): value is PageText {
   if (!value || typeof value !== "object") return false;

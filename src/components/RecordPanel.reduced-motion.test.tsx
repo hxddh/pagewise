@@ -22,15 +22,6 @@ vi.stubGlobal("matchMedia", (query: string) => ({
   dispatchEvent: () => false,
 }));
 
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return null;
-    }
-    async set() {}
-    async save() {}
-  },
-}));
 vi.mock("../i18n", () => ({ useI18n: () => ({ t: (k: string) => k }) }));
 
 import { RecordPanel } from "./RecordPanel";

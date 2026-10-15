@@ -1,17 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    private data = new Map<string, unknown>();
-    async get<T>(key: string): Promise<T | undefined> {
-      return this.data.get(key) as T | undefined;
-    }
-    async set(key: string, value: unknown): Promise<void> {
-      this.data.set(key, value);
-    }
-    async save(): Promise<void> {}
-  },
-}));
 
 import { documentToMarkdown, emptyExportPages } from "./export-document";
 import { addMark, __resetMarkStoreForTests } from "./mark-store";

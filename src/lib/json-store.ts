@@ -13,8 +13,13 @@
  * This module owns those parts. What stays in a store is what actually differs:
  * its schema, its validation and merge rules for a document's entries, and the
  * queries over them.
+ *
+ * The handle these runtimes open is `atomic-store.ts`'s, not the store plugin's:
+ * one file, written whole through a temp file and a rename, with a file that
+ * cannot be read refused rather than read as empty. See that module for what the
+ * plugin's `save()` and swallowed load error cost.
  */
-import { LazyStore } from "@tauri-apps/plugin-store";
+import type { StoreHandle } from "./atomic-store";
 import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
 
 export interface StoreRuntime<Handle> {
@@ -129,6 +134,21 @@ export interface DocumentStoreOptions<Doc, Entry> {
   build(path: string, entries: Entry[], identity?: string): Doc;
   /** Coerce arbitrary stored data into documents; corrupt input reads as none. */
   sanitize(raw: unknown): Doc[];
+  /**
+   * The part of a document that lives *beside* the index instead of inside it —
+   * the findings store's bodies since 20.0.
+   *
+   * `externalize` is called with the documents a flush is about to write,
+   * before the index is written: it persists whatever belongs in the side
+   * files and returns the documents as the index should hold them. Writing the
+   * side first is what makes a crash between the two harmless — an orphan body,
+   * never a reference to nothing. `prune` then drops the side files no kept
+   * document mentions any more.
+   */
+  sidecar?: {
+    externalize(docs: Doc[]): Promise<Doc[]>;
+    prune(docs: Doc[]): Promise<void>;
+  };
 }
 
 export interface DocumentStore<Doc, Entry> {
@@ -175,10 +195,11 @@ export interface DocumentStore<Doc, Entry> {
  * drops the entry where it was.
  */
 export function createDocumentStore<Doc extends { path: string; identity?: string }, Entry>(
-  runtime: StoreRuntime<LazyStore>,
+  runtime: StoreRuntime<StoreHandle>,
   options: DocumentStoreOptions<Doc, Entry>,
 ): DocumentStore<Doc, Entry> {
-  const { key, version, migrations, flushDelayMs, maxPerDoc, maxTotal, entriesOf, build, sanitize } = options;
+  const { key, version, migrations, flushDelayMs, maxPerDoc, maxTotal, entriesOf, build, sanitize, sidecar } =
+    options;
 
   /** Entries held in memory for open documents, and their fingerprints. */
   const byPath = new Map<string, Entry[]>();
@@ -303,7 +324,14 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
             total += entriesOf(doc).length;
             kept.push(doc);
           }
-          await writeDocs(kept);
+          // The side files first: a crash between the two writes leaves a body
+          // nothing refers to (pruned later), never a finding that refers to a
+          // body that is not there.
+          const index = sidecar ? await sidecar.externalize(kept) : kept;
+          await writeDocs(index);
+          // Dropping a body whose finding is gone is housekeeping: a failure
+          // costs a file, never the reader's record.
+          if (sidecar) await sidecar.prune(kept).catch(() => {});
           for (const path of paths) if (!dirty.has(path)) forgetNow(path);
         })
         .catch(() => {

@@ -34,9 +34,16 @@
  * overwrite leaves no trace of having been wrong. Both are worse than a record
  * that says what it changed its mind about.
  */
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAtomicStore } from "./atomic-store";
 import { migrateStored, type Migration } from "./store-migrate";
 import { createDocumentStore, createPathListeners, createStoreRuntime } from "./json-store";
+import {
+  externalizeBodies,
+  hydrateBodies,
+  markBodyPending,
+  pruneBodies,
+  __resetFindingBodiesForTests,
+} from "./finding-bodies";
 
 const STORE_PATH = "findings.json";
 const KEY = "findings";
@@ -70,8 +77,20 @@ export const MAX_EVIDENCE_TEXT = 1_000;
 export const MAX_BODY_TEXT = 20_000;
 /** Most pages one finding may cite. A claim spanning more is not one claim. */
 export const MAX_FINDING_PAGES = 20;
-/** Coalesce a burst of writes into one flush, as the mark store does. */
-const FLUSH_DELAY_MS = 400;
+/**
+ * Coalesce a burst of writes into one flush, as the mark store does.
+ *
+ * Longer than the mark store's 400 ms since 20.0, deliberately: this file is
+ * the big one. A flush rewrites the whole index — 393 bytes a finding as
+ * measured in `store-write-amplification.test.ts`, so ~2 MB at the
+ * 5,000-finding cap with ordinary claims and evidence, ~8 MB if every one were
+ * at the 1,500-character caps — and the reader's bodies, the other ~100 MB of
+ * the old single file, are written per finding beside it now
+ * (`finding-bodies.ts`). Waiting 1.5 s costs nothing a reader can see: the
+ * record is served from memory, and document close, document switch and window
+ * unload all flush without waiting.
+ */
+const FLUSH_DELAY_MS = 1500;
 
 export interface Finding {
   id: string;
@@ -133,7 +152,7 @@ interface StoredFindings {
   docs: StoredDoc[];
 }
 
-const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
+const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
 
 /**
  * Findings are the agent's record of the document: an unserialized
@@ -150,6 +169,10 @@ const findings = createDocumentStore<StoredDoc, Finding>(runtime, {
   sanitize: sanitizeStoredFindings,
   entriesOf: (doc) => doc.findings,
   build: (path, entries, identity) => ({ path, findings: entries, ...(identity ? { identity } : {}) }),
+  // The bodies live beside the index, one file per finding — see
+  // `finding-bodies.ts` for why, and for the two rules that keep the two
+  // copies from disagreeing.
+  sidecar: { externalize: externalizeBodies, prune: pruneBodies },
 });
 
 /** Ascending, deduplicated, whole, ≥ 1, and capped. */
@@ -345,7 +368,7 @@ export async function loadFindings(path: string, identity?: string): Promise<Fin
   findings.identify(path, identity);
   try {
     const doc = await findings.locate(path, identity);
-    const loaded = sortFindings(doc?.findings ?? []);
+    const loaded = await hydrateBodies(sortFindings(doc?.findings ?? []));
     findings.cache(path, loaded);
     listeners.notify(path);
     return loaded;
@@ -410,6 +433,9 @@ export function addFinding(path: string, input: NewFinding): Finding | null {
     ...(input.body?.trim() ? { body: input.body.trim().slice(0, MAX_BODY_TEXT) } : {}),
     ...(input.source?.messageId ? { source: { messageId: input.source.messageId } } : {}),
   };
+  // A body is written beside the index, not into it: this is the id the flush
+  // has to store there (see `finding-bodies.ts`).
+  if (finding.body) markBodyPending(finding.id);
   mutate(path, [...existing, finding]);
   return finding;
 }
@@ -532,4 +558,5 @@ export function forgetFindings(path: string): void {
 export function __resetFindingStoreForTests(): void {
   findings.reset();
   listeners.clear();
+  __resetFindingBodiesForTests();
 }

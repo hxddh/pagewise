@@ -9,6 +9,7 @@ import {
   loadSettings,
   loadSettingsMeta,
   loadVisionSettings,
+  reofferPlaintextMirrors,
   resetKeychainBlockedFlag,
   saveProviderProfile,
   saveSettings,
@@ -217,6 +218,101 @@ describe("store I/O — keychain fallback (no working keychain)", () => {
     // The tombstone is the record of the clear: absent would mean "ask the
     // keychain again", which is what resurrected removed keys before 18.0.
     expect(__peekSettingsStoreForTests()?.keys?.openai).toBe(null);
+  });
+});
+
+/**
+ * The plaintext mirror's way out (20.0).
+ *
+ * A mirror is written when the keychain refuses the key, and until 20.0 nothing
+ * ever offered it again: `readPayload` skipped the migration once the payload
+ * was v3, `loadApiKey` returned the mirror without asking, and re-saving the
+ * same key passed no key argument at all — so a key that landed on disk once
+ * stayed there for good. The only exit was typing a *different* key.
+ */
+describe("plaintext mirror has a way out", () => {
+  afterEach(() => {
+    __resetSettingsStoreForTests();
+  });
+
+  /** A keychain that refuses every call until the reader unlocks it. */
+  function flakyKeychain() {
+    const keys = new Map<ProviderId, string>();
+    let reachable = false;
+    return {
+      allow(): void {
+        reachable = true;
+      },
+      get: async (provider: ProviderId): Promise<string> => {
+        if (!reachable) throw new Error("keychain unavailable");
+        return keys.get(provider) ?? "";
+      },
+      set: async (provider: ProviderId, key: string): Promise<void> => {
+        if (!reachable) throw new Error("keychain unavailable");
+        keys.set(provider, key);
+      },
+    };
+  }
+
+  it("moves the mirror into the keychain when it becomes reachable, and off the disk", async () => {
+    const keychain = flakyKeychain();
+    __resetSettingsStoreForTests({ keychain });
+    await saveProviderProfile("openai", { model: "gpt-4o-mini" }, "sk-mirrored");
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBe("sk-mirrored");
+
+    // Later: the keychain works (the reader unlocked it; the build was signed).
+    keychain.allow();
+    resetKeychainBlockedFlag();
+    expect(await reofferPlaintextMirrors()).toBe(1);
+
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBeUndefined();
+    expect(await keychain.get("openai")).toBe("sk-mirrored");
+    // And the reader still has their key.
+    expect(await loadApiKeyForProvider("openai")).toBe("sk-mirrored");
+  });
+
+  it("keeps the mirror, and says nothing moved, while the keychain still refuses", async () => {
+    __resetSettingsStoreForTests({ keychain: brokenKeychain() });
+    await saveProviderProfile("openai", { model: "gpt-4o-mini" }, "sk-mirrored");
+
+    expect(await reofferPlaintextMirrors()).toBe(0);
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBe("sk-mirrored");
+    expect((await loadProviderSettings("openai")).apiKey).toBe("sk-mirrored");
+  });
+
+  it("moves it on the next successful keychain write, not only on a re-offer", async () => {
+    const keychain = flakyKeychain();
+    __resetSettingsStoreForTests({ keychain });
+    await saveProviderProfile("openai", { model: "gpt-4o-mini" }, "sk-mirrored");
+
+    keychain.allow();
+    resetKeychainBlockedFlag();
+    // The reader re-saves the same key — or any other field. Before 20.0 this
+    // path passed no key argument and left the mirror exactly where it was.
+    await saveProviderProfile("openai", { model: "gpt-4o-mini" });
+
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBeUndefined();
+    expect(await keychain.get("openai")).toBe("sk-mirrored");
+  });
+
+  it("never writes a mirror over a different key the keychain already has", async () => {
+    const keychain = flakyKeychain();
+    keychain.allow();
+    await keychain.set("openai", "sk-current");
+    __resetSettingsStoreForTests({
+      store: {
+        version: 3,
+        activeProvider: "openai",
+        profiles: { openai: defaultProviderProfile("openai") },
+        keys: { openai: "sk-stale-mirror" },
+      },
+      keychain,
+    });
+
+    expect(await reofferPlaintextMirrors()).toBe(0);
+    expect(await keychain.get("openai")).toBe("sk-current");
+    // The stale mirror is left alone rather than deleted behind the reader.
+    expect(__peekSettingsStoreForTests()?.keys?.openai).toBe("sk-stale-mirror");
   });
 });
 

@@ -15,7 +15,7 @@
  * version is deliberately not pinned. `text` is a snapshot for the reader's
  * benefit, not an anchor.
  */
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAtomicStore } from "./atomic-store";
 import type { PdfRect } from "./types";
 import { migrateStored, type Migration } from "./store-migrate";
 import { createDocumentStore, createPathListeners, createStoreRuntime } from "./json-store";
@@ -76,7 +76,7 @@ interface StoredMarks {
   docs: StoredDoc[];
 }
 
-const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
+const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
 
 /**
  * Marks are the reader's own work: an unserialized read-modify-write loses

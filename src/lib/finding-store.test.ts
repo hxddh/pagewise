@@ -1,18 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-/** One shared blob, so a flush and a reload see the same bytes a disk would. */
-let disk: unknown = null;
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return disk;
-    }
-    async set(_key: string, value: unknown) {
-      disk = value;
-    }
-    async save() {}
-  },
-}));
+import { storeKey, useMemoryStoreBackend } from "./store-testkit";
 
 import {
   __resetFindingStoreForTests,
@@ -35,11 +23,15 @@ import {
   MAX_FINDING_PAGES,
 } from "./finding-store";
 
+/** The store's disk, in memory, and the blob it keeps under `findings`. */
+const store = useMemoryStoreBackend();
+const disk = storeKey(store, "findings.json", "findings");
+
 const PATH = "/docs/paper.pdf";
 const STAMP = "stamp-1";
 
 beforeEach(() => {
-  disk = null;
+  store.reset();
   __resetFindingStoreForTests();
 });
 afterEach(() => {
@@ -117,7 +109,7 @@ describe("finding store", () => {
     await flushFindingStore();
     __resetFindingStoreForTests();
     // Write it back under the old path with an identity, as a 12.0 flush would.
-    disk = {
+    disk.seed({
       version: 2,
       docs: [
         {
@@ -128,17 +120,17 @@ describe("finding store", () => {
           ],
         },
       ],
-    };
+    });
     const found = await loadFindings("/new/paper.pdf", "fnv1a64:abc:100");
     expect(found.map((f) => f.id)).toEqual(["a"]);
     await flushFindingStore();
-    const stored = disk as { docs: Array<{ path: string; identity?: string }> };
+    const stored = disk.peek<{ docs: Array<{ path: string; identity?: string }> }>()!;
     expect(stored.docs.map((d) => d.path)).toEqual(["/new/paper.pdf"]);
     expect(stored.docs[0]?.identity).toBe("fnv1a64:abc:100");
   });
 
   it("does not adopt another file's record when the fingerprints differ", async () => {
-    disk = {
+    disk.seed({
       version: 2,
       docs: [
         {
@@ -149,7 +141,7 @@ describe("finding store", () => {
           ],
         },
       ],
-    };
+    });
     expect(await loadFindings("/new/other.pdf", "fnv1a64:zzz:999")).toEqual([]);
     expect(await loadFindings("/new/other.pdf")).toEqual([]);
   });
@@ -313,22 +305,15 @@ describe("finding store", () => {
     it("keeps a record from a later PageWise aside rather than overwriting it", async () => {
       // A downgrade. The store reads as empty; the later version's blob is
       // stashed beside the key and a flush must not replace it.
-      disk = { version: 99, docs: [{ path: PATH, findings: [] }] };
-      const seen = new Map<string, unknown>();
-      const { LazyStore } = await import("@tauri-apps/plugin-store");
-      LazyStore.prototype.set = async function (key: string, value: unknown) {
-        seen.set(key, value);
-        if (key === "findings") disk = value;
-      };
-      LazyStore.prototype.get = (async function (key: string) {
-        return key === "findings" ? disk : (seen.get(key) ?? null);
-      }) as typeof LazyStore.prototype.get;
+      const later = { version: 99, docs: [{ path: PATH, findings: [] }] };
+      disk.seed(later);
       await loadFindings(PATH);
       expect(getFindings(PATH)).toEqual([]);
-      expect(seen.get("findings.newer")).toEqual({
-        version: 99,
-        docs: [{ path: PATH, findings: [] }],
-      });
+      const file = store.peek<Record<string, unknown>>("findings.json")!;
+      expect(file["findings.newer"]).toEqual(later);
+      // And the later version's own blob is still there: a read must not
+      // replace what it could not understand.
+      expect(disk.peek()).toEqual(later);
     });
 
     it("drops an unanchored claim rather than showing it", () => {

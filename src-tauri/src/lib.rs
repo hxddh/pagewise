@@ -3,6 +3,7 @@ mod inspect;
 mod ocr_cache;
 mod open_path;
 mod secrets;
+mod store_io;
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -429,7 +430,12 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
+        // No store plugin: every JSON store the frontend keeps goes through
+        // `store_io`'s four commands now. The plugin's `load` took a path from
+        // the webview and `PathBuf::push` replaces the base directory for an
+        // absolute one, so `store:default` let any script in the webview read
+        // and write any JSON file the app could — and its `save()` was a plain
+        // `fs::write`, which is what turned a torn write into a lost store.
         .manage(AllowedPaths::default())
         // The file this launch was started with (16.0, B15). Before, only a
         // second launch's file was opened: double-clicking a PDF with the app
@@ -447,6 +453,10 @@ pub fn run() {
             read_file_bytes,
             write_text_file,
             export_annotated_pdf,
+            store_io::store_read_cmd,
+            store_io::store_write_cmd,
+            store_io::store_list_cmd,
+            store_io::store_delete_cmd,
             secrets::set_api_key,
             secrets::get_api_key,
             secrets::delete_api_key,

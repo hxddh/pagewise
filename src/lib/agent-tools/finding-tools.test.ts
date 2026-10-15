@@ -1,18 +1,6 @@
 import { asSchema } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-let disk: unknown = null;
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return disk;
-    }
-    async set(_key: string, value: unknown) {
-      disk = value;
-    }
-    async save() {}
-  },
-}));
 
 import { createDocumentTools, newReadBudget } from "./index";
 import { docCache } from "../doc-cache";
@@ -42,7 +30,6 @@ function loadDoc() {
 const options = { context: { defaultDocPath: PATH } } as never;
 
 beforeEach(() => {
-  disk = null;
   __resetFindingStoreForTests();
   loadDoc();
 });

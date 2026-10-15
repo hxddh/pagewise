@@ -1,17 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-let disk: unknown = null;
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return disk;
-    }
-    async set(_key: string, value: unknown) {
-      disk = value;
-    }
-    async save() {}
-  },
-}));
 
 import {
   __resetFindingStoreForTests,
@@ -41,7 +29,6 @@ import { docCache } from "./doc-cache";
 const PATH = "/docs/paper.pdf";
 
 beforeEach(() => {
-  disk = null;
   __resetFindingStoreForTests();
   docCache.clear();
   docCache.set({

@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { Store } from "@tauri-apps/plugin-store";
+import { createAtomicStore, type StoreHandle } from "../lib/atomic-store";
 import { prepareMessagesForPersist } from "../lib/persist-messages";
 import { hydrateChatMessages, normalizeUIMessages } from "../lib/messages-utils";
 import { createStoreRuntime } from "../lib/json-store";
@@ -20,7 +20,7 @@ const IDENTITY_INDEX_KEY = "pagewise:identity-index";
 const SAVED_AT_KEY = "pagewise:saved-at";
 const RESERVED_KEYS = new Set([IDENTITY_INDEX_KEY, SAVED_AT_KEY]);
 
-async function readSavedAt(store: Store): Promise<Record<string, number>> {
+async function readSavedAt(store: StoreHandle): Promise<Record<string, number>> {
   const raw = await store.get<unknown>(SAVED_AT_KEY);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const out: Record<string, number> = {};
@@ -34,7 +34,7 @@ function chatKey(path: string): string {
   return path;
 }
 
-async function readIdentityIndex(store: Store): Promise<Record<string, string>> {
+async function readIdentityIndex(store: StoreHandle): Promise<Record<string, string>> {
   const raw = await store.get<unknown>(IDENTITY_INDEX_KEY);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const out: Record<string, string> = {};
@@ -49,7 +49,7 @@ async function readIdentityIndex(store: Store): Promise<Record<string, string>> 
  * close-flush, and a clear can't interleave their set/delete + save cycles and
  * resurrect a just-cleared chat via last-write-wins.
  */
-const runtime = createStoreRuntime(() => Store.load(STORE_PATH));
+const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
 
 /**
  * The chat for a document — by path, then by fingerprint.

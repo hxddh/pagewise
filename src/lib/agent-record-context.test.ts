@@ -1,14 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return null;
-    }
-    async set() {}
-    async save() {}
-  },
-}));
 
 import {
   buildRecordInstructions,

@@ -1,4 +1,4 @@
-import { LazyStore } from "@tauri-apps/plugin-store";
+import { createAtomicStore } from "./atomic-store";
 import { invoke } from "@tauri-apps/api/core";
 import { createStoreRuntime } from "./json-store";
 
@@ -11,7 +11,7 @@ const MAX_PERSISTED = 64;
  * concurrent startup restore and a user allow/remove action can't interleave
  * their read-modify-write cycles and drop entries via last-write-wins.
  */
-const runtime = createStoreRuntime(() => new LazyStore(STORE_PATH));
+const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
 
 async function registerWithBackend(path: string, strict: boolean): Promise<boolean> {
   try {

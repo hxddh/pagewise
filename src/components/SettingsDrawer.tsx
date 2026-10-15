@@ -7,6 +7,7 @@ import { SetupAssistant } from "./settings/SetupAssistant";
 import { ShortcutsSettings } from "./settings/ShortcutsSettings";
 import { AboutSettings } from "./settings/AboutSettings";
 import { loadPreferences, patchPreferences, type SettingsTab } from "../lib/preferences";
+import { reofferPlaintextMirrors } from "../lib/settings";
 import { Modal } from "./ui/Modal";
 import { Button } from "./ui/Button";
 
@@ -86,6 +87,13 @@ function SettingsDrawerInner({
       setSetupSkipped(false);
       return;
     }
+    // Opening Settings is the explicit action that re-asks the OS keychain, and
+    // the moment a system prompt is expected. If a plaintext mirror can move
+    // into the keychain now, it does — and the warning under the key field goes
+    // with it (20.0: until then, a key that landed on disk once stayed there).
+    void reofferPlaintextMirrors().then((moved) => {
+      if (moved > 0) onApiReady?.();
+    });
     void loadPreferences().then((p) => {
       const resolved = TABS.includes(p.lastSettingsTab as DrawerTab)
         ? (p.lastSettingsTab as DrawerTab)
@@ -93,7 +101,7 @@ function SettingsDrawerInner({
       setTab(resolved);
       setVisited(new Set([resolved]));
     });
-  }, [open]);
+  }, [open, onApiReady]);
 
   const requestClose = useCallback(() => {
     onClose();

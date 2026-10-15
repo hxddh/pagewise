@@ -1,22 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-let disk: unknown = null;
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return disk;
-    }
-    async set(_key: string, value: unknown) {
-      disk = value;
-    }
-    async save() {}
-  },
-}));
+import { storeKey, useMemoryStoreBackend } from "./store-testkit";
 
 import { addRecentFile, getRecentFiles, updateRecentProgress } from "./recent-files";
 
+/** The store's disk, in memory, and the list it keeps under `files`. */
+const store = useMemoryStoreBackend();
+const disk = storeKey(store, "recent.json", "files");
+
 beforeEach(() => {
-  disk = null;
+  store.reset();
 });
 
 /**
@@ -45,9 +38,9 @@ describe("recent files remember progress", () => {
   });
 
   it("drops a corrupt progress field without dropping the row", async () => {
-    disk = [
+    disk.seed([
       { path: "/a.pdf", name: "a.pdf", kind: "pdf", openedAt: 1, lastPage: -4, findingCount: "six", totalPages: 9 },
-    ];
+    ]);
     const [file] = await getRecentFiles();
     expect(file?.path).toBe("/a.pdf");
     expect(file?.lastPage).toBeUndefined();
@@ -58,8 +51,8 @@ describe("recent files remember progress", () => {
   it("writes nothing when the progress did not change", async () => {
     await addRecentFile({ path: "/a.pdf", name: "a.pdf", kind: "pdf" });
     await updateRecentProgress("/a.pdf", { lastPage: 5 });
-    const before = disk;
+    const before = store.writes.length;
     await updateRecentProgress("/a.pdf", { lastPage: 5 });
-    expect(disk).toBe(before);
+    expect(store.writes.length).toBe(before);
   });
 });

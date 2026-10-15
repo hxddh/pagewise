@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { storeKey, useMemoryStoreBackend } from "./store-testkit";
 
 /**
  * What a re-index is allowed to delete from the persisted page cache.
@@ -16,30 +18,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * silently threw away 150 pages of paid work.
  */
 
-const h = vi.hoisted(() => ({ saved: undefined as unknown }));
-
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    async get() {
-      return h.saved;
-    }
-    async set(_key: string, value: unknown) {
-      h.saved = value;
-    }
-    async save() {}
-  },
-}));
-
 const { __resetIndexStoreForTests, forgetIndexedPages, loadIndexedPages } = await import(
   "./index-store"
 );
+
+/** The store's disk, in memory, and the blob it keeps under `index`. */
+const store = useMemoryStoreBackend();
+const blob = storeKey(store, "index-cache.json", "index");
 
 const STAMP = "stamp-1";
 const PATH = "/docs/scan.pdf";
 const body = (n: number) => `page ${n} ${"x".repeat(60)}`;
 
 function seed(pageCount: number): void {
-  h.saved = {
+  blob.seed({
     version: 1,
     docs: [
       {
@@ -60,13 +52,14 @@ function seed(pageCount: number): void {
         pages: [{ page: 1, text: body(1) }],
       },
     ],
-  };
+  });
 }
 
 const persistedPages = async (path = PATH) =>
   (await loadIndexedPages(path, STAMP)).map((p) => p.page);
 
 beforeEach(() => {
+  store.reset();
   __resetIndexStoreForTests();
   seed(200);
 });
