@@ -9,12 +9,11 @@ the day. So:
 
 - **A fix that loses or corrupts the reader's data ships as a patch at once**
   (21.0.1 is the example).
-- **Everything else collects on `main` and ships at most once a week**, as one
-  minor release, with one changelog section.
-- **The major number is for a change that breaks something a reader has**:
-  a store format an older build cannot read, a removed feature, a changed
-  file on disk. Not for "the next round of work". (v22 shipped as 21.1.x for
-  that reason; see the note at the top of `CHANGELOG.md`.)
+- **Everything else collects on `main` and ships at most once a week**, with
+  one changelog section.
+- **Each round of work (vN, from its evaluation in `docs/reviews/`) ships as
+  N.0.0**; fixes to it are N.0.x. (v22 was the exception: it shipped as
+  21.1.x. See the note at the top of `CHANGELOG.md`.)
 
 ## Version bump
 
