@@ -54,7 +54,10 @@ export function configureOcr(options: { enabled: boolean; languages: OcrLanguage
         state.flushTimer = null;
       }
       if (state.dirty && state.identity) {
-        void writeOcrDoc(state.identity, state.langs ?? previous, state.pages.values()).catch(() => {});
+        // Held until written: a failed write used to drop them, and every one
+        // of those pages was read again (Codex on #157).
+        const held = { langs: state.langs ?? previous, pages: [...state.pages.values()] };
+        void writeOcrDoc(state.identity, held.langs, held.pages).catch(() => state.held.push(held));
       }
       state.dirty = false;
       state.pages.clear();
@@ -85,6 +88,8 @@ interface DocState {
   inflight: Map<number, Promise<StoredOcrPage | null>>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   dirty: boolean;
+  /** Pages read with models the document has since left, whose write failed: tried again at the next flush. */
+  held: { langs: OcrLanguages; pages: StoredOcrPage[] }[];
 }
 
 const docs = new Map<string, DocState>();
@@ -92,7 +97,7 @@ const docs = new Map<string, DocState>();
 function stateFor(path: string): DocState {
   let s = docs.get(path);
   if (!s) {
-    s = { pages: new Map(), inflight: new Map(), flushTimer: null, dirty: false, cjkProbes: 0 };
+    s = { pages: new Map(), inflight: new Map(), flushTimer: null, dirty: false, cjkProbes: 0, held: [] };
     docs.set(path, s);
   }
   return s;
@@ -250,7 +255,7 @@ async function recognize(path: string, page: number, slot: number, signal?: Abor
   const started = performance.now();
   const state = stateFor(path);
   const langs = langsFor(state);
-  const first = await recognizeWith(path, page, slot, langs, signal);
+  const first = await withPageTimeout(recognizeWith(path, page, slot, langs, signal));
   if (!first || langs !== "eng") return first && { ...first, ms: performance.now() - started };
   const doubtful = doubtfulInEnglish(first);
   // Another page may have switched the document while this one was read.
@@ -258,13 +263,43 @@ async function recognize(path: string, page: number, slot: number, signal?: Abor
   if (!doubtful || (!switched && state.cjkProbes >= MAX_CJK_PROBES)) {
     return { ...first, ms: performance.now() - started };
   }
-  const both = await recognizeWith(path, page, slot, "chi_sim+eng", signal);
+  // The second reading is a try: when it fails or runs out of time, the page
+  // keeps what English read (Codex on #157) — the probe must never leave a
+  // page with less than it had.
+  let both: StoredOcrPage | null = null;
+  try {
+    both = await withPageTimeout(recognizeWith(path, page, slot, "chi_sim+eng", signal));
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    if (isPageTimeout(err)) void terminateOcrSlot(slot);
+  }
   const better = bothModelsWin(first, both);
   if (!switched) {
     if (better) state.langs = "chi_sim+eng";
     else state.cjkProbes += 1;
   }
   return { ...(better && both ? both : first), ms: performance.now() - started };
+}
+
+const PAGE_TIMEOUT = "OCR timed out";
+
+function isPageTimeout(err: unknown): boolean {
+  return err instanceof Error && err.message === PAGE_TIMEOUT;
+}
+
+/** One reading, given `PAGE_TIMEOUT_MS`: each reading of a page has its own. */
+async function withPageTimeout<T>(reading: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reading,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(PAGE_TIMEOUT)), PAGE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function recognizeWith(
@@ -336,21 +371,13 @@ export function ocrPage(
       drop: () => resolve(null),
       run: async (slot) => {
         let result: StoredOcrPage | null = null;
-        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-          result = await Promise.race([
-            recognize(path, page, slot, options.signal),
-            new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error("OCR timed out")), PAGE_TIMEOUT_MS);
-            }),
-          ]);
+          result = await recognize(path, page, slot, options.signal);
         } catch (err) {
           if (import.meta.env.DEV) console.warn(`[ocr] page ${page}:`, err);
           // Restart only the worker this page hung in; the other slot's page
           // is fine and keeps going (16.0, B9).
-          if (err instanceof Error && err.message === "OCR timed out") void terminateOcrSlot(slot);
-        } finally {
-          clearTimeout(timer);
+          if (isPageTimeout(err)) void terminateOcrSlot(slot);
         }
         // The document closed, or the models changed, while this page was read.
         if (result && docs.get(path) === state && langs === languages && enabled) {
@@ -384,11 +411,25 @@ function scheduleFlush(path: string, state: DocState): void {
 /** Write this document's pages to disk now, if anything changed. */
 export async function flushOcr(path: string): Promise<void> {
   const state = docs.get(path);
-  if (!state || !state.dirty || !state.identity) return;
+  if (!state || !state.identity || (!state.dirty && state.held.length === 0)) return;
   if (state.flushTimer) {
     clearTimeout(state.flushTimer);
     state.flushTimer = null;
   }
+  for (const held of state.held.splice(0)) {
+    // Back on those models: the pages join this flush rather than overwrite it.
+    if (held.langs === langsFor(state)) {
+      for (const p of held.pages) if (!state.pages.has(p.page)) state.pages.set(p.page, p);
+      state.dirty = true;
+      continue;
+    }
+    try {
+      await writeOcrDoc(state.identity, held.langs, held.pages);
+    } catch {
+      state.held.push(held);
+    }
+  }
+  if (!state.dirty) return;
   state.dirty = false;
   try {
     await writeOcrDoc(state.identity, langsFor(state), state.pages.values());

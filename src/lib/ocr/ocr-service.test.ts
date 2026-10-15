@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The OCR cache directory: one JSON file per document fingerprint. */
 const disk = new Map<string, string>();
+/** Whether `ocr_cache_read` answers or fails. */
+let reads: "ok" | "fail" = "ok";
 vi.mock("../invoke-cmd", () => ({
   invokeCmd: vi.fn(async (cmd: string, args: { identity: string; json?: string }) => {
+    if (cmd === "ocr_cache_read" && reads === "fail") throw new Error("read failed");
     if (cmd === "ocr_cache_read") return disk.get(args.identity) ?? null;
     if (cmd === "ocr_cache_write") disk.set(args.identity, args.json!);
     return null;
@@ -31,6 +34,7 @@ const ID = "fnv1a64:0123456789abcdef:100";
 
 beforeEach(() => {
   disk.clear();
+  reads = "ok";
   __resetOcrServiceForTests();
 });
 
@@ -176,5 +180,80 @@ describe("a cache read that fails (22.0)", () => {
     await ocrPage(PATH, 2);
     await flushOcr(PATH);
     expect(JSON.parse(disk.get(ID)!)).toEqual(JSON.parse(before!));
+  });
+});
+
+describe("the second reading is a try (Codex on #157)", () => {
+  const ENGLISH = { text: "l| 7 ;: garbage read by the English model", confidence: 17, items: [] };
+
+  it("keeps the English reading when both models fail", async () => {
+    const recognize = vi.mocked((await import("./ocr-engine")).recognizeCanvas);
+    recognize.mockImplementation(async (_c, _t, langs) => {
+      if (langs === "eng") return ENGLISH;
+      throw new Error("chi_sim model missing");
+    });
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    expect((await ocrPage(PATH, 1))?.text).toBe(ENGLISH.text);
+  });
+
+  it("keeps the English reading when both models run out of time, and restarts that worker", async () => {
+    const engine = await import("./ocr-engine");
+    const recognize = vi.mocked(engine.recognizeCanvas);
+    vi.mocked(engine.terminateOcrSlot).mockClear();
+    vi.useFakeTimers();
+    try {
+      recognize.mockImplementation(async (_c, _t, langs) => (langs === "eng" ? ENGLISH : new Promise(() => {})));
+      configureOcr({ enabled: true, languages: "eng" });
+      await restoreOcr(PATH, ID);
+      const read = ocrPage(PATH, 1);
+      await vi.advanceTimersByTimeAsync(90_000 + 10);
+      expect((await read)?.text).toBe(ENGLISH.text);
+      expect(vi.mocked(engine.terminateOcrSlot)).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("a language change whose save fails (Codex on #157)", () => {
+  /** Every cache read fails while `switchTo` runs and settles; the restore's read with it. */
+  const switchFailing = async (languages: "eng" | "chi_sim+eng") => {
+    reads = "fail";
+    configureOcr({ enabled: true, languages });
+    await settle();
+    await settle();
+    reads = "ok";
+  };
+
+  it("keeps the pages, and writes them at the next flush", async () => {
+    vi.mocked((await import("./ocr-engine")).recognizeCanvas).mockImplementation(async (_c, _t, langs) => ({
+      text: `read with ${langs}`,
+      confidence: 90,
+      items: [],
+    }));
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    await ocrPage(PATH, 7);
+    await switchFailing("chi_sim+eng");
+    expect(disk.get(ID), "the save failed").toBeUndefined();
+
+    await flushOcr(PATH);
+    configureOcr({ enabled: true, languages: "eng" });
+    await settle();
+    expect((await restoreOcr(PATH, ID)).map((p) => p.page)).toEqual([7]);
+  });
+
+  it("joins them to the flush when the document is back on those models", async () => {
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    await ocrPage(PATH, 7);
+    await switchFailing("chi_sim+eng");
+    configureOcr({ enabled: true, languages: "eng" });
+    await settle();
+    await flushOcr(PATH);
+    __resetOcrServiceForTests();
+    configureOcr({ enabled: true, languages: "eng" });
+    expect((await restoreOcr(PATH, ID)).map((p) => p.page)).toEqual([7]);
   });
 });
