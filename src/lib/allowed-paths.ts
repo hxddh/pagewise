@@ -1,112 +1,79 @@
-import { createAtomicStore } from "./atomic-store";
 import { invoke } from "@tauri-apps/api/core";
-import { createStoreRuntime } from "./json-store";
-
-const STORE_PATH = "allowed-paths.json";
-const KEY = "paths";
-const MAX_PERSISTED = 64;
 
 /**
- * Serializes every persisted-array mutation through a single promise chain so a
- * concurrent startup restore and a user allow/remove action can't interleave
- * their read-modify-write cycles and drop entries via last-write-wins.
+ * What the Rust side has granted, and the two dialogs that grant (21.0).
+ *
+ * Until 21.0 this module granted: it called `register_allowed_path` with any
+ * path it was handed and kept the list in `allowed-paths.json`, a store the
+ * webview itself writes, re-granting all of it at every launch. So the
+ * allowlist protected nothing from a script in the webview — it could grant
+ * itself any file and read it, or any folder and write into it.
+ *
+ * Now nothing here grants. A path is granted in Rust by what the reader did
+ * outside the webview — the open dialog, the save dialog, a drop on the
+ * window, a file the app was launched with — and Rust keeps its own list of
+ * the documents granted in earlier sessions (`src-tauri/src/grants.rs`). This
+ * module only opens the dialogs and asks whether a path is granted.
  */
-const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
 
-async function registerWithBackend(path: string, strict: boolean): Promise<boolean> {
+function message(e: unknown, fallback: string): string {
+  // Tauri rejects with a plain string; keep the real Rust cause (a moved file
+  // fails canonicalize with "No such file", which is not an authorization
+  // refusal and should not read as one).
+  const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  return raw || fallback;
+}
+
+/** Whether a document may be opened. False for a path that no longer exists. */
+export async function isPathGranted(path: string): Promise<boolean> {
+  const trimmed = path.trim();
+  if (!trimmed) return false;
   try {
-    await invoke("register_allowed_path", { path });
-    return true;
-  } catch (e) {
-    if (strict) {
-      // Surface the real Rust cause (Tauri rejects with a plain string): a
-      // moved/deleted file fails canonicalize with "No such file", which is a
-      // very different message from an authorization refusal.
-      const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
-      throw new Error(raw || "path not authorized");
-    }
+    return await invoke<boolean>("path_granted", { path: trimmed });
+  } catch {
     return false;
   }
 }
 
-async function persistPath(path: string): Promise<void> {
-  const trimmed = path.trim();
-  if (!trimmed) return;
-
-  return runtime.withStoreLock(async () => {
-    const s = await runtime.store();
-    const existing = (await s.get<string[]>(KEY)) ?? [];
-    if (existing.includes(trimmed)) return;
-
-    const updated = [...existing, trimmed].slice(-MAX_PERSISTED);
-    await s.set(KEY, updated);
-    await s.save();
-  });
+/**
+ * Throw unless `path` was granted. Every file-touching command enforces the
+ * allowlist itself; this asks first so the reader gets a clear refusal
+ * instead of a read error halfway through opening a document.
+ */
+export async function requireGrantedPath(path: string): Promise<void> {
+  if (!(await isPathGranted(path))) throw new Error("path not authorized");
 }
 
-async function removePersistedPath(path: string): Promise<void> {
-  const trimmed = path.trim();
-  if (!trimmed) return;
-
-  return runtime.withStoreLock(async () => {
-    const s = await runtime.store();
-    const existing = (await s.get<string[]>(KEY)) ?? [];
-    if (!existing.includes(trimmed)) return;
-
-    const updated = existing.filter((p) => p !== trimmed);
-    await s.set(KEY, updated);
-    await s.save();
-  });
+/** The open dialog. Resolves to the granted document, or null on cancel. */
+export async function pickDocument(): Promise<string | null> {
+  try {
+    return (await invoke<string | null>("pick_document")) ?? null;
+  } catch (e) {
+    throw new Error(message(e, "path not authorized"));
+  }
 }
 
 /**
- * Authorize exactly the given path with the Rust allowlist and persist it for
- * the next launch. Only the path passed in is authorized — opening a document
- * authorizes that file alone, never its parent directory. "Save as" flows that
- * need to create a new file explicitly authorize the chosen output directory
- * themselves (see saveMarkdownFile), so write access stays scoped to a folder
- * the user just picked rather than every folder they ever opened a file from.
+ * The save dialog. Resolves to the chosen path, or null on cancel; writing
+ * into the chosen folder is granted for the rest of this session.
  */
-export async function allowPathPersisted(path: string): Promise<void> {
-  const trimmed = path.trim();
-  if (!trimmed) return;
-
-  const ok = await registerWithBackend(trimmed, true);
-  if (ok) await persistPath(trimmed);
-}
-
-export interface RestoreAllowedPathsResult {
-  restored: number;
-  failed: string[];
-}
-
-/** Re-register paths saved from previous sessions (and recent documents). */
-export async function restoreAllowedPaths(
-  extraPaths: string[] = [],
-): Promise<RestoreAllowedPathsResult> {
-  // Snapshot the persisted list under the lock; per-path removals below take the
-  // lock individually so we never hold it across backend round-trips.
-  const stored = await runtime.withStoreLock(async () => {
-    const s = await runtime.store();
-    return (await s.get<string[]>(KEY)) ?? [];
-  });
-  const seen = new Set<string>();
-  const failed: string[] = [];
-  let restored = 0;
-
-  for (const path of [...stored, ...extraPaths]) {
-    const trimmed = path.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-
-    const ok = await registerWithBackend(trimmed, false);
-    if (ok) {
-      restored += 1;
-    } else {
-      failed.push(trimmed);
-      await removePersistedPath(trimmed);
-    }
+export async function pickSavePath(
+  defaultName: string,
+  filterName: string,
+  extensions: string[],
+): Promise<string | null> {
+  try {
+    return (
+      (await invoke<string | null>("pick_save_path", { defaultName, filterName, extensions })) ?? null
+    );
+  } catch (e) {
+    throw new Error(message(e, "path not authorized"));
   }
+}
 
-  return { restored, failed };
+/** Of these paths, the ones no longer granted (moved, deleted, never granted). */
+export async function ungrantedPaths(paths: readonly string[]): Promise<string[]> {
+  const unique = [...new Set(paths.map((p) => p.trim()).filter(Boolean))];
+  const granted = await Promise.all(unique.map(isPathGranted));
+  return unique.filter((_, i) => !granted[i]);
 }

@@ -4,7 +4,7 @@ import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
 import type { LoadedDocument } from "./types";
-import { allowPath } from "./fs-access";
+import { requireGrantedPath } from "./allowed-paths";
 import { fileStamp } from "./file-stamp";
 import { fileIdentity } from "./file-identity";
 import { loadIndexedPages } from "./index-store";
@@ -59,7 +59,7 @@ export async function loadDocument(
   const name = path.split(/[/\\]/).pop() ?? path;
   const kind = inferDocumentKind(path);
 
-  await allowPath(path);
+  await requireGrantedPath(path);
 
   // Stamped after authorization (the command requires it) and before extraction,
   // so a rewrite during the parse advances the real stamp and the next open

@@ -102,3 +102,57 @@ describe("the store capability", () => {
     expect(read("src/lib/atomic-store.ts")).toContain("`${BODIES_DIR}/${id}.json`");
   });
 });
+
+/**
+ * The file allowlist, asserted the same way (21.0).
+ *
+ * `register_allowed_path` granted whatever path the webview named, so a script
+ * in the webview could grant itself any file and read it. Grants now come only
+ * from Rust (`src-tauri/src/grants.rs`): the dialogs, a drop, a launch, and
+ * Rust's own list of earlier grants.
+ */
+describe("the file allowlist", () => {
+  const lib = read("src-tauri/src/lib.rs");
+  const handler = lib.slice(lib.indexOf("generate_handler!["), lib.indexOf("])", lib.indexOf("generate_handler![")));
+
+  it("offers the webview no command that grants a path it names", () => {
+    expect(handler).not.toMatch(/register_allowed_path/);
+    expect(lib).not.toMatch(/fn register_allowed_path/);
+    // The three the webview gets: two dialogs that grant what the reader
+    // picks, and a question.
+    for (const cmd of ["grants::pick_document", "grants::pick_save_path", "grants::path_granted"]) {
+      expect(handler).toContain(cmd);
+    }
+  });
+
+  it("does not call the old command, or the dialog plugin, from the front end", () => {
+    for (const file of sourceFiles("src")) {
+      if (/\.test\.(ts|tsx)$/.test(file)) continue;
+      const text = read(file);
+      // Called, not mentioned: the history is told in comments.
+      expect(text, file).not.toMatch(/["']register_allowed_path["']/);
+      // A path from the JS dialog is not granted; only the Rust one grants.
+      expect(text, file).not.toMatch(/from\s+["']@tauri-apps\/plugin-dialog["']/);
+    }
+  });
+
+  it("keeps its list where no store command can reach it", () => {
+    const grants = read("src-tauri/src/grants.rs");
+    const name = grants.match(/const LIST_FILE: &str = "([^"]+)"/)?.[1];
+    expect(name).toBeTruthy();
+    expect(name.endsWith(".json")).toBe(false);
+  });
+
+  it("grants the same document types the front end opens", () => {
+    const grants = read("src-tauri/src/grants.rs");
+    const rust = grants
+      .match(/DOCUMENT_EXTENSIONS: &\[&str\] =\s*&\[([^\]]+)\]/)?.[1]
+      .match(/"([a-z]+)"/g)
+      .map((s) => s.slice(1, -1));
+    const ts = read("src/lib/load-document.ts")
+      .match(/SUPPORTED_EXT = new Set\(\[([^\]]+)\]/)?.[1]
+      .match(/"([a-z]+)"/g)
+      .map((s) => s.slice(1, -1));
+    expect(new Set(rust)).toEqual(new Set(ts));
+  });
+});

@@ -9,7 +9,6 @@
  * `document-scope.ts` instead of a hand-written teardown list.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   commitLoadedDocument,
@@ -31,7 +30,7 @@ import {
   updateRecentProgress,
   type RecentFile,
 } from "../lib/recent-files";
-import { restoreAllowedPaths } from "../lib/allowed-paths";
+import { pickDocument, ungrantedPaths } from "../lib/allowed-paths";
 import { reindexDocument } from "../document/index-queue";
 import { evidenceAnnotations, saveAnnotatedPdf, type AnnotationLabels } from "../lib/export-annotated";
 import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
@@ -97,14 +96,6 @@ export interface Workbench {
   };
 }
 
-const DOCUMENT_FILTERS = [
-  {
-    name: "Documents",
-    extensions: ["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"],
-  },
-  { name: "PDF", extensions: ["pdf"] },
-  { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"] },
-];
 
 export function useWorkbench(): Workbench {
   const { t, locale } = useI18n();
@@ -155,10 +146,11 @@ export function useWorkbench(): Workbench {
     void getRecentFiles()
       .then(async (files) => {
         setRecentFiles(files);
-        // Paths that fail to re-authorize (file moved/deleted) are dropped from
-        // the allowlist by restoreAllowedPaths; also prune them from the recents
-        // UI so a dead entry doesn't linger and later report "path not authorized".
-        const { failed } = await restoreAllowedPaths(files.map((f) => f.path));
+        // Recents Rust has not granted (moved, deleted, or only ever named in
+        // this webview-written list) are pruned, so a dead entry doesn't linger
+        // and later report "path not authorized". Nothing is granted from here
+        // since 21.0: Rust restores its own list of documents at startup.
+        const failed = await ungrantedPaths(files.map((f) => f.path));
         let kept = files;
         if (failed.length > 0) {
           kept = await removeRecentFiles(failed);
@@ -445,11 +437,9 @@ export function useWorkbench(): Workbench {
   const openFileDialog = useCallback(() => {
     if (loadingRef.current) return;
     void (async () => {
-      const selected = await open({
-        multiple: false,
-        filters: DOCUMENT_FILTERS,
-      });
-      if (typeof selected === "string") void switchDocument(selected);
+      // The dialog runs in Rust, which grants the file picked (21.0).
+      const selected = await pickDocument().catch(() => null);
+      if (selected) void switchDocument(selected);
     })();
   }, [switchDocument]);
 

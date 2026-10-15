@@ -1,6 +1,5 @@
-import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { allowPath } from "./fs-access";
+import { pickSavePath } from "./allowed-paths";
 
 export async function saveMarkdownFile(
   content: string,
@@ -17,19 +16,10 @@ export async function saveTextFile(
   filterName: string,
   extensions: string[],
 ): Promise<boolean> {
-  const path = await save({
-    defaultPath: defaultName,
-    filters: [{ name: filterName, extensions }],
-  });
-
+  // The dialog runs in Rust, which grants writing into the folder chosen
+  // (21.0); the webview can no longer grant a folder itself.
+  const path = await pickSavePath(defaultName, filterName, extensions);
   if (!path) return false;
-
-  // The chosen file may not exist yet; authorize its parent directory so the
-  // backend allowlist permits the write (canonicalizing a new file would fail).
-  const parent = path.replace(/[/\\][^/\\]*$/, "");
-  if (parent && parent !== path) {
-    await allowPath(parent);
-  }
 
   await invoke("write_text_file", { path, content });
   return true;

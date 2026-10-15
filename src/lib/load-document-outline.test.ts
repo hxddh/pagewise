@@ -35,7 +35,7 @@ vi.mock("./pdf", () => ({
   getPdfPageLabels: async () => null,
   getPdfAnnotations: async () => [],
 }));
-vi.mock("./fs-access", () => ({ allowPath: async () => {} }));
+vi.mock("./allowed-paths", () => ({ requireGrantedPath: async () => {} }));
 vi.mock("./file-stamp", () => ({ fileStamp: async () => "" }));
 vi.mock("./index-store", () => ({ loadIndexedPages: async () => [] }));
 vi.mock("../document/index-queue", () => ({ scheduleIndex: () => {} }));
