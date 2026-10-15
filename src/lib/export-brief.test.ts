@@ -10,6 +10,14 @@ vi.mock("ai", () => ({
 }));
 vi.mock("./settings", () => ({ loadSettings: async () => ({ provider: "openai", model: "m", apiKey: "k" }) }));
 vi.mock("./llm", () => ({ resolveModel: () => "model", assertApiKeyForAgent: () => undefined }));
+// The passage each entry's check found (22.0): a verdict is filed only
+// against the passage it was a reading of.
+vi.mock("./citation-check", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./citation-check")>()),
+  cachedCitationCheck: (_path: string, c: { pages: number[]; quote?: string }) =>
+    c.quote ? { status: "located", page: c.pages[0], passage: PASSAGE } : null,
+}));
+const PASSAGE = "The trial ran for eight weeks at two sites.";
 
 import { briefToMarkdown, BRIEF_LABELS_ZH, pageRef, type BriefEntry } from "./export-brief";
 import { clearReviews, reviewClaim } from "./claim-review";
@@ -122,7 +130,7 @@ describe("briefToMarkdown", () => {
   it("files the reader's model verdict beside the local reason, labelled as the model's (20.0)", async () => {
     // The reader asked their model about this claim; the key is the claim and
     // the quote the chip read, which a kept-verified entry carries as evidence.
-    await reviewClaim("/tmp/report.pdf", "The trial ran eight weeks.", "…ran for eight weeks…", "…", 2);
+    await reviewClaim("/tmp/report.pdf", "The trial ran eight weeks.", "…ran for eight weeks…", PASSAGE, 2);
     const reviewed = finding({ id: "a" });
     const untouched = finding({ id: "b", claim: "Another claim.", evidence: "…other words…" });
     const md = briefToMarkdown(

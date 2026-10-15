@@ -1,7 +1,14 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { cachedReview, subscribeReviews } from "../lib/claim-review";
+import { cachedReview, reviewBasis, subscribeReviews } from "../lib/claim-review";
 import { useI18n } from "../i18n";
-import { cachedCitationCheck, checkCitation, withClaim, type CitationCheck } from "../lib/citation-check";
+import {
+  cachedCitationCheck,
+  checkCitation,
+  checksEpoch,
+  subscribeChecks,
+  withClaim,
+  type CitationCheck,
+} from "../lib/citation-check";
 import { citationLabel, type CitationLink } from "../lib/remark-citations";
 import { citationLevel } from "../lib/trust-level";
 import { longKey, type CitationReason } from "../lib/trust-text";
@@ -45,6 +52,8 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
   const { t } = useI18n();
   const [check, setCheck] = useState<CitationCheck | null>(() => (env ? cachedCitationCheck(env.path, link) : null));
   const pagesKey = link.pages.join(",");
+  // Checks forgotten — the page's words were read again (22.0): check again.
+  const epoch = useSyncExternalStore(subscribeChecks, checksEpoch);
 
   useEffect(() => {
     if (!env) return;
@@ -59,14 +68,14 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
     };
     // `link` is rebuilt on every render from its URL; its content is the key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [env?.path, env?.totalPages, pagesKey, link.quote]);
+  }, [env?.path, env?.totalPages, pagesKey, link.quote, epoch]);
   // `link.claim` does not change what is checked, only how it is read.
 
   // The model's reading, when the reader asked for one (15.0). Shown beside
   // the local verdict, never in place of it. Subscribed before any early
   // return: a hook after one breaks when the document arrives (16.0, B11).
   const review = useSyncExternalStore(subscribeReviews, () =>
-    env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote) : null,
+    env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote, reviewBasis(check)) : null,
   );
 
   const label = children ?? citationLabel(link.pages);

@@ -525,6 +525,27 @@ describe("local OCR first (14.0)", () => {
     expect(h.store.get(path)!.pages.map((p) => p.text.length > 0)).toEqual([true, false, true, true]);
   });
 
+  it("makes no vision call when the scan model cannot see, and keeps reading locally (22.0)", async () => {
+    // The default provider has no vision model; its scan slot fell back to
+    // the chat model, and every unread page was a render and a request bound
+    // to fail.
+    h.ocr.enabled = true;
+    vi.mocked(loadVisionSettings).mockImplementation(
+      async () => ({ provider: "deepseek", model: "deepseek-v4-flash", apiKey: "k" }) as never,
+    );
+    const path = uniquePath();
+    const doc = seed(path, 3);
+    h.ocr.pages.set(1, readPoorly);
+    h.ocr.pages.set(3, readWell);
+
+    scheduleIndex(doc);
+    await vi.waitFor(() => expect(h.ocr.calls.length).toBe(3));
+    await vi.waitFor(() => expect(statusesFor(path, 3).slice(-1)[0]).toBe("done"));
+
+    expect(h.visionCalls).toHaveLength(0);
+    expect(h.events.some((e) => e.status === "failed")).toBe(false);
+  });
+
   it("does not read past DEFAULT_AUTO_INDEX_PAGES, however large the cloud budget is (20.0)", async () => {
     // The page window is the CPU bound: OCR is free but 2.64s a page, and a
     // 300-page scan used to mean every page was recognised — about 6.6 minutes

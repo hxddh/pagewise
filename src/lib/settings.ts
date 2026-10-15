@@ -13,7 +13,7 @@ import {
   type ProviderId,
   type ProviderProfile,
 } from "./types";
-import { isKnownNonVisionModel, isThinkingCapableModel, isToolModel, isVisionModel } from "./model-capabilities";
+import { canSeeWith, isKnownNonVisionModel, isThinkingCapableModel, isToolModel, isVisionModel } from "./model-capabilities";
 
 const STORE_PATH = "settings.json";
 const SETTINGS_KEY = "llm";
@@ -571,6 +571,23 @@ export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
 }
 
 /** Vision indexing model (separate from agent model when configured). */
+/**
+ * Whether the configured scan model can see (22.0). False for a model known to
+ * be text-only — the default provider, DeepSeek, has no vision model, so its
+ * scan slot falls back to the chat model, and every figure or scan call was
+ * a render, a spent allowance and a request bound to fail. An unknown model
+ * (a custom endpoint) is given the benefit of the doubt.
+ */
+export async function visionModelAvailable(): Promise<boolean> {
+  // Settings that cannot be read are not a "no": the call that follows reports
+  // its own error, as it did before this check existed.
+  try {
+    return canSeeWith((await loadVisionSettings()).model);
+  } catch {
+    return true;
+  }
+}
+
 export async function loadVisionSettings(): Promise<LlmSettings> {
   const payload = await readPayload();
   const provider = payload.activeProvider;

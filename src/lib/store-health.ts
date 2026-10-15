@@ -53,14 +53,24 @@ export interface StoreProblemReport {
   problem: StoreProblem;
 }
 
-const problems = new Set<string>();
+/** When each (kind, file) was last reported. */
+const problems = new Map<string, number>();
+/**
+ * A full record is said again for a later refusal (22.0): it was said once a
+ * session, so an edit refused after the first was kept in memory only and
+ * lost at quit with nothing on screen. Not more often than this, so a burst
+ * of edits is one toast. A later version's file is said once: nothing the
+ * reader does here changes it.
+ */
+const REPEAT_FULL_MS = 30_000;
 const problemListeners = new Set<(report: StoreProblemReport) => void>();
 
 /** Record that `file` held a write back. Reported once per file and kind. */
-export function reportStoreProblem(file: string, problem: StoreProblem): void {
+export function reportStoreProblem(file: string, problem: StoreProblem, now: number = Date.now()): void {
   const id = `${problem}:${file}`;
-  if (problems.has(id)) return;
-  problems.add(id);
+  const last = problems.get(id);
+  if (last !== undefined && (problem === "newer" || now - last < REPEAT_FULL_MS)) return;
+  problems.set(id, now);
   for (const listener of problemListeners) {
     try {
       listener({ file, problem });

@@ -20,12 +20,16 @@ import {
  * A pass that stops with pages unread keeps the line instead of vanishing
  * (20.0): whether the reader cancelled it or it ran into the sweep's page cap,
  * it says how many pages were read and how many wait to be read on demand.
- * There is nothing left to cancel then, so it draws no button.
+ * There is nothing left to cancel then; since 22.0 there is the way on — the
+ * same "Read pages with no text" the palette offers, with its confirmation of
+ * how many pages and what they cost. A reader who opened a 300-page scan and
+ * met the 50-page sweep cap was told the rest waited "on demand" and shown no
+ * way to make the demand.
  *
  * It draws nothing at all when nothing is being read and the last sweep read
  * everything it had to, which is most of the time.
  */
-export function ReadingLine({ path }: { path: string }) {
+export function ReadingLine({ path, onReadRest }: { path: string; onReadRest?: () => void }) {
   const { t } = useI18n();
   const [progress, setProgress] = useState(() => readingProgress(path));
 
@@ -46,6 +50,11 @@ export function ReadingLine({ path }: { path: string }) {
             count: progress.left,
           })}
         </span>
+        {onReadRest && (
+          <Button variant="ghost" size="sm" className="preview-reading-cancel" onClick={onReadRest}>
+            {t("preview.scanAllAction")}
+          </Button>
+        )}
       </div>
     );
   }

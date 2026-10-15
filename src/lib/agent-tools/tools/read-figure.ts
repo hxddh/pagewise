@@ -1,4 +1,5 @@
 import { tool } from "ai";
+import { visionModelAvailable } from "../../settings";
 import { z } from "zod";
 import { describeFigure, figuresOnPage } from "../../read-figure";
 import { getAgentRunAbortSignal } from "../../agent-abort";
@@ -71,6 +72,11 @@ export function createReadFigureTool(
               description: R.ALREADY_DESCRIBED_NOTE,
               alreadyRead: true,
             };
+          }
+
+          // Before any allowance is spent: a setup that cannot see says so.
+          if (!(await visionModelAvailable())) {
+            return { page, visionUnavailable: true, note: R.NO_VISION_NOTE };
           }
 
           // A figure costs a billed vision call, so it draws on the same

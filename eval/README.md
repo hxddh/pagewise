@@ -54,6 +54,7 @@ re-measured; the times are new.
 |---|---:|---:|---:|
 | single-column English | 231 | 229 (99.1%) | ≥ 95% |
 | Chinese prose | 90 | 79 (87.8%) | ≥ 85% |
+| Chinese prose, English interface (22.0) | 90 | 79 (87.8%) | ≥ 85% |
 | two-column (not a promise) | 159 | 124 (78.0%) | — |
 | table cells (not a promise) | 182 | 125 (68.7%) | — |
 | **generated corpus** | 662 | **557 (84.1%)** | ≥ 80% |
@@ -61,6 +62,16 @@ re-measured; the times are new.
 | altered quotes wrongly located | 1,997 | 1 (0.05%) | ≤ 1% |
 
 Every gate passes; the tightest is Chinese prose, 2.8 points above its floor.
+
+The English-interface row is the app's own rule (`src/lib/ocr/ocr-language.ts`):
+read with English first, and a page whose words come back at a mean confidence
+under 50 is read again with both models, which are kept when they do at least
+10 points better. Until 22.0 the models followed the interface language only,
+and this row was **2.2%** — English-only on Chinese print reads at a confidence
+of 17–18, every English document here above 74. All 10 Chinese pages are read
+again, and 1 of the 41 pages read with English is (page 4 of the fetched
+GeoBase scan, which reads poorly in any model) — the rule's cost, reported by
+the suite (measured 2026-10-15, on the tree of this change).
 
 **Scanned tables and two-column scans are not a promise** (21.0). About a
 third of the table cells on a scan are not found among the recognised words —

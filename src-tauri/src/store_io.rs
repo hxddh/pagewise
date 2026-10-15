@@ -30,6 +30,7 @@
 //! those bytes used to be rewritten per debounce).
 
 use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
@@ -75,6 +76,9 @@ fn store_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     Ok(dir.join(relative))
 }
 
+/// Distinguishes the temp files of concurrent writes in one process.
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
 /// Write through a sibling temp file and a rename, with the bytes flushed
 /// before the rename makes them visible.
 ///
@@ -90,20 +94,24 @@ fn store_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent)?;
+    // A name no file of the reader's has, created exclusively (22.0): the
+    // temp used to be `<file>.tmp`, opened with `create` — an existing file
+    // of that name in the reader's folder was truncated and renamed away, and
+    // a symlink there was followed. `create_new` refuses anything already at
+    // the name, a symlink included.
     let mut tmp = path.as_os_str().to_os_string();
-    tmp.push(".tmp");
+    tmp.push(format!(".{}.{}.pagewise-tmp", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
     let tmp = PathBuf::from(tmp);
 
-    let write = (|| -> std::io::Result<()> {
-        let mut file = std::fs::File::create(&tmp)?;
-        file.write_all(bytes)?;
-        Ok(())
-    })();
-    if let Err(e) = write {
-        // Never leave the temp file behind for the next write to trip over.
+    // A file already at the name is not ours: refused, and left where it is.
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+    if let Err(e) = file.write_all(bytes) {
+        drop(file);
+        // Ours from here: never left behind for the next write to trip over.
         let _ = std::fs::remove_file(&tmp);
         return Err(e);
     }
+    drop(file);
     commit_temp(&tmp, path)
 }
 
@@ -302,9 +310,46 @@ mod tests {
             .unwrap()
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| n.ends_with(".tmp"))
+            .filter(|n| n.ends_with("tmp"))
             .collect();
         assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_write_leaves_a_file_named_like_the_old_temp_alone() {
+        // 21.0 wrote through `<file>.tmp` with `create`: a reader's own file of
+        // that name beside an export was truncated and renamed away.
+        let dir = std::env::temp_dir().join(format!("pagewise-store-tmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let theirs = dir.join("notes.md.tmp");
+        std::fs::write(&theirs, b"the reader's own file").unwrap();
+        write_atomic(&dir.join("notes.md"), b"export").expect("write");
+        assert_eq!(std::fs::read(&theirs).unwrap(), b"the reader's own file");
+        assert_eq!(std::fs::read(dir.join("notes.md")).unwrap(), b"export");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_refused_write_leaves_the_file_at_the_temp_name_alone() {
+        // `create_new` refusing is the file already there; the cleanup after a
+        // failed write deleted it all the same (Codex on #157).
+        let dir = std::env::temp_dir().join(format!("pagewise-store-taken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("notes.md");
+        let seq = TMP_SEQ.load(Ordering::Relaxed);
+        let mut names = Vec::new();
+        // The name this write takes, and the next ones in case another test writes first.
+        for n in seq..seq + 64 {
+            let taken = dir.join(format!("notes.md.{}.{n}.pagewise-tmp", std::process::id()));
+            std::fs::write(&taken, b"not ours").unwrap();
+            names.push(taken);
+        }
+        let refused = write_atomic(&path, b"export").expect_err("the name is taken");
+        assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+        for taken in &names {
+            assert_eq!(std::fs::read(taken).unwrap(), b"not ours", "{} was removed", taken.display());
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 }

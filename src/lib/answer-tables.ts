@@ -19,7 +19,7 @@
 import { citationRe, claimSpanBefore, extractCitations, stripCitations, type Citation } from "./citations";
 import { citationLevel, type TrustLevel } from "./trust-level";
 import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
-import { cachedReview, type ReviewVerdict } from "./claim-review";
+import { cachedReview, reviewBasis, type ReviewVerdict } from "./claim-review";
 import { markdownToPlainText } from "./markdown-text";
 
 export interface AnswerRow {
@@ -165,7 +165,9 @@ export function tablesToCsv(path: string, markdown: string, labels: CsvLabels): 
       const sources = citations.map((c) => {
         const level = citationLevel(statusOf(c));
         const said = labels.status[statusOf(c)];
-        const review = c.quote ? cachedReview(path, claimBefore(markdown, c.index), c.quote) : null;
+        const review = c.quote
+          ? cachedReview(path, claimBefore(markdown, c.index), c.quote, reviewBasis(cachedCitationCheck(path, c)))
+          : null;
         const verdict = review ? ` · ${labels.review[review.verdict]}` : "";
         return level === "none"
           ? `${pagesOf(c)} ${said}${verdict}`

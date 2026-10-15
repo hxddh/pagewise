@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TextItemRect } from "../lib/types";
@@ -94,5 +94,42 @@ describe("the sentence tally under an answer", () => {
     });
     await waitFor(() => expect(tally.textContent).toContain("cite.tallyLevel.verified(2)"));
     expect(tally.textContent).not.toContain("cite.tallyLevel.unchecked");
+  });
+});
+
+/**
+ * A red chip's next step is the model review (22.0): words not found on a
+ * page that has text are sent with that page's text. A page the document
+ * does not have has nothing to send.
+ */
+describe("the review offered under an answer", () => {
+  const offered = async (md: string) => {
+    // A finished answer: its footer shows once it has a start time.
+    const done = { ...message(md), metadata: { startedAt: 1, finishedAt: 2 } } as PageWiseUIMessage;
+    const v = render(
+      <CitationContext.Provider value={{ path: PATH, totalPages: 10, onReveal: () => {} }}>
+        <MessageAssistantFooter message={done} live={false} />
+      </CitationContext.Provider>,
+    );
+    const more = await waitFor(() => {
+      const el = v.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]');
+      if (!el) throw new Error("no menu");
+      return el;
+    });
+    // Give the chips' checks a moment to land.
+    await waitFor(() => expect(v.container.querySelector(".cite-pending")).toBeNull());
+    fireEvent.click(more);
+    return [...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? "");
+  };
+
+  it("counts a citation whose words are not on its page", async () => {
+    pages[3] = [run("质保期为最终验收合格之日起二十四个月。")];
+    const items = await offered(MD);
+    expect(items.some((t) => t.includes("cite.reviewAction(1,1)"))).toBe(true);
+  });
+
+  it("offers nothing for a page the document does not have", async () => {
+    const items = await offered('质保期为 36 个月〔p30 "最终验收合格之日起三十六个月"〕。');
+    expect(items.some((t) => t.includes("cite.reviewAction"))).toBe(false);
   });
 });

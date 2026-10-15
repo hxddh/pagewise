@@ -255,10 +255,10 @@ async fn read_file_bytes(
 
 /// Where a save-as write may go: `(authorized parent, target)`.
 ///
-/// Authorized ONLY via an explicitly-registered parent DIRECTORY (the save-as
-/// flow registers the chosen directory). Deliberately NOT authorized by the
-/// target file being in the allowlist: that set is populated by every opened
-/// document, which would make every read path a write target too.
+/// Authorized ONLY by a save dialog having returned exactly this path, and
+/// only once (22.0 — it was the dialog's whole folder for the session).
+/// Deliberately NOT authorized by the target being a granted document: every
+/// opened document would then be a write target too.
 fn write_target(allowed: &AllowedPaths, path: &str) -> Result<(PathBuf, PathBuf), String> {
     let target = PathBuf::from(path);
     let parent = target
@@ -268,12 +268,6 @@ fn write_target(allowed: &AllowedPaths, path: &str) -> Result<(PathBuf, PathBuf)
         .file_name()
         .ok_or_else(|| "Invalid path: no file name".to_string())?;
     let canon_parent = std::fs::canonicalize(parent).map_err(|e| format!("Invalid path: {e}"))?;
-
-    let authorized = allowed.can_write_in(&canon_parent)?;
-
-    if !authorized {
-        return Err("path not authorized".to_string());
-    }
 
     // Reject any file name that contains path separators or traversal — the
     // write must stay directly inside the authorized parent directory.
@@ -291,6 +285,9 @@ fn write_target(allowed: &AllowedPaths, path: &str) -> Result<(PathBuf, PathBuf)
     // Do NOT canonicalize the leaf: canonicalize() requires the final path
     // component to already exist, which would break saving to a NEW file name.
     let resolved = canon_parent.join(file_name);
+    if !allowed.take_write(&resolved)? {
+        return Err("path not authorized".to_string());
+    }
     Ok((canon_parent, resolved))
 }
 
@@ -414,7 +411,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                grants::dropped(window.app_handle(), paths);
+                // Off the event loop (22.0): each file is canonicalized and the
+                // list fsync'd, which stalled the window for a large drop or
+                // a slow network share.
+                let app = window.app_handle().clone();
+                let paths = paths.clone();
+                tauri::async_runtime::spawn_blocking(move || grants::dropped(&app, &paths));
             }
         })
         .invoke_handler(tauri::generate_handler![

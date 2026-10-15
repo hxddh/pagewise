@@ -109,8 +109,9 @@ describe("tables leave as CSV with their evidence", () => {
     pages[3] = [run("甲方应在合同生效后十个工作日内预付合同总价的百分之三十")];
     await checkAnswer(PATH, 10, ANSWER);
     // The reader asked their model about the deposit row's citation; the key
-    // is the claim the chip read (the cell before the marker) and the quote.
-    await reviewClaim(PATH, "30%", "预付合同总价的百分之三十", "…", 3);
+    // is the claim the chip read (the cell before the marker), the quote, and
+    // the passage the check found (22.0).
+    await reviewClaim(PATH, "30%", "预付合同总价的百分之三十", "甲方应在合同生效后十个工作日内预付合同总价的百分之三十", 3);
     const csv = tablesToCsv(PATH, ANSWER, labels);
     const lines = csv.slice(1).trim().split("\r\n");
     expect(lines[1]).toContain("p. 3 Verified (found) · Model review: supported");

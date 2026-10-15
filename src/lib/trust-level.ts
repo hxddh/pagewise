@@ -45,10 +45,15 @@ const CITATION: Record<CitationStatus, TrustLevel> = {
  * one, can only lower it: a passage the model reads as saying otherwise is
  * not a verified citation, but a model agreeing never outranks the local
  * check — the words must still be on the page.
+ *
+ * One exception, and it stops short of verified (22.0): words not found on a
+ * page the model, reading that page, says supports the sentence are "check" —
+ * a paraphrase the reader should look at, not a citation the page lacks.
  */
 export function citationLevel(status: CitationStatus, review?: ReviewVerdict | null): TrustLevel {
   const level = CITATION[status];
   if (review === "contradicts" && level !== "none") return "notFound";
+  if (review === "supports" && status === "unlocated") return "check";
   return level;
 }
 

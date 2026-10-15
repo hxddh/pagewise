@@ -21,6 +21,7 @@ import {
 } from "../lib/pdf";
 import { generateVisionText } from "../lib/vision-api";
 import { loadVisionSettings } from "../lib/settings";
+import { canSeeWith } from "../lib/model-capabilities";
 import { assertApiKeyForAgent, formatLlmError } from "../lib/llm";
 import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { emitPageIndex } from "../lib/index-events";
@@ -466,6 +467,29 @@ async function indexPage(
     return true;
   };
 
+  // A setup with no model that can see (22.0 — the default provider has
+  // none): checked before the allowance is spent and before the page is
+  // rendered, where it used to fail one billed request at a time. A sweep
+  // stops asking; an explicit read says why the page has no text.
+  if (!(policy.onlyIfUnread && recognised) && !(await scanModelCanSee())) {
+    if (enforceGeneration) stopVisionForQueue(path);
+    if (settleOnOcr()) return;
+    if (enforceGeneration) {
+      emitIdle(path, page);
+      return;
+    }
+    recordIndexFailure(path, page, NO_VISION_MODEL);
+    emitPageIndex({
+      path,
+      page,
+      status: "failed",
+      source: "vision",
+      error: NO_VISION_MODEL,
+      failureReason: "vision_failed",
+    });
+    return;
+  }
+
   if ((policy.onlyIfUnread && recognised) || !policy.takeVision()) {
     if (settleOnOcr()) return;
     emitIdle(path, page);
@@ -683,6 +707,18 @@ export function indexPageInBackground(path: string, page: number): void {
 }
 
 /** Stop a background sweep from asking for vision; it keeps reading pages locally. */
+/** Whether the scan model can see; unreadable settings are left to the call to report. */
+async function scanModelCanSee(): Promise<boolean> {
+  try {
+    return canSeeWith((await loadVisionSettings()).model);
+  } catch {
+    return true;
+  }
+}
+
+/** The reason a page has no text when nothing configured can see. */
+export const NO_VISION_MODEL = "no vision-capable scan model is configured";
+
 function stopVisionForQueue(path: string): void {
   const entry = queues.get(path);
   if (entry) entry.visionLeft = 0;

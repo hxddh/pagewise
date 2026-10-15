@@ -385,6 +385,16 @@ export const FIGURE_LIMIT_NOTE =
   "Do not retry it. Answer from the text you have and tell the user the figure was not examined.";
 
 /**
+ * Said when the reader's setup has no model that can see (22.0): with the
+ * default provider a figure was rendered, the allowance spent and a call made
+ * that could only fail.
+ */
+export const NO_VISION_NOTE =
+  "No vision model is configured, so this figure cannot be looked at. Do not retry it. " +
+  "Answer from the text and tell the user a vision-capable scan model can be set in " +
+  "Settings → Assistant → Advanced.";
+
+/**
  * Stands in for a page this run already returned in full. Short by design: the
  * text it replaces is a few messages above, and repeating it buys nothing.
  */
@@ -578,6 +588,14 @@ export async function readPageRange(
           if ((page !== from || offset === 0) && alreadyDelivered(budget, path, page)) {
             const header = `--- Page ${page} ---\n`;
             const separator = parts.length > 0 ? 2 : 0;
+            // Counted against `maxChars` like any page (22.0): a range of
+            // pages already read came back as one marker each, past the cap.
+            if (charCount + separator + header.length + ALREADY_READ_NOTE.length > maxChars) {
+              truncated = true;
+              nextStart = page;
+              nextOffset = 0;
+              break;
+            }
             parts.push(`${header}${ALREADY_READ_NOTE}`);
             charCount += separator + header.length + ALREADY_READ_NOTE.length;
             lastPage = page;

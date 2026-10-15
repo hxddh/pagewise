@@ -144,7 +144,12 @@ const writes = new Map<string, Promise<void>>();
 export function writeOcrDoc(identity: string, langs: OcrLanguages, pages: Iterable<StoredOcrPage>): Promise<void> {
   const snapshot = [...pages];
   const run = async () => {
-    const existing = await invokeCmd<string | null>("ocr_cache_read", { identity }).catch(() => null);
+    // A read that fails is not an empty file. Until 22.0 it was taken for one,
+    // and the write that followed carried this language's section alone —
+    // the other language's pages, read and possibly paid for, were dropped.
+    // Now the write does not happen; the caller keeps the pages dirty and
+    // tries again.
+    const existing = await invokeCmd<string | null>("ocr_cache_read", { identity });
     await invokeCmd<void>("ocr_cache_write", { identity, json: encodeOcrDoc(langs, snapshot, existing) });
   };
   const next = (writes.get(identity) ?? Promise.resolve()).then(run, run);

@@ -20,6 +20,7 @@
  */
 import { pageRuns } from "./finding-anchors";
 import { ocrEnabled } from "./ocr/ocr-service";
+import { onOcrTextReplaced } from "./ocr/ocr-events";
 import { locateQuote } from "./quote-locate";
 import {
   citationKey,
@@ -28,7 +29,7 @@ import {
 } from "./citations";
 import type { PdfRect } from "./types";
 import { claimBefore } from "./answer-tables";
-import { passageAround } from "./passage";
+import { pageText, passageAround } from "./passage";
 import { unstatedQuantities } from "./quantities";
 
 /**
@@ -86,6 +87,13 @@ export interface CitationCheck {
   passage?: string;
   /** For `mismatch`: the sentence's numbers the passage does not state, as written. */
   unstated?: string[];
+  /**
+   * For `unlocated` and `unconfirmed`: the first named page that has text, as
+   * text (22.0). The words were not found, so there is no paragraph; this is
+   * what the model is asked about when the reader sends the citation to it.
+   * Absent when that page is longer than `MAX_PAGE_TEXT`.
+   */
+  pageText?: { page: number; text: string };
 }
 
 const results = new Map<string, CitationCheck>();
@@ -127,8 +135,22 @@ function key(path: string, c: Pick<Citation, "pages" | "quote">): string {
   return `${path}\n${citationKey(c)}`;
 }
 
+/**
+ * Bumped when checks are forgotten, not when one lands: a chip holding a check
+ * of its own runs it again then (22.0), and only then.
+ */
+let epoch = 0;
+
+export function checksEpoch(): number {
+  return epoch;
+}
+
+// Checks of words OCR has since replaced (22.0); the anchors clear their runs.
+onOcrTextReplaced((path) => clearCitationChecks(path));
+
 /** Forget every check. Called with `clearFindingAnchors`, when the open document changes. */
 export function clearCitationChecks(path?: string): void {
+  epoch += 1;
   if (path === undefined) {
     results.clear();
     pending.clear();
@@ -201,6 +223,7 @@ async function resolve(
   let sawRecognised = false;
   let failedRead = false;
   let emptyPage = false;
+  let firstText: { page: number; text: string } | null | undefined;
   for (const page of c.pages) {
     const runs = await pageRuns(path, page);
     if (runs.reason === "failed") {
@@ -209,6 +232,10 @@ async function resolve(
       continue;
     }
     if (runs.items.length === 0) emptyPage = true;
+    else if (firstText === undefined) {
+      const text = pageText(runs.items);
+      firstText = text === null ? null : { page, text };
+    }
     const outcome = locateQuote(runs.items, c.quote);
     if (outcome.status === "located") {
       const passage = passageAround(runs.items, outcome.rects);
@@ -224,8 +251,9 @@ async function resolve(
   // One page that could not be read is enough to withhold the accusation.
   if (sawUnreadable) return { check: { status: "unreadable" }, failedRead, emptyPage };
   // So is one page whose only words are OCR's reading of it.
-  if (sawRecognised) return settled({ status: "unconfirmed" });
-  return settled({ status: sawAbsent ? "unlocated" : "unchecked" });
+  const text = firstText ?? undefined;
+  if (sawRecognised) return settled({ status: "unconfirmed", pageText: text });
+  return settled(sawAbsent ? { status: "unlocated", pageText: text } : { status: "unchecked" });
 }
 
 export interface CitationTally {

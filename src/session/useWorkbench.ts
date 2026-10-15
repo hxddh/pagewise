@@ -18,6 +18,7 @@ import {
 import { docCache } from "../lib/doc-cache";
 import { getMarks, loadMarks } from "../lib/mark-store";
 import { loadFindings, subscribeFindings } from "../lib/finding-store";
+import { checkCitation } from "../lib/citation-check";
 import { loadReviews } from "../lib/claim-review";
 import { prewarmPlacements } from "../lib/finding-anchors";
 import { trustedFindings } from "../lib/agent-record-context";
@@ -518,6 +519,18 @@ export function useWorkbench(): Workbench {
       const doc = documentRef.current;
       if (!doc) return;
       const entries = trustedFindings(doc.path).filter((e) => e.trust !== "retracted");
+      // The model's verdicts are filed against the passage each entry's check
+      // finds now (22.0), so the checks run first; each is cached, so one an
+      // answer's chip already ran costs nothing.
+      await Promise.all(
+        entries.map(({ finding }) =>
+          finding.evidence.trim()
+            ? checkCitation(doc.path, doc.totalPages, { pages: finding.pages, quote: finding.evidence.trim() }).catch(
+                () => null,
+              )
+            : null,
+        ),
+      );
       const parts: string[] = [];
       if (entries.length > 0) {
         parts.push(briefToMarkdown(doc, entries, locale === "zh-CN" ? BRIEF_LABELS_ZH : BRIEF_LABELS_EN).trimEnd());

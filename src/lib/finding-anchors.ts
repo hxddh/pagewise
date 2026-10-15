@@ -32,6 +32,7 @@
  */
 import { pageTextItems } from "./pdf";
 import { ocrEnabled, ocrPage } from "./ocr/ocr-service";
+import { onOcrTextReplaced } from "./ocr/ocr-events";
 import { docCache } from "./doc-cache";
 import { locateQuote, unionRect, type LocateOutcome } from "./quote-locate";
 import { passageAround } from "./passage";
@@ -138,6 +139,9 @@ export function clearFindingAnchors(path?: string): void {
   for (const k of [...itemCache.keys()]) if (k.startsWith(prefix)) itemCache.delete(k);
   for (const k of [...placementCache.keys()]) if (k.startsWith(prefix)) placementCache.delete(k);
 }
+
+// Runs and placements built from words OCR has since replaced (22.0).
+onOcrTextReplaced((path) => clearFindingAnchors(path));
 
 /**
  * The last placement resolved for this finding, if any surface has asked.

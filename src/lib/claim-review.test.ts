@@ -27,8 +27,10 @@ import {
   cachedReview,
   clearReviews,
   loadReviews,
+  passageFingerprint,
   REVIEW_BATCH,
   reviewAll,
+  reviewBasis,
   reviewClaim,
   reviewPrompt,
   subscribeReviews,
@@ -37,6 +39,8 @@ import {
 import { useMemoryStoreBackend } from "./store-testkit";
 
 const store = useMemoryStoreBackend();
+/** The passage `item` sends, as the check would find it. */
+const BASIS = { page: 3, passage: "质保期为最终验收合格之日起三十六个月" };
 const defaultAnswer = answer;
 
 beforeEach(() => {
@@ -59,17 +63,17 @@ describe("reviewClaim", () => {
     const off = subscribeReviews(() => (told += 1));
     const r = await reviewClaim("/a.pdf", "质保期为 24 个月", "三十六个月", "质保期为最终验收合格之日起三十六个月", 3);
     expect(r).toEqual({ verdict: "contradicts", reason: "原文：三十六个月" });
-    await reviewClaim("/a.pdf", "质保期为 24 个月", "三十六个月", "…", 3);
+    await reviewClaim("/a.pdf", "质保期为 24 个月", "三十六个月", "质保期为最终验收合格之日起三十六个月", 3);
     expect(calls).toHaveLength(1);
-    expect(cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月")?.verdict).toBe("contradicts");
+    expect(cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月", BASIS)?.verdict).toBe("contradicts");
     expect(told).toBeGreaterThan(0);
     off();
   });
 
   it("forgets a document's reviews when it closes", async () => {
-    await reviewClaim("/a.pdf", "质保期为 36 个月", "三十六个月", "…", 3);
+    await reviewClaim("/a.pdf", "质保期为 36 个月", "三十六个月", "质保期为最终验收合格之日起三十六个月", 3);
     clearReviews("/a.pdf");
-    expect(cachedReview("/a.pdf", "质保期为 36 个月", "三十六个月")).toBeNull();
+    expect(cachedReview("/a.pdf", "质保期为 36 个月", "三十六个月", BASIS)).toBeNull();
   });
 });
 
@@ -116,9 +120,9 @@ describe("one call reviews many citations (21.0)", () => {
     });
     const outcome = await reviewAll("/a.pdf", [item("a"), item("b"), item("c")], new AbortController().signal);
     expect(outcome.failed).toBe(2);
-    expect(cachedReview("/a.pdf", "a", "三十六个月")?.reason).toBe("r1");
-    expect(cachedReview("/a.pdf", "b", "三十六个月")).toBeNull();
-    expect(cachedReview("/a.pdf", "c", "三十六个月"), "two answers for one item are neither").toBeNull();
+    expect(cachedReview("/a.pdf", "a", "三十六个月", BASIS)?.reason).toBe("r1");
+    expect(cachedReview("/a.pdf", "b", "三十六个月", BASIS)).toBeNull();
+    expect(cachedReview("/a.pdf", "c", "三十六个月", BASIS), "two answers for one item are neither").toBeNull();
   });
 });
 
@@ -135,7 +139,7 @@ describe("B12: a review stops when its document closes (16.0)", () => {
     const outcome = await reviewAll("/a.pdf", items, controller.signal, ask);
     expect(asked).toEqual([REVIEW_BATCH]);
     expect(outcome.cancelled).toBe(true);
-    expect(cachedReview("/a.pdf", "claim 0", "三十六个月"), "not kept for a closed document").toBeNull();
+    expect(cachedReview("/a.pdf", "claim 0", "三十六个月", BASIS), "not kept for a closed document").toBeNull();
   });
 });
 
@@ -147,7 +151,7 @@ describe("a review survives reopening the document (21.0)", () => {
     __resetClaimReviewsForTests(); // memory gone, as after a restart; the disk stays
 
     await loadReviews("/a.pdf", "stamp-1");
-    expect(cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月")).toEqual({
+    expect(cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月", BASIS)).toEqual({
       verdict: "contradicts",
       reason: "原文：三十六个月",
     });
@@ -160,7 +164,7 @@ describe("a review survives reopening the document (21.0)", () => {
     __resetClaimReviewsForTests();
 
     await loadReviews("/a.pdf", "stamp-2");
-    expect(cachedReview("/a.pdf", "a", "三十六个月")).toBeNull();
+    expect(cachedReview("/a.pdf", "a", "三十六个月", BASIS)).toBeNull();
   });
 
   it("keeps a sentence with a line break in it", async () => {
@@ -168,7 +172,7 @@ describe("a review survives reopening the document (21.0)", () => {
     await reviewAll("/a.pdf", [item("line one\nline two", "q\nq")], new AbortController().signal);
     __resetClaimReviewsForTests();
     await loadReviews("/a.pdf", "s");
-    expect(cachedReview("/a.pdf", "line one\nline two", "q\nq")?.verdict).toBe("supports");
+    expect(cachedReview("/a.pdf", "line one\nline two", "q\nq", BASIS)?.verdict).toBe("supports");
   });
 
   it("does not write a file a later PageWise wrote", async () => {
@@ -177,5 +181,69 @@ describe("a review survives reopening the document (21.0)", () => {
     await loadReviews("/a.pdf", "s");
     await reviewAll("/a.pdf", [item("a")], new AbortController().signal);
     expect(store.peek<Record<string, unknown>>("claim-reviews.json")?.reviews).toEqual(later);
+  });
+});
+
+describe("a verdict is a reading of one passage (22.0)", () => {
+  it("is not read for the same sentence against other words", async () => {
+    await reviewAll("/a.pdf", [item("质保期为 24 个月")], new AbortController().signal);
+    expect(cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月", BASIS)?.verdict).toBe("contradicts");
+    expect(
+      cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月", { ...BASIS, passage: " 质保期为最终验收合格之日起三十六个月\n" }),
+      "the same words, spaced otherwise",
+    ).not.toBeNull();
+    expect(
+      cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月", { ...BASIS, passage: "质保期为最终验收合格之日起二十四个月" }),
+      "the page read again, to other words",
+    ).toBeNull();
+    expect(cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月", { ...BASIS, page: 4 })).toBeNull();
+    expect(cachedReview("/a.pdf", "质保期为 24 个月", "三十六个月", null), "no check yet").toBeNull();
+  });
+
+  it("asks again when the passage changed", async () => {
+    await reviewAll("/a.pdf", [item("a")], new AbortController().signal);
+    await reviewAll("/a.pdf", [{ ...item("a"), passage: "another reading of page 3" }], new AbortController().signal);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("does not read back a 21.0 entry, which does not say what it read", async () => {
+    const entry = { claim: "a", quote: "三十六个月", verdict: "supports", reason: "r" };
+    store.seed("claim-reviews.json", {
+      reviews: { version: 1, docs: [{ path: "/a.pdf", stamp: "s", savedAt: 1, entries: [entry] }] },
+    });
+    await loadReviews("/a.pdf", "s");
+    expect(cachedReview("/a.pdf", "a", "三十六个月", BASIS)).toBeNull();
+  });
+
+  it("writes the page and the print beside each verdict", async () => {
+    await loadReviews("/a.pdf", "s");
+    await reviewAll("/a.pdf", [item("a")], new AbortController().signal);
+    const saved = store.peek<{ reviews: { docs: { entries: { page: number; fp: string }[] }[] } }>("claim-reviews.json");
+    expect(saved?.reviews.docs[0]?.entries[0]).toMatchObject({ page: 3, fp: passageFingerprint(BASIS.passage) });
+  });
+});
+
+describe("a citation not found can be sent too (22.0)", () => {
+  it("is read against its page's text", () => {
+    expect(reviewBasis({ status: "unlocated", pageText: { page: 4, text: "page four" } })).toEqual({
+      page: 4,
+      passage: "page four",
+      wholePage: true,
+    });
+    expect(reviewBasis({ status: "unconfirmed", pageText: { page: 2, text: "ocr words" } })?.wholePage).toBe(true);
+    expect(reviewBasis({ status: "located", page: 3, passage: "para" })).toEqual({ page: 3, passage: "para" });
+  });
+
+  it("is not sent when there is nothing to read", () => {
+    expect(reviewBasis({ status: "unlocated" })).toBeNull();
+    expect(reviewBasis({ status: "outOfRange" })).toBeNull();
+    expect(reviewBasis({ status: "unreadable" })).toBeNull();
+    expect(reviewBasis({ status: "tooShort" })).toBeNull();
+    expect(reviewBasis(null)).toBeNull();
+  });
+
+  it("tells the model the words are not on the page word for word", () => {
+    const p = reviewPrompt([{ ...item("a"), wholePage: true }]);
+    expect(p).toContain("Citation 1\nPage 3 (the quoted words are not on it word for word; this is the page's text):");
   });
 });

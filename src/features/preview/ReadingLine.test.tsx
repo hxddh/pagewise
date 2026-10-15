@@ -83,3 +83,14 @@ describe("the reading line", () => {
     expect(screen.queryByText("preview.readingPageOf")).toBeNull();
   });
 });
+
+describe("a stopped pass offers the way on (22.0)", () => {
+  it("reads the rest through the scan-all flow", () => {
+    h.progress = { state: "stopped", read: 50, total: 300, left: 250 };
+    const onReadRest = vi.fn();
+    render(<ReadingLine path="/doc.pdf" onReadRest={onReadRest} />);
+    fireEvent.click(screen.getByText("preview.scanAllAction"));
+    expect(onReadRest).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("common.cancel")).toBeNull();
+  });
+});
