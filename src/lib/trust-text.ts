@@ -17,6 +17,11 @@
  *               line under a claim in the record;
  *   - `brief` — the reason as the exported brief files it.
  *
+ * Since 20.0 there is a fourth reader: the sentence of an answer, whose word
+ * (`stateKey` below) the margin column's card shows. It reads the same level
+ * and tally keys the chip's headline and the footer already use, so the column
+ * cannot say something the rest of the interface does not.
+ *
  * A reason with nothing of its own to add to its sentence — "nothing to check
  * against" is the same line in the brief — names no `brief`, and the brief
  * reads `long`. The words themselves stay in `i18n/locales`, so both
@@ -34,6 +39,7 @@ import type { CitationStatus } from "./citation-check";
 import type { ReviewVerdict } from "./claim-review";
 import type { Trust } from "./finding-trust";
 import type { TrustLevel } from "./trust-level";
+import type { SentenceState } from "./answer-sentences";
 
 /** What a citation's check can end in, plus `pending` while it is still running. */
 export type CitationReason = CitationStatus | "pending";
@@ -106,6 +112,35 @@ export function longKey(reason: TrustReason): string {
 /** The one-line label of a check or a sentence's state, for a chip or a card. */
 export function shortKey(reason: TrustReason): string {
   return TRUST_TEXT[reason].short ?? TRUST_TEXT[reason].long;
+}
+
+/**
+ * The word for a sentence's state (20.0) — the margin column's card, said once.
+ *
+ * The card shows a *sentence*, so it shows the sentence's own word: the three
+ * level words the chip's headline and the CSV's level column use, plus the two
+ * "none" words the tally uses — a marker with no quote (`noQuote`), a sentence
+ * with no marker at all (`unchecked`) — and `pending` while a check is still
+ * running. `tooShort` is the one refinement: a quote under `MIN_QUOTE_CHARS`
+ * leaves the sentence in `noQuote`, but "too short" is the precise word the
+ * reader is owed, and the one the chip's tooltip and the CSV already carry.
+ *
+ * A citation's own short label (`shortKey`, "found") names the *check*, not
+ * the sentence, and is the CSV's; it must never reach the column.
+ */
+const SENTENCE_TEXT: Record<SentenceState, string> = {
+  verified: "level.verified",
+  check: "level.check",
+  notFound: "level.notFound",
+  noQuote: "trust.unchecked.short",
+  unchecked: "trust.noMarker.short",
+  pending: "trust.pending.short",
+};
+
+/** The word for a sentence's state; `tooShort` when that is why it has no quote. */
+export function stateKey(state: SentenceState, reason?: TrustReason): string {
+  if (state === "noQuote" && reason === "tooShort") return "trust.tooShort.short";
+  return SENTENCE_TEXT[state];
 }
 
 /** A trust as the exported brief files it. */

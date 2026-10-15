@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { CitationStatus } from "./citation-check";
 import type { Trust } from "./finding-trust";
-import { TRUST_TEXT, briefReasons, longKey, reviewReasons } from "./trust-text";
+import type { SentenceState } from "./answer-sentences";
+import { TRUST_TEXT, briefReasons, longKey, reviewReasons, stateKey } from "./trust-text";
 import { citationLevel, recordLevel } from "./trust-level";
 
 /** Every trust the record works out, in `finding-trust.ts`'s order. */
@@ -32,6 +33,16 @@ const STATUSES: readonly (CitationStatus | "pending")[] = [
 
 /** The reason a sentence with no marker reads (20.0). */
 const NO_MARKER = "noMarker" as const;
+
+/** Every state a sentence can settle in, plus the transient `pending` (20.0). */
+const STATES: readonly SentenceState[] = [
+  "verified",
+  "check",
+  "notFound",
+  "noQuote",
+  "unchecked",
+  "pending",
+];
 
 /**
  * The words and the levels must stay one answer.
@@ -75,5 +86,28 @@ describe("the trust table", () => {
     }
     // The word for a sentence nothing says the origin of: "not checked".
     expect(longKey(NO_MARKER)).toMatch(/^trust\./);
+  });
+
+  it("says a sentence's state in the words the chip and the tally already use", () => {
+    // The margin column's card shows a sentence, so it shows the sentence's
+    // own word — the three level words the chip's headline is built from, and
+    // the two "none" words the footer's tally counts.
+    expect(stateKey("verified")).toBe("level.verified");
+    expect(stateKey("check")).toBe("level.check");
+    expect(stateKey("notFound")).toBe("level.notFound");
+    expect(stateKey("noQuote")).toBe("trust.unchecked.short");
+    expect(stateKey("unchecked")).toBe("trust.noMarker.short");
+    expect(stateKey("pending")).toBe("trust.pending.short");
+    // A quote too short to check leaves the sentence in `noQuote`; "too short"
+    // is the precise word, and the one the chip's tooltip and the CSV carry.
+    expect(stateKey("noQuote", "tooShort")).toBe("trust.tooShort.short");
+    // Every state names a word, and none of them is a citation check's own
+    // short label — those name the check, not the sentence (the CSV's).
+    for (const state of STATES) {
+      expect(stateKey(state), state).toMatch(/^(?:level|trust)\./);
+      expect(stateKey(state), state).not.toBe("trust.located.short");
+      expect(stateKey(state), state).not.toBe("trust.mismatch.short");
+      expect(stateKey(state), state).not.toBe("trust.unconfirmed.short");
+    }
   });
 });

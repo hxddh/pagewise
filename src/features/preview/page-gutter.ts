@@ -95,6 +95,11 @@ export const COLUMN_MIN_STEP = 0.06;
  * found, a check still running) starts at the top of the page, where it is at
  * least beside the page it is about. The result is parallel to the input, so
  * the caller's order — and the DOM's — is its own business.
+ *
+ * The push keeps `COLUMN_MIN_STEP` honest: two cards never overlap. It can
+ * leave a card no longer beside its passage, and that is the caller's to draw
+ * — `PageGutter` keeps the anchors it passed in and ties a card the push moved
+ * back to its passage. This function only decides where cards sit.
  */
 export function columnTops(tops: ReadonlyArray<number | undefined>): number[] {
   const order = tops
@@ -108,6 +113,27 @@ export function columnTops(tops: ReadonlyArray<number | undefined>): number[] {
     floor = placed + COLUMN_MIN_STEP;
   }
   return out;
+}
+
+/**
+ * How much of a passage a column card shows before it is cut, in characters
+ * (20.0).
+ *
+ * The card holds three lines at the column's fixed width — about this many
+ * characters of Latin text at the card's type size. The excerpt is cut at a
+ * word boundary so the card never ends mid-word; the ellipsis says the passage
+ * goes on. The stylesheet's line clamp is the backstop for text that wraps
+ * past this (CJK has no word boundaries to cut at).
+ */
+export const MAX_CARD_EXCERPT = 64;
+
+/** The passage as a card shows it: cut at a word boundary, with an ellipsis. */
+export function cardExcerpt(text: string): string {
+  if (text.length <= MAX_CARD_EXCERPT) return text;
+  const cut = text.slice(0, MAX_CARD_EXCERPT);
+  const at = cut.lastIndexOf(" ");
+  const body = (at > 0 ? cut.slice(0, at) : cut).replace(/\s+$/, "");
+  return `${body}…`;
 }
 
 /** Marks on this page, as margin entries — the reader's own ink. */

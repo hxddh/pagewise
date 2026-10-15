@@ -43,7 +43,7 @@ vi.mock("../../lib/finding-store", () => ({
   isSuperseded: (all: readonly Finding[], id: string) => all.some((f) => f.supersedes === id),
 }));
 
-const { gutterEntries, columnEntries, columnTops, MAX_MARGIN_ENTRIES, COLUMN_MIN_STEP } =
+const { gutterEntries, columnEntries, columnTops, cardExcerpt, MAX_MARGIN_ENTRIES, COLUMN_MIN_STEP, MAX_CARD_EXCERPT } =
   await import("./page-gutter");
 
 describe("gutterEntries", () => {
@@ -194,5 +194,35 @@ describe("columnTops", () => {
     // A quote that was not found, a check still running: nothing to anchor to,
     // and the page's own top is still beside the page it is about.
     expect(columnTops([undefined, 0.5])).toEqual([0, 0.5]);
+  });
+});
+
+/**
+ * The card's excerpt (20.0): the passage as much of it as the card holds, cut
+ * at a word boundary and marked with an ellipsis, so a reader can see the
+ * passage goes on and never reads a word with its end missing.
+ */
+describe("cardExcerpt", () => {
+  it("leaves a passage the card can hold alone", () => {
+    const text = "Page 1 is filler text, not an argument.";
+    expect(cardExcerpt(text)).toBe(text);
+  });
+
+  it("cuts a long passage at a word boundary, with an ellipsis", () => {
+    const text =
+      "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore on page 1.";
+    const out = cardExcerpt(text);
+    expect(out.endsWith("…")).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(MAX_CARD_EXCERPT + 1);
+    // The passage's own beginning, and the cut lands on a space: the card
+    // never ends mid-word.
+    const body = out.slice(0, -1);
+    expect(text.startsWith(body)).toBe(true);
+    expect(text[body.length]).toBe(" ");
+  });
+
+  it("cuts a passage with no spaces at the cap rather than hanging", () => {
+    const text = "x".repeat(MAX_CARD_EXCERPT + 10);
+    expect(cardExcerpt(text)).toBe(`${"x".repeat(MAX_CARD_EXCERPT)}…`);
   });
 });

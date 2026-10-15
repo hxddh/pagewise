@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Mark } from "../../lib/mark-store";
 import type { Finding } from "../../lib/finding-store";
-import type { PageCitation } from "../../lib/page-citations";
+import type { AnswerNote, PageCitation } from "../../lib/page-citations";
 
 const marks: Mark[] = [
-  { id: "m1", page: 2, rects: [], text: "the passage", note: "", createdAt: 1, stamp: "s" },
-  { id: "m2", page: 2, rects: [], text: "", note: "the figure", createdAt: 2, stamp: "s", kind: "region" },
+  // Rectangles the page's own text has: the marks' anchors, for the column.
+  { id: "m1", page: 2, rects: [{ x: 100, y: 100, width: 50, height: 10 }], text: "the passage", note: "", createdAt: 1, stamp: "s" },
+  { id: "m2", page: 2, rects: [{ x: 100, y: 100, width: 50, height: 10 }], text: "", note: "the figure", createdAt: 2, stamp: "s", kind: "region" },
 ];
 
 const findings: Finding[] = [
@@ -33,6 +34,25 @@ vi.mock("../../lib/finding-store", () => ({
   isSuperseded: () => false,
 }));
 vi.mock("../../i18n", () => ({ useI18n: () => ({ t: (k: string) => k }) }));
+// The finding's words are on the page: `placeFinding` locates them, and the
+// anchor is the run they were found in.
+vi.mock("../../lib/finding-anchors", () => ({
+  placeFinding: async () => ({
+    status: "located",
+    anchor: { page: 2, bounds: { x: 200, y: 682, width: 50, height: 10 } },
+  }),
+}));
+// A Letter page at scale 1: enough for the real `topLeftRectToBox` /
+// `pdfRectToBox` to place a mark's own rectangle.
+vi.mock("../../lib/pdf", () => ({
+  getPageGeometry: async () => ({
+    viewportWidth: 612,
+    viewportHeight: 792,
+    view: [0, 0, 612, 792],
+    toPdfPoint: (x: number, y: number) => [x, 792 - y],
+    toViewportPoint: (x: number, y: number) => [x, 792 - y],
+  }),
+}));
 
 const { PageGutter } = await import("./PageGutter");
 
@@ -126,5 +146,53 @@ describe("PageGutter", () => {
     // strip is driven by the entries, not by the props alone.
     expect(container.querySelectorAll(".gutter-dot")).toHaveLength(3);
     expect(container.querySelector(".gutter-dot-answer")).toBeNull();
+  });
+
+  it("ties a card the collision rule pushed to the passage it is about", async () => {
+    // The two marks and the finding are all anchored at the same run, so the
+    // column's no-overlap rule pushes the second and third cards down. The
+    // first card sits at its passage and needs no tie; the pushed ones draw a
+    // hairline from the passage's own place on the page to the card's top.
+    const { container } = renderGutter({ column: true });
+    await waitFor(() => expect(container.querySelectorAll(".gutter-note-leader")).toHaveLength(2));
+    const cards = [...container.querySelectorAll<HTMLElement>(".gutter-note")].map((c) =>
+      parseFloat(c.style.top),
+    );
+    const ties = [...container.querySelectorAll<HTMLElement>(".gutter-note-leader")].map((l) => ({
+      from: parseFloat(l.style.top),
+      to: parseFloat(l.style.top) + parseFloat(l.style.height),
+    }));
+    expect(cards).toHaveLength(3);
+    // The tie starts where the card's passage is — the first card's own top,
+    // since it sits at its passage — and ends at the pushed card's top.
+    expect(ties[0]!.from).toBeCloseTo(cards[0]!, 1);
+    expect(ties[0]!.to).toBeCloseTo(cards[1]!, 1);
+    expect(ties[1]!.to).toBeCloseTo(cards[2]!, 1);
+  });
+
+  it("says a sentence's state in the reader's words, not the check's own status", () => {
+    // The answer card's word is the one the chip's headline and the footer's
+    // tally use for `verified` (`level.verified`). The citation check's own
+    // label (`trust.located.short`, "found") names the check, not the
+    // sentence, and belongs to the CSV — it must not reach the column.
+    const notes = new Map<number, AnswerNote[]>([
+      [
+        2,
+        [
+          {
+            messageId: "a1",
+            page: 2,
+            text: "The first line names the specimen.",
+            state: "verified",
+            reason: "located",
+            citations: [],
+          },
+        ],
+      ],
+    ]);
+    const { container } = renderGutter({ column: true, notes });
+    const state = container.querySelector<HTMLElement>(".gutter-note-answer .gutter-note-state");
+    expect(state?.textContent).toBe("level.verified");
+    expect(state?.textContent).not.toBe("trust.located.short");
   });
 });

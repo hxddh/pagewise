@@ -1,14 +1,14 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { AnswerNote, PageCitation } from "../../lib/page-citations";
-import { columnEntries, columnTops, gutterEntries, type GutterEntry } from "./page-gutter";
+import { columnEntries, columnTops, cardExcerpt, gutterEntries, type GutterEntry } from "./page-gutter";
 import { getMarks } from "../../lib/mark-store";
 import { getFindings } from "../../lib/finding-store";
 import { placeFinding } from "../../lib/finding-anchors";
 import { cachedCitationCheck, checkCitation } from "../../lib/citation-check";
 import { getPageGeometry, type PageGeometry } from "../../lib/pdf";
 import { citationLabel } from "../../lib/remark-citations";
-import { TRUST_TEXT, longKey, shortKey, type TrustReason } from "../../lib/trust-text";
+import { TRUST_TEXT, longKey, stateKey, type TrustReason } from "../../lib/trust-text";
 import { pdfRectToBox, topLeftRectToBox } from "./search-highlight";
 
 /**
@@ -102,6 +102,31 @@ async function anchorFor(
 }
 
 /**
+ * Where each column entry sits, and where its passage is.
+ *
+ * `tops` is where the card is drawn; `anchors` is the passage's own place on
+ * the page, for the entries that have one. The collision rule may push a card
+ * below its passage; the two together are what the card's tie is drawn from
+ * (the card is drawn at its passage when they are equal, and needs no tie).
+ */
+interface ColumnPlacement {
+  tops: number[];
+  anchors: Array<number | undefined>;
+}
+
+/**
+ * How far the collision rule may push a card before it draws a tie to its
+ * passage, as a fraction of the page's height (20.0).
+ *
+ * `columnTops` keeps cards from overlapping (`COLUMN_MIN_STEP`); a card the
+ * push moved is no longer beside its passage, and the tie is what says where
+ * it came from. Below this the card's top edge is close enough to the passage
+ * that a hairline would be a smudge on its own border — the push's own step is
+ * `COLUMN_MIN_STEP`, so any real displacement draws the tie.
+ */
+const COLUMN_TIE_MIN = 0.005;
+
+/**
  * The page's outer margin: a dot per mark, finding and citing answer while the
  * panel is open, and the column (20.0) while it is closed.
  *
@@ -114,11 +139,15 @@ async function anchorFor(
  * The column's entries sit beside the passage each one is about, as a fraction
  * of the page's height (`columnTops`), and carry the words: a short answer's
  * sentence with the state of its evidence, so the reader does not have to open
- * the panel for the common case. The note on hover is the `title` attribute,
- * deliberately — a styled tooltip would have to draw outside the strip, and the
- * strip lives inside the scroller, whose `overflow: auto` would clip it at the
- * page edge. The native tooltip is drawn by the platform, outside the layout,
- * and is what the mark and finding layers already use for exactly this.
+ * the panel for the common case. Where two passages are close enough that the
+ * collision rule pushes a card down, the card draws a tie — a hairline from
+ * the passage's own place on the page to the card — so a card is never merely
+ * far from the passage it is about. The note on hover is the `title`
+ * attribute, deliberately — a styled tooltip would have to draw outside the
+ * strip, and the strip lives inside the scroller, whose `overflow: auto` would
+ * clip it at the page edge. The native tooltip is drawn by the platform,
+ * outside the layout, and is what the mark and finding layers already use for
+ * exactly this.
  */
 export const PageGutter = memo(function PageGutter({
   path,
@@ -144,28 +173,29 @@ export const PageGutter = memo(function PageGutter({
     [column, path, page, revision, citations, notes],
   );
 
-  // Where each entry sits in the column, as page fractions. Resolved here
-  // because it needs the page's geometry — one call per mounted page, the same
-  // one the mark and finding layers make.
-  const [tops, setTops] = useState<number[]>([]);
+  // Where each entry sits in the column, as page fractions — and where its
+  // passage is, for the tie. Resolved here because it needs the page's
+  // geometry: one call per mounted page, the same one the mark and finding
+  // layers make.
+  const [placement, setPlacement] = useState<ColumnPlacement>({ tops: [], anchors: [] });
   useEffect(() => {
     if (!column || entries.length === 0) {
-      setTops([]);
+      setPlacement({ tops: [], anchors: [] });
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
         const geometry = await getPageGeometry(path, page);
-        const out: Array<number | undefined> = [];
+        const anchors: Array<number | undefined> = [];
         for (const entry of entries) {
-          out.push(await anchorFor(path, page, entry, geometry, totalPages));
+          anchors.push(await anchorFor(path, page, entry, geometry, totalPages));
           if (cancelled) return;
         }
-        if (!cancelled) setTops(columnTops(out));
+        if (!cancelled) setPlacement({ tops: columnTops(anchors), anchors });
       } catch {
         // The page reads fine without its margin.
-        if (!cancelled) setTops([]);
+        if (!cancelled) setPlacement({ tops: [], anchors: [] });
       }
     })();
     return () => {
@@ -255,25 +285,45 @@ export const PageGutter = memo(function PageGutter({
               numbers: (entry.unstated ?? []).join("、"),
             })}`
           : note(entry);
+        const top = placement.tops[i] ?? 0;
+        const anchor = placement.anchors[i];
+        // The collision rule may have pushed this card below its passage; the
+        // tie is the line from the passage's own place on the page to the
+        // card, drawn only when the card is no longer beside it.
+        const tieFrom = anchor !== undefined && top - anchor > COLUMN_TIE_MIN ? anchor : null;
         return (
-          // raw-button: a card in the page margin, not a control with a box of
-          // its own — the strip is its frame and the group above is its label.
-          <button
-            key={`${entry.kind}-${entry.id}-${i}`}
-            type="button"
-            className={`gutter-note gutter-note-${entry.kind}${
-              reason ? ` gutter-note-${level}` : ""
-            }`}
-            data-gutter-kind={entry.kind}
-            data-gutter-state={entry.state}
-            style={{ top: `${(tops[i] ?? 0) * 100}%` }}
-            title={title}
-            aria-label={entry.kind === "answer" ? title : label(entry)}
-            onClick={() => activate(entry)}
-          >
-            <span className="gutter-note-text">{entry.text}</span>
-            {reason && <span className="gutter-note-state">{t(shortKey(reason))}</span>}
-          </button>
+          <Fragment key={`${entry.kind}-${entry.id}-${i}`}>
+            {tieFrom !== null && (
+              <span
+                className="gutter-note-leader"
+                aria-hidden
+                style={{ top: `${tieFrom * 100}%`, height: `${(top - tieFrom) * 100}%` }}
+              />
+            )}
+            {/* raw-button: a card in the page margin, not a control with a box
+                of its own — the strip is its frame and the group above is its
+                label. */}
+            <button
+              type="button"
+              className={`gutter-note gutter-note-${entry.kind}${
+                reason ? ` gutter-note-${level}` : ""
+              }`}
+              data-gutter-kind={entry.kind}
+              data-gutter-state={entry.state}
+              style={{ top: `${top * 100}%` }}
+              title={title}
+              aria-label={entry.kind === "answer" ? title : label(entry)}
+              onClick={() => activate(entry)}
+            >
+              <span className="gutter-note-text">{cardExcerpt(entry.text)}</span>
+              {entry.state && (
+                // The sentence's own word, from the one table of those words
+                // (`trust-text.ts`): the same word the chip's headline and the
+                // footer's tally use — never a check's internal status.
+                <span className="gutter-note-state">{t(stateKey(entry.state, reason))}</span>
+              )}
+            </button>
+          </Fragment>
         );
       })}
     </div>

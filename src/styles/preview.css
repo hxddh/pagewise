@@ -605,9 +605,15 @@
   background: var(--bg-hover);
 }
 
-/* The words: a sentence, a claim, a note — as much of it as three lines hold.
-   The full text is the card's title, and the panel holds the whole answer. */
+/* The words: a sentence, a claim, a note — as much of it as three lines hold,
+   cut at a line end with an ellipsis so the reader can see the passage goes on
+   (20.0). The full text is the card's title, and the panel holds the whole
+   answer. `max-height` is the fallback for an engine without the clamp: it
+   clips at the same three lines, only without the ellipsis. */
 .gutter-note-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   max-height: 4.05em;
   overflow: hidden;
 }
@@ -615,6 +621,29 @@
 .gutter-note-state {
   font-size: var(--text-xs);
   color: var(--note-ink);
+}
+
+/* The tie from a card the collision rule pushed down to the passage it is
+   about (20.0): a hairline at the card's own left edge, from the passage's
+   place on the page to the card's top, with a tick across the gutter at the
+   passage end. A card drawn at its passage needs none — the card itself is
+   the tie. */
+.gutter-note-leader {
+  position: absolute;
+  left: var(--space-md);
+  width: 1px;
+  background: color-mix(in srgb, var(--text-muted) 75%, transparent);
+  pointer-events: none;
+}
+
+.gutter-note-leader::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: calc(var(--space-md) + 1px);
+  height: 1px;
+  background: inherit;
 }
 
 /* The three inks the margin already draws: the reader's highlighter, the
