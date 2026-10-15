@@ -133,8 +133,8 @@ export async function saveAnnotatedPdf(
   defaultName: string,
   filterName: string,
 ): Promise<number | null> {
-  // Writing into the chosen folder is granted by the dialog itself, in Rust
-  // (21.0), as for the Markdown exports (`save-markdown.ts`).
+  // One write to the chosen file is granted by the dialog itself, in Rust
+  // (21.1.0), as for the Markdown exports (`save-markdown.ts`).
   const out = await pickSavePath(defaultName, filterName, ["pdf"]);
   if (!out) return null;
   return invoke<number>("export_annotated_pdf", { path, outPath: out, annotations });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isAgentMultimodalModel,
+  canSeeWith,
   isKnownNonVisionModel,
   isToolModel,
   isVisionModel,
@@ -97,5 +98,19 @@ describe("isToolModel", () => {
 
   it("allows unknown custom models", () => {
     expect(isToolModel("custom", "my-local-agent")).toBe(true);
+  });
+});
+
+describe("a model that can see is not stopped at the gate (21.1.2)", () => {
+  it("lets the multimodal members of text-only families through", () => {
+    for (const m of ["qwen3-vl:8b", "qwen3-vl", "mistral-small3.1", "mistral-small3.2:24b", "qwen2.5vl:7b", "llama3.2-vision", "gemma3:4b", "minicpm-v"]) {
+      expect(canSeeWith(m), m).toBe(true);
+    }
+  });
+
+  it("still stops the models that cannot", () => {
+    for (const m of ["deepseek-v4-flash", "qwen3:8b", "mistral:7b", "llama3.1", "qwen2.5:14b"]) {
+      expect(canSeeWith(m), m).toBe(false);
+    }
   });
 });

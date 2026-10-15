@@ -54,8 +54,8 @@ export async function pickDocument(): Promise<string | null> {
 }
 
 /**
- * The save dialog. Resolves to the chosen path, or null on cancel; writing
- * into the chosen folder is granted for the rest of this session.
+ * The save dialog. Resolves to the chosen path, or null on cancel; one write
+ * to that file is granted, in Rust, and nothing else in its folder.
  */
 export async function pickSavePath(
   defaultName: string,

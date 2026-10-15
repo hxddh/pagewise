@@ -274,3 +274,64 @@ describe("a change of language says the words were replaced (Codex on #157)", ()
     expect(told).toEqual([{ path: PATH, pages: 0 }]);
   });
 });
+
+describe("a switch survives a page read before it (21.1.2)", () => {
+  const ENGLISH = { text: "l| 7 ;: garbage read by the English model", confidence: 17, items: [] };
+  const BOTH = { text: "质保期为三十六个月，自验收合格之日起计算", confidence: 88, items: [] };
+
+  it("reopens with both models when a short cover was saved in English first", async () => {
+    const recognize = vi.mocked((await import("./ocr-engine")).recognizeCanvas);
+    recognize.mockImplementation(async (_c, _t, langs) => (langs === "eng" ? ENGLISH : BOTH));
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    recognize.mockImplementationOnce(async () => ({ text: "2019", confidence: 60, items: [] }));
+    await ocrPage(PATH, 1);
+    await flushOcr(PATH);
+    for (const p of [2, 3, 4]) await ocrPage(PATH, p);
+    await flushOcr(PATH);
+
+    __resetOcrServiceForTests();
+    configureOcr({ enabled: true, languages: "eng" });
+    const restored = await restoreOcr(PATH, ID);
+    expect(restored.map((p) => p.page)).toEqual([2, 3, 4]);
+    recognize.mockClear();
+    await ocrPage(PATH, 3);
+    expect(recognize, "page 3 comes from the cache").not.toHaveBeenCalled();
+    await ocrPage(PATH, 5);
+    expect(recognize.mock.calls.map((c) => c[2]), "and the document reads with both").toEqual(["chi_sim+eng"]);
+  });
+
+  it("does not write a page read with English into the both-models section", async () => {
+    const recognize = vi.mocked((await import("./ocr-engine")).recognizeCanvas);
+    recognize.mockImplementation(async (_c, _t, langs) =>
+      langs === "eng" ? ENGLISH : { text: "a photo caption both read no better", confidence: 20, items: [] },
+    );
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    await ocrPage(PATH, 1); // the probe does not help: English kept
+    recognize.mockImplementation(async (_c, _t, langs) => (langs === "eng" ? ENGLISH : BOTH));
+    await ocrPage(PATH, 2); // switches
+    await flushOcr(PATH);
+    const both = JSON.parse(disk.get(ID)!).sections["chi_sim+eng"] as { p: number }[];
+    expect(both.map((x) => x.p)).toEqual([2]);
+  });
+
+  it("still prefers English for a reader who changed the interface language on an English document", async () => {
+    vi.mocked((await import("./ocr-engine")).recognizeCanvas).mockImplementation(async (_c, _t, langs) => ({
+      text: `The trial ran for eight weeks, read with ${langs}`,
+      confidence: 91,
+      items: [],
+    }));
+    configureOcr({ enabled: true, languages: "chi_sim+eng" });
+    await restoreOcr(PATH, ID);
+    await ocrPage(PATH, 1);
+    await flushOcr(PATH);
+    configureOcr({ enabled: true, languages: "eng" });
+    await settle();
+    for (const p of [1, 2]) await ocrPage(PATH, p);
+    await flushOcr(PATH);
+    __resetOcrServiceForTests();
+    configureOcr({ enabled: true, languages: "eng" });
+    expect((await restoreOcr(PATH, ID)).every((p) => p.text.endsWith("eng"))).toBe(true);
+  });
+});

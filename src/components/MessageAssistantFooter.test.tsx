@@ -133,3 +133,22 @@ describe("the review offered under an answer", () => {
     expect(items.some((t) => t.includes("cite.reviewAction"))).toBe(false);
   });
 });
+
+describe("the line under an answer after the page is read again (21.1.2)", () => {
+  it("counts again with the words now on the page", async () => {
+    const { ocrTextReplaced } = await import("../lib/ocr/ocr-events");
+    const { act } = await import("@testing-library/react");
+    pages[3] = [run("质保期为最终验收合格之日起三十六个月。")];
+    const v = view(MD, true);
+    const tally = await waitFor(() => {
+      const el = v.container.querySelector(".citation-tally");
+      if (!el) throw new Error("no tally");
+      return el;
+    });
+    await waitFor(() => expect(tally.textContent).toContain("cite.tallyLevel.verified(1)"));
+    // The scan was read again with other models: the quoted words are gone.
+    pages[3] = [run("质保期为最终验收合格之日起二十四个月。")];
+    act(() => ocrTextReplaced(PATH));
+    await waitFor(() => expect(tally.textContent).not.toContain("cite.tallyLevel.verified(1)"));
+  });
+});
