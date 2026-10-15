@@ -9,6 +9,14 @@ vi.mock("../read-figure", async (importOriginal) => {
   return { ...actual, describeFigure: vi.fn(async () => "A chart of miss rates.") };
 });
 
+// A scan model that can see, unless a test says otherwise (22.0's gate on
+// read_figure reads the settings, which this runtime has none of).
+const vision = vi.hoisted(() => ({ available: true }));
+vi.mock("../settings", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../settings")>();
+  return { ...actual, visionModelAvailable: vi.fn(async () => vision.available) };
+});
+
 // Indexing stays real by default. The blank-page block below replaces it with
 // "already recognised, nothing found": a test runtime has no OCR, so a blank
 // page here would otherwise read as an index failure, not as blank.
@@ -28,6 +36,7 @@ import {
   DEFAULT_PAGE_MAX_CHARS,
   EMPTY_PAGE_NOTE,
   FIGURE_LIMIT_NOTE,
+  NO_VISION_NOTE,
 } from "./reading";
 import { describeFigure } from "../read-figure";
 import { docCache } from "../doc-cache";
@@ -340,6 +349,27 @@ describe("read tool contract: a page is handed over once", () => {
     expect(budget.used, "a repeat must cost nothing").toBe(charged);
   });
 
+  it("counts the markers of pages already read against maxChars (22.0)", async () => {
+    loadDoc(Array.from({ length: 120 }, (_, i) => ({ page: i + 1, text: pageText(i + 1, 40) })));
+    const { t } = tools();
+    // Read them all once, then ask for the whole range again.
+    let next: number | null = 1;
+    while (next !== null) {
+      const r = (await t.read_pdf_range!.execute({ start: next, end: 120, maxChars: 50_000 }, options)) as {
+        nextStart: number | null;
+      };
+      next = r.nextStart;
+    }
+    const again = (await t.read_pdf_range!.execute({ start: 1, end: 120, maxChars: 2000 }, options)) as {
+      text: string;
+      truncated: boolean;
+      nextStart: number | null;
+    };
+    expect(again.text.length).toBeLessThanOrEqual(2000);
+    expect(again.truncated).toBe(true);
+    expect(again.nextStart).toBeGreaterThan(1);
+  });
+
   it("holds across the two readers, not just inside one", async () => {
     // 7.2 put this guard in the range reader alone and the single-page tool —
     // which has its own path — silently fell outside it. Read a range, then a
@@ -367,6 +397,19 @@ describe("read tool contract: a figure is described once", () => {
   beforeEach(() => {
     loadDoc([1, 2].map((page) => ({ page, text: pageText(page) })), undefined, undefined, FIGURES);
     vi.mocked(describeFigure).mockClear();
+  });
+
+  it("says there is no vision model, before spending anything, when the setup has none (22.0)", async () => {
+    vision.available = false;
+    try {
+      const { budget, t } = tools();
+      const out = (await t.read_figure!.execute({ page: 1 }, options)) as { note?: string };
+      expect(out.note).toBe(NO_VISION_NOTE);
+      expect(budget.scans).toBe(0);
+      expect(describeFigure).not.toHaveBeenCalled();
+    } finally {
+      vision.available = true;
+    }
   });
 
   it("says the figure was not looked at when the allowance is spent, not that the page has no text", async () => {

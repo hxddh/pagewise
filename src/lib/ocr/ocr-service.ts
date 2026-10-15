@@ -16,6 +16,7 @@
  * whether a citation that is absent from it is wrong. It reads pages.
  */
 import { docCache } from "../doc-cache";
+import { bothModelsWin, CJK_RETRY_CONFIDENCE, doubtfulInEnglish, MIN_PROBE_CHARS } from "./ocr-language";
 import { readAuthorizedFileBytes, renderPageForOcr } from "../pdf";
 import { recognizeCanvas, terminateOcr, terminateOcrSlot, type OcrLanguages } from "./ocr-engine";
 import { readOcrDoc, writeOcrDoc, type StoredOcrPage } from "./ocr-store";
@@ -52,9 +53,14 @@ export function configureOcr(options: { enabled: boolean; languages: OcrLanguage
         clearTimeout(state.flushTimer);
         state.flushTimer = null;
       }
-      if (state.dirty && state.identity) void writeOcrDoc(state.identity, previous, state.pages.values()).catch(() => {});
+      if (state.dirty && state.identity) {
+        void writeOcrDoc(state.identity, state.langs ?? previous, state.pages.values()).catch(() => {});
+      }
       state.dirty = false;
       state.pages.clear();
+      // The interface's choice changed: the document chooses again.
+      state.langs = undefined;
+      state.cjkProbes = 0;
       if (enabled && state.identity) void restoreOcr(path, state.identity);
     }
   }
@@ -67,6 +73,14 @@ export function ocrEnabled(): boolean {
 
 interface DocState {
   identity?: string;
+  /**
+   * The models this document reads with, when its pages chose them (22.0):
+   * a scan in Chinese opened under an English interface. Unset means the
+   * interface's choice, `languages`.
+   */
+  langs?: OcrLanguages;
+  /** Pages tried with both models without that helping — capped, see below. */
+  cjkProbes: number;
   pages: Map<number, StoredOcrPage>;
   inflight: Map<number, Promise<StoredOcrPage | null>>;
   flushTimer: ReturnType<typeof setTimeout> | null;
@@ -78,22 +92,48 @@ const docs = new Map<string, DocState>();
 function stateFor(path: string): DocState {
   let s = docs.get(path);
   if (!s) {
-    s = { pages: new Map(), inflight: new Map(), flushTimer: null, dirty: false };
+    s = { pages: new Map(), inflight: new Map(), flushTimer: null, dirty: false, cjkProbes: 0 };
     docs.set(path, s);
   }
   return s;
+}
+
+function langsFor(state: DocState): OcrLanguages {
+  return state.langs ?? languages;
+}
+
+/** Probes that did not help before a document stops trying (a photo, a form). */
+const MAX_CJK_PROBES = 2;
+
+function meanConfidence(pages: readonly StoredOcrPage[]): number {
+  // Pages with too little text say nothing about the script.
+  const read = pages.filter((p) => p.text.trim().length >= MIN_PROBE_CHARS);
+  return read.length === 0 ? 100 : read.reduce((n, p) => n + p.confidence, 0) / read.length;
 }
 
 /**
  * Load what was read on this file before, and return it as page text for the
  * document being opened. Call before the document is committed, so a scan
  * opens with its words already in place.
+ *
+ * A document that switched to both models once (22.0) has its pages in that
+ * section; finding them is what remembers the switch.
  */
 export async function restoreOcr(path: string, identity?: string): Promise<PageText[]> {
   const state = stateFor(path);
   if (identity) state.identity = identity;
   if (!enabled || !identity) return [];
-  const stored = await readOcrDoc(identity, languages);
+  let stored = await readOcrDoc(identity, langsFor(state));
+  if (languages === "eng" && !state.langs) {
+    // Both sections can exist for a reader who changed the interface
+    // language; English wins unless what it read is what a Chinese page reads
+    // like to it.
+    const both = await readOcrDoc(identity, "chi_sim+eng");
+    if (both.length > 0 && (stored.length === 0 || meanConfidence(stored) < CJK_RETRY_CONFIDENCE)) {
+      state.langs = "chi_sim+eng";
+      stored = both;
+    }
+  }
   for (const p of stored) if (!state.pages.has(p.page)) state.pages.set(p.page, p);
   return stored.map((p) => ({ page: p.page, text: p.text, source: "ocr" as const }));
 }
@@ -198,9 +238,43 @@ function pump(): void {
   }
 }
 
+/**
+ * Read a page with the document's models. A page read with English alone that
+ * comes back with words but low confidence is read again with both (22.0):
+ * until then the models followed the interface language only, so a Chinese
+ * scan opened under an English interface located 2.2% of its quotes, against
+ * 87.8% with both models — and nothing said why. When both models do
+ * clearly better, the document reads with them from then on.
+ */
 async function recognize(path: string, page: number, slot: number, signal?: AbortSignal): Promise<StoredOcrPage | null> {
   const started = performance.now();
-  const langs = languages;
+  const state = stateFor(path);
+  const langs = langsFor(state);
+  const first = await recognizeWith(path, page, slot, langs, signal);
+  if (!first || langs !== "eng") return first && { ...first, ms: performance.now() - started };
+  const doubtful = doubtfulInEnglish(first);
+  // Another page may have switched the document while this one was read.
+  const switched = langsFor(state) === "chi_sim+eng";
+  if (!doubtful || (!switched && state.cjkProbes >= MAX_CJK_PROBES)) {
+    return { ...first, ms: performance.now() - started };
+  }
+  const both = await recognizeWith(path, page, slot, "chi_sim+eng", signal);
+  const better = bothModelsWin(first, both);
+  if (!switched) {
+    if (better) state.langs = "chi_sim+eng";
+    else state.cjkProbes += 1;
+  }
+  return { ...(better && both ? both : first), ms: performance.now() - started };
+}
+
+async function recognizeWith(
+  path: string,
+  page: number,
+  slot: number,
+  langs: OcrLanguages,
+  signal?: AbortSignal,
+): Promise<StoredOcrPage | null> {
+  const started = performance.now();
   const doc = docCache.get(path);
   if (!doc) return null;
   if (doc.kind === "image") {
@@ -249,6 +323,8 @@ export function ocrPage(
     }
     return inflight;
   }
+  // The interface's choice when this was asked: a change of it while the page
+  // is read throws the result away (the pages are re-read with the new one).
   const langs = languages;
   const promise = new Promise<StoredOcrPage | null>((resolve) => {
     const job: Job = {
@@ -315,7 +391,7 @@ export async function flushOcr(path: string): Promise<void> {
   }
   state.dirty = false;
   try {
-    await writeOcrDoc(state.identity, languages, state.pages.values());
+    await writeOcrDoc(state.identity, langsFor(state), state.pages.values());
   } catch (err) {
     state.dirty = true;
     if (import.meta.env.DEV) console.warn("[ocr] cache write failed", err);

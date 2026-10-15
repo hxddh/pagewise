@@ -24,10 +24,11 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { createWorker, OEM, type Worker } from "tesseract.js";
 import { locateQuote } from "../src/lib/quote-locate";
+import { bothModelsWin, doubtfulInEnglish } from "../src/lib/ocr/ocr-language";
 import { flatPixelToPdf, ocrDpiFor, ocrPageFrom, type OcrPage, type OcrPageIn } from "../src/lib/ocr/ocr-result";
 import { corpusFiles, CORPUS, loadDoc, OUT, ROOT, type DumpDoc } from "./lib/corpus";
 import { NEGATIVES, quotesFor, rng, type Quote } from "./lib/quotes";
@@ -112,8 +113,13 @@ function workerFor(langs: string, slot: number): Promise<Worker> {
   return w;
 }
 
-async function recognise(id: string, scan: ScanPage, dpi: number, slot: number): Promise<Recognised> {
-  const langs = languagesFor(id);
+async function recognise(
+  id: string,
+  scan: ScanPage,
+  dpi: number,
+  slot: number,
+  langs: string = languagesFor(id),
+): Promise<Recognised> {
   const image = join(scansDir(dpi), scan.image);
   const cache = join(cacheDir(dpi), id, `p${scan.page}.${langs}.json`);
   const toPdf = flatPixelToPdf(dpi / 72, scan.height, scan.origin[0], scan.origin[1]);
@@ -146,6 +152,58 @@ function categoryOf(doc: DumpDoc, q: Quote, fetched: boolean): Category {
 
 const pct = (a: number, b: number) => (b === 0 ? "—" : `${((100 * a) / b).toFixed(1)}%`);
 
+describe("a Chinese scan opened under an English interface (22.0)", () => {
+  // Until 22.0 the models followed the interface language alone: English-only
+  // on these pages located 2.2% of the quotes (2026-10-15). The app now reads
+  // English first and, on a page that reads like another script, again with
+  // both models — `ocr-language.ts`, the same rule as here. The gate is the
+  // Chinese prose gate: an English interface must not cost the reader it.
+  it("reads it with both models, and locates its quotes as well as under a Chinese one", async () => {
+    const engDpi = FORCED_DPI ?? ocrDpiFor("eng");
+    const bothDpi = FORCED_DPI ?? ocrDpiFor("chi_sim+eng");
+    const atEng = ensureScans(engDpi);
+    const atBoth = engDpi === bothDpi ? atEng : ensureScans(bothDpi);
+    const docs = corpusFiles()
+      .filter((f) => basename(f).startsWith("contract-zh"))
+      .map((f) => loadDoc(f));
+    let quotes = 0;
+    let located = 0;
+    let retried = 0;
+    let pages = 0;
+    for (const doc of docs) {
+      const reads = new Map<number, Recognised>();
+      for (const scan of (atEng[doc.id]?.pages ?? []).filter((s) => s.rotation === 0)) {
+        pages += 1;
+        const english = await recognise(doc.id, scan, engDpi, 0, "eng");
+        let chosen = english;
+        if (doubtfulInEnglish(english.page)) {
+          retried += 1;
+          const other = atBoth[doc.id]?.pages.find((s) => s.page === scan.page);
+          const both = other ? await recognise(doc.id, other, bothDpi, 1, "chi_sim+eng") : null;
+          if (both && bothModelsWin(english.page, both.page)) chosen = both;
+        }
+        reads.set(scan.page, chosen);
+      }
+      for (const q of quotesFor(doc)) {
+        const read = reads.get(q.page);
+        if (!read || categoryOf(doc, q, false) !== "proseZh") continue;
+        const outcome = locateQuote(read.page.items, q.text);
+        if (outcome.status === "uncheckable") continue;
+        quotes += 1;
+        if (outcome.status === "located") located += 1;
+      }
+    }
+    await Promise.all([...workers.values()].map((w) => w.then((x) => x.terminate())));
+    workers.clear();
+    console.log(
+      `| prose (Chinese), English interface | ${quotes} | ${pct(located, quotes)} | ≥ ${OCR_GATES.proseZh * 100}% | ${retried}/${pages} pages read again |`,
+    );
+    expect(quotes).toBeGreaterThan(50);
+    expect(retried, "every Chinese page should look doubtful in English").toBe(pages);
+    expect(located / quotes).toBeGreaterThanOrEqual(OCR_GATES.proseZh);
+  });
+});
+
 describe("citations on scanned pages (local OCR)", () => {
   it("finds quotes among recognised words, and never finds altered ones", async () => {
     const manifests = new Map<number, Manifest>();
@@ -172,6 +230,7 @@ describe("citations on scanned pages (local OCR)", () => {
       }),
     );
     await Promise.all([...workers.values()].map((w) => w.then((x) => x.terminate())));
+    workers.clear();
 
     const tally: Record<Category, [number, number]> = {
       proseEn: [0, 0], proseZh: [0, 0], twoColumn: [0, 0], table: [0, 0], fetched: [0, 0],
@@ -256,6 +315,14 @@ describe("citations on scanned pages (local OCR)", () => {
         `| median time per page | ${allMs.length} pages | ${Math.round(medianMs)} ms | ≤ ${OCR_GATES.medianMs} ms |`,
       ].join("\n"),
     );
+    // What the 22.0 rule would cost on pages read with English: how many it
+    // reads a second time. Reported, so a change of the rule shows its cost.
+    const englishPages = [...results.entries()].filter(([k]) => !k.startsWith("contract-zh"));
+    const retriedEnglish = englishPages.filter(([, r]) => doubtfulInEnglish(r.page));
+    console.log(
+      `| English-model pages read again with both models | ${englishPages.length} pages | ${retriedEnglish.length} | reported |`,
+    );
+    for (const [k] of retriedEnglish) console.log(`  read again: ${k}`);
     for (const e of negExamples) console.log(`  wrongly located: ${e}`);
     writeFileSync(
       join(OUT, FORCED_DPI ? `ocr-${FORCED_DPI}.json` : "ocr.json"),

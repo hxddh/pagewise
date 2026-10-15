@@ -76,6 +76,8 @@ interface PreviewPaneProps {
    * without the panel having to open.
    */
   marginColumn?: boolean;
+  /** Read the pages the sweep left — the scan-all flow with its confirmation (22.0). */
+  onReadRest?: () => void;
 }
 
 function PreviewPaneInner({
@@ -94,6 +96,7 @@ function PreviewPaneInner({
   notes = null,
   onRevealMessage,
   marginColumn = false,
+  onReadRest,
 }: PreviewPaneProps) {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -509,7 +512,7 @@ function PreviewPaneInner({
       {/* What the document is being read as, and the way to stop it (19.0).
           In the chrome rather than on a page: a sweep is the document's, and
           it outlives any one page being scrolled past. */}
-      <ReadingLine path={doc.path} />
+      <ReadingLine path={doc.path} onReadRest={onReadRest} />
     </>
   );
 

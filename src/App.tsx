@@ -506,6 +506,7 @@ function AppContent() {
                       notes={marginNotes}
                       marginColumn={!s.assistant.open}
                       onRevealMessage={gotoMessage}
+                      onReadRest={requestScanAll}
                     />
                   </Suspense>
 

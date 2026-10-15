@@ -106,3 +106,75 @@ describe("B9: a page that hangs (16.0)", () => {
     }
   });
 });
+
+describe("the document chooses its models (22.0)", () => {
+  // English-only on a Chinese scan reads garbage at confidence ~17; both
+  // models read it. A page like that switches the document.
+  const engine = () => import("./ocr-engine");
+
+  it("reads a low-confidence page again with both models, and keeps them for the document", async () => {
+    const recognize = vi.mocked((await engine()).recognizeCanvas);
+    recognize.mockImplementation(async (_c, _t, langs) =>
+      langs === "eng"
+        ? { text: "l| 7 ;: garbage read by the English model", confidence: 17, items: [] }
+        : { text: "质保期为三十六个月", confidence: 88, items: [] },
+    );
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    expect((await ocrPage(PATH, 1))?.text).toBe("质保期为三十六个月");
+    recognize.mockClear();
+    await ocrPage(PATH, 2);
+    expect(recognize.mock.calls.map((c) => c[2]), "page 2 goes straight to both").toEqual(["chi_sim+eng"]);
+  });
+
+  it("remembers the switch when the document is opened again", async () => {
+    const recognize = vi.mocked((await engine()).recognizeCanvas);
+    recognize.mockImplementation(async (_c, _t, langs) =>
+      langs === "eng"
+        ? { text: "l| 7 ;: garbage read by the English model", confidence: 17, items: [] }
+        : { text: "质保期为三十六个月", confidence: 88, items: [] },
+    );
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    await ocrPage(PATH, 1);
+    await flushOcr(PATH);
+    __resetOcrServiceForTests();
+    configureOcr({ enabled: true, languages: "eng" });
+    expect((await restoreOcr(PATH, ID)).map((p) => p.text)).toEqual(["质保期为三十六个月"]);
+  });
+
+  it("leaves an English page alone, and stops probing a document where both models do not help", async () => {
+    const recognize = vi.mocked((await engine()).recognizeCanvas);
+    recognize.mockImplementation(async () => ({ text: "a faint photo caption, hard to read", confidence: 30, items: [] }));
+    configureOcr({ enabled: true, languages: "eng" });
+    await restoreOcr(PATH, ID);
+    for (const page of [1, 2, 3, 4]) await ocrPage(PATH, page);
+    const both = recognize.mock.calls.filter((c) => c[2] === "chi_sim+eng").length;
+    expect(both, "two probes, then English alone").toBe(2);
+
+    recognize.mockClear();
+    recognize.mockImplementation(async () => ({ text: "The trial ran for eight weeks.", confidence: 92, items: [] }));
+    await ocrPage(PATH, 9);
+    expect(recognize.mock.calls.map((c) => c[2])).toEqual(["eng"]);
+  });
+});
+
+describe("a cache read that fails (22.0)", () => {
+  it("does not write over the other language's pages", async () => {
+    const { invokeCmd } = await import("../invoke-cmd");
+    configureOcr({ enabled: true, languages: "chi_sim+eng" });
+    await restoreOcr(PATH, ID);
+    await ocrPage(PATH, 1);
+    await flushOcr(PATH);
+    const before = disk.get(ID);
+    configureOcr({ enabled: true, languages: "eng" });
+    await settle();
+    await restoreOcr(PATH, ID);
+    vi.mocked(invokeCmd).mockImplementationOnce(async () => {
+      throw new Error("read failed");
+    });
+    await ocrPage(PATH, 2);
+    await flushOcr(PATH);
+    expect(JSON.parse(disk.get(ID)!)).toEqual(JSON.parse(before!));
+  });
+});

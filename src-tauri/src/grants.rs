@@ -49,8 +49,11 @@ const MAX_PERSISTED: usize = 256;
 pub struct AllowedPaths {
     /// Files that may be read, canonical.
     files: Mutex<HashSet<PathBuf>>,
-    /// Folders a save-as may create a file in, canonical. Never persisted.
-    write_dirs: Mutex<HashSet<PathBuf>>,
+    /// The files a save dialog returned, each writable once: canonical parent
+    /// joined with the chosen name. Never persisted. Until 22.0 this was the
+    /// dialog's whole folder, for the session — a reader who exported to
+    /// `$HOME` once let any webview script write any file there afterwards.
+    write_targets: Mutex<HashSet<PathBuf>>,
     /// The persisted documents, oldest first, as they are written to disk.
     persisted: Mutex<Vec<PathBuf>>,
     /// Whether `restore` has read the list back. Until it has, the list in
@@ -68,12 +71,14 @@ impl AllowedPaths {
             .contains(canon))
     }
 
-    pub fn can_write_in(&self, canon_dir: &Path) -> Result<bool, String> {
+    /// Whether `target` (canonical parent + name) was returned by a save
+    /// dialog, consuming the grant: one dialog, one write.
+    pub fn take_write(&self, target: &Path) -> Result<bool, String> {
         Ok(self
-            .write_dirs
+            .write_targets
             .lock()
             .map_err(|_| "allowlist lock poisoned".to_string())?
-            .contains(canon_dir))
+            .remove(target))
     }
 }
 
@@ -114,17 +119,24 @@ fn grant_file_in_session(app: &AppHandle, canon: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn grant_write_dir(app: &AppHandle, dir: &Path) -> Result<PathBuf, String> {
-    let canon = std::fs::canonicalize(dir).map_err(|e| format!("Invalid path: {e}"))?;
-    if !canon.is_dir() {
+fn grant_write_target(app: &AppHandle, path: &Path) -> Result<PathBuf, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Invalid path: no parent directory".to_string())?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| "Invalid path: no file name".to_string())?;
+    let canon_parent = std::fs::canonicalize(parent).map_err(|e| format!("Invalid path: {e}"))?;
+    if !canon_parent.is_dir() {
         return Err("not a folder".to_string());
     }
+    let target = canon_parent.join(name);
     app.state::<AllowedPaths>()
-        .write_dirs
+        .write_targets
         .lock()
         .map_err(|_| "allowlist lock poisoned".to_string())?
-        .insert(canon.clone());
-    Ok(canon)
+        .insert(target.clone());
+    Ok(target)
 }
 
 fn list_path(app: &AppHandle) -> Option<PathBuf> {
@@ -296,10 +308,7 @@ pub async fn pick_save_path(
         return Ok(None);
     };
     let path = picked.into_path().map_err(|e| format!("Invalid path: {e}"))?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "Invalid path: no parent directory".to_string())?;
-    grant_write_dir(&app, parent)?;
+    grant_write_target(&app, &path)?;
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
@@ -373,6 +382,16 @@ mod tests {
         assert_eq!(for_front_end(Path::new(r"\\?\C:\Docs\a.pdf")), r"C:\Docs\a.pdf");
         assert_eq!(for_front_end(Path::new(r"\\?\UNC\srv\share\a.pdf")), r"\\srv\share\a.pdf");
         assert_eq!(for_front_end(Path::new("/home/me/a.pdf")), "/home/me/a.pdf");
+    }
+
+    #[test]
+    fn a_save_dialog_grants_its_one_file_once() {
+        let allowed = AllowedPaths::default();
+        let target = PathBuf::from("/out/notes.md");
+        allowed.write_targets.lock().unwrap().insert(target.clone());
+        assert!(!allowed.take_write(Path::new("/out/.bashrc")).unwrap(), "only the file chosen");
+        assert!(allowed.take_write(&target).unwrap());
+        assert!(!allowed.take_write(&target).unwrap(), "and only once");
     }
 
     #[test]

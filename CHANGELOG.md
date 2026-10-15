@@ -2,6 +2,21 @@
 
 All notable changes to PageWise are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+v22: the first open has to work. From `docs/reviews/2026-10-15-pagewise-v22-evaluation.md`.
+
+- **A Chinese scan reads under an English interface** (`src/lib/ocr/ocr-language.ts`, `src/lib/ocr/ocr-service.ts`, `eval/ocr.eval.ts`). Local OCR's models followed the interface language alone, so a Chinese scan opened under an English interface was read with English only: **2.2%** of its quotes located, against **87.8%** with both models — every citation "unconfirmed", and nothing said why. Each document now reads with English first; a page whose words come back under a mean confidence of 50 is read again with both models, and when they do at least 10 points better the document reads with them from then on. The choice is remembered with the OCR cache. A page with little text, or a document where two such tries did not help (a photo, a form), stays with English. The OCR eval gates it: Chinese prose under an English interface **87.8%** (≥ 85%), all 10 Chinese pages read again; of the 41 pages read with English, 1 is read again (a poorly scanned page of the fetched GeoBase document) — reported by the suite as the rule's cost. No setting was added.
+- **A failed OCR cache read no longer drops the other language's pages** (`src/lib/ocr/ocr-store.ts`). The write after it was taken for a fresh file and carried one language's section alone; now it does not happen, and the pages stay dirty for the next try.
+- **A setup that cannot see says so instead of failing a call** (`src/lib/settings.ts`, `src/lib/model-capabilities.ts`, `src/lib/agent-tools/tools/read-figure.ts`, `src/document/index-queue.ts`). The default provider, DeepSeek, has no vision model, so its scan slot fell back to the chat model: every figure and every unread scanned page was a render, a spent allowance and a request bound to fail. `read_figure` now answers `NO_VISION_NOTE` before anything is spent; a sweep stops asking for vision and keeps what local OCR read; an explicit read records "no vision-capable scan model is configured".
+- **A stopped reading line offers the way on** (`src/features/preview/ReadingLine.tsx`, `PreviewPane.tsx`, `src/App.tsx`). "Read 50 of 300 — 250 pages left, read on demand" had no button; it now carries "Read pages with no text", the palette's own command with its confirmation of the count and the cost.
+- **A save dialog grants the one file it returned, once** (`src-tauri/src/grants.rs`, `lib.rs`). It granted the whole folder for the session, so after one export to `$HOME` any webview script could write any file there, `~/.bashrc` included.
+- **Writes go through a temp file no reader's file can be** (`src-tauri/src/store_io.rs`). The temp was `<file>.tmp`, created with `create`: a file of that name beside an export was truncated and renamed away, and a symlink there was followed. It is now `<file>.<pid>.<n>.pagewise-tmp`, created exclusively.
+- **A full record is said again for a later refusal** (`src/lib/store-health.ts`), at most every 30 s; it was said once a session, and a later edit refused was lost at quit in silence.
+- **Pages already read count against `maxChars` in a range** (`src/lib/agent-tools/reading.ts`); a repeat of a long range came back as one marker per page, past the cap.
+- **A drop is granted off the event loop** (`src-tauri/src/lib.rs`).
+- Budget re-recorded: `srcLines` **41,443 → 41,668**. No surface came back.
+
 ## [21.0.1] - 2026-10-15
 
 A fix for a data loss 21.0 introduced on macOS, found by the review after the release.

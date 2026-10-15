@@ -82,6 +82,15 @@ function lookupCapabilities(model: string): ModelCapabilities | undefined {
 }
 
 /** True when the model id is in our capability table and marked non-vision. */
+/**
+ * Whether a scan model can be sent an image (22.0). A model known to be
+ * text-only cannot; an unknown one (a custom endpoint) is given the benefit
+ * of the doubt, as `isKnownNonVisionModel` always has.
+ */
+export function canSeeWith(model: string): boolean {
+  return !!model.trim() && !isKnownNonVisionModel(model);
+}
+
 export function isKnownNonVisionModel(model: string): boolean {
   const known = lookupCapabilities(model);
   return known !== undefined && !known.vision;
