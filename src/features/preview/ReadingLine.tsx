@@ -17,8 +17,13 @@ import {
  * badge — and Cancel stops the rest of the pass without throwing away the page
  * being recognised.
  *
- * It draws nothing at all when nothing is being read, which is most of the
- * time.
+ * A pass that stops with pages unread keeps the line instead of vanishing
+ * (20.0): whether the reader cancelled it or it ran into the sweep's page cap,
+ * it says how many pages were read and how many wait to be read on demand.
+ * There is nothing left to cancel then, so it draws no button.
+ *
+ * It draws nothing at all when nothing is being read and the last sweep read
+ * everything it had to, which is most of the time.
  */
 export function ReadingLine({ path }: { path: string }) {
   const { t } = useI18n();
@@ -30,6 +35,20 @@ export function ReadingLine({ path }: { path: string }) {
   }, [path]);
 
   if (!progress) return null;
+
+  if (progress.state === "stopped") {
+    return (
+      <div className="preview-reading-line">
+        <span className="preview-reading-text">
+          {t("preview.readingStopped", {
+            read: progress.read,
+            total: progress.total,
+            count: progress.left,
+          })}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="preview-reading-line">

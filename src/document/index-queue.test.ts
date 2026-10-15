@@ -647,13 +647,13 @@ describe("reading progress (19.0 — OCR you can watch)", () => {
     const unsubscribe = subscribeReadingProgress(notified);
     scheduleIndex(doc);
     await vi.waitFor(() => expect(readingProgress(path)).not.toBeNull());
-    expect(readingProgress(path)?.total).toBe(3);
+    expect(readingProgress(path)).toMatchObject({ state: "reading", total: 3 });
     expect(notified).toHaveBeenCalled();
 
     // When OCR is the reader, the page is the one being recognised — that is
     // the page whose words are arriving.
     h.ocr.current.set(path, 2);
-    expect(readingProgress(path)?.page).toBe(2);
+    expect(readingProgress(path)).toMatchObject({ state: "reading", page: 2 });
 
     // Finish the sweep: the calls already in flight resolve, and the pages
     // behind them are read at once rather than queued.
@@ -663,7 +663,7 @@ describe("reading progress (19.0 — OCR you can watch)", () => {
     unsubscribe();
   });
 
-  it("stops both layers when the reader cancels", async () => {
+  it("stops both layers when the reader cancels, and says so", async () => {
     const path = uniquePath();
     const doc = seed(path, 2);
     h.visionMode.current = "manual";
@@ -675,7 +675,38 @@ describe("reading progress (19.0 — OCR you can watch)", () => {
     // The OCR queue is told separately: a page already waiting for a worker
     // cannot hear the sweep's abort signal.
     expect(cancelQueuedOcr).toHaveBeenCalledWith(path);
-    expect(readingProgress(path)).toBeNull();
+    // The terminal state (20.0): the line does not vanish as if nothing had
+    // happened — it says the pass stopped, how much it read, and that the rest
+    // waits to be read on demand.
+    expect(readingProgress(path)).toMatchObject({ state: "stopped", read: 0, total: 2, left: 2 });
     await vi.waitFor(() => expect(statusesFor(path, 1)).toContain("idle"));
+  });
+
+  it("names the pages a sweep that ran into its cap leaves for on-demand reading (20.0)", async () => {
+    // The page cap is the CPU bound: a 300-page scan sweeps 50. The line used
+    // to disappear at the end of the window; now it says what is left — 53
+    // pages in, 50 read, 3 to be read when the reader reaches them.
+    h.ocr.enabled = true;
+    const path = uniquePath();
+    const doc = seed(path, DEFAULT_AUTO_INDEX_PAGES + 3);
+    const readWell = { text: "The filter admits a newcomer only if it is popular.", confidence: 92 };
+    for (let p = 1; p <= DEFAULT_AUTO_INDEX_PAGES + 3; p++) h.ocr.pages.set(p, readWell);
+
+    scheduleIndex(doc);
+    await vi.waitFor(() =>
+      expect(readingProgress(path)).toMatchObject({
+        state: "stopped",
+        read: DEFAULT_AUTO_INDEX_PAGES,
+        total: DEFAULT_AUTO_INDEX_PAGES,
+        left: 3,
+      }),
+    );
+
+    // The state describes one sweep, not the document: a new sweep replaces
+    // it, and closing the document takes it with the queue.
+    scheduleIndex(doc);
+    expect(readingProgress(path)?.state).not.toBe("stopped");
+    cancelIndex(path);
+    expect(readingProgress(path)).toBeNull();
   });
 });

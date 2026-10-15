@@ -101,6 +101,8 @@
     "reading": "Reading this page…",
     "readingPageOf": "Reading page {{page}}",
     "readingPageOf_plural": "Reading page {{page}} of {{count}}",
+    "readingStopped": "Read {{read}} of {{total}} — 1 page left, read on demand",
+    "readingStopped_plural": "Read {{read}} of {{total}} — {{count}} pages left, read on demand",
     "stopReading": "Stop reading pages",
     "readPoorly": "Read from a scan ({{confidence}}% sure) — some words may be misread; check the page",
     "searchDocHeading": "This document",

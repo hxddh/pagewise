@@ -101,6 +101,8 @@
     "reading": "正在读取本页…",
     "readingPageOf": "正在读取第 {{page}} 页",
     "readingPageOf_plural": "正在读取第 {{page}} 页（共 {{count}} 页）",
+    "readingStopped": "已读 {{read}}/{{total}}，剩 1 页按需",
+    "readingStopped_plural": "已读 {{read}}/{{total}}，剩 {{count}} 页按需",
     "stopReading": "停止读取页面",
     "readPoorly": "从扫描件识别（把握 {{confidence}}%）— 个别文字可能有误，请看原页",
     "searchDocHeading": "本文档",

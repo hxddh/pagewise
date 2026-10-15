@@ -133,6 +133,10 @@ type QueueEntry = {
   pages: number[];
   /** The page of this sweep being read right now, if any. */
   current: number | null;
+  /** Pages whose turn through the pool has finished. */
+  read: number;
+  /** Pages with no text past the sweep's cap: read on demand, not by it. */
+  outside: number;
 };
 
 
@@ -166,26 +170,64 @@ export function subscribeReadingProgress(listener: () => void): () => void {
   };
 }
 
-export interface ReadingProgress {
-  /** The page being read right now. */
-  page: number;
-  /** Pages this sweep has to read in all. */
+/**
+ * What the reading line draws: a sweep being read, or how one ended (20.0).
+ *
+ * A sweep can stop with pages still unread — the reader cancelled it, or the
+ * document had more pages than the sweep's cap reads — and the line then says
+ * what happened instead of disappearing: `read` of `total` pages were read,
+ * and `left` pages wait to be read on demand (when the reader scrolls to one,
+ * or the assistant asks about it). A sweep that read everything it had to
+ * leaves nothing to say and draws nothing.
+ */
+export type ReadingProgress =
+  | { state: "reading"; page: number; total: number }
+  | { state: "stopped"; read: number; total: number; left: number };
+
+/**
+ * How a sweep that stopped with pages unread ended.
+ *
+ * Kept after the sweep's queue entry is gone — that is the point of it: a
+ * cancelled sweep must not look like one that never ran. Cleared when a new
+ * sweep is scheduled for the document, or when the document is closed.
+ */
+interface ReadingStop {
+  read: number;
   total: number;
+  left: number;
+}
+
+const readingStops = new Map<string, ReadingStop>();
+
+/**
+ * Record how a sweep stopped, for the reading line's terminal state.
+ *
+ * A sweep that read everything it had to leaves nothing to say — no state —
+ * so the line goes away as before. One that stopped with pages left (a
+ * cancel, the cap, an end that is neither) keeps the state until the document
+ * is closed or another sweep replaces it.
+ */
+function recordReadingStop(path: string, entry: QueueEntry): void {
+  const left = entry.pages.length - entry.read + entry.outside;
+  if (left <= 0) return;
+  readingStops.set(path, { read: entry.read, total: entry.pages.length, left });
 }
 
 /**
- * What this document is being read as, or null when nothing is.
+ * What this document is being read as, or how its last sweep ended, or null.
  *
  * The page comes from the OCR queue when OCR is the reader — that is the page
  * whose words are arriving — and from the sweep otherwise, so a vision-only
  * pass still shows which page it is on.
  */
 export function readingProgress(path: string): ReadingProgress | null {
+  const stopped = readingStops.get(path);
+  if (stopped) return { state: "stopped", ...stopped };
   const entry = queues.get(path);
   if (!entry || entry.pages.length === 0) return null;
   const page = ocrQueueState(path).current ?? entry.current;
   if (page === null) return null;
-  return { page, total: entry.pages.length };
+  return { state: "reading", page, total: entry.pages.length };
 }
 
 /**
@@ -193,11 +235,16 @@ export function readingProgress(path: string): ReadingProgress | null {
  *
  * One action for the reader, two layers underneath — the sweep's abort signal
  * covers the vision pass, and the OCR queue is told separately because a page
- * already waiting for a worker has no way to hear about the abort.
+ * already waiting for a worker has no way to hear about the abort. The sweep
+ * leaves a terminal state behind (20.0): the line says how many pages it read
+ * and how many wait on demand, instead of vanishing as if nothing had
+ * happened. The page being recognised still finishes, as before.
  */
 export function cancelReading(path: string): void {
+  const entry = queues.get(path);
   cancelIndex(path);
   cancelQueuedOcr(path);
+  if (entry) recordReadingStop(path, entry);
   notifyProgress();
 }
 const pageInflight = new Map<
@@ -259,15 +306,20 @@ function sparsePages(doc: LoadedDocument, cap: number | null): number[] {
 }
 
 /**
- * The pages one automatic sweep reads.
+ * The pages one automatic sweep reads, and how many sparse pages its cap
+ * leaves past the window.
  *
  * Bounded by `DEFAULT_AUTO_INDEX_PAGES` for both readers: the page count is
  * the CPU bound, and OCR is behind it now as well as vision. The vision budget
  * is applied page by page as the sweep runs (`visionLeft`), so a sweep never
- * makes more billed calls than the reader allowed either.
+ * makes more billed calls than the reader allowed either. The pages past the
+ * cap are not forgotten — they are read on demand — but the reading line says
+ * so when the sweep stops (20.0).
  */
-function sweepPages(doc: LoadedDocument): number[] {
-  return sparsePages(doc, DEFAULT_AUTO_INDEX_PAGES);
+function sweepWindow(doc: LoadedDocument): { pages: number[]; outside: number } {
+  const all = sparsePages(doc, null);
+  const pages = all.slice(0, DEFAULT_AUTO_INDEX_PAGES);
+  return { pages, outside: all.length - pages.length };
 }
 
 /**
@@ -577,6 +629,9 @@ async function runPool(
       // A sweep is nobody's question and nobody's page view: its calls are
       // counted, its tokens are not booked to a message or a document.
       await runIndexPage(path, pages[i]!, signal, generation, "none", true, policy);
+      // The page's turn is over, whatever it read — that is the "read n of N"
+      // the line reports when the sweep stops before its end (20.0).
+      if (entry && entry.abort.signal === signal) entry.read += 1;
     }
   });
   await Promise.all(workers);
@@ -661,12 +716,17 @@ export function scheduleIndex(
     visionLeft: options?.visionBudget === undefined ? autoIndexCap : options.visionBudget,
     pages: [],
     current: null,
+    read: 0,
+    outside: 0,
   };
   queues.set(doc.path, entry);
+  // A new sweep replaces what the line said about the last one.
+  readingStops.delete(doc.path);
 
-  const pages = options?.pages ?? sweepPages(doc);
-  if (pages.length === 0) return;
-  entry.pages = pages;
+  const planned = options?.pages ? { pages: options.pages, outside: 0 } : sweepWindow(doc);
+  if (planned.pages.length === 0) return;
+  entry.pages = planned.pages;
+  entry.outside = planned.outside;
   notifyProgress();
 
   const policy: VisionPolicy = {
@@ -679,10 +739,15 @@ export function scheduleIndex(
     },
   };
 
-  void runPool(doc.path, pages, controller.signal, generation, policy).finally(() => {
+  void runPool(doc.path, planned.pages, controller.signal, generation, policy).finally(() => {
     const cur = queues.get(doc.path);
     if (cur?.abort === controller) {
       queues.delete(doc.path);
+      // A sweep that ran into the cap leaves pages the line must name: they
+      // are read on demand, and stopping at the cap must not look like the
+      // reader's own cancel or like a sweep that is still pending (20.0).
+      // A sweep that read everything it had to records nothing.
+      recordReadingStop(doc.path, entry);
       notifyProgress();
     }
   });
@@ -692,6 +757,9 @@ export function cancelIndex(path: string): void {
   queues.get(path)?.abort.abort();
   queues.delete(path);
   nextGeneration(path);
+  // The terminal state belongs to the sweep it describes: a document being
+  // closed (or a re-index replacing the queue) takes it along.
+  readingStops.delete(path);
 }
 
 /**

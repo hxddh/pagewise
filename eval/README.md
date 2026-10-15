@@ -36,24 +36,45 @@ Results at 13.0.0:
 | search: right page first (36 questions) | 1 | 27 |
 | search: right page in first three | 1 | 32 |
 
-Results at 14.0.0, on scanned pages (`ocr.eval.ts`; pages rendered by
+Results at 20.0, on scanned pages (`ocr.eval.ts`; pages rendered by
 `corpus/build_scans.py` at the app's resolution, 200 dpi for English and 300
-for Chinese; recognition cached in `eval/out/ocr*/`):
+for Chinese; recognition cached in `eval/out/ocr*/`). Measured 2026-10-15 on
+the 20.0 tree at commit `cdd9684`:
 
-| kind of page | quotes | located |
+```bash
+rm -rf eval/out/ocr eval/out/ocr-300   # fresh recognition; without this the cached times are re-scored
+npm run eval                           # add -- --disableConsoleIntercept to print the table
+```
+
+The recognition path has not changed since 14.0 (`ocr-result.ts`,
+`quote-locate.ts`, this harness), so the accuracy below is the same record,
+re-measured; the times are new.
+
+| kind of page | quotes | located | gate |
+|---|---:|---:|---:|
+| single-column English | 231 | 229 (99.1%) | ≥ 95% |
+| Chinese prose | 90 | 79 (87.8%) | ≥ 85% |
+| two-column (reported) | 159 | 124 (78.0%) | — |
+| table cells (reported) | 182 | 125 (68.7%) | — |
+| **generated corpus** | 662 | **557 (84.1%)** | ≥ 80% |
+| fetched, incl. the real Vicksburg scan (reported) | 360 | 236 (65.6%) | — |
+| altered quotes wrongly located | 1,997 | 1 (0.05%) | ≤ 1% |
+
+Every gate passes; the tightest is Chinese prose, 2.8 points above its floor.
+Time per page from the same run's per-page `ms` (median = the middle page, as
+the suite's own median is computed; p90 = nearest rank):
+
+| pages | median | p90 |
 |---|---:|---:|
-| single-column English | 231 | 99.1% |
-| Chinese prose | 90 | 87.8% |
-| two-column (reported) | 159 | 78.0% |
-| table cells (reported) | 182 | 68.7% |
-| **generated corpus** | 662 | **84.1%** |
-| fetched, incl. the real Vicksburg scan (reported) | 360 | 65.6% |
-| altered quotes wrongly located | 1,997 | 1 |
+| 200 dpi — English, the fetched documents (41 pages) | 2.49 s | 4.90 s |
+| 300 dpi — Chinese (10 pages) | 3.46 s | 4.17 s |
+| all 51 pages — the gate's median ≤ 5 s | 2.49 s | 4.89 s |
 
-Median 2.2 s a page on one Linux core. `PW_OCR_DPI=300 npm run eval` measures
-every page at another resolution; that is how Chinese came to be read at 300.
-A miss on a scanned page is shown to the reader as *unconfirmed*, never as
-*not on the page*.
+The times are this machine's and move with its load; the accuracy has not
+moved across runs. `PW_OCR_DPI=300 npm run eval` measures every page at
+another resolution; that is how Chinese came to be read at 300. A miss on a
+scanned page is shown to the reader as *unconfirmed*, never as *not on the
+page*.
 
 ## Real models
 
