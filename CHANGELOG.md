@@ -4,9 +4,9 @@ All notable changes to PageWise are documented here. Version numbers follow [Sem
 
 Each round of work takes a new major number: v23 is 23.0.0. The v22 round was the exception — it shipped as 21.1.0–21.1.2 — so there is no 22.0.0 (`docs/RELEASE.md`, "When to release").
 
-## [Unreleased]
+## [24.0.0] - 2026-10-18
 
-v24, "every citation it shows can be trusted" (`docs/reviews/2026-10-18-pagewise-v24-evaluation.md` §3).
+v24, "answers that hold, a first run that does not break" (`docs/reviews/2026-10-18-pagewise-v24-evaluation.md` §5).
 
 - **A long answer can quote its first pages again** (`src/lib/compact-run-messages.ts`, `src/lib/agent.ts`). Once a run passed 16,000 characters of tool output, the earlier pages were summarized to one line each, but the reader still answered "already read" when the model asked for them again, so it had to quote them from memory, and those citations came back not found. A page whose text is summarized is now forgotten as delivered and is read again in full. In a replay of a ten-page run, every page can still be quoted (it was 4 of 10).
 - **A quote that keeps the page's Markdown is found** (`src/lib/quote-locate.ts`). The model reads pages as Markdown and copies `**bold**` or a `##` heading into the quote; these marks, and a typed `-` for the page's `−`, are now read as nothing. Located: **98.4%** of such quotes (eval gate 90%).
