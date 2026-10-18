@@ -27,3 +27,5 @@ detection, or link positions must.
 | `damaged.pdf` | first 600 bytes of a valid PDF | a malformed file fails cleanly instead of panicking |
 | `tagged-headings.pdf` | hand-built, two `H1`s and a `/P` under a `/StructTreeRoot` | the document's own headings are read from its structure tree, and a paragraph is not mistaken for one |
 | `cropped.pdf` | ReportLab, one Letter page with CropBox `[100 100 512 692]`, a line at (150, 600) and a link | text runs and link rects leave `inspect.rs` in absolute user space, which pdf.js expects, although pdf-inspector after 1.17 measures them from the visible box |
+| `encrypted.pdf` | pypdf encrypting a three-page ReportLab PDF, AES-256 with user password `secret` | a PDF that needs a password is reported as `pdf-encrypted`, which the front end turns into a translated next step (24.0) |
+| `encrypted-owner-only.pdf` | the same PDF, AES-128 with an owner password and an empty user password | a merely "protected" PDF still opens: it must not be reported as needing a password |

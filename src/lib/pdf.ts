@@ -1,6 +1,8 @@
 import type { PDFPageProxy, RenderTask } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { invokeCmd } from "./invoke-cmd";
+import { classifyOpenError } from "./open-error";
+import { sniffImageType } from "./file-type";
 import {
   getPdfJs,
   pdfCMapUrl,
@@ -428,6 +430,15 @@ export async function openDocument(
 }
 
 /**
+ * What a granted file is, by its first bytes, after its size has been checked
+ * (24.0). Rejects with a coded message (`open-error.ts`) for a file too large
+ * to open or of a type the webview cannot show.
+ */
+export async function documentKind(path: string): Promise<"pdf" | "image"> {
+  return invokeCmd<"pdf" | "image">("document_kind_cmd", { path });
+}
+
+/**
  * Read the text under a selection rectangle.
  *
  * `rect` is in PDF points with a **top-left** origin — which is exactly what a
@@ -528,11 +539,8 @@ async function loadPdfBytes(path: string, readGen: number): Promise<Uint8Array> 
     if (e instanceof StalePdfLoadError) throw e;
     // The 256 MiB cap is a deliberate guard — falling back to the asset
     // protocol here would fetch the whole oversized file into webview memory
-    // anyway, bypassing the cap.
-    if (e instanceof Error || typeof e === "string") {
-      const msg = e instanceof Error ? e.message : e;
-      if (msg.includes("File too large")) throw e;
-    }
+    // anyway, bypassing the cap. Coded since 24.0 ("file-too-large: …").
+    if (classifyOpenError(e)?.kind === "tooLarge") throw e;
     data = await loadPdfBytesViaAsset(path);
     if (readGen !== fileReadGen) throw new StalePdfLoadError(path);
   }
@@ -1355,17 +1363,6 @@ export async function getPageGeometry(
   };
 }
 
-/** Capture the current document page as a multimodal `FileUIPart` for AI SDK messages. */
-function imageMediaType(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "png") return "image/png";
-  if (ext === "gif") return "image/gif";
-  if (ext === "webp") return "image/webp";
-  if (ext === "bmp") return "image/bmp";
-  if (ext === "tif" || ext === "tiff") return "image/tiff";
-  return "image/jpeg";
-}
-
 function bytesToDataUrl(bytes: Uint8Array, mediaType: string): string {
   let binary = "";
   const chunk = 0x8000;
@@ -1375,6 +1372,7 @@ function bytesToDataUrl(bytes: Uint8Array, mediaType: string): string {
   return `data:${mediaType};base64,${btoa(binary)}`;
 }
 
+/** Capture the current document page as a multimodal `FileUIPart` for AI SDK messages. */
 export async function capturePageFilePart(
   path: string,
   page: number,
@@ -1383,10 +1381,11 @@ export async function capturePageFilePart(
   if (kind === "image") {
     try {
       // TIFF/BMP must be transcoded — chat providers reject those media types
-      // in image parts.
+      // in image parts. The type is read from the bytes (24.0), not the name.
+      const raw = await readAuthorizedFileBytes(path);
       const { bytes, mediaType } = await ensureProviderCompatibleImage(
-        await readAuthorizedFileBytes(path),
-        imageMediaType(path),
+        raw,
+        sniffImageType(raw) ?? "image/jpeg",
       );
       return { type: "file", mediaType, url: bytesToDataUrl(bytes, mediaType) };
     } catch {

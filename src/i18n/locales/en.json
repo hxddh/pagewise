@@ -425,7 +425,12 @@
     }
   },
   "errors": {
-    "unsupportedFile": "Unsupported file type. Use PDF or image files.",
+    "unsupportedFile": "PageWise can't open this type of file. Open a PDF, or a PNG, JPEG, WebP, GIF or BMP image — convert anything else (a Word document, a HEIC photo) to PDF or JPEG first.",
+    "unsupportedDropped": "PageWise can't open “{{name}}”. Drop a PDF, or a PNG, JPEG, WebP, GIF or BMP image — convert anything else (a Word document, a HEIC photo) to PDF or JPEG first.",
+    "pdfEncrypted": "This PDF is password-protected, and PageWise can't open protected PDFs yet. Remove the password — for example, open it in another reader, print it to PDF — and open the copy.",
+    "pdfDamaged": "This PDF is damaged or incomplete, so it couldn't be read. If you downloaded it, download it again; otherwise try opening it in another reader and printing it to a new PDF.",
+    "fileTooLarge": "This file is {{size}}; PageWise opens files up to {{max}}. Split it into smaller PDFs (most PDF tools can extract a range of pages) and open a part.",
+    "fileTooLargeUnknown": "This file is larger than PageWise can open. Split it into smaller PDFs (most PDF tools can extract a range of pages) and open a part.",
     "saveFailed": "Save failed"
   },
   "library": {

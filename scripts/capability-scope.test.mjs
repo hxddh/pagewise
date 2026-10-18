@@ -143,10 +143,13 @@ describe("the file allowlist", () => {
     expect(name.endsWith(".json")).toBe(false);
   });
 
-  it("grants the same document types the front end opens", () => {
+  // By name, the list a remembered grant is kept by and the list the library
+  // keeps entries by. Since 24.0 a new grant, and what a file opens as, are
+  // decided by its content (`doc_check.rs`), and these names only tidy lists.
+  it("remembers the same document names the library keeps", () => {
     const grants = read("src-tauri/src/grants.rs");
     const rust = grants
-      .match(/DOCUMENT_EXTENSIONS: &\[&str\] =\s*&\[([^\]]+)\]/)?.[1]
+      .match(/GRANTED_EXTENSIONS: &\[&str\] =\s*&\[([^\]]+)\]/)?.[1]
       .match(/"([a-z]+)"/g)
       .map((s) => s.slice(1, -1));
     const ts = read("src/lib/load-document.ts")

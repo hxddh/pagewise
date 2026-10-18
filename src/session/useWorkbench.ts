@@ -12,7 +12,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   commitLoadedDocument,
-  isSupportedDocument,
   loadDocument,
 } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
@@ -33,6 +32,7 @@ import {
   type RecentFile,
 } from "../lib/recent-files";
 import { pickDocument, ungrantedPaths } from "../lib/allowed-paths";
+import { openErrorMessage } from "../lib/open-error";
 import { reindexDocument } from "../document/index-queue";
 import { evidenceAnnotations, saveAnnotatedPdf, type AnnotationLabels } from "../lib/export-annotated";
 import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
@@ -407,10 +407,10 @@ export function useWorkbench(): Workbench {
         // error ("Encrypted PDF requires a password", …) arrives as a string,
         // not an Error — read both so the real cause reaches the user.
         const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+        // Encrypted, damaged, too large, unsupported: translated, with a next
+        // step (24.0) — these reached the reader as Rust's English sentence.
         const msg =
-          raw === "errors.unsupportedFile" || raw.startsWith("errors.")
-            ? t(raw)
-            : raw || t("load.failed");
+          openErrorMessage(e, t) ?? (raw.startsWith("errors.") ? t(raw) : raw || t("load.failed"));
         // The banner only, not a toast as well: both sat in the same top-right
         // corner and the toast covered the banner's Dismiss (16.0 moved toasts
         // to the bottom left; css-hygiene asserts the corners). A load failure
@@ -451,24 +451,39 @@ export function useWorkbench(): Workbench {
   const openFileDialog = useCallback(() => {
     if (loadingRef.current) return;
     void (async () => {
-      // The dialog runs in Rust, which grants the file picked (21.0).
-      const selected = await pickDocument().catch(() => null);
+      // The dialog runs in Rust, which grants the file picked (21.0). A file
+      // whose content is not a document (a DOCX renamed .pdf) is refused
+      // there; say so rather than nothing (24.0).
+      const selected = await pickDocument().catch((e: unknown) => {
+        const msg = openErrorMessage(e, t);
+        if (msg) showToast(msg, "error");
+        return null;
+      });
       if (selected) void switchDocument(selected);
     })();
-  }, [switchDocument]);
+  }, [switchDocument, showToast, t]);
 
-  const { isDragging } = useTauriFileDrop((paths) => {
-    if (loadingRef.current) return;
-    const docPath = paths.find((p) => isSupportedDocument(p));
-    if (docPath) void switchDocument(docPath);
-  });
+  // Rust grants only what is a document by content, so every path here may
+  // be opened; a drop with none (a DOCX, a HEIC photo) arrives as `onRefused`
+  // and is a toast — it used to be nothing at all (24.0).
+  const { isDragging } = useTauriFileDrop(
+    (paths) => {
+      if (loadingRef.current) return;
+      const docPath = paths[0];
+      if (docPath) void switchDocument(docPath);
+    },
+    (names) => {
+      showToast(t("errors.unsupportedDropped", { name: names.join(", ") }), "error");
+    },
+  );
 
   // A document opened from the desktop — double-clicked, or handed over by a
   // second launch that the single-instance plugin turned back. Same treatment
   // as a drop: the reader asked for this file in this window.
   useOpenPathEvent((path) => {
     if (loadingRef.current) return;
-    if (isSupportedDocument(path)) void switchDocument(path);
+    // Granted by Rust only if its content is a document (24.0); no name check.
+    void switchDocument(path);
   });
 
   const reindex = useCallback(() => {

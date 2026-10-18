@@ -45,6 +45,8 @@ use pdf_inspector::{
     extract_tables_in_regions_mem, extract_text_in_regions_mem, PdfType,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::doc_check;
 use std::collections::{HashMap, HashSet};
 
 /// Above this page count the positions pass (links/figures) is skipped.
@@ -655,7 +657,12 @@ fn covered_share(link: &Rect, line: &Rect) -> f32 {
 
 /// Parse a PDF once and return everything PageWise needs from it.
 pub fn open_document(path: &str) -> Result<DocumentModel, String> {
-    let detected = detect_pdf(path).map_err(map_err)?;
+    // Before anything reads the file whole (24.0): the previews cannot show a
+    // file over the cap, so it must not "open" only to fail on every page.
+    doc_check::check_size(std::path::Path::new(path))?;
+    // Coded, so the reader sees "password-protected" or "damaged" in their
+    // language with a next step instead of the extractor's sentence (24.0).
+    let detected = detect_pdf(path).map_err(|e| doc_check::pdf_error(&e))?;
     let title = detected
         .title
         .map(|t| t.trim().to_string())
@@ -683,7 +690,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         });
     }
 
-    let extracted = extract_pages_markdown(path, None).map_err(map_err)?;
+    let extracted = extract_pages_markdown(path, None).map_err(|e| doc_check::pdf_error(&e))?;
     // Page identity is array position, never the `page` label — see module docs.
     let mut texts: Vec<String> = extracted
         .pages
@@ -692,7 +699,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         .collect();
 
     if texts.is_empty() {
-        return Err("PDF read failed: no pages".to_string());
+        return Err(doc_check::coded(doc_check::PDF_DAMAGED, "no pages"));
     }
 
     let blank: Vec<usize> = texts
@@ -1373,6 +1380,22 @@ mod tests {
 
     #[test]
     fn damaged_file_fails_cleanly() {
-        assert!(open_document(&fixture("damaged.pdf")).is_err());
+        // Coded (24.0), so the front end can say "damaged" and what to do.
+        let err = open_document(&fixture("damaged.pdf")).unwrap_err();
+        assert!(err.starts_with(doc_check::PDF_DAMAGED), "{err}");
+    }
+
+    #[test]
+    fn a_password_protected_pdf_says_so() {
+        let err = open_document(&fixture("encrypted.pdf")).unwrap_err();
+        assert!(err.starts_with(doc_check::PDF_ENCRYPTED), "{err}");
+    }
+
+    #[test]
+    fn an_owner_only_protected_pdf_still_opens() {
+        // Restrictions without a user password: the empty password opens it,
+        // so it must not be reported as needing one.
+        let doc = open_document(&fixture("encrypted-owner-only.pdf")).expect("opens");
+        assert!(doc.page_count >= 1);
     }
 }

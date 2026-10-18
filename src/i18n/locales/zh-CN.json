@@ -425,7 +425,12 @@
     }
   },
   "errors": {
-    "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",
+    "unsupportedFile": "PageWise 打不开这种文件。请打开 PDF，或 PNG、JPEG、WebP、GIF、BMP 图片；其他文件（Word 文档、HEIC 照片）请先转成 PDF 或 JPEG。",
+    "unsupportedDropped": "PageWise 打不开「{{name}}」。请拖入 PDF，或 PNG、JPEG、WebP、GIF、BMP 图片；其他文件（Word 文档、HEIC 照片）请先转成 PDF 或 JPEG。",
+    "pdfEncrypted": "这个 PDF 设了打开密码，PageWise 暂时打不开加密的 PDF。请先去掉密码（例如用别的阅读器打开后「打印为 PDF」），再打开新生成的文件。",
+    "pdfDamaged": "这个 PDF 已损坏或不完整，无法读取。如果是下载的，请重新下载；否则可以用别的阅读器打开，再「打印为 PDF」成一个新文件。",
+    "fileTooLarge": "这个文件有 {{size}}，PageWise 最大只能打开 {{max}}。请把它拆成几个较小的 PDF（大多数 PDF 工具都能提取页面范围），再打开其中一份。",
+    "fileTooLargeUnknown": "这个文件超出了 PageWise 能打开的大小。请把它拆成几个较小的 PDF（大多数 PDF 工具都能提取页面范围），再打开其中一份。",
     "saveFailed": "保存失败"
   },
   "library": {
