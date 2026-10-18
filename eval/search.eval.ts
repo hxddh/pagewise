@@ -19,6 +19,13 @@ import { searchForAgent, searchInDocument } from "../src/document/search";
 import { corpusFiles, loadDoc, OUT, type DumpDoc } from "./lib/corpus";
 import { QUESTIONS, type Question } from "./questions";
 
+/**
+ * The single lookups only (24.0). The set grew list, cross-page, unanswerable
+ * and scanned questions for the live baseline; this gate was set on the 36
+ * lookups and keeps measuring exactly them — a "none" question has no right
+ * page, and a list question's right page is not what one query is for.
+ */
+const SEARCH_QUESTIONS = QUESTIONS.filter((q) => q.kind === "lookup");
 
 const squash = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[\s\-­‐-—'"‘’“”]/g, "");
 
@@ -43,10 +50,10 @@ describe("search", () => {
       return [d.id, d] as const;
     }));
     const rows: Array<{ q: Question; expected: number[]; before: number[]; after: number[] }> = [];
-    for (const q of QUESTIONS) {
+    for (const q of SEARCH_QUESTIONS) {
       const doc = docs.get(q.doc);
       if (!doc) continue; // a fetched document that was not fetched
-      const expected = pagesWith(doc, q.answer);
+      const expected = pagesWith(doc, q.answer!);
       expect(expected, `"${q.answer}" must be on some page of ${q.doc}`).not.toHaveLength(0);
       const pages = doc.pages.map((p) => ({ page: p.page, text: p.text }));
       rows.push({
