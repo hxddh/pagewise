@@ -266,6 +266,84 @@ function unwrapApiError(error: unknown): unknown {
   return error;
 }
 
+/**
+ * The machine-readable parts of a provider error (24.0). The HTTP status alone
+ * cannot tell an empty balance from a rate limit — OpenAI sends both as 429 and
+ * only `code: "insufficient_quota"` says which — so the body's `code` / `type`
+ * are read too, from the response body, a stream error frame, or a plain object.
+ */
+interface ApiErrorFields {
+  code?: string;
+  type?: string;
+  url?: string;
+}
+
+function fieldsFromJson(value: unknown, out: ApiErrorFields): void {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return;
+  const root = parsed as { error?: unknown; code?: unknown; type?: unknown };
+  const inner =
+    root.error && typeof root.error === "object"
+      ? (root.error as { code?: unknown; type?: unknown })
+      : root;
+  if (out.code === undefined && (typeof inner.code === "string" || typeof inner.code === "number")) {
+    out.code = String(inner.code);
+  }
+  if (out.type === undefined && typeof inner.type === "string") out.type = inner.type;
+}
+
+function readApiErrorFields(error: unknown): ApiErrorFields {
+  const out: ApiErrorFields = {};
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !visited.has(current)) {
+    visited.add(current);
+    if (APICallError.isInstance(current)) {
+      out.url ??= current.url;
+      fieldsFromJson(current.responseBody, out);
+      fieldsFromJson(current.data, out);
+    } else if (StreamProviderError.isInstance(current)) {
+      fieldsFromJson(current.data, out);
+    } else if (!(current instanceof Error)) {
+      fieldsFromJson(current, out);
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return out;
+}
+
+/** A reader-facing provider name for "top up at …", from the request URL (24.0). */
+function providerNameFromUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+  if (host.endsWith("deepseek.com")) return "DeepSeek";
+  if (host.endsWith("openai.com")) return "OpenAI";
+  if (host.endsWith("openrouter.ai")) return "OpenRouter";
+  return host || undefined;
+}
+
+function isLocalUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 export function validateModel(
   settings: LlmSettings,
   t?: TranslateFn,
@@ -302,6 +380,19 @@ export function formatLlmError(
   t?: TranslateFn,
   kind: LlmErrorKind = "general",
 ): string {
+  return formatLlmErrorWith(error, t, kind, {});
+}
+
+/**
+ * `inherited` carries the body's `code` / `type` across the re-entries below
+ * that rebuild the error from its message alone (24.0).
+ */
+function formatLlmErrorWith(
+  error: unknown,
+  t: TranslateFn | undefined,
+  kind: LlmErrorKind,
+  inherited: ApiErrorFields,
+): string {
   const unwrapped = unwrapApiError(error);
   // Prefer the AI SDK's structured status code; substring digit matching (e.g. "429") is
   // only a fallback, since a model id like "gpt-4-0429" would otherwise be misclassified.
@@ -313,12 +404,15 @@ export function formatLlmError(
         ? error.statusCode
         : undefined;
   const hasStatus = typeof statusCode === "number";
+  const fields = { ...inherited, ...readApiErrorFields(error) };
+  const code = `${fields.code ?? ""} ${fields.type ?? ""}`.toLowerCase();
 
   if (unwrapped instanceof Error) {
     const msg = unwrapped.message;
+    const lower = msg.toLowerCase();
     if (msg === "An error occurred.") {
       const cause = (unwrapped as Error & { cause?: unknown }).cause;
-      if (cause) return formatLlmError(cause, t, kind);
+      if (cause) return formatLlmErrorWith(cause, t, kind, fields);
     }
     if (isImageInputError(unwrapped)) {
       return imageInputErrorMessage(t, kind);
@@ -357,24 +451,85 @@ export function formatLlmError(
         "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → Assistant → Advanced."
       );
     }
+    // Ollama answers a tools request to a model without tool support with a
+    // 400 "registry.ollama.ai/library/<model> does not support tools" (24.0).
+    if (lower.includes("does not support tools")) {
+      return (
+        t?.("llm.modelNoTools") ??
+        "This model can’t use tools, which the assistant needs — choose a model that supports tools in Settings → Assistant."
+      );
+    }
     if (statusCode === 404 || (!hasStatus && msg.includes("404"))) {
       return (
         t?.("llm.notFound") ??
         "Model or endpoint not found — verify base URL and model name."
       );
     }
+    // An empty balance is not a rate limit: OpenAI sends it as 429
+    // `insufficient_quota`, DeepSeek as 402 "Insufficient Balance", OpenRouter
+    // as 402 "requires more credits". Waiting will not help, so this runs
+    // before the 429 check and says where to top up (24.0).
+    if (
+      statusCode === 402 ||
+      /insufficient_quota|insufficient_balance|billing_hard_limit/.test(code) ||
+      /insufficient (balance|quota|credits?)|exceeded your current quota|requires more credits/i.test(msg)
+    ) {
+      const provider = providerNameFromUrl(fields.url);
+      return provider
+        ? (t?.("llm.insufficientBalance", { provider }) ??
+            `Your ${provider} account is out of credit — top up your balance at ${provider}, then try again.`)
+        : (t?.("llm.insufficientBalanceGeneric") ??
+            "Your provider account is out of credit — top up your balance with the provider, then try again.");
+    }
     if (
       statusCode === 429 ||
-      (!hasStatus && (msg.includes("429") || msg.toLowerCase().includes("rate limit")))
+      (!hasStatus && (msg.includes("429") || lower.includes("rate limit")))
     ) {
       return t?.("llm.rateLimited") ?? "Rate limited — try again shortly.";
     }
+    // DeepSeek sends 503 "Server Overloaded" under load (Anthropic-style
+    // gateways 529); retrying in a minute usually works (24.0).
     if (
-      msg.toLowerCase().includes("network") ||
-      msg.toLowerCase().includes("fetch failed") ||
-      msg.toLowerCase().includes("failed to fetch")
+      statusCode === 503 ||
+      statusCode === 529 ||
+      /overloaded/.test(code) ||
+      (!hasStatus && /server overloaded|service unavailable/i.test(msg))
     ) {
-      return t?.("llm.networkError") ?? "Network error — check your connection.";
+      return (
+        t?.("llm.providerOverloaded") ??
+        "The provider is overloaded right now — try again in a minute."
+      );
+    }
+    if (
+      /context_length_exceeded/.test(code) ||
+      /maximum context length|exceeds (the )?(model'?s? )?context (length|window)|prompt is too long/i.test(msg)
+    ) {
+      return (
+        t?.("llm.contextTooLong") ??
+        "The conversation is too long for this model — start a new chat, or choose a model with a larger context window."
+      );
+    }
+    // WebKit (macOS / Linux webviews) reports a failed fetch as "Load failed",
+    // Chromium as "Failed to fetch", Firefox as "NetworkError when attempting
+    // to fetch resource" (24.0). A local URL is almost always Ollama not running.
+    if (
+      lower.includes("network") ||
+      lower.includes("fetch failed") ||
+      lower.includes("failed to fetch") ||
+      lower.includes("load failed") ||
+      lower.includes("econnrefused") ||
+      (APICallError.isInstance(error) && error.message.startsWith("Cannot connect to API"))
+    ) {
+      if (isLocalUrl(fields.url)) {
+        return (
+          t?.("llm.localServerUnreachable") ??
+          "Could not reach the local model server — is Ollama running?"
+        );
+      }
+      return (
+        t?.("llm.networkError") ??
+        "Network error — check your connection. Using Ollama? Make sure it is running."
+      );
     }
     if (
       msg.toLowerCase().includes("reasoning_effort") ||
@@ -388,13 +543,13 @@ export function formatLlmError(
     return msg;
   }
   if (typeof error === "string") {
-    return formatLlmError(new Error(error), t, kind);
+    return formatLlmErrorWith(new Error(error), t, kind, fields);
   }
   // An error object that is not an Error — a provider frame passed through as
   // data. `String()` of it is "[object Object]", which says nothing.
   if (error && typeof error === "object") {
     const fromObject = parseApiErrorBody(JSON.stringify(error));
-    if (fromObject) return formatLlmError(new Error(fromObject), t, kind);
+    if (fromObject) return formatLlmErrorWith(new Error(fromObject), t, kind, fields);
   }
   return String(error);
 }
