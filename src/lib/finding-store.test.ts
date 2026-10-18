@@ -7,6 +7,8 @@ import {
   activeFindings,
   addFinding,
   confirmFinding,
+  duplicateFinding,
+  keptFromMessage,
   setFindingClaim,
   findingsAreStale,
   findingsOnPage,
@@ -331,5 +333,61 @@ describe("finding store", () => {
       });
       expect(docs[0]?.findings.map((f) => f.id)).toEqual(["b"]);
     });
+  });
+});
+
+/**
+ * The same entry twice (24.0). Keep's "already kept" lived in the button, a
+ * tab switch forgot it, and a second press wrote a second identical entry —
+ * which the export then carried twice. The record refuses the copy itself now.
+ */
+describe("a finding the record already has", () => {
+  it("is refused: same claim, same quote, same pages, same document", () => {
+    const first = write();
+    expect(first).not.toBeNull();
+    expect(write()).toBeNull();
+    // Spacing and page order are not a difference.
+    expect(write({ claim: "  The sample was collected in March. ", pages: [2, 2] })).toBeNull();
+    expect(getFindings(PATH)).toHaveLength(1);
+    const same = duplicateFinding(PATH, {
+      claim: "The sample was collected in March.",
+      evidence: "…collected in March of that year…",
+      pages: [2],
+    });
+    expect(same?.id).toBe(first!.id);
+  });
+
+  it("is written when the quote, the page or the document differs", () => {
+    write();
+    expect(write({ evidence: "…in March…" })).not.toBeNull();
+    expect(write({ pages: [3] })).not.toBeNull();
+    const other = addFinding("/docs/other.pdf", {
+      pages: [2],
+      claim: "The sample was collected in March.",
+      evidence: "…collected in March of that year…",
+      stamp: STAMP,
+    });
+    expect(other).not.toBeNull();
+    expect(getFindings(PATH)).toHaveLength(3);
+  });
+
+  it("refuses a copy of a struck entry, but not of one a revision overturned", () => {
+    const struck = write();
+    setFindingStruck(PATH, struck!.id, true);
+    expect(write()).toBeNull();
+
+    const old = write({ claim: "The study ran for a year." });
+    reviseFinding(PATH, old!.id, { pages: [2], claim: "The study ran for two years.", stamp: STAMP });
+    expect(write({ claim: "The study ran for a year." })).not.toBeNull();
+  });
+
+  it("reads which entries an answer has had kept, by the answer and not the wording", () => {
+    const kept = write({ author: "reader", source: { messageId: "m1" }, evidence: "", body: "The whole answer." });
+    write({ claim: "Inferred by the assistant.", source: { messageId: "m1" } });
+    expect(keptFromMessage(PATH, "m1").map((f) => f.id)).toEqual([kept!.id]);
+    setFindingClaim(PATH, kept!.id, "Reworded by the reader.");
+    expect(keptFromMessage(PATH, "m1")).toHaveLength(1);
+    removeFinding(PATH, kept!.id);
+    expect(keptFromMessage(PATH, "m1")).toHaveLength(0);
   });
 });
