@@ -366,6 +366,12 @@
 }
 
 .message-action-labelled {
+  /*
+   * As wide as icon and word (24.0). `.message-action-btn` is 26px for the
+   * icon-only buttons beside these, and nothing here undid it, so "Copy" and
+   * "Keep" ran out of their boxes into each other, over their own icons.
+   */
+  width: auto;
   gap: var(--space-2xs);
   /*
    * 11px and `--text-muted` (3.96:1) until 17.0, on the two buttons a reader

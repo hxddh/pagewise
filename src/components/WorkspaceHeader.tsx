@@ -333,7 +333,9 @@ export function WorkspaceHeader({
             <ListRow
               role="menuitem"
               label={t("commands.searchDoc")}
-              trailing={mod + "F"}
+              // Its own element (24.0): two bare strings are one flex item, so the
+              // row's gap never reached the shortcut.
+              trailing={<kbd>{mod + "F"}</kbd>}
               onClick={run(requestOpenDocSearch)}
             />
             {totalPages > 1 && (
