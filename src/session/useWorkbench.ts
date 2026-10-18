@@ -217,6 +217,8 @@ export function useWorkbench(): Workbench {
       const msgs = messagesRef.current;
       if (!path || msgs.length === 0) return;
       void saveChat(path, msgs, documentRef.current?.identity).catch((e) => {
+        // The reader is told by `saveChat` itself, through store health (24.0);
+        // the next message's autosave is the retry.
         if (import.meta.env.DEV) console.warn("[session] autosave failed", e);
       });
     }, 500);
@@ -323,8 +325,10 @@ export function useWorkbench(): Workbench {
         try {
           await saveChat(prevPath, messagesToSave, prev?.identity);
         } catch (e) {
+          // No toast of its own any more (24.0): `saveChat` reports the failure
+          // to store health, which says it once and keeps "Not saved" up — a
+          // second toast here doubled it.
           if (import.meta.env.DEV) console.warn("[session] save chat on switch failed", e);
-          showToast(t("toast.chatSaveFailed"), "error");
         }
       }
 

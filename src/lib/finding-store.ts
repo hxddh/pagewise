@@ -161,6 +161,7 @@ const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
  */
 const findings = createDocumentStore<StoredDoc, Finding>(runtime, {
   file: STORE_PATH,
+  writeKind: "findings",
   key: KEY,
   version: VERSION,
   migrations: MIGRATIONS,

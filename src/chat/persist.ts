@@ -3,6 +3,7 @@ import { createAtomicStore, type StoreHandle } from "../lib/atomic-store";
 import { prepareMessagesForPersist } from "../lib/persist-messages";
 import { hydrateChatMessages, normalizeUIMessages } from "../lib/messages-utils";
 import { createStoreRuntime } from "../lib/json-store";
+import { reportWriteFailed, reportWriteSucceeded } from "../lib/store-health";
 
 const STORE_PATH = "pagewise-v3-chats.json";
 /**
@@ -90,6 +91,20 @@ export async function saveChat(
   messages: UIMessage[],
   identity?: string,
 ): Promise<void> {
+  // Every save of the conversation goes through here — the autosave, the save
+  // before a switch, the close flush — so this is where the reader is told the
+  // conversation did not reach the disk, and told again it did (24.0). Until
+  // then the autosave's failure was a console line in dev builds only.
+  try {
+    await writeChat(path, messages, identity);
+  } catch (err) {
+    reportWriteFailed("conversation");
+    throw err;
+  }
+  reportWriteSucceeded("conversation");
+}
+
+function writeChat(path: string, messages: UIMessage[], identity?: string): Promise<void> {
   return runtime.withStoreLock(async () => {
     const store = await runtime.store();
     await store.set(chatKey(path), prepareMessagesForPersist(messages));

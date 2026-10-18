@@ -112,7 +112,8 @@
     "stopReading": "停止读取页面",
     "readPoorly": "从扫描件识别（把握 {{confidence}}%）— 个别文字可能有误，请看原页",
     "searchDocHeading": "本文档",
-    "searchConversationHeading": "本次会话"
+    "searchConversationHeading": "本次会话",
+    "notSaved": "未保存"
   },
   "marks": {
     "markSelection": "标记",
@@ -398,7 +399,6 @@
     "opened": "已打开 {{name}}",
     "reindexStarted": "正在重新索引（vision 最多重扫 {{pages}} 页，其余页保留 PDF 文本）…",
     "reindexNothingToDo": "无需重新索引 —— 设置中已关闭自动页面扫描",
-    "chatSaveFailed": "切换文档前无法保存聊天记录",
     "dismiss": "关闭",
     "copyFailed": "复制失败 — 剪贴板不可用",
     "scanAllNone": "所有页面均已有文字",
@@ -412,7 +412,12 @@
     "reportExported": "报告已导出",
     "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖",
     "storeNewer": "{{file}} 由更新版本的 PageWise 保存 —— 已保持原样，在此做的改动不会保存，请更新应用",
-    "storeFull": "{{file}} 已满 —— 这次改动没有保存；删除不再需要的条目以腾出空间"
+    "storeFull": "{{file}} 已满 —— 这次改动没有保存；删除不再需要的条目以腾出空间",
+    "writeFailed": {
+      "conversation": "对话未能保存 —— 内容仍在此处，下次保存时会再试",
+      "annotations": "标记未能保存 —— 已保留在此处，PageWise 会再试",
+      "findings": "记录未能保存 —— 已保留在此处，PageWise 会再试"
+    }
   },
   "errors": {
     "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",

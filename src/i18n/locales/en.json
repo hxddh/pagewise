@@ -112,7 +112,8 @@
     "stopReading": "Stop reading pages",
     "readPoorly": "Read from a scan ({{confidence}}% sure) — some words may be misread; check the page",
     "searchDocHeading": "This document",
-    "searchConversationHeading": "This conversation"
+    "searchConversationHeading": "This conversation",
+    "notSaved": "Not saved"
   },
   "marks": {
     "markSelection": "Mark",
@@ -398,7 +399,6 @@
     "opened": "Opened {{name}}",
     "reindexStarted": "Reindexing (vision rescan for up to {{pages}} pages; other pages keep PDF text)…",
     "reindexNothingToDo": "Nothing to reindex — automatic page scanning is turned off in Settings",
-    "chatSaveFailed": "Could not save chat before switching documents",
     "dismiss": "Dismiss",
     "copyFailed": "Copy failed — clipboard unavailable",
     "scanAllNone": "Every page already has text",
@@ -412,7 +412,12 @@
     "reportExported": "Report exported",
     "storeUnreadable": "{{file}} could not be read — it was left as it is, and nothing will overwrite it",
     "storeNewer": "{{file}} was saved by a newer PageWise — it is left as it is, and changes made here are not saved until you update",
-    "storeFull": "{{file}} is full — this change is not saved; remove entries you no longer need to make room"
+    "storeFull": "{{file}} is full — this change is not saved; remove entries you no longer need to make room",
+    "writeFailed": {
+      "conversation": "The conversation could not be saved — it is still here, and the next save will try again",
+      "annotations": "Your marks could not be saved — they are kept here, and PageWise will try again",
+      "findings": "The record could not be saved — it is kept here, and PageWise will try again"
+    }
   },
   "errors": {
     "unsupportedFile": "Unsupported file type. Use PDF or image files.",

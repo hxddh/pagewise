@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  __resetStoreHealthForTests,
+  reportWriteFailed,
+  reportWriteSucceeded,
+} from "../lib/store-health";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../i18n", () => ({
@@ -149,5 +154,26 @@ describe("WorkspaceHeader", () => {
     expect(slot.querySelector(".preview-toolbar")).toBeTruthy();
     expect(slot.textContent).toContain("a.pdf");
     slot.remove();
+  });
+});
+
+describe("Not saved (24.0)", () => {
+  afterEach(() => __resetStoreHealthForTests());
+
+  it("shows beside the file name while a write keeps failing, and goes when one lands", () => {
+    const { view } = setup();
+    expect(view.queryByText("preview.notSaved")).toBeNull();
+    act(() => reportWriteFailed("annotations"));
+    const status = view.getByRole("status");
+    expect(status.textContent).toBe("preview.notSaved");
+    expect(status.getAttribute("title")).toBe("toast.writeFailed.annotations");
+    act(() => reportWriteFailed("conversation"));
+    expect(view.getByRole("status").getAttribute("title")).toBe(
+      "toast.writeFailed.annotations\ntoast.writeFailed.conversation",
+    );
+    act(() => reportWriteSucceeded("annotations"));
+    expect(view.getByRole("status").getAttribute("title")).toBe("toast.writeFailed.conversation");
+    act(() => reportWriteSucceeded("conversation"));
+    expect(view.queryByText("preview.notSaved")).toBeNull();
   });
 });

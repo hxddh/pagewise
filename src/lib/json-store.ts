@@ -20,7 +20,7 @@
  * plugin's `save()` and swallowed load error cost.
  */
 import type { StoreHandle } from "./atomic-store";
-import { reportStoreProblem } from "./store-health";
+import { reportStoreProblem, reportWriteFailed, reportWriteSucceeded, type WriteKind } from "./store-health";
 import { migrateStored, preserveNewer, type Migration } from "./store-migrate";
 
 export interface StoreRuntime<Handle> {
@@ -118,9 +118,17 @@ export function createPathListeners(): PathListeners {
   };
 }
 
+/** A flush this build refused on purpose, already reported as a store problem. */
+class HeldBackError extends Error {}
+
 export interface DocumentStoreOptions<Doc, Entry> {
   /** The store's file name, as the reader is told it when a write is held back. */
   file: string;
+  /**
+   * What the reader calls this store's contents, for the "not saved" toast and
+   * indicator when a flush fails (24.0). Omitted, a failure stays silent.
+   */
+  writeKind?: WriteKind;
   /** Key inside the store's file. */
   key: string;
   /** Current schema version, and how older blobs reach it. */
@@ -203,6 +211,7 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
 ): DocumentStore<Doc, Entry> {
   const {
     file,
+    writeKind,
     key,
     version,
     migrations,
@@ -333,7 +342,7 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
             // Held back, not dropped: the edits stay in memory and dirty, and
             // the reader is told why they will not reach the disk.
             reportStoreProblem(file, "newer");
-            throw new Error(`${file} was written by a later PageWise`);
+            throw new HeldBackError(`${file} was written by a later PageWise`);
           }
           const before = new Map(docs.map((d) => [d.path, d] as const));
           const stored = new Map(before);
@@ -388,11 +397,17 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
             reportStoreProblem(file, "full");
           }
           for (const path of paths) if (!dirty.has(path)) forgetNow(path);
+          // The write landed, so whatever an earlier failure said is no longer
+          // true (24.0). A refusal for room is its own report, above.
+          if (writeKind) reportWriteSucceeded(writeKind);
         })
-        .catch(() => {
+        .catch((err) => {
           // A failed write must not lose the entries — they stay in memory and
           // in `dirty` for the next attempt.
           for (const path of paths) dirty.add(path);
+          // And the reader hears it, once (24.0); until then this was only a
+          // retry. A later version's file has said so already, in its own words.
+          if (writeKind && !(err instanceof HeldBackError)) reportWriteFailed(writeKind);
         });
       await flushInFlight;
     },

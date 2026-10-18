@@ -68,6 +68,16 @@
   flex: 1 1 0;
 }
 
+/* "Not saved" beside the file name (24.0): it must survive the squeeze that
+   truncates the name, so it never shrinks, and it reads as a fault in red. */
+.preview-not-saved {
+  flex-shrink: 0;
+  margin-left: var(--space-md);
+  font-size: var(--text-xs);
+  color: var(--danger);
+  white-space: nowrap;
+}
+
 .toolbar-right {
   display: flex;
   align-items: center;
