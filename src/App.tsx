@@ -571,6 +571,7 @@ function AppContent() {
                         }}
                         scan={{ count: unscannedPages, onScanAllPages: requestScanAll }}
                         onConfigureApi={overlays.openSettings}
+                        settingsOpen={s.assistant.shell.settingsOpen}
                       />
                     </Suspense>
                   </div>

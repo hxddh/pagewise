@@ -225,7 +225,6 @@
     "toolFailed": "failed",
     "usageFinalTools": "Final step tools",
     "usageProviderMeta": "Provider metadata",
-    "configureApiCta": "Configure AI",
     "retry": "Retry",
     "dismissError": "Dismiss",
     "pagesRead": "Pages read",
@@ -252,7 +251,8 @@
     "activityReviseFinding": "Revising a finding…",
     "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening.",
     "export": "Export…",
-    "moreActions": "More for this answer"
+    "moreActions": "More for this answer",
+    "placeholderNoKey": "Ask about this document — it is sent once AI is connected…"
   },
   "empty": {
     "agentLead": "Set up AI to analyze documents",
@@ -263,7 +263,12 @@
     "example2": "What dates are mentioned?",
     "example3": "What are the key terms?",
     "exampleWholeDoc": "Summarize all {{count}} pages",
-    "exampleThisPage": "What is on page {{page}}?"
+    "exampleThisPage": "What is on page {{page}}?",
+    "connectLead": "Connect AI to ask about this document",
+    "worksWithoutAi": "Reading, search and OCR already work, on this computer, without it.",
+    "connectAi": "Connect AI",
+    "whatIsSent": "When you ask, the pages the assistant reads are sent to the provider you choose.",
+    "questionQueued": "Your question is kept and will be sent once AI is connected."
   },
   "settings": {
     "title": "Settings",
