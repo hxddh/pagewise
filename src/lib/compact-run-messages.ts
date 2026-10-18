@@ -19,6 +19,12 @@ import { compactToolOutput, COMPACTED_SUFFIX } from "./prune-chat-history";
  *
  * Only the output value of a tool result is replaced. Nothing is added or
  * removed, so tool-call/tool-result pairing is untouched.
+ *
+ * The pages a shortened result carried are reported (`onCompacted`, 24.0): a
+ * page this run handed over is answered "already returned in full" when asked
+ * for again, and once its text has been shortened away that answer left the
+ * model nothing to quote from — the early pages of a long run could only be
+ * cited from memory, and a quote from memory is what the check rejects.
  */
 
 /**
@@ -83,9 +89,26 @@ function sizeOf(value: unknown): number {
   }
 }
 
+/**
+ * The pages whose text a read result carries: a single page's `page`, or the
+ * `--- Page N ---` headers a range or a section joins its pages with.
+ */
+export function pagesInResult(value: unknown): number[] {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const page = (value as { page?: unknown }).page;
+    const text = (value as { text?: unknown }).text;
+    if (typeof page === "number" && typeof text === "string" && text.length > 0) return [page];
+  }
+  const raw = typeof value === "string" ? value : sizeOf(value) > 0 ? JSON.stringify(value) : "";
+  const pages = new Set<number>();
+  for (const m of raw.matchAll(/--- Page (\d+)/g)) pages.add(Number(m[1]));
+  return [...pages];
+}
+
 export function compactRunMessages<M extends ModelMessageLike>(
   messages: readonly M[] | undefined,
   keepChars: number = KEEP_RECENT_CHARS,
+  onCompacted?: (pages: number[]) => void,
 ): readonly M[] | M[] {
   if (!messages || messages.length === 0) return messages ?? [];
 
@@ -150,6 +173,8 @@ export function compactRunMessages<M extends ModelMessageLike>(
       const id = typeof part.toolCallId === "string" ? part.toolCallId : "";
       const summary = compactToolOutput(name, inputById.get(id), value);
       if (summary === value) return part;
+      const pages = pagesInResult(value);
+      if (pages.length > 0) onCompacted?.(pages);
       messageChanged = true;
       changed = true;
       return { ...part, output: { type: "text", value: summary } };

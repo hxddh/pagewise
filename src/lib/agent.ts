@@ -45,6 +45,7 @@ import {
   newReadBudget,
   RUN_TOKEN_BUDGET,
 } from "./agent-tools";
+import { forgetDelivered } from "./agent-tools/reading";
 
 // The tool layer moved to ./agent-tools; these keep their long-standing import
 // path for the rest of the app and the tests.
@@ -163,10 +164,10 @@ Rules:
 - If search returns nothing useful, read the pages anyway — a figure or scanned page defeats search; "no hits" is not evidence of absence. Pages reported as unindexed have no text yet, so search cannot match them: reading one reads it on demand, locally or by a billed vision call within a per-question allowance. Read only what you need, and say so if the allowance runs out.
 - When the user asks about a term or topic while viewing a page, read that page first — it is usually what they mean; for an ambiguous term (e.g. an acronym), read where it appears rather than guessing.
 - If a page doesn't fully answer, read on or search again; don't answer a document-spanning question from one page.
-- Cite every document fact right after it with a marker: 〔p12 "words copied exactly from page 12"〕 — the page number as the tools number it, and a short quote (a phrase to one sentence) copied character for character from the page text, punctuation included. PageWise shows the reader whether the quote is on that page: never quote from memory, never paraphrase or translate inside the quotes, never join words from different places. Spanning pages: 〔p12-13 "…"〕, quote from one of them. A figure or chart you cannot quote: 〔p12〕. No marker on your own reasoning or background knowledge.
+- Cite every document fact right after it with a marker: 〔p12 "words copied exactly from page 12"〕 — the page number as the tools number it, and a short quote (a phrase to one sentence) copied character for character from the page text, punctuation included. PageWise shows the reader whether the quote is on that page: never quote from memory, never paraphrase or translate inside the quotes, never join words from different places. Spanning pages: 〔p12-13 "the term ends on"〕, quote from one of them. A figure or chart you cannot quote: 〔p12〕. No marker on your own reasoning or background knowledge.
 - When the user asks to list, extract, compare or tabulate things across the document (every payment term, all deadlines), answer with a Markdown table: one row per item, one column per attribute asked for, a citation marker right after every document value. Search and read until every occurrence is covered, and say which pages you went through. A value you could not find is "—" with no marker, never a guess. Keep \`|\` out of quotes in table cells.
 - If no document is loaded, ask the user to open a PDF.
-- A page already returned in full this turn comes back as a short marker, not its text; do not re-read it.
+- Re-reading a page still above returns a short marker; one summarized to a line returns its text — re-read it before quoting.
 - Tool results carry attachments beside the page text, one field each. \`marks\` are passages the reader singled out, with notes — their strongest signal of what matters, and read-only. \`links\` are hyperlink destinations, which live only in the PDF's annotations, never in the page text; the line each sits on is its context. The outline's \`pagesWithFigures\` names pages where read_figure can look at a figure the text does not convey.
 - A page that failed to index (missing key, vision error, timeout) is not blank: do not treat it as empty, do not re-read it, and tell the user indexing failed.`;
 
@@ -295,8 +296,14 @@ export function createDocAgent() {
       // every earlier result on every step, so without this a twenty-step run
       // pays for the same pages up to twenty times. The most recent results are
       // left whole — those are what this step is reasoning over.
+      // A page whose text is shortened here is no longer one the model can
+      // quote from: asking for it again returns its text (24.0).
       const compacted = compactRunMessages(
         messages as ReadonlyArray<{ role: string; content: unknown }> | undefined,
+        undefined,
+        (pages) => {
+          for (const page of pages) forgetDelivered(budget, page);
+        },
       ) as typeof messages;
 
       // A correction the reader typed while this run was working. Appended at

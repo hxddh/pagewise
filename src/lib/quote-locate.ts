@@ -66,8 +66,14 @@ export type LocateOutcome =
    */
   | { status: "unreadable" };
 
-/** Whitespace, plus the hyphens and dashes a line break can introduce. */
-const DROPPED = /[\s\-\u00AD\u2010\u2011\u2012\u2013\u2014]/;
+/**
+ * Whitespace, plus the hyphens and dashes a line break can introduce, plus
+ * (24.0) the minus sign a model types as a hyphen and the Markdown marks it
+ * keeps from the page text it was given: page text reaches the model as
+ * Markdown (`**WEB**`, `# 4 Methodology`), and a quote copied from it with
+ * the marks in located 0 of 98 times. Neither is a word of the page.
+ */
+const DROPPED = /[\s\-\u00AD\u2010\u2011\u2012\u2013\u2014\u2212*#\\]/;
 
 /**
  * Quotation marks of every style, since 13.0. A model copying `the filter’s
@@ -150,8 +156,78 @@ export function locateQuote(items: readonly TextItemRect[], quote: string): Loca
   }
 
   const chain = chainLocate(items, needle);
-  if (!chain) return { status: "absent" };
-  const span = chain.map((i) => items[i]!);
+  if (chain) {
+    const span = chain.map((i) => items[i]!);
+    return { status: "located", items: span, rects: span.map((item) => item.rect) };
+  }
+  return locateElided(items, quote, folded, itemAt) ?? { status: "absent" };
+}
+
+/**
+ * Most folded characters allowed between two parts of an elided quote: about
+ * a paragraph. Further apart and the parts are two places on the page, not
+ * one passage with words left out.
+ */
+const ELISION_MAX_GAP = 600;
+
+/**
+ * A quote with words left out — `the licensee … shall indemnify` (24.0).
+ *
+ * The citation rule asks for one unbroken stretch of the page, and models
+ * shorten a long sentence with "…" anyway: 0 of 250 such quotes located,
+ * though every part was on the page. Each part is now looked for in order,
+ * each at least `MIN_QUOTE_CHARS` long and the next starting after the last
+ * and within `ELISION_MAX_GAP` of it, so words spliced from different
+ * passages are still not a match. Only reached when the quote as written was not
+ * found, so a page that itself has "..." is matched as before.
+ */
+function locateElided(
+  items: readonly TextItemRect[],
+  quote: string,
+  folded: string,
+  itemAt: number[],
+): LocateOutcome | null {
+  if (!/…|\.\.\./.test(quote)) return null;
+  const parts = quote
+    .split(/\s*(?:…|\.{3,})\s*/)
+    .map((part) => fold(part.normalize("NFC")).folded)
+    .filter((part) => part.length > 0);
+  if (parts.length < 2 || parts.some((part) => part.length < MIN_QUOTE_CHARS)) return null;
+  // Where each run's folded text starts and ends, to measure a gap that the
+  // reading-order path spans by run rather than by offset.
+  const runStart: number[] = [];
+  const runEnd: number[] = [];
+  for (let c = itemAt.length - 1; c >= 0; c -= 1) runStart[itemAt[c]!] = c;
+  for (let c = 0; c < itemAt.length; c += 1) runEnd[itemAt[c]!] = c + 1;
+
+  const runs = new Set<number>();
+  let lastRun = -1;
+  let end = -1;
+  for (const part of parts) {
+    // In extraction order first; failing that in reading order, which is what
+    // a part on a two-column page needs (the extractor interleaves the columns).
+    let found: { runs: number[]; start: number; end: number } | null = null;
+    const at = folded.indexOf(part, Math.max(0, end));
+    if (at >= 0) {
+      const a = itemAt[at]!;
+      const b = itemAt[at + part.length - 1]!;
+      found = { runs: Array.from({ length: b - a + 1 }, (_, k) => a + k), start: at, end: at + part.length };
+    } else {
+      const chain = chainLocate(items, part);
+      if (chain && chain[0]! >= lastRun) {
+        found = {
+          runs: chain,
+          start: runStart[chain[0]!] ?? 0,
+          end: Math.max(...chain.map((i) => runEnd[i] ?? 0)),
+        };
+      }
+    }
+    if (!found || (end >= 0 && found.start - end > ELISION_MAX_GAP)) return null;
+    for (const i of found.runs) runs.add(i);
+    lastRun = found.runs[found.runs.length - 1]!;
+    end = found.end;
+  }
+  const span = [...runs].sort((a, b) => a - b).slice(0, MAX_QUOTE_ITEMS).map((i) => items[i]!);
   return { status: "located", items: span, rects: span.map((item) => item.rect) };
 }
 

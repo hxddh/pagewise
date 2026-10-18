@@ -210,6 +210,67 @@ describe("locateQuote — what a model does while copying (13.0)", () => {
   });
 });
 
+describe("locateQuote — what a model writes into a quote (24.0)", () => {
+  it("ignores Markdown emphasis and heading marks the model kept", () => {
+    const items = [run("The licence is perpetual and irrevocable.", 700)];
+    expect(locateQuote(items, "The licence is **perpetual** and irrevocable").status).toBe("located");
+    expect(locateQuote([run("Termination for convenience", 700)], "## Termination for convenience").status).toBe(
+      "located",
+    );
+  });
+
+  it("matches a typed minus against the page's U+2212", () => {
+    expect(locateQuote([run("a change of −3.2% year on year", 700)], "a change of -3.2% year on year").status).toBe(
+      "located",
+    );
+  });
+
+  it("does not tell a dropped minus from a kept one (a known cost)", () => {
+    // The fold drops both signs, so this is located — the known cost of
+    // treating a hyphen as soft. Pinned so a change to it is a decision.
+    expect(locateQuote([run("a change of −3.2% year on year", 700)], "a change of 3.2% year on year").status).toBe(
+      "located",
+    );
+  });
+
+  it("finds a quote the model shortened with an ellipsis", () => {
+    const items = [
+      run("The supplier shall deliver the goods within thirty days", 700),
+      run("of the order date, packed and labelled as agreed, to the", 686),
+      run("buyer's nominated warehouse.", 672),
+    ];
+    for (const q of [
+      "The supplier shall deliver the goods … to the buyer's nominated warehouse",
+      "The supplier shall deliver the goods ... to the buyer's nominated warehouse",
+    ]) {
+      const out = locateQuote(items, q);
+      expect(out.status).toBe("located");
+      if (out.status !== "located") return;
+      expect(out.items).toHaveLength(3);
+    }
+  });
+
+  it("does not splice an elided quote across distant parts of the page", () => {
+    const filler = Array.from({ length: 20 }, (_, i) => run(`Clause ${i} sets out unrelated obligations at length here.`, 650 - i * 14));
+    const items = [run("The supplier shall deliver the goods", 700), ...filler, run("to the buyer's nominated warehouse.", 300)];
+    expect(locateQuote(items, "The supplier shall deliver the goods … to the buyer's nominated warehouse").status).toBe(
+      "absent",
+    );
+  });
+
+  it("does not splice parts that appear out of order", () => {
+    const items = [run("to the buyer's nominated warehouse.", 700), run("The supplier shall deliver the goods", 686)];
+    expect(locateQuote(items, "The supplier shall deliver the goods … to the buyer's nominated warehouse").status).toBe(
+      "absent",
+    );
+  });
+
+  it("refuses an elided quote whose parts are too short to mean anything", () => {
+    const items = [run("The supplier shall deliver the goods to the buyer.", 700)];
+    expect(locateQuote(items, "The … buyer").status).toBe("absent");
+  });
+});
+
 describe("unionRect", () => {
   it("covers every run of a located quote", () => {
     const rects = [
