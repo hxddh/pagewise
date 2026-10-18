@@ -11,6 +11,7 @@ v24, "every citation it shows can be trusted" (`docs/reviews/2026-10-18-pagewise
 - **A long answer can quote its first pages again** (`src/lib/compact-run-messages.ts`, `src/lib/agent.ts`). Once a run passed 16,000 characters of tool output, the earlier pages were summarized to one line each, but the reader still answered "already read" when the model asked for them again, so it had to quote them from memory, and those citations came back not found. A page whose text is summarized is now forgotten as delivered and is read again in full. In a replay of a ten-page run, every page can still be quoted (it was 4 of 10).
 - **A quote that keeps the page's Markdown is found** (`src/lib/quote-locate.ts`). The model reads pages as Markdown and copies `**bold**` or a `##` heading into the quote; these marks, and a typed `-` for the page's `−`, are now read as nothing. Located: **98.4%** of such quotes (eval gate 90%).
 - **A quote shortened with "…" is found** (same file). Each part must be at least six characters long, in order, and within about a paragraph of the previous part, in reading order on a two-column page. Located: **97.6%** (gate 95%; it was 0). An elision that joins words from two pages is located **0 of 114** times (ceiling 1%). False positives on altered quotes stay at **0 of 2,116**. The prompt's page-span example no longer shows a quote of "…".
+- Budget re-recorded: `srcLines` **42,047 → 42,167** (the compaction re-read and the elided-quote locator).
 
 ## [23.0.0] - 2026-10-15
 
