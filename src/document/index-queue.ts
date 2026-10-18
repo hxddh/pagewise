@@ -13,6 +13,7 @@
  */
 import { docCache } from "../lib/doc-cache";
 import { ensureProviderCompatibleImage } from "../lib/image-transcode";
+import { sniffImageType } from "../lib/file-type";
 import {
   readAuthorizedFileBytes,
   renderPageToJpegBytes,
@@ -341,16 +342,6 @@ export function pendingIndexPages(path: string): number[] {
   return sparsePages(doc, null);
 }
 
-function visionMediaType(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "png") return "image/png";
-  if (ext === "gif") return "image/gif";
-  if (ext === "webp") return "image/webp";
-  if (ext === "bmp") return "image/bmp";
-  if (ext === "tif" || ext === "tiff") return "image/tiff";
-  return "image/jpeg";
-}
-
 function visionFetchSignal(queueSignal: AbortSignal): AbortSignal {
   return AbortSignal.any([queueSignal, AbortSignal.timeout(VISION_TIMEOUT_MS)]);
 }
@@ -377,10 +368,9 @@ async function visionImageBytes(
   const doc = docCache.get(path);
   if (doc?.kind === "image") {
     // TIFF/BMP must be transcoded — vision endpoints reject those media types.
-    return ensureProviderCompatibleImage(
-      await readAuthorizedFileBytes(path, signal),
-      visionMediaType(path),
-    );
+    // The type is read from the bytes (24.0), not the file name.
+    const raw = await readAuthorizedFileBytes(path, signal);
+    return ensureProviderCompatibleImage(raw, sniffImageType(raw) ?? "image/jpeg");
   }
   return {
     bytes: await renderPageToJpegBytes(

@@ -12,7 +12,10 @@
  *   - at most 12 settings rows on the settings surface, and the assistant
  *     group is present on it;
  *   - citation chips in at most three levels (plus the unmarked "none");
- *   - no page number and no margin card cut by a box that clips it (22.0).
+ *   - no page number and no margin card cut by a box that clips it (22.0);
+ *   - no button under an answer whose label runs past its own box or into the
+ *     button beside it, and no menu row whose icon, label and shortcut touch
+ *     (24.0).
  *
  * A scripted model answers with a table and three citations — found, found
  * with a number the passage lacks, and not found — so every footer action
@@ -79,7 +82,67 @@ await p.waitForFunction(
 await p.waitForTimeout(500);
 
 const visible = (els) => els.filter((e) => e.offsetParent !== null).length;
+
+/*
+ * Drawn, not only present (24.0). Counting buttons passed while "Copy" and
+ * "Keep" were squeezed into 26px boxes meant for an icon — the words ran out
+ * of their buttons and into each other, the icons were pushed off, and the row
+ * read "CopyKeep". So each button is measured: its content fits its own box
+ * (scrollWidth ≤ clientWidth), any icon it carries is drawn inside it, and no
+ * two buttons side by side overlap.
+ */
+const buttonFaults = (els) => {
+  const faults = [];
+  const shown = els.filter((e) => e.offsetParent !== null);
+  for (const el of shown) {
+    const name = el.getAttribute("aria-label") || el.textContent || el.className;
+    if (el.scrollWidth > el.clientWidth + 1) faults.push(`${name}: content ${el.scrollWidth}px in a ${el.clientWidth}px box`);
+    const r = el.getBoundingClientRect();
+    for (const svg of el.querySelectorAll("svg")) {
+      const s = svg.getBoundingClientRect();
+      if (s.width === 0 || s.left < r.left - 0.5 || s.right > r.right + 0.5) faults.push(`${name}: icon not drawn inside its button`);
+    }
+  }
+  for (const a of shown)
+    for (const b of shown) {
+      if (a === b || a.parentElement !== b.parentElement || a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING) continue;
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      const overlap = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left) > 0.5 && Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top) > 0.5;
+      if (overlap) faults.push(`${a.textContent} overlaps ${b.textContent}`);
+    }
+  return faults;
+};
+
+/*
+ * A menu row's parts apart (24.0). A row is `ListRow`'s leading icon, label
+ * and trailing shortcut in a flex line with a gap; a stylesheet that makes the
+ * row a block again lays them out as inline text, which put the icon against
+ * its word and read "…conversationCtrl+F". Each part's box — element or text
+ * run — is measured, left to right, and neighbours must be at least 4px apart.
+ */
+const menuRowFaults = (rows) => {
+  const faults = [];
+  for (const row of rows) {
+    const parts = [];
+    for (const node of row.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE && !node.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const r = node.nodeType === Node.TEXT_NODE ? range.getBoundingClientRect() : node.getBoundingClientRect();
+      if (r.width > 0) parts.push({ label: (node.textContent || node.nodeName).trim() || node.nodeName, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+    }
+    parts.sort((x, y) => x.left - y.left);
+    for (let i = 1; i < parts.length; i += 1) {
+      const sameLine = Math.min(parts[i - 1].bottom, parts[i].bottom) > Math.max(parts[i - 1].top, parts[i].top);
+      const gap = parts[i].left - parts[i - 1].right;
+      if (!sameLine || gap < 4) faults.push(`${row.textContent}: "${parts[i - 1].label}" and "${parts[i].label}" ${sameLine ? `${gap.toFixed(1)}px apart` : "on different lines"}`);
+    }
+  }
+  return faults;
+};
 const footerButtons = await p.$$eval(".message-assistant-actions button", visible);
+const footerFaults = await p.$$eval(".message-assistant-actions button", buttonFaults);
 const chipLevels = await p.$$eval("button.cite", (els) => [
   ...new Set(els.flatMap((e) => [...e.classList].filter((c) => c.startsWith("cite-level-")))),
 ]);
@@ -219,6 +282,8 @@ const reading = await p.evaluate(() => {
 // in the workspace strip's right-hand group.
 await p.locator(".workspace-header-slot").getByRole("button", { name: /^more actions$/i }).click();
 const menuExports = await p.$$eval("[role=menuitem]", (els) => els.filter((e) => /export/i.test(e.textContent ?? "")).length);
+const menuRows = await p.$$eval(".anchored-popover .list-row", (els) => els.length);
+const menuFaults = await p.$$eval(".anchored-popover .list-row", menuRowFaults);
 await p.keyboard.press("Escape");
 
 // The palette: how many commands export.
@@ -251,7 +316,9 @@ await b.close();
 
 const results = {
   "under an answer: at most 4 buttons": footerButtons <= 4,
+  "under an answer: every button's label fits it, icons drawn, none overlap": footerButtons > 0 && footerFaults.length === 0,
   "one export entry in the chat menu": menuExports === 1,
+  "chat menu rows: icon, label and shortcut apart": menuRows > 0 && menuFaults.length === 0,
   "one export command in the palette": paletteExports === 1,
   "the export dialog offers three": dialogChoices === 3,
   "settings: at most 12 rows": settingsRows <= 12,
@@ -269,7 +336,7 @@ const results = {
 };
 console.log(
   JSON.stringify(
-    { footerButtons, menuExports, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, tally, tallyTotal, chips, pageClosed, pageOpen, clipped, reading },
+    { footerButtons, footerFaults, menuExports, menuRows, menuFaults, paletteExports, dialogChoices, settingsRows, assistantGroup, chipLevels, tally, tallyTotal, chips, pageClosed, pageOpen, clipped, reading },
     null,
     2,
   ),

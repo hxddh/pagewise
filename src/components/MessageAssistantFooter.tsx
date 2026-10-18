@@ -20,6 +20,7 @@ import { ListRow } from "./ui/ListRow";
 import { useI18n } from "../i18n";
 import { collectReadPages } from "../lib/read-pages";
 import { claimFromAnswer } from "../lib/keep-answer";
+import { keptFromMessage, MAX_EVIDENCE_TEXT, subscribeFindings } from "../lib/finding-store";
 import { citationsToText, stripCitations } from "../lib/citations";
 import { useToast } from "../hooks/useToast";
 import { stripDsmlToolMarkup } from "../lib/agent-loop-guards";
@@ -141,10 +142,6 @@ function MessageAssistantFooterInner({
   const [moreOpen, setMoreOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
-  // Kept once. The record is append-and-revise, so a second click would write a
-  // duplicate rather than update the first — and the reader has no way to see
-  // that from here.
-  const [kept, setKept] = useState(false);
   const statsBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimerRef = useRef<number | undefined>(undefined);
   // The usage line is a preference (`showUsageLine`, on by default): a reader
@@ -235,7 +232,6 @@ function MessageAssistantFooterInner({
   // instead of a line appearing only once the answer has settled.
   const citationEnv = useContext(CitationContext);
   const [tally, setTally] = useState<CitationTally | null>(null);
-  const [keptVerified, setKeptVerified] = useState(false);
   // Checks forgotten — the page's words were read again (21.1.2): the counts,
   // and the passages a review would send, are worked out again with them.
   const checksEpochNow = useSyncExternalStore(subscribeChecks, checksEpoch);
@@ -372,10 +368,38 @@ function MessageAssistantFooterInner({
     : 0;
   const reviewedAll = reviewable.length > 0 && reviewPending === 0;
 
+  // Kept or not is read from the record (24.0). Until then the button held it
+  // in its own state, which a tab switch unmounted: back on the transcript the
+  // answer offered Keep again, and a second press wrote a second identical
+  // entry. The record also refuses that copy now (`duplicateFinding`); this is
+  // what keeps the button from offering it. A whole answer is kept with no
+  // quote; a verified sentence always carries the words its page was found to
+  // have, and is matched by those and its page.
+  const recordPath = citationEnv?.path ?? null;
+  const keptSnapshot = useCallback(() => {
+    if (!recordPath) return "";
+    const entries = keptFromMessage(recordPath, message.id);
+    if (entries.length === 0) return "";
+    const whole = entries.some((f) => !f.evidence);
+    const allVerified =
+      verified.length > 0 &&
+      verified.every((s) =>
+        entries.some(
+          (f) =>
+            f.pages.length === 1 &&
+            f.pages[0] === s.page &&
+            f.evidence === s.quote.trim().slice(0, MAX_EVIDENCE_TEXT),
+        ),
+      );
+    return `${whole ? "w" : ""}${allVerified ? "v" : ""}`;
+  }, [recordPath, message.id, verified]);
+  const keptState = useSyncExternalStore(subscribeFindings, keptSnapshot);
+  const kept = keptState.includes("w");
+  const keptVerified = keptState.includes("v");
+
   const keepWhole = () => {
     if (!onKeep) return;
     onKeep(claimFromAnswer(claimText), keepPages, { body: markdownText, messageId: message.id });
-    setKept(true);
   };
   const keepAction =
     onKeepVerified && verified.length > 0
@@ -387,7 +411,6 @@ function MessageAssistantFooterInner({
             : t("cite.keepVerified", { count: String(verified.length) }),
           run: () => {
             onKeepVerified(verified, message.id);
-            setKeptVerified(true);
           },
         }
       : onKeep && keepPages.length > 0

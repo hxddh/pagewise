@@ -635,6 +635,59 @@ button.pages-read-chip:hover {
   opacity: 0.6;
 }
 
+/*
+ * The sentence a red chip was meant to support (24.0): a dashed underline in
+ * the chip's ink, so the doubt reads on the words and not only on the small
+ * mark after them. Every cited sentence carries the span (remark-citations);
+ * only one whose chip turned red is drawn.
+ */
+.cite-claim:has(+ .cite-level-notFound) {
+  text-decoration: underline dashed var(--danger);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/*
+ * A red chip's popover (24.0): the quote, why it is red, the next steps.
+ * Wider than a menu — it carries a sentence and a quote, which wrap.
+ */
+.cite-popover {
+  width: min(340px, calc(100vw - 32px));
+}
+
+.cite-popover-body {
+  padding: var(--space-xs) var(--space-md) var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.cite-popover-body p {
+  margin: 0 0 var(--space-xs);
+}
+
+.cite-popover-verdict {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.cite-popover-quote {
+  margin: var(--space-sm) 0;
+  padding-left: var(--space-sm);
+  border-left: 2px dashed var(--danger);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.cite-popover-page {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.cite-popover-actions {
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--border);
+}
+
 .cite-inert {
   cursor: default;
 }

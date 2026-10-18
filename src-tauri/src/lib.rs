@@ -1,4 +1,5 @@
 mod annotate;
+mod doc_check;
 mod grants;
 mod inspect;
 mod ocr_cache;
@@ -35,9 +36,12 @@ where
 {
     match std::panic::catch_unwind(f) {
         Ok(result) => result,
-        Err(_) => Err(
-            "PDF processing failed — the file may be malformed or unsupported".to_string(),
-        ),
+        // A panic in the extractor is a file it could not parse: coded as
+        // damaged (24.0) so the reader gets the translated next step.
+        Err(_) => Err(doc_check::coded(
+            doc_check::PDF_DAMAGED,
+            "PDF processing failed — the file may be malformed or unsupported",
+        )),
     }
 }
 
@@ -136,6 +140,20 @@ async fn open_document_cmd(
     .map_err(|e| format!("Task join failed: {e}"))?
 }
 
+/// What a granted file is — PDF or image — by its content, after its size
+/// (24.0). The front end used to decide by extension, so a TIFF on Windows or
+/// a mislabelled file opened as something it was not.
+#[tauri::command]
+async fn document_kind_cmd(
+    path: String,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<doc_check::DocumentKind, String> {
+    let canon = ensure_allowed(&allowed, &path)?;
+    tauri::async_runtime::spawn_blocking(move || doc_check::check_document(&canon))
+        .await
+        .map_err(|e| format!("Task join failed: {e}"))?
+}
+
 /// Every text run on one page, with its position — used to point at a search
 /// hit on the rendered page.
 #[tauri::command]
@@ -184,8 +202,10 @@ fn cancel_file_read_cmd(cancel: State<'_, FileReadCancel>) {
     cancel.bump();
 }
 
-/// Maximum file size for `read_file_bytes` (256 MiB).
-const MAX_READ_BYTES: u64 = 256 * 1024 * 1024;
+/// Maximum file size for `read_file_bytes` (256 MiB). The same cap
+/// `open_document` and `document_kind_cmd` check before a file opens (24.0),
+/// so a file the previews cannot read is refused at the door, not per page.
+const MAX_READ_BYTES: u64 = doc_check::MAX_DOCUMENT_BYTES;
 const READ_CHUNK_BYTES: usize = 1024 * 1024;
 
 fn read_file_with_cancel(
@@ -199,8 +219,9 @@ fn read_file_with_cancel(
     let mut file = File::open(path).map_err(|e| format!("Read failed: {e}"))?;
     let len = file.metadata().map_err(|e| format!("Read failed: {e}"))?.len();
     if len > MAX_READ_BYTES {
-        return Err(format!(
-            "File too large ({len} bytes; max {MAX_READ_BYTES})"
+        return Err(doc_check::coded(
+            doc_check::FILE_TOO_LARGE,
+            format!("{len} bytes; max {MAX_READ_BYTES}"),
         ));
     }
     let mut buf = Vec::with_capacity(len.min(MAX_READ_BYTES) as usize);
@@ -215,8 +236,9 @@ fn read_file_with_cancel(
         }
         buf.extend_from_slice(&chunk[..n]);
         if buf.len() as u64 > MAX_READ_BYTES {
-            return Err(format!(
-                "File too large (>{MAX_READ_BYTES} bytes)"
+            return Err(doc_check::coded(
+                doc_check::FILE_TOO_LARGE,
+                format!("{} bytes; max {MAX_READ_BYTES}", buf.len()),
             ));
         }
     }
@@ -230,13 +252,7 @@ async fn read_file_bytes(
     cancel: State<'_, FileReadCancel>,
 ) -> Result<tauri::ipc::Response, String> {
     let canon = ensure_allowed(&allowed, &path)?;
-    let meta = std::fs::metadata(&canon).map_err(|e| format!("Read failed: {e}"))?;
-    if meta.len() > MAX_READ_BYTES {
-        return Err(format!(
-            "File too large ({} bytes; max {MAX_READ_BYTES})",
-            meta.len()
-        ));
-    }
+    doc_check::check_size(&canon)?;
     let cancel_gen = cancel.inner().0.clone();
     let gen_at_start = cancel_gen.load(Ordering::SeqCst);
     let path_for_read = canon.clone();
@@ -430,6 +446,7 @@ pub fn run() {
             file_stamp_cmd,
             file_identity_cmd,
             open_document_cmd,
+            document_kind_cmd,
             extract_region_cmd,
             page_text_items_cmd,
             read_file_bytes,

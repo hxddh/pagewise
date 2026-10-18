@@ -31,11 +31,14 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
-/// What the open dialog offers, and what a drop or a launch may grant. The
-/// front end's `isSupportedDocument` names the same set.
-pub const DOCUMENT_EXTENSIONS: &[&str] =
-    &["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"];
-const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"];
+/// What the open dialog offers. Only a filter (24.0): a drop or a launch is
+/// granted by what the file's first bytes say it is (`doc_check::sniff`), and
+/// TIFF is offered only on macOS, the one webview that can draw it — the
+/// dialog used to offer it on Windows, where it opened as a blank page.
+#[cfg(target_os = "macos")]
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"];
+#[cfg(not(target_os = "macos"))]
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif"];
 
 /// The documents granted in earlier sessions. Not `.json`: no store command
 /// accepts the name, so the webview can neither read nor write it.
@@ -82,21 +85,37 @@ impl AllowedPaths {
     }
 }
 
+/// Whether a file is a document PageWise opens — by its content since 24.0,
+/// not its extension, so a DOCX renamed `.pdf` is refused here rather than
+/// failing later, and a PDF saved without an extension opens.
 pub fn is_document(path: &Path) -> bool {
+    crate::doc_check::is_document_file(path)
+}
+
+/// The extensions PageWise has ever granted, TIFF included. Only `restore`
+/// reads it; see there.
+const GRANTED_EXTENSIONS: &[&str] =
+    &["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"];
+
+fn has_document_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(|e| DOCUMENT_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        .map(|e| GRANTED_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
         .unwrap_or(false)
 }
 
 /// Grant reading one document file, and keep it for the next session.
 ///
-/// Refuses anything that is not an existing file with a document extension:
-/// a grant is for the document the reader chose, never for a folder.
+/// Refuses anything that is not an existing file whose content is a document:
+/// a grant is for the document the reader chose, never for a folder. The
+/// refusal is coded (24.0) so the open dialog can say why.
 pub fn grant_document(app: &AppHandle, path: &Path) -> Result<PathBuf, String> {
     let canon = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {e}"))?;
-    if !canon.is_file() || !is_document(&canon) {
-        return Err("not a document".to_string());
+    if !is_document(&canon) {
+        return Err(crate::doc_check::coded(
+            crate::doc_check::UNSUPPORTED_TYPE,
+            "not a document",
+        ));
     }
     grant_file_in_session(app, &canon)?;
     persist(app, &canon);
@@ -192,7 +211,13 @@ pub fn restore(app: &AppHandle) {
         let Ok(canon) = std::fs::canonicalize(&path) else {
             continue;
         };
-        if !canon.is_file() || !is_document(&canon) || kept.contains(&canon) {
+        // A grant from an earlier session is kept by its extension first
+        // (24.0): reading the head of every remembered file at launch would
+        // be slow on a network share, and a file unreadable for a moment
+        // would lose its grant — and the front end its recent entry and chat.
+        // Whether it opens is decided by its content when it is opened.
+        let known = canon.is_file() && (has_document_extension(&canon) || is_document(&canon));
+        if !known || kept.contains(&canon) {
             continue;
         }
         if grant_file_in_session(app, &canon).is_ok() {
@@ -263,11 +288,12 @@ pub fn legacy_paths(bytes: &[u8]) -> Vec<PathBuf> {
 #[tauri::command]
 pub async fn pick_document(app: AppHandle) -> Result<Option<String>, String> {
     let picker = app.clone();
+    let documents: Vec<&str> = std::iter::once("pdf").chain(IMAGE_EXTENSIONS.iter().copied()).collect();
     let picked = tauri::async_runtime::spawn_blocking(move || {
         picker
             .dialog()
             .file()
-            .add_filter("Documents", DOCUMENT_EXTENSIONS)
+            .add_filter("Documents", &documents)
             .add_filter("PDF", &["pdf"])
             .add_filter("Images", IMAGE_EXTENSIONS)
             .blocking_pick_file()
@@ -326,15 +352,38 @@ pub fn path_granted(path: String, app: AppHandle) -> Result<bool, String> {
 /// A drop on the window: grant each document dropped, then tell the front end
 /// which ones it may open. Granted here, before the front end hears of it, so
 /// it never races the grant; anything that is not a document is not granted.
+///
+/// A drop with nothing PageWise can open used to end there, silently (24.0):
+/// the reader who dropped a DOCX or a HEIC photo saw nothing happen. The file
+/// names go to the front end instead, which says why and what to do.
 pub fn dropped(app: &AppHandle, paths: &[PathBuf]) {
-    let granted: Vec<String> = paths
-        .iter()
-        .filter_map(|p| grant_document(app, p).ok())
-        .map(|p| for_front_end(&p))
-        .collect();
+    let (granted, refused) = split_drop(paths, |p| grant_document(app, p).ok());
     if !granted.is_empty() {
         let _ = app.emit("pagewise://dropped", granted);
+    } else if !refused.is_empty() {
+        let _ = app.emit("pagewise://drop-refused", refused);
     }
+}
+
+/// The documents a drop granted (front-end paths), and the names of the files
+/// it did not.
+fn split_drop(
+    paths: &[PathBuf],
+    mut grant: impl FnMut(&Path) -> Option<PathBuf>,
+) -> (Vec<String>, Vec<String>) {
+    let mut granted = Vec::new();
+    let mut refused = Vec::new();
+    for path in paths {
+        match grant(path) {
+            Some(canon) => granted.push(for_front_end(&canon)),
+            None => refused.push(
+                path.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_string_lossy().into_owned()),
+            ),
+        }
+    }
+    (granted, refused)
 }
 
 #[cfg(test)]
@@ -342,12 +391,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_document_is_known_by_its_extension_in_any_case() {
-        assert!(is_document(Path::new("/a/paper.PDF")));
-        assert!(is_document(Path::new("/a/scan.tiff")));
+    fn a_document_is_known_by_its_content() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        assert!(is_document(&fixtures.join("text-simple.pdf")));
+        assert!(!is_document(&fixtures.join("README.md")));
+        assert!(!is_document(&fixtures));
         assert!(!is_document(Path::new("/home/me/.ssh/id_rsa")));
-        assert!(!is_document(Path::new("/home/me/.bashrc")));
-        assert!(!is_document(Path::new("/home/me")));
+        // A remembered grant is still known by its extension, without a read.
+        assert!(has_document_extension(Path::new("/a/paper.PDF")));
+        assert!(has_document_extension(Path::new("/a/scan.tiff")));
+        assert!(!has_document_extension(Path::new("/home/me/.bashrc")));
+    }
+
+    #[test]
+    fn a_drop_names_the_files_it_could_not_open() {
+        let paths = [PathBuf::from("/a/report.docx"), PathBuf::from("/a/paper.pdf")];
+        let (granted, refused) = split_drop(&paths, |p| {
+            (p.extension().and_then(|e| e.to_str()) == Some("pdf")).then(|| p.to_path_buf())
+        });
+        assert_eq!(granted, vec![for_front_end(Path::new("/a/paper.pdf"))]);
+        assert_eq!(refused, vec!["report.docx".to_string()]);
     }
 
     #[test]

@@ -74,6 +74,111 @@ describe("formatLlmError", () => {
     expect(scanMsg.toLowerCase()).toContain("scan");
   });
 
+  // (24.0) Classified by the body's code / type / message, not the status alone.
+  const apiError = (url: string, statusCode: number, body: unknown) =>
+    new APICallError({
+      message: "error",
+      url,
+      requestBodyValues: {},
+      statusCode,
+      responseHeaders: {},
+      responseBody: JSON.stringify(body),
+      isRetryable: statusCode >= 429,
+    });
+
+  it("says an OpenAI insufficient_quota 429 needs a top-up, not a retry", () => {
+    const err = apiError("https://api.openai.com/v1/chat/completions", 429, {
+      error: {
+        message: "You exceeded your current quota, please check your plan and billing details.",
+        type: "insufficient_quota",
+        code: "insufficient_quota",
+      },
+    });
+    const msg = formatLlmError(err);
+    expect(msg).toContain("top up your balance at OpenAI");
+    expect(msg).not.toMatch(/rate limited/i);
+  });
+
+  it("still says retry later for a genuine rate-limit 429", () => {
+    const err = apiError("https://api.openai.com/v1/chat/completions", 429, {
+      error: { message: "Rate limit reached for requests", type: "requests", code: "rate_limit_exceeded" },
+    });
+    expect(formatLlmError(err)).toMatch(/rate limited — try again/i);
+  });
+
+  it("says DeepSeek's 402 Insufficient Balance needs a top-up at DeepSeek", () => {
+    const err = apiError("https://api.deepseek.com/chat/completions", 402, {
+      error: { message: "Insufficient Balance", type: "unknown_error", param: null, code: "invalid_request_error" },
+    });
+    expect(formatLlmError(err)).toContain("top up your balance at DeepSeek");
+  });
+
+  it("says a 503 means the provider is overloaded, retry in a minute", () => {
+    const err = apiError("https://api.deepseek.com/chat/completions", 503, {
+      error: { message: "Server Overloaded", type: "unknown_error" },
+    });
+    expect(formatLlmError(err)).toMatch(/overloaded.*try again in a minute/i);
+  });
+
+  it("says an Ollama model without tool support needs another model", () => {
+    const err = apiError("http://localhost:11434/v1/chat/completions", 400, {
+      error: {
+        message: "registry.ollama.ai/library/gemma2:2b does not support tools",
+        type: "api_error",
+        param: null,
+        code: null,
+      },
+    });
+    const msg = formatLlmError(err, undefined, "agent");
+    expect(msg).toMatch(/can’t use tools/);
+    expect(msg).toMatch(/choose a model that supports tools/);
+  });
+
+  it("recognises WebKit's 'Load failed' as a network error", () => {
+    expect(formatLlmError(new TypeError("Load failed"))).toMatch(/network error — check your connection/i);
+  });
+
+  it("recognises Firefox's NetworkError as a network error", () => {
+    const msg = formatLlmError(new TypeError("NetworkError when attempting to fetch resource."));
+    expect(msg).toMatch(/network error/i);
+  });
+
+  it("asks whether Ollama is running when the local server is unreachable", () => {
+    const err = new APICallError({
+      message: "Cannot connect to API: connect ECONNREFUSED 127.0.0.1:11434",
+      url: "http://localhost:11434/v1/chat/completions",
+      requestBodyValues: {},
+      cause: new Error("connect ECONNREFUSED 127.0.0.1:11434"),
+      isRetryable: true,
+    });
+    expect(formatLlmError(err)).toMatch(/is Ollama running/);
+  });
+
+  it("gives a next step when the conversation exceeds the context window", () => {
+    const err = apiError("https://api.openai.com/v1/chat/completions", 400, {
+      error: {
+        message: "This model's maximum context length is 128000 tokens. However, your messages resulted in 130000 tokens.",
+        type: "invalid_request_error",
+        code: "context_length_exceeded",
+      },
+    });
+    expect(formatLlmError(err)).toMatch(/start a new chat/);
+  });
+
+  it("keeps the body's code when the error arrives as a plain object", () => {
+    const msg = formatLlmError({ error: { message: "quota", code: "insufficient_quota" } });
+    expect(msg).toMatch(/top up your balance/);
+  });
+
+  it("translates the new classes", () => {
+    const t = (key: string, vars?: Record<string, string | number>) =>
+      `${key}${vars ? JSON.stringify(vars) : ""}`;
+    const err = apiError("https://api.deepseek.com/chat/completions", 402, {
+      error: { message: "Insufficient Balance" },
+    });
+    expect(formatLlmError(err, t)).toBe('llm.insufficientBalance{"provider":"DeepSeek"}');
+  });
+
   it("treats OpenRouter failed image download as image input error", () => {
     const err = new Error(
       'Failed to download image from iVBORw0KGgoAAAANSUhEUgAABMgAAAYwCAYAAACHkHNS',

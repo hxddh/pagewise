@@ -8,7 +8,7 @@
  * before 13.0, which have no markers, keep their page links exactly as they
  * were.
  */
-import { citationRe, parseCitation } from "./citations";
+import { citationRe, parseCitation, sentenceEndRe } from "./citations";
 import { claimBefore } from "./answer-tables";
 
 export const CITATION_SCHEME = "pagewise-cite:";
@@ -76,6 +76,37 @@ function sourceIndex(source: string, from: number, marker: string): number {
   return at >= 0 ? at : source.indexOf(marker);
 }
 
+/**
+ * The text before a marker, with the sentence the marker closes wrapped in a
+ * `.cite-claim` span (24.0) — so a red chip's sentence can be marked as in
+ * doubt (`.cite-claim:has(+ .cite-level-notFound)`, 04-chat.css). Whether it
+ * is in doubt is known only when the check lands, long after this runs; the
+ * span is always there and the stylesheet decides from the chip beside it.
+ *
+ * Only this text node is wrapped: a sentence with emphasis or a link before
+ * the marker is marked from the last of those onward, not from its start.
+ */
+function claimNodes(before: string): MdNode[] {
+  if (!before) return [];
+  const stops = sentenceEndRe();
+  let start = 0;
+  let m: RegExpExecArray | null;
+  while ((m = stops.exec(before)) !== null) {
+    // A stop at the very end is the sentence's own full stop, not its start.
+    if (m.index < before.length - 1) start = m.index + m[0].length;
+  }
+  const lead = before.slice(start).match(/^\s*/)![0].length;
+  const head = before.slice(0, start + lead);
+  const claim = before.slice(start + lead);
+  if (!/\S/.test(claim)) return [{ type: "text", value: before }];
+  const span: MdNode = {
+    type: "citeClaim",
+    data: { hName: "span", hProperties: { className: ["cite-claim"] } },
+    children: [{ type: "text", value: claim }],
+  };
+  return head ? [{ type: "text", value: head }, span] : [span];
+}
+
 function splitTextNode(value: string, source: string, nodeStart: number): MdNode[] | null {
   const re = citationRe();
   let match: RegExpExecArray | null;
@@ -87,7 +118,7 @@ function splitTextNode(value: string, source: string, nodeStart: number): MdNode
     // The space a model leaves before a marker would sit between the sentence
     // and its citation mark; the mark belongs against the word.
     const before = value.slice(last, match.index).replace(/[ \t]+$/, "");
-    if (before) out.push({ type: "text", value: before });
+    out.push(...claimNodes(before));
     const at = source ? sourceIndex(source, nodeStart + match.index, match[0]) : -1;
     const claim = at >= 0 ? claimBefore(source, at) : "";
     out.push({

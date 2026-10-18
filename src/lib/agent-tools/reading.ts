@@ -172,6 +172,18 @@ export function markDelivered(budget: ReadBudget, path: string, page: number, ru
 }
 
 /**
+ * The page's text has left the model's context (24.0): an earlier result was
+ * shortened to a one-line summary by the in-run compactor, so the next
+ * request for the page gets its text again rather than "already returned".
+ * Every document's key for the page goes — a run reads one document.
+ */
+export function forgetDelivered(budget: ReadBudget, page: number): void {
+  for (const key of [...budget.delivered]) {
+    if (key.endsWith(`#${page}`) && !key.includes("#figure:")) budget.delivered.delete(key);
+  }
+}
+
+/**
  * Has this run already had this figure described?
  *
  * The page rule, applied to figures (20.0). A page's text is handed over once

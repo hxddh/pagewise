@@ -161,6 +161,7 @@ const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
  */
 const findings = createDocumentStore<StoredDoc, Finding>(runtime, {
   file: STORE_PATH,
+  writeKind: "findings",
   key: KEY,
   version: VERSION,
   migrations: MIGRATIONS,
@@ -405,9 +406,53 @@ export interface NewFinding {
 }
 
 /**
+ * The live finding that already says exactly this — same claim, same quoted
+ * words, same pages, in the same document — or null (24.0).
+ *
+ * Compared as `addFinding` would store them, so whitespace and page order do
+ * not make a copy look new. A superseded entry does not count: the revision
+ * overturned it, and saying it again is a new statement, not a copy. A struck
+ * one does: the reader already ruled on those exact words.
+ */
+export function duplicateFinding(
+  path: string,
+  input: Pick<NewFinding, "claim" | "evidence" | "pages">,
+): Finding | null {
+  const claim = input.claim.trim().slice(0, MAX_CLAIM_TEXT);
+  const evidence = (input.evidence ?? "").trim().slice(0, MAX_EVIDENCE_TEXT);
+  const pages = normalizePages(input.pages).join(",");
+  const all = getFindings(path);
+  return (
+    all.find(
+      (f) =>
+        f.claim === claim &&
+        f.evidence === evidence &&
+        f.pages.join(",") === pages &&
+        !isSuperseded(all, f.id),
+    ) ?? null
+  );
+}
+
+/**
+ * The reader's live entries kept from one answer (24.0).
+ *
+ * Whether an answer has been kept is read from here, not remembered by its
+ * button: the button is unmounted whenever the reader turns to another tab,
+ * and the record is the only thing that knows. Matched by the answer, not the
+ * claim, so an entry the reader has since reworded still counts as kept.
+ */
+export function keptFromMessage(path: string, messageId: string): Finding[] {
+  const all = getFindings(path);
+  return all.filter(
+    (f) => f.author === "reader" && f.source?.messageId === messageId && !isSuperseded(all, f.id),
+  );
+}
+
+/**
  * Write a finding, or return null when it cannot be written.
  *
- * Null for an empty claim, for no usable pages, and at the per-document cap.
+ * Null for an empty claim, for no usable pages, at the per-document cap, and
+ * for an entry the record already has (24.0 — see `duplicateFinding`).
  * The pages check is the important one and it is deliberately not lenient: a
  * finding with no anchor is the failure mode this whole record has to avoid,
  * because the reader cannot get from the claim back to the text, and the agent
@@ -420,6 +465,10 @@ export function addFinding(path: string, input: NewFinding): Finding | null {
   if (!claim) return null;
   const pages = normalizePages(input.pages);
   if (pages.length === 0) return null;
+  // The same entry twice is refused (24.0). Keep was once guarded only by the
+  // button's own state, which a tab switch forgot, so a second press wrote a
+  // second identical entry — and the export carried both.
+  if (duplicateFinding(path, input)) return null;
 
   const finding: Finding = {
     id: crypto.randomUUID(),

@@ -12,6 +12,7 @@ import { useConversationKeys } from "../hooks/useConversationKeys";
 import { PageRefContext } from "../components/Markdown";
 import { CitationContext, type CitationEnv } from "../components/CitationChip";
 import type { PdfRect } from "../lib/types";
+import { requestOpenDocSearch } from "../lib/events";
 import { RecordPanel } from "../components/RecordPanel";
 import { findingsAreStale } from "../lib/finding-store";
 import { ChatEmptyState } from "../components/EmptyState";
@@ -69,6 +70,18 @@ export interface ChatPanelProps {
   /** Pages with no text yet, and the way to read them. */
   scan: { count: number; onScanAllPages?: () => void };
   onConfigureApi: () => void;
+  /**
+   * Settings is on screen. A question queued before any provider was connected
+   * waits for it to close, so a key half-typed into an autosaving field is not
+   * the one it goes out with (24.0).
+   */
+  settingsOpen?: boolean;
+}
+
+/** A question asked before a provider was connected, waiting to go (24.0). */
+interface QueuedQuestion {
+  text: string;
+  webSearch: boolean;
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
@@ -85,6 +98,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     reveal,
     scan,
     onConfigureApi,
+    settingsOpen = false,
   },
   ref,
 ) {
@@ -100,9 +114,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               if (reveal.onRevealCitation) reveal.onRevealCitation(target, rects, notice);
               else reveal.onJumpToPage?.(target);
             },
+            // A red chip's next steps (24.0): look for the words elsewhere in
+            // the document, or put a request to cite again in the composer.
+            // The request is not sent — it costs a call, and the reader may
+            // want to word it differently — so it waits for Enter.
+            onSearch: (text) => requestOpenDocSearch(text),
+            onAsk: (text) => {
+              onComposerDraftChange(text);
+              requestAnimationFrame(() => focusComposerInput(composerRef.current));
+            },
           }
         : null,
-    [doc?.path, doc?.totalPages, reveal.onRevealCitation, reveal.onJumpToPage],
+    [doc?.path, doc?.totalPages, reveal.onRevealCitation, reveal.onJumpToPage, onComposerDraftChange],
   );
   // Keyed by path: dismissing the scan offer must not hide it for the next doc.
   const [scanHintDismissed, setScanHintDismissed] = useState<string | null>(null);
@@ -142,6 +165,47 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     readDraft,
     stickToBottomRef,
   });
+
+  // The question a reader typed before connecting AI (24.0). Enter used to
+  // open Settings and leave it at that: the reader had to come back, find the
+  // box, and send again. Now it is kept — in the composer, where they can see
+  // it — and goes out by itself once a provider is connected and Settings has
+  // closed. The ref is the source of truth so a re-render cannot send it
+  // twice; the state is only what the empty state shows.
+  const queuedRef = useRef<QueuedQuestion | null>(null);
+  const [questionQueued, setQuestionQueued] = useState(false);
+  const setQueued = useCallback((next: QueuedQuestion | null) => {
+    queuedRef.current = next;
+    setQuestionQueued(next !== null);
+  }, []);
+
+  const sendOrQueue = useCallback(
+    (text: string, options: { webSearch: boolean }) => {
+      // Only a plain ask waits: a correction belongs to a run, and without a
+      // document there is nothing to ask about.
+      if (doc && connection.settingsReady && !connection.hasApiKey && !interactionBusy) {
+        setQueued({ text, webSearch: options.webSearch });
+      }
+      return send(text, options);
+    },
+    [doc, connection.settingsReady, connection.hasApiKey, interactionBusy, send, setQueued],
+  );
+
+  useEffect(() => {
+    const queued = queuedRef.current;
+    if (!queued) return;
+    // The reader changed the text (or opened another document, which empties
+    // the composer): what was queued is no longer what they are asking.
+    if (composerDraft.trim() !== queued.text) {
+      setQueued(null);
+      return;
+    }
+    // Cancelling Settings leaves the question in the box and sends nothing.
+    if (settingsOpen || !connection.hasApiKey || !doc) return;
+    setQueued(null);
+    void send(queued.text, { webSearch: queued.webSearch });
+  }, [composerDraft, settingsOpen, connection.hasApiKey, doc, send, setQueued]);
+
   const record = useRecordBridge({ doc, messages: agent.messages.list, setTab: panel.setTab });
 
   // Alt+Up / Alt+Down walk the conversation, on the panel root so it works
@@ -203,6 +267,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                   totalPages={doc?.totalPages}
                   previewPage={page}
                   onConfigureApi={onConfigureApi}
+                  questionQueued={questionQueued}
                   onExamplePrompt={(text) => {
                     onComposerDraftChange(text);
                     composerRef.current?.focus();
@@ -230,7 +295,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           <Composer
             draft={composerDraft}
             onDraftChange={onComposerDraftChange}
-            onSend={send}
+            onSend={sendOrQueue}
             busy={busy}
             agentBusy={agentBusy}
             loading={session.loading}
@@ -238,7 +303,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             hasDocument={!!doc}
             webSearchAvailable={connection.webSearchAvailable}
             onStop={agent.run.stop}
-            onConfigureApi={onConfigureApi}
             textareaRef={composerRef}
           />
         </section>

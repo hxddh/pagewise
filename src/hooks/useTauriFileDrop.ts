@@ -8,19 +8,30 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
  * opened: they are not granted, and nothing in the webview can grant them.
  */
 export const DROPPED_EVENT = "pagewise://dropped";
+/**
+ * The file names of a drop Rust granted nothing from — a DOCX, a HEIC photo
+ * (24.0). Before, such a drop did nothing at all.
+ */
+export const DROP_REFUSED_EVENT = "pagewise://drop-refused";
 
-export function useTauriFileDrop(onDrop: (paths: string[]) => void) {
+export function useTauriFileDrop(
+  onDrop: (paths: string[]) => void,
+  onRefused?: (names: string[]) => void,
+) {
   const [isDragging, setIsDragging] = useState(false);
 
   // Hold the callback in a ref so the effect can subscribe exactly once
   // ([] deps) instead of re-subscribing every time onDrop's identity changes.
   const onDropRef = useRef(onDrop);
   onDropRef.current = onDrop;
+  const onRefusedRef = useRef(onRefused);
+  onRefusedRef.current = onRefused;
 
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     let unlistenDropped: (() => void) | undefined;
+    let unlistenRefused: (() => void) | undefined;
 
     getCurrentWebview()
       .onDragDropEvent((event) => {
@@ -54,10 +65,22 @@ export function useTauriFileDrop(onDrop: (paths: string[]) => void) {
         // Not running inside Tauri.
       });
 
+    listen<string[]>(DROP_REFUSED_EVENT, (event) => {
+      if (event.payload.length > 0) onRefusedRef.current?.(event.payload);
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlistenRefused = fn;
+      })
+      .catch(() => {
+        // Not running inside Tauri.
+      });
+
     return () => {
       disposed = true;
       unlisten?.();
       unlistenDropped?.();
+      unlistenRefused?.();
     };
   }, []);
 

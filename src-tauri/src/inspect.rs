@@ -45,6 +45,8 @@ use pdf_inspector::{
     extract_tables_in_regions_mem, extract_text_in_regions_mem, PdfType,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::doc_check;
 use std::collections::{HashMap, HashSet};
 
 /// Above this page count the positions pass (links/figures) is skipped.
@@ -655,7 +657,12 @@ fn covered_share(link: &Rect, line: &Rect) -> f32 {
 
 /// Parse a PDF once and return everything PageWise needs from it.
 pub fn open_document(path: &str) -> Result<DocumentModel, String> {
-    let detected = detect_pdf(path).map_err(map_err)?;
+    // Before anything reads the file whole (24.0): the previews cannot show a
+    // file over the cap, so it must not "open" only to fail on every page.
+    doc_check::check_size(std::path::Path::new(path))?;
+    // Coded, so the reader sees "password-protected" or "damaged" in their
+    // language with a next step instead of the extractor's sentence (24.0).
+    let detected = detect_pdf(path).map_err(|e| doc_check::pdf_error(&e))?;
     let title = detected
         .title
         .map(|t| t.trim().to_string())
@@ -683,7 +690,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         });
     }
 
-    let extracted = extract_pages_markdown(path, None).map_err(map_err)?;
+    let extracted = extract_pages_markdown(path, None).map_err(|e| doc_check::pdf_error(&e))?;
     // Page identity is array position, never the `page` label — see module docs.
     let mut texts: Vec<String> = extracted
         .pages
@@ -692,7 +699,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         .collect();
 
     if texts.is_empty() {
-        return Err("PDF read failed: no pages".to_string());
+        return Err(doc_check::coded(doc_check::PDF_DAMAGED, "no pages"));
     }
 
     let blank: Vec<usize> = texts
@@ -1204,6 +1211,64 @@ mod tests {
         assert!(link.context.contains("A link on a cropped page"), "context = {}", link.context);
     }
 
+    /// The numbers `n` of every "line n" in `text`, which "line 1" alone
+    /// would also find inside "line 10".
+    fn numbered_lines(text: &str) -> Vec<u32> {
+        let mut out: Vec<u32> = text
+            .split("line ")
+            .skip(1)
+            .filter_map(|rest| {
+                let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+                digits.parse().ok()
+            })
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// A page turned in a reader and saved keeps its MediaBox and content
+    /// and only gains `/Rotate`, so the model must be given every line of it.
+    /// The v24 evaluation measured 33 of 40 on such a page; its sample was
+    /// ReportLab's shape instead (page 5, below), and with the box left as it
+    /// was all 40 come through at every angle. (24.0)
+    #[test]
+    fn a_rotated_page_gives_the_model_every_line() {
+        let path = fixture("rotated.pdf");
+        let model = open_document(&path).expect("open");
+        let all: Vec<u32> = (0..40).collect();
+        let upright = &model.pages[0].text;
+        assert_eq!(numbered_lines(upright), all, "/Rotate 0");
+        for (index, degrees) in [(1usize, 90), (2, 180), (3, 270)] {
+            let page = &model.pages[index];
+            assert!(!page.needs_vision, "/Rotate {degrees} sent to vision");
+            assert_eq!(numbered_lines(&page.text), all, "/Rotate {degrees}");
+            // Same lines as the upright page, word for word: turning a page
+            // changes how it is drawn, never what it says.
+            let n = page.page;
+            let expected = upright
+                .replace("Page 1 ", &format!("Page {n} "))
+                .replace("revenue of 7 ", &format!("revenue of {} ", n * 7));
+            assert_eq!(page.text, expected, "/Rotate {degrees}");
+            let items = page_text_items(&path, n).expect("items");
+            let runs: String = items.iter().map(|i| i.text.as_str()).collect::<Vec<_>>().join("\n");
+            assert_eq!(numbered_lines(&runs), all, "/Rotate {degrees} runs");
+        }
+    }
+
+    /// ReportLab's `setPageRotation(90)` swaps the MediaBox to `[0 0 792 612]`
+    /// while portrait content is still drawn up to y = 720, which is what the
+    /// evaluation's `rot90.pdf` was. Lines 0-6 lie above the box and no
+    /// renderer draws them, so they are not the reader's page; whatever
+    /// pdf-inspector decides about them, every line inside the box must reach
+    /// the model. (24.0)
+    #[test]
+    fn a_page_drawn_past_its_mediabox_keeps_everything_inside_the_box() {
+        let model = open_document(&fixture("rotated.pdf")).expect("open");
+        let lines = numbered_lines(&model.pages[4].text);
+        assert!((7..40).all(|l| lines.contains(&l)), "lines = {lines:?}");
+    }
+
     #[test]
     fn page_text_items_carry_geometry_for_the_requested_page() {
         let items = page_text_items(&fixture("cjk-table.pdf"), 1).expect("items");
@@ -1373,6 +1438,22 @@ mod tests {
 
     #[test]
     fn damaged_file_fails_cleanly() {
-        assert!(open_document(&fixture("damaged.pdf")).is_err());
+        // Coded (24.0), so the front end can say "damaged" and what to do.
+        let err = open_document(&fixture("damaged.pdf")).unwrap_err();
+        assert!(err.starts_with(doc_check::PDF_DAMAGED), "{err}");
+    }
+
+    #[test]
+    fn a_password_protected_pdf_says_so() {
+        let err = open_document(&fixture("encrypted.pdf")).unwrap_err();
+        assert!(err.starts_with(doc_check::PDF_ENCRYPTED), "{err}");
+    }
+
+    #[test]
+    fn an_owner_only_protected_pdf_still_opens() {
+        // Restrictions without a user password: the empty password opens it,
+        // so it must not be reported as needing one.
+        let doc = open_document(&fixture("encrypted-owner-only.pdf")).expect("opens");
+        assert!(doc.page_count >= 1);
     }
 }

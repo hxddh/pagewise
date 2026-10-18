@@ -139,3 +139,51 @@ describe("compactRunMessages", () => {
     expect(compactRunMessages(undefined)).toEqual([]);
   });
 });
+
+/**
+ * A long run never leaves a page it read out of reach (24.0).
+ *
+ * The replay reads every page of a document in order, as a list-every-term
+ * question does, with compaction between steps exactly as `prepareStep` runs
+ * it. At the last step every page must either still be in the context at full
+ * length, or come back with its text when asked for again. Before 24.0 the
+ * first pages were in neither place: shortened away, and answered "already
+ * returned in full".
+ */
+describe("a long run can still quote its first pages (24.0)", () => {
+  it("leaves every page either in context or re-readable", async () => {
+    const { newReadBudget, alreadyDelivered, markDelivered, forgetDelivered } = await import(
+      "./agent-tools/reading"
+    );
+    const budget = newReadBudget();
+    const PATH = "/docs/gpl-3.0.pdf";
+    let messages: Msg[] = [{ role: "user", content: "list every obligation" }];
+    for (let page = 1; page <= 10; page++) {
+      messages = compactRunMessages(messages, KEEP_RECENT_CHARS, (pages) => {
+        for (const p of pages) forgetDelivered(budget, p);
+      }) as Msg[];
+      messages = [...messages, ...read(`r${page}`, page, 3500)];
+      markDelivered(budget, PATH, page);
+    }
+    messages = compactRunMessages(messages, KEEP_RECENT_CHARS, (pages) => {
+      for (const p of pages) forgetDelivered(budget, p);
+    }) as Msg[];
+
+    const inContext = new Set(
+      outputs(messages)
+        .filter((v): v is { page: number } => typeof v === "object" && v !== null)
+        .map((v) => v.page),
+    );
+    const lost = [...Array(10).keys()].map((i) => i + 1).filter((p) => !inContext.has(p) && alreadyDelivered(budget, PATH, p));
+    expect(inContext.size, "compaction did run").toBeLessThan(10);
+    expect(lost).toEqual([]);
+  });
+
+  it("names the pages a range carried", async () => {
+    const { pagesInResult } = await import("./compact-run-messages");
+    expect(pagesInResult("--- Page 3 ---\nfoo\n\n--- Page 4 (cont.) ---\nbar")).toEqual([3, 4]);
+    expect(pagesInResult({ page: 7, text: "x" })).toEqual([7]);
+    expect(pagesInResult({ page: 7, text: "" }), "an empty read carried nothing").toEqual([]);
+    expect(pagesInResult({ hits: [{ page: 2 }] }), "search hits are not page text").toEqual([]);
+  });
+});

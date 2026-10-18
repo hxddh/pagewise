@@ -30,6 +30,7 @@ let bookmarks: Array<{ title: string; page: number | null; level: number }> = []
 let structure = model.structure_outline;
 
 vi.mock("./pdf", () => ({
+  documentKind: async () => "pdf",
   openDocument: async () => ({ ...model, structure_outline: structure }),
   getPdfOutline: async () => bookmarks,
   getPdfPageLabels: async () => null,

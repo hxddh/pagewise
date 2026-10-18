@@ -85,6 +85,7 @@ const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
  */
 const marks = createDocumentStore<StoredDoc, Mark>(runtime, {
   file: STORE_PATH,
+  writeKind: "annotations",
   key: KEY,
   version: VERSION,
   migrations: MIGRATIONS,

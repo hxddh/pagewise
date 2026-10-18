@@ -68,6 +68,16 @@
   flex: 1 1 0;
 }
 
+/* "Not saved" beside the file name (24.0): it must survive the squeeze that
+   truncates the name, so it never shrinks, and it reads as a fault in red. */
+.preview-not-saved {
+  flex-shrink: 0;
+  margin-left: var(--space-md);
+  font-size: var(--text-xs);
+  color: var(--danger);
+  white-space: nowrap;
+}
+
 .toolbar-right {
   display: flex;
   align-items: center;
@@ -327,7 +337,14 @@
   animation: popover-out var(--transition);
 }
 
-.anchored-popover button {
+/*
+ * The popover's own buttons, not its `ListRow`s (24.0). Menu rows are
+ * `.list-row` — a flex line with a gap between icon, label and shortcut — and
+ * this rule, more specific than `.list-row`, made them blocks again, so the
+ * three ran together as inline text: "…conversationCtrl+F". `.danger` below
+ * stays on every button: "Clear conversation" is a `ListRow` and keeps its red.
+ */
+.anchored-popover button:not(.list-row) {
   display: block;
   width: 100%;
   border: none;
@@ -343,13 +360,22 @@
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.anchored-popover button:hover:not(:disabled) {
+.anchored-popover button:not(.list-row):hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text);
 }
 
 .anchored-popover button.danger {
   color: var(--danger);
+}
+
+/* A shortcut in a menu row sits at the row's far edge, a step smaller than its
+   label (24.0). Its colour is the row's: `--text-muted` is under 4.5:1 here. */
+.anchored-popover .list-row kbd {
+  margin-left: auto;
+  padding-left: var(--space-lg);
+  font-family: inherit;
+  font-size: var(--text-xs);
 }
 
 .app.v3 .preview-page-frame {

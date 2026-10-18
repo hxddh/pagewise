@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ToastProvider, useToast } from "./hooks/useToast";
-import { subscribeStoreProblem, subscribeStoreUnreadable } from "./lib/store-health";
+import { subscribeStoreProblem, subscribeStoreUnreadable, subscribeWriteHealth } from "./lib/store-health";
 import { useWorkbench } from "./session/useWorkbench";
 import { useI18n } from "./i18n";
 import { DropOverlay } from "./components/DropOverlay";
@@ -140,6 +140,17 @@ function AppContent() {
           "error",
         ),
       ),
+    [showToast, t],
+  );
+
+  // A write that failed outright — the conversation, the marks, the record.
+  // Said once when a kind starts failing (store health dedupes the retries);
+  // the header's "Not saved" carries it after the toast is gone (24.0).
+  useEffect(
+    () =>
+      subscribeWriteHealth(({ kind, failed }) => {
+        if (failed) showToast(t(`toast.writeFailed.${kind}`), "error");
+      }),
     [showToast, t],
   );
 
@@ -560,6 +571,7 @@ function AppContent() {
                         }}
                         scan={{ count: unscannedPages, onScanAllPages: requestScanAll }}
                         onConfigureApi={overlays.openSettings}
+                        settingsOpen={s.assistant.shell.settingsOpen}
                       />
                     </Suspense>
                   </div>

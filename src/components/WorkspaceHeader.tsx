@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -24,6 +25,7 @@ import { labelForPage, pageForLabel } from "../lib/page-labels";
 import { isSameZoom, ZOOM_PRESETS, type ZoomMode } from "../lib/zoom";
 import { requestOpenDocSearch } from "../lib/events";
 import { modKey } from "../lib/shortcut-display";
+import { subscribeWriteHealth, unsavedWrites } from "../lib/store-health";
 
 /**
  * The workspace's one header strip.
@@ -222,6 +224,27 @@ function PageNav({
   );
 }
 
+/**
+ * "Not saved", beside the file name, while a write of the conversation, the
+ * marks or the record keeps failing (24.0). The toast says it once and goes;
+ * this stays until a write of that kind lands, so a reader who missed the toast
+ * still sees that what is on screen is not on disk. Status, not a control.
+ */
+function NotSaved() {
+  const { t } = useI18n();
+  const unsaved = useSyncExternalStore(subscribeWriteHealth, unsavedWrites);
+  if (unsaved.length === 0) return null;
+  return (
+    <span
+      className="preview-not-saved"
+      role="status"
+      title={unsaved.map((kind) => t(`toast.writeFailed.${kind}`)).join("\n")}
+    >
+      {t("preview.notSaved")}
+    </span>
+  );
+}
+
 export function WorkspaceHeader({
   filename,
   page,
@@ -258,6 +281,7 @@ export function WorkspaceHeader({
         <span className="preview-filename" title={filename}>
           {basename}
         </span>
+        <NotSaved />
       </div>
 
       <div className="preview-toolbar-center">
@@ -309,7 +333,9 @@ export function WorkspaceHeader({
             <ListRow
               role="menuitem"
               label={t("commands.searchDoc")}
-              trailing={mod + "F"}
+              // Its own element (24.0): two bare strings are one flex item, so the
+              // row's gap never reached the shortcut.
+              trailing={<kbd>{mod + "F"}</kbd>}
               onClick={run(requestOpenDocSearch)}
             />
             {totalPages > 1 && (

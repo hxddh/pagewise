@@ -68,6 +68,11 @@ interface ChatEmptyStateProps {
   previewPage?: number;
   onConfigureApi: () => void;
   onExamplePrompt?: (text: string) => void;
+  /**
+   * The reader asked something before any provider was connected, and it is
+   * waiting in the composer to go out once one is (24.0).
+   */
+  questionQueued?: boolean;
 }
 
 /**
@@ -84,26 +89,42 @@ export function ChatEmptyState({
   previewPage,
   onConfigureApi,
   onExamplePrompt,
+  questionQueued = false,
 }: ChatEmptyStateProps) {
   const { t } = useI18n();
+
+  // A document open and no provider (24.0). This was one grey line, while the
+  // composer below looked ready and Enter only opened Settings; DeepSeek was
+  // preselected there and nothing said page text would leave the machine. A
+  // reader deciding whether to connect anything needs three facts here: what
+  // already works without AI, the one control that connects it, and what will
+  // be sent once it does. The composer's own "Configure AI" button is gone, so
+  // this is the single control for it, not a second one.
+  if (settingsReady && !hasApiKey && hasDocument) {
+    return (
+      <EmptyState variant="compact" className="empty-connect">
+        <p className="empty-lead">{t("empty.connectLead")}</p>
+        <p className="empty-connect-note">{t("empty.worksWithoutAi")}</p>
+        <Button variant="primary" size="md" className="empty-connect-btn" onClick={onConfigureApi}>
+          {t("empty.connectAi")}
+        </Button>
+        <p className="empty-connect-note">{t("empty.whatIsSent")}</p>
+        {questionQueued && (
+          <p className="empty-connect-queued" role="status">
+            {t("empty.questionQueued")}
+          </p>
+        )}
+      </EmptyState>
+    );
+  }
 
   if (settingsReady && !hasApiKey) {
     return (
       <EmptyState variant="compact">
         <p className="empty-lead">{t("empty.agentLead")}</p>
-        {/*
-          With a document open the composer's own button becomes "Configure AI"
-          (ChatPanel), so a link here put two controls for one action on screen
-          at once — an explanation at the top of the panel and a primary button
-          at the bottom of it. The message is worth keeping either way; the
-          second control is not. Without a document the composer has no such
-          button, so this is the only way through and it stays.
-        */}
-        {!hasDocument && (
-          <Button variant="link" size="md" onClick={onConfigureApi}>
-            {t("empty.configureInline")}
-          </Button>
-        )}
+        <Button variant="link" size="md" onClick={onConfigureApi}>
+          {t("empty.configureInline")}
+        </Button>
       </EmptyState>
     );
   }

@@ -41,7 +41,6 @@ export interface ComposerProps {
   /** This provider's model can search the web natively (OpenRouter). */
   webSearchAvailable: boolean;
   onStop: () => void;
-  onConfigureApi: () => void;
   /** The textarea, so "Ask about this" can put the caret in it. */
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 }
@@ -66,7 +65,6 @@ export function Composer({
   hasDocument,
   webSearchAvailable,
   onStop,
-  onConfigureApi,
   textareaRef,
 }: ComposerProps) {
   const { t } = useI18n();
@@ -144,9 +142,11 @@ export function Composer({
         placeholder={
           busy
             ? t("agent.placeholderSteer")
-            : hasDocument
-              ? t("agent.placeholder")
-              : t("agent.placeholderNoDoc")
+            : !hasDocument
+              ? t("agent.placeholderNoDoc")
+              : hasApiKey
+                ? t("agent.placeholder")
+                : t("agent.placeholderNoKey")
         }
         rows={1}
         disabled={loading}
@@ -182,11 +182,12 @@ export function Composer({
           <Button type="submit" variant="primary" size="md" disabled={loading || !hasDocument}>
             {t("agent.steer")}
           </Button>
-        ) : hasDocument && !hasApiKey ? (
-          <Button variant="primary" size="md" onClick={onConfigureApi} disabled={loading}>
-            {t("agent.configureApiCta")}
-          </Button>
         ) : (
+          // Send, with or without a provider (24.0). Without one this button
+          // used to read "Configure AI" and Enter opened Settings — the box
+          // looked ready and was not. Now a question sent before AI is
+          // connected opens Settings and waits in the box, going out once a
+          // provider is (ChatPanel). The empty state above carries "Connect AI".
           <Button
             type="submit"
             variant="primary"

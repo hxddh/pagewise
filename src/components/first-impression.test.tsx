@@ -70,13 +70,15 @@ describe("chat empty state without an API key", () => {
     onConfigureApi: vi.fn(),
   };
 
-  it("offers no second way to configure while a document is open", () => {
-    // ChatPanel turns the composer's own button into "Configure AI" whenever a
-    // document is open and no key is set. A link here as well put an
-    // explanation at the top of the panel and a primary button at the bottom,
-    // both doing the same thing.
+  it("offers one way to connect while a document is open, and says what is sent", () => {
+    // 24.0: the composer's "Configure AI" button is gone, so this is the single
+    // control for it — and the reader learns, before connecting anything, what
+    // already works and that the pages the assistant reads go to the provider.
     wrap(<ChatEmptyState {...props} hasDocument />);
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.getByRole("button").textContent).toBe(en.empty.connectAi);
+    expect(screen.getByText(en.empty.worksWithoutAi)).toBeTruthy();
+    expect(screen.getByText(en.empty.whatIsSent)).toBeTruthy();
   });
 
   it("still offers the only way through when no document is open", () => {

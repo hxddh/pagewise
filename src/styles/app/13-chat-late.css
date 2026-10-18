@@ -63,6 +63,41 @@
   color: var(--text);
 }
 
+/*
+ * No provider yet, with a document open (24.0). The lead keeps the full text
+ * colour here, unlike the other compact states: it is the panel's one message
+ * and the thing to act on, not an aside. The notes around the button stay
+ * secondary — what works now above it, what will be sent below it.
+ */
+.empty-connect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xs);
+}
+
+.empty-connect .empty-lead {
+  margin: 0;
+  color: var(--text);
+}
+
+.empty-connect-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.empty-connect-btn {
+  margin: var(--space-xs) 0;
+}
+
+.empty-connect-queued {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--accent-text);
+}
+
 .chat-loading {
   display: flex;
   flex-direction: column;
@@ -331,6 +366,12 @@
 }
 
 .message-action-labelled {
+  /*
+   * As wide as icon and word (24.0). `.message-action-btn` is 26px for the
+   * icon-only buttons beside these, and nothing here undid it, so "Copy" and
+   * "Keep" ran out of their boxes into each other, over their own icons.
+   */
+  width: auto;
   gap: var(--space-2xs);
   /*
    * 11px and `--text-muted` (3.96:1) until 17.0, on the two buttons a reader

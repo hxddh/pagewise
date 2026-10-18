@@ -110,10 +110,82 @@ export function subscribeStoreUnreadable(
   };
 }
 
+/**
+ * The writes whose failure the reader must hear about (24.0): the
+ * conversation's autosave, the reader's marks, and the record's findings.
+ *
+ * Until 24.0 a failed conversation autosave was a console warning in dev builds
+ * only, and a failed marks or findings flush was re-queued without a word — so
+ * a disk that had stopped accepting writes looked exactly like one that had
+ * not, until the reader reopened the document and found their work missing.
+ * The stores keep retrying as before; this is only the telling.
+ */
+export type WriteKind = "conversation" | "annotations" | "findings";
+
+/**
+ * The kinds whose last write failed, in the order they started failing.
+ * Replaced, never mutated, so a React view can hold it as a snapshot.
+ */
+let failedWrites: readonly WriteKind[] = [];
+const writeListeners = new Set<(change: WriteHealthChange) => void>();
+
+export interface WriteHealthChange {
+  kind: WriteKind;
+  /** True when this kind just started failing, false when it saved again. */
+  failed: boolean;
+}
+
+function notifyWrite(change: WriteHealthChange): void {
+  for (const listener of writeListeners) {
+    try {
+      listener(change);
+    } catch {
+      // A misbehaving subscriber must not break a save.
+    }
+  }
+}
+
+/**
+ * Record that a write of `kind` failed. Said once per run of failures, not per
+ * retry (24.0): a dead disk fails every debounced flush and every autosave, and
+ * a toast for each would bury the one sentence the reader needs. The persistent
+ * indicator carries the state between the first failure and the next success.
+ */
+export function reportWriteFailed(kind: WriteKind): void {
+  if (failedWrites.includes(kind)) return;
+  failedWrites = [...failedWrites, kind];
+  notifyWrite({ kind, failed: true });
+}
+
+/** Record that a write of `kind` landed — clears its "not saved" state. */
+export function reportWriteSucceeded(kind: WriteKind): void {
+  if (!failedWrites.includes(kind)) return;
+  failedWrites = failedWrites.filter((k) => k !== kind);
+  notifyWrite({ kind, failed: false });
+}
+
+/**
+ * The kinds whose most recent write failed, in the order they started failing.
+ * The same array until something changes (`useSyncExternalStore` needs that).
+ */
+export function unsavedWrites(): readonly WriteKind[] {
+  return failedWrites;
+}
+
+/** Called each time a kind starts failing or saves again. */
+export function subscribeWriteHealth(listener: (change: WriteHealthChange) => void): () => void {
+  writeListeners.add(listener);
+  return () => {
+    writeListeners.delete(listener);
+  };
+}
+
 /** Test seam — drop every report and subscriber. */
 export function __resetStoreHealthForTests(): void {
   unreadable.clear();
   listeners.clear();
   problems.clear();
   problemListeners.clear();
+  failedWrites = [];
+  writeListeners.clear();
 }

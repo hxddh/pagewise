@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { storeKey, useMemoryStoreBackend } from "./store-testkit";
 
-import { addRecentFile, getRecentFiles, updateRecentProgress } from "./recent-files";
+import { addRecentFile, getRecentFiles, openableRecentFiles, updateRecentProgress } from "./recent-files";
 
 /** The store's disk, in memory, and the list it keeps under `files`. */
 const store = useMemoryStoreBackend();
@@ -54,5 +54,17 @@ describe("recent files remember progress", () => {
     const before = store.writes.length;
     await updateRecentProgress("/a.pdf", { lastPage: 5 });
     expect(store.writes.length).toBe(before);
+  });
+});
+
+describe("the library keeps what opened (24.0)", () => {
+  it("keeps a document opened by its content, whatever its name says", () => {
+    const at = { openedAt: 1 };
+    const files = [
+      { path: "/docs/report", name: "report", kind: "pdf" as const, ...at },
+      { path: "/docs/report.docx", name: "report.docx", kind: "pdf" as const, ...at },
+      { path: "/docs/scan.png", name: "scan.png", kind: "image" as const, ...at },
+    ];
+    expect(openableRecentFiles(files).map((f) => f.name)).toEqual(["report", "report.docx", "scan.png"]);
   });
 });

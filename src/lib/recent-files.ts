@@ -1,5 +1,4 @@
 import { createAtomicStore } from "./atomic-store";
-import { isSupportedDocument } from "./load-document";
 import { createStoreRuntime } from "./json-store";
 
 const STORE_PATH = "recent.json";
@@ -80,9 +79,14 @@ export async function getRecentFiles(): Promise<RecentFile[]> {
   return runtime.withStoreLock(readRecentFiles);
 }
 
-/** Recent entries the app can still open (PDF or supported image). */
+/**
+ * Recent entries the app can still open (PDF or supported image). An entry is
+ * only written after the file opened, and since 24.0 that is decided by its
+ * content, so its recorded kind is the answer: a PDF saved without an
+ * extension, or named `.docx`, opened and has to be reopenable from here too.
+ */
 export function isOpenableRecent(file: RecentFile): boolean {
-  return isSupportedDocument(file.path);
+  return file.kind === "pdf" || file.kind === "image";
 }
 
 export function openableRecentFiles(files: RecentFile[]): RecentFile[] {

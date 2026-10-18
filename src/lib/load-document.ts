@@ -1,5 +1,11 @@
 import { docCache } from "./doc-cache";
-import { getPdfAnnotations, getPdfOutline, getPdfPageLabels, openDocument } from "./pdf";
+import {
+  documentKind,
+  getPdfAnnotations,
+  getPdfOutline,
+  getPdfPageLabels,
+  openDocument,
+} from "./pdf";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
@@ -24,14 +30,14 @@ const SUPPORTED_EXT = new Set([
   "gif",
 ]);
 
+/**
+ * Whether a remembered path looks like a document, by its name. Only for
+ * tidying lists of paths (the library); whether a file opens, and as what, is
+ * decided by its content in Rust when it is opened (24.0, `documentKind`).
+ */
 export function isSupportedDocument(path: string): boolean {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return SUPPORTED_EXT.has(ext);
-}
-
-export function inferDocumentKind(path: string): "pdf" | "image" {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  return ext === "pdf" ? "pdf" : "image";
 }
 
 export interface LoadDocumentOptions {
@@ -52,14 +58,14 @@ export async function loadDocument(
   signal?: AbortSignal,
   options?: LoadDocumentOptions,
 ): Promise<LoadedDocument> {
-  if (!isSupportedDocument(path)) {
-    throw new Error("errors.unsupportedFile");
-  }
-
   const name = path.split(/[/\\]/).pop() ?? path;
-  const kind = inferDocumentKind(path);
 
   await requireGrantedPath(path);
+  // By content and after a size check, before anything reads the file whole
+  // (24.0). The extension used to decide: a TIFF on Windows opened as a blank
+  // page, and a file over the preview cap opened and then failed per page.
+  // Rejects with a coded message `open-error.ts` translates.
+  const kind = await documentKind(path);
 
   // Stamped after authorization (the command requires it) and before extraction,
   // so a rewrite during the parse advances the real stamp and the next open

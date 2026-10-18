@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as R from "../reading";
 import {
   addFinding,
+  duplicateFinding,
   findingHandle,
   MAX_CLAIM_TEXT,
   MAX_EVIDENCE_TEXT,
@@ -55,6 +56,10 @@ export function createNoteFindingTool() {
         const doc = R.requireLoadedDoc(path);
         const outOfRange = R.pagesOutOfRange(pages, doc);
         if (outOfRange) return { recorded: false, reason: outOfRange };
+        // Already in the record, word for word (24.0): say where, so the agent
+        // does not read the refusal as "the record is full".
+        const same = duplicateFinding(path, { pages, claim, evidence });
+        if (same) return { recorded: false, reason: "already recorded", id: findingHandle(same.id) };
         const finding = addFinding(path, {
           pages,
           claim,

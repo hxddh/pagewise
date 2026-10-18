@@ -1,0 +1,167 @@
+name: Live eval
+
+# The live baseline (24.0; docs/reviews/2026-10-18-pagewise-v24-evaluation.md
+# §2.4 and §5.2): every question in eval/questions.ts asked of a real model
+# through the app as it ships (eval/live/run.mjs), `repeat` times each, then
+# scored per kind by eval/live-score.eval.ts. Nothing here gates anything — it
+# records a model's behaviour so the 24.0 changes have a real denominator, one
+# run before them and one after.
+#
+# Provider. By default GitHub Models, authenticated with this run's own
+# GITHUB_TOKEN (hence `models: read` below): base URL
+# https://models.github.ai/inference, model names like `openai/gpt-4o-mini`.
+# Its free quota is small — a full run is ~114 questions × 3 × a few requests
+# each — and run.mjs waits out 429s inside each question's timeout, but a
+# daily cap still ends a run early with failed answers recorded as such.
+#
+# Fallback. When the repository has a PW_EVAL_API_KEY secret, that key is used
+# instead, against the PW_EVAL_BASE_URL secret (any OpenAI-compatible
+# endpoint; https://api.openai.com/v1 when that secret is unset), and the
+# `model` input is passed through verbatim as PW_EVAL_MODEL — so set it to
+# that provider's name for the model (`gpt-4o-mini`, not `openai/gpt-4o-mini`).
+# Delete the secret to go back to GitHub Models. The key is only ever in the
+# environment of the one step that asks the model; run.mjs sends it only to
+# the base URL and never writes it to a recording.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model name (GitHub Models: openai/gpt-4o-mini; with the PW_EVAL_API_KEY fallback, the provider's own name)"
+        required: true
+        default: openai/gpt-4o-mini
+        type: string
+      repeat:
+        description: Times each question is asked
+        required: true
+        default: "3"
+        type: string
+      docs:
+        description: "Only these documents, comma-separated (e.g. contract-zh,paper-en); empty for all"
+        required: false
+        default: ""
+        type: string
+      limit:
+        description: "At most this many questions, taken round-robin across kinds; empty for all"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  models: read
+
+# One baseline at a time: two runs would share the same model quota.
+concurrency:
+  group: live-eval
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    # ~350 answers at up to 4 minutes each in the worst case; GitHub's own
+    # ceiling for a hosted job is 6 hours.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The extraction is the eval job's, mirrored from ci.yml: eval/extract
+      # is Rust, and `npm run eval` also renders pages for its OCR suite.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: eval/extract
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the page renderer the OCR suite reads the corpus with
+        run: pip install pypdfium2 pillow
+
+      # The scanned questions are all on the fetched Vicksburg scan, and the
+      # GeoBase questions on the fetched data model.
+      - name: Fetch the third-party documents the evaluation corpus includes
+        run: npm run eval:fetch
+
+      - name: Extract the corpus (and run the offline evaluation)
+        run: npm run eval
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Point the runner at the browser Playwright installed
+        run: echo "PLAYWRIGHT_CHROMIUM_PATH=$(node -p 'require("playwright").chromium.executablePath()')" >> "$GITHUB_ENV"
+
+      - name: Start the dev server
+        run: |
+          nohup npm run dev > dev-server.log 2>&1 &
+          ready=""
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:1420/; then ready=1; break; fi
+            sleep 2
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::the dev server never answered on :1420"
+            cat dev-server.log
+            exit 1
+          fi
+
+      # Inputs reach the script through the environment, never interpolated
+      # into it, so a docs filter cannot become shell.
+      - name: Ask the model
+        env:
+          GITHUB_MODELS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FALLBACK_KEY: ${{ secrets.PW_EVAL_API_KEY }}
+          FALLBACK_BASE_URL: ${{ secrets.PW_EVAL_BASE_URL }}
+          MODEL: ${{ inputs.model }}
+          REPEAT: ${{ inputs.repeat }}
+          DOCS: ${{ inputs.docs }}
+          LIMIT: ${{ inputs.limit }}
+        # The key assignments are unquoted on purpose: an assignment is not
+        # word-split, and `check:secrets` reads a quoted `KEY="…"` as a literal.
+        run: |
+          if [ -n "$FALLBACK_KEY" ]; then
+            export PW_EVAL_API_KEY=$FALLBACK_KEY
+            export PW_EVAL_BASE_URL="${FALLBACK_BASE_URL:-https://api.openai.com/v1}"
+            echo "provider: the PW_EVAL_API_KEY secret"
+          else
+            export PW_EVAL_API_KEY=$GITHUB_MODELS_TOKEN
+            export PW_EVAL_BASE_URL="https://models.github.ai/inference"
+            echo "provider: GitHub Models"
+          fi
+          export PW_EVAL_MODEL="$MODEL"
+          args=("--repeat=$REPEAT")
+          if [ -n "$DOCS" ]; then args+=("--docs=$DOCS"); fi
+          if [ -n "$LIMIT" ]; then args+=("--limit=$LIMIT"); fi
+          npm run eval:live -- "${args[@]}"
+
+      - name: Score the recording
+        if: always()
+        run: |
+          npx vitest run --config eval/vitest.config.ts eval/live-score.eval.ts --disableConsoleIntercept
+          if [ -f eval/out/live-score.md ]; then cat eval/out/live-score.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the recording and its score
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-eval-${{ github.run_id }}
+          path: |
+            eval/out/live/*.jsonl
+            eval/out/live-score.md
+            eval/out/live-score.json
+            dev-server.log
+          if-no-files-found: warn

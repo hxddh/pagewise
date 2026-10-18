@@ -123,6 +123,14 @@ button.pages-read-chip:hover
 .cite-level-check::after
 .cite-level-notFound::after
 .cite-pending
+.cite-claim:has(+ .cite-level-notFound)
+.cite-popover
+.cite-popover-body
+.cite-popover-body p
+.cite-popover-verdict
+.cite-popover-quote
+.cite-popover-page
+.cite-popover-actions
 .cite-inert
 .citation-tally
 .citation-tally-verified
@@ -444,6 +452,11 @@ button.pages-read-chip:hover
 .empty-examples
 .empty-example-chip
 .empty-example-chip:hover
+.empty-connect
+.empty-connect .empty-lead
+.empty-connect-note
+.empty-connect-btn
+.empty-connect-queued
 .chat-loading
 .chat-loading .preview-loading-spinner
 .messages-panel

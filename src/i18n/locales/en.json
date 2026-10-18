@@ -20,7 +20,13 @@
     "invalidApiKey": "Invalid API key — check Settings → Assistant → Advanced.",
     "notFound": "Model or endpoint not found — verify base URL and model name.",
     "rateLimited": "Rate limited — try again shortly.",
-    "networkError": "Network error — check your connection.",
+    "networkError": "Network error — check your connection. Using Ollama? Make sure it is running.",
+    "localServerUnreachable": "Could not reach the local model server — is Ollama running?",
+    "insufficientBalance": "Your {{provider}} account is out of credit — top up your balance at {{provider}}, then try again.",
+    "insufficientBalanceGeneric": "Your provider account is out of credit — top up your balance with the provider, then try again.",
+    "providerOverloaded": "The provider is overloaded right now — try again in a minute.",
+    "modelNoTools": "This model can’t use tools, which the assistant needs — choose a model that supports tools in Settings → Assistant.",
+    "contextTooLong": "The conversation is too long for this model — start a new chat, or choose a model with a larger context window.",
     "toolsNotSupported": "Model \"{{model}}\" does not support tool calling the assistant needs. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) or use the DeepSeek provider directly.",
     "toolsNotSupportedOpenRouter": "No OpenRouter route supports tool calling for this model. Switch to a tool-capable model (e.g. openai/gpt-4o-mini) in Settings → Assistant → Advanced.",
     "reasoningNotSupported": "This provider does not support the reasoning setting — turn off Extended thinking in Settings → Assistant → Advanced.",
@@ -106,7 +112,8 @@
     "stopReading": "Stop reading pages",
     "readPoorly": "Read from a scan ({{confidence}}% sure) — some words may be misread; check the page",
     "searchDocHeading": "This document",
-    "searchConversationHeading": "This conversation"
+    "searchConversationHeading": "This conversation",
+    "notSaved": "Not saved"
   },
   "marks": {
     "markSelection": "Mark",
@@ -218,7 +225,6 @@
     "toolFailed": "failed",
     "usageFinalTools": "Final step tools",
     "usageProviderMeta": "Provider metadata",
-    "configureApiCta": "Configure AI",
     "retry": "Retry",
     "dismissError": "Dismiss",
     "pagesRead": "Pages read",
@@ -245,7 +251,8 @@
     "activityReviseFinding": "Revising a finding…",
     "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening.",
     "export": "Export…",
-    "moreActions": "More for this answer"
+    "moreActions": "More for this answer",
+    "placeholderNoKey": "Ask about this document — it is sent once AI is connected…"
   },
   "empty": {
     "agentLead": "Set up AI to analyze documents",
@@ -256,7 +263,12 @@
     "example2": "What dates are mentioned?",
     "example3": "What are the key terms?",
     "exampleWholeDoc": "Summarize all {{count}} pages",
-    "exampleThisPage": "What is on page {{page}}?"
+    "exampleThisPage": "What is on page {{page}}?",
+    "connectLead": "Connect AI to ask about this document",
+    "worksWithoutAi": "Reading, search and OCR already work, on this computer, without it.",
+    "connectAi": "Connect AI",
+    "whatIsSent": "When you ask, the pages the assistant reads are sent to the provider you choose.",
+    "questionQueued": "Your question is kept and will be sent once AI is connected."
   },
   "settings": {
     "title": "Settings",
@@ -392,7 +404,6 @@
     "opened": "Opened {{name}}",
     "reindexStarted": "Reindexing (vision rescan for up to {{pages}} pages; other pages keep PDF text)…",
     "reindexNothingToDo": "Nothing to reindex — automatic page scanning is turned off in Settings",
-    "chatSaveFailed": "Could not save chat before switching documents",
     "dismiss": "Dismiss",
     "copyFailed": "Copy failed — clipboard unavailable",
     "scanAllNone": "Every page already has text",
@@ -406,10 +417,20 @@
     "reportExported": "Report exported",
     "storeUnreadable": "{{file}} could not be read — it was left as it is, and nothing will overwrite it",
     "storeNewer": "{{file}} was saved by a newer PageWise — it is left as it is, and changes made here are not saved until you update",
-    "storeFull": "{{file}} is full — this change is not saved; remove entries you no longer need to make room"
+    "storeFull": "{{file}} is full — this change is not saved; remove entries you no longer need to make room",
+    "writeFailed": {
+      "conversation": "The conversation could not be saved — it is still here, and the next save will try again",
+      "annotations": "Your marks could not be saved — they are kept here, and PageWise will try again",
+      "findings": "The record could not be saved — it is kept here, and PageWise will try again"
+    }
   },
   "errors": {
-    "unsupportedFile": "Unsupported file type. Use PDF or image files.",
+    "unsupportedFile": "PageWise can't open this type of file. Open a PDF, or a PNG, JPEG, WebP, GIF or BMP image — convert anything else (a Word document, a HEIC photo) to PDF or JPEG first.",
+    "unsupportedDropped": "PageWise can't open “{{name}}”. Drop a PDF, or a PNG, JPEG, WebP, GIF or BMP image — convert anything else (a Word document, a HEIC photo) to PDF or JPEG first.",
+    "pdfEncrypted": "This PDF is password-protected, and PageWise can't open protected PDFs yet. Remove the password — for example, open it in another reader, print it to PDF — and open the copy.",
+    "pdfDamaged": "This PDF is damaged or incomplete, so it couldn't be read. If you downloaded it, download it again; otherwise try opening it in another reader and printing it to a new PDF.",
+    "fileTooLarge": "This file is {{size}}; PageWise opens files up to {{max}}. Split it into smaller PDFs (most PDF tools can extract a range of pages) and open a part.",
+    "fileTooLargeUnknown": "This file is larger than PageWise can open. Split it into smaller PDFs (most PDF tools can extract a range of pages) and open a part.",
     "saveFailed": "Save failed"
   },
   "library": {
@@ -481,7 +502,15 @@
       "noQuote": "{{count}} no quote",
       "unchecked": "{{count}} not checked"
     },
-    "tallyChecking": "{{count}} checking"
+    "tallyChecking": "{{count}} checking",
+    "popover": {
+      "label": "Why this citation is flagged",
+      "quoted": "Quoted as from page {{pages}}",
+      "search": "Search the document for this text",
+      "ask": "Ask the assistant to cite again",
+      "open": "Open the page anyway",
+      "askPrompt": "The words you quoted from page {{pages}} for “{{claim}}” are not in that page's text. Find the passage that supports it and cite it again with its exact wording."
+    }
   },
   "table": {
     "export": "Export table as CSV, with sources",

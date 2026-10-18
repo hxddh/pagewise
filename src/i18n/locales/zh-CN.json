@@ -20,7 +20,13 @@
     "invalidApiKey": "API 密钥无效 — 请检查设置 → 助手 → 高级。",
     "notFound": "找不到模型或端点 — 请检查接口地址与模型名称。",
     "rateLimited": "请求过于频繁 — 请稍后再试。",
-    "networkError": "网络错误 — 请检查网络连接。",
+    "networkError": "网络错误 — 请检查网络连接。使用 Ollama？请确认它正在运行。",
+    "localServerUnreachable": "无法连接本地模型服务 — Ollama 是否正在运行？",
+    "insufficientBalance": "你的 {{provider}} 账户余额不足 — 请到 {{provider}} 充值后再试。",
+    "insufficientBalanceGeneric": "你的提供商账户余额不足 — 请到提供商处充值后再试。",
+    "providerOverloaded": "提供商当前负载过高 — 请一分钟后再试。",
+    "modelNoTools": "此模型不能使用助手所需的工具 — 请在设置 → 助手中选择支持工具的模型。",
+    "contextTooLong": "对话超出了此模型的上下文长度 — 请开始新对话，或选择上下文窗口更大的模型。",
     "toolsNotSupported": "模型「{{model}}」不支持助手所需的工具调用。请在设置中换用支持工具的模型（如 openai/gpt-4o-mini），或直接使用 DeepSeek 提供商。",
     "toolsNotSupportedOpenRouter": "当前 OpenRouter 模型没有支持工具调用的路由。请在设置 → 助手 → 高级中换用 openai/gpt-4o-mini 等支持工具的模型。",
     "reasoningNotSupported": "当前提供商不支持推理强度参数 — 请在设置 → 助手 → 高级中关闭「扩展思考」。",
@@ -106,7 +112,8 @@
     "stopReading": "停止读取页面",
     "readPoorly": "从扫描件识别（把握 {{confidence}}%）— 个别文字可能有误，请看原页",
     "searchDocHeading": "本文档",
-    "searchConversationHeading": "本次会话"
+    "searchConversationHeading": "本次会话",
+    "notSaved": "未保存"
   },
   "marks": {
     "markSelection": "标记",
@@ -218,7 +225,6 @@
     "toolFailed": "失败",
     "usageFinalTools": "最后一步工具",
     "usageProviderMeta": "提供商元数据",
-    "configureApiCta": "配置 AI",
     "retry": "重试",
     "dismissError": "关闭",
     "pagesRead": "读过",
@@ -245,7 +251,8 @@
     "activityReviseFinding": "修正一条结论…",
     "timedOut": "模型长时间没有响应，本次运行已停止。请重试；如果反复出现，可以换一个服务商。",
     "export": "导出…",
-    "moreActions": "此回答的更多操作"
+    "moreActions": "此回答的更多操作",
+    "placeholderNoKey": "向文档提问——连接 AI 后发出…"
   },
   "empty": {
     "agentLead": "配置 AI 后即可分析文档",
@@ -256,7 +263,12 @@
     "example2": "文中有哪些日期？",
     "example3": "关键术语有哪些？",
     "exampleWholeDoc": "总结全部 {{count}} 页",
-    "exampleThisPage": "第 {{page}} 页讲了什么？"
+    "exampleThisPage": "第 {{page}} 页讲了什么？",
+    "connectLead": "连接 AI 后即可就这份文档提问",
+    "worksWithoutAi": "阅读、搜索、识别扫描页现在就能用，都在本机完成，不需要 AI。",
+    "connectAi": "连接 AI",
+    "whatIsSent": "提问时，助手读到的页面会发送给你选择的服务商。",
+    "questionQueued": "你的问题已保留，连接 AI 后会自动发出。"
   },
   "settings": {
     "title": "设置",
@@ -392,7 +404,6 @@
     "opened": "已打开 {{name}}",
     "reindexStarted": "正在重新索引（vision 最多重扫 {{pages}} 页，其余页保留 PDF 文本）…",
     "reindexNothingToDo": "无需重新索引 —— 设置中已关闭自动页面扫描",
-    "chatSaveFailed": "切换文档前无法保存聊天记录",
     "dismiss": "关闭",
     "copyFailed": "复制失败 — 剪贴板不可用",
     "scanAllNone": "所有页面均已有文字",
@@ -406,10 +417,20 @@
     "reportExported": "报告已导出",
     "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖",
     "storeNewer": "{{file}} 由更新版本的 PageWise 保存 —— 已保持原样，在此做的改动不会保存，请更新应用",
-    "storeFull": "{{file}} 已满 —— 这次改动没有保存；删除不再需要的条目以腾出空间"
+    "storeFull": "{{file}} 已满 —— 这次改动没有保存；删除不再需要的条目以腾出空间",
+    "writeFailed": {
+      "conversation": "对话未能保存 —— 内容仍在此处，下次保存时会再试",
+      "annotations": "标记未能保存 —— 已保留在此处，PageWise 会再试",
+      "findings": "记录未能保存 —— 已保留在此处，PageWise 会再试"
+    }
   },
   "errors": {
-    "unsupportedFile": "不支持的文件类型，请使用 PDF 或图片。",
+    "unsupportedFile": "PageWise 打不开这种文件。请打开 PDF，或 PNG、JPEG、WebP、GIF、BMP 图片；其他文件（Word 文档、HEIC 照片）请先转成 PDF 或 JPEG。",
+    "unsupportedDropped": "PageWise 打不开「{{name}}」。请拖入 PDF，或 PNG、JPEG、WebP、GIF、BMP 图片；其他文件（Word 文档、HEIC 照片）请先转成 PDF 或 JPEG。",
+    "pdfEncrypted": "这个 PDF 设了打开密码，PageWise 暂时打不开加密的 PDF。请先去掉密码（例如用别的阅读器打开后「打印为 PDF」），再打开新生成的文件。",
+    "pdfDamaged": "这个 PDF 已损坏或不完整，无法读取。如果是下载的，请重新下载；否则可以用别的阅读器打开，再「打印为 PDF」成一个新文件。",
+    "fileTooLarge": "这个文件有 {{size}}，PageWise 最大只能打开 {{max}}。请把它拆成几个较小的 PDF（大多数 PDF 工具都能提取页面范围），再打开其中一份。",
+    "fileTooLargeUnknown": "这个文件超出了 PageWise 能打开的大小。请把它拆成几个较小的 PDF（大多数 PDF 工具都能提取页面范围），再打开其中一份。",
     "saveFailed": "保存失败"
   },
   "library": {
@@ -481,7 +502,15 @@
       "noQuote": "{{count}} 句无引文",
       "unchecked": "{{count}} 句未核对"
     },
-    "tallyChecking": "{{count}} 句正在核对"
+    "tallyChecking": "{{count}} 句正在核对",
+    "popover": {
+      "label": "这条引文为什么被标出",
+      "quoted": "标注出自第 {{pages}} 页",
+      "search": "在文档里搜这段话",
+      "ask": "让助手重新引用",
+      "open": "仍然打开这一页",
+      "askPrompt": "你为「{{claim}}」引用的第 {{pages}} 页的文字，不在那一页的文本里。请找到支持这句话的原文，按原文逐字重新引用。"
+    }
   },
   "table": {
     "export": "导出表格为 CSV（含出处）",
