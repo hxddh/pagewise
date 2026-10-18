@@ -130,13 +130,15 @@ jobs:
           REPEAT: ${{ inputs.repeat }}
           DOCS: ${{ inputs.docs }}
           LIMIT: ${{ inputs.limit }}
+        # The key assignments are unquoted on purpose: an assignment is not
+        # word-split, and `check:secrets` reads a quoted `KEY="…"` as a literal.
         run: |
           if [ -n "$FALLBACK_KEY" ]; then
-            export PW_EVAL_API_KEY="$FALLBACK_KEY"
+            export PW_EVAL_API_KEY=$FALLBACK_KEY
             export PW_EVAL_BASE_URL="${FALLBACK_BASE_URL:-https://api.openai.com/v1}"
             echo "provider: the PW_EVAL_API_KEY secret"
           else
-            export PW_EVAL_API_KEY="$GITHUB_MODELS_TOKEN"
+            export PW_EVAL_API_KEY=$GITHUB_MODELS_TOKEN
             export PW_EVAL_BASE_URL="https://models.github.ai/inference"
             echo "provider: GitHub Models"
           fi
