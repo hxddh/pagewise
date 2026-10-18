@@ -120,6 +120,18 @@ function writeChat(path: string, messages: UIMessage[], identity?: string): Prom
 }
 
 export async function clearChat(path: string): Promise<void> {
+  // A clear is a write of the conversation too: after a failed autosave, a
+  // clear that lands is what clears "Not saved", and one that fails says so.
+  try {
+    await removeChat(path);
+  } catch (err) {
+    reportWriteFailed("conversation");
+    throw err;
+  }
+  reportWriteSucceeded("conversation");
+}
+
+function removeChat(path: string): Promise<void> {
   return runtime.withStoreLock(async () => {
     const store = await runtime.store();
     await store.delete(chatKey(path));

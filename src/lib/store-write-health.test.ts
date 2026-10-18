@@ -21,7 +21,7 @@ vi.mock("./persist-messages", () => ({
   prepareMessagesForPersist: (m: unknown) => m,
 }));
 
-const { saveChat } = await import("../chat/persist");
+const { clearChat, saveChat } = await import("../chat/persist");
 
 /** The disk, in memory: writes can be made to fail, as a full disk does. */
 const disk = useMemoryStoreBackend();
@@ -88,6 +88,16 @@ describe("conversation saves (24.0)", () => {
     await saveChat(PATH, messages);
     expect(unsavedWrites()).toEqual([]);
     expect(changes[changes.length - 1]).toEqual({ kind: "conversation", failed: false });
+  });
+
+  it("a clear that lands after a failed save clears the indicator, and a failing one says so", async () => {
+    disk.failWrites();
+    await expect(saveChat(PATH, messages)).rejects.toThrow();
+    await expect(clearChat(PATH)).rejects.toThrow();
+    expect(toasts()).toEqual(["conversation"]);
+    disk.allowWrites();
+    await clearChat(PATH);
+    expect(unsavedWrites()).toEqual([]);
   });
 });
 
