@@ -161,6 +161,10 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, files: seedFil
       switch (cmd) {
         case "open_document_cmd":
           return doc;
+        case "document_kind_cmd":
+          // 24.0: the shell decides PDF or image from the file's first bytes;
+          // the harness only ever serves a PDF.
+          return "pdf";
         case "page_text_items_cmd": {
           /*
            * Real text runs, so a located finding is exercised rather than
