@@ -15,6 +15,11 @@ mod inspect;
 #[path = "../../../src-tauri/src/annotate.rs"]
 mod annotate;
 
+// `inspect` codes its refusals through this (24.0).
+#[allow(dead_code)]
+#[path = "../../../src-tauri/src/doc_check.rs"]
+mod doc_check;
+
 use serde::Serialize;
 
 #[derive(Serialize)]
