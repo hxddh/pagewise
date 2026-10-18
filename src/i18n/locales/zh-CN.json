@@ -497,7 +497,15 @@
       "noQuote": "{{count}} 句无引文",
       "unchecked": "{{count}} 句未核对"
     },
-    "tallyChecking": "{{count}} 句正在核对"
+    "tallyChecking": "{{count}} 句正在核对",
+    "popover": {
+      "label": "这条引文为什么被标出",
+      "quoted": "标注出自第 {{pages}} 页",
+      "search": "在文档里搜这段话",
+      "ask": "让助手重新引用",
+      "open": "仍然打开这一页",
+      "askPrompt": "你为「{{claim}}」引用的第 {{pages}} 页的文字，不在那一页的文本里。请找到支持这句话的原文，按原文逐字重新引用。"
+    }
   },
   "table": {
     "export": "导出表格为 CSV（含出处）",

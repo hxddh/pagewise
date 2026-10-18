@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Markdown, PageRefContext } from "./Markdown";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("../i18n", () => ({ useI18n: () => ({ t: (k: string) => k }) }));
 
 afterEach(cleanup);
 
@@ -54,5 +55,25 @@ describe("page citations", () => {
   it("still opens an ordinary external link", () => {
     const container = markdown("[docs](https://example.com/docs)");
     expect(container.querySelector("a")?.getAttribute("href")).toBe("https://example.com/docs");
+  });
+});
+
+/**
+ * The sentence a citation supports is its own span, right before the chip, so
+ * a red chip's sentence can be drawn in doubt (24.0) — the stylesheet's
+ * `.cite-claim:has(+ .cite-level-notFound)`, which needs exactly this shape.
+ */
+describe("the sentence before a citation (24.0)", () => {
+  it("wraps the sentence the marker closes, not the one before it", () => {
+    const container = markdown('Sales were flat. Revenue fell 5% 〔p2 "Revenue fell"〕 and then recovered.');
+    const claim = container.querySelector(".cite-claim");
+    expect(claim?.textContent).toBe("Revenue fell 5%");
+    expect(claim?.nextElementSibling?.classList.contains("cite")).toBe(true);
+    expect(container.textContent).toContain("Sales were flat. Revenue fell 5%");
+  });
+
+  it("keeps the sentence's own full stop inside the span", () => {
+    const container = markdown('收入下降了。〔p3 "收入下降"〕');
+    expect(container.querySelector(".cite-claim")?.textContent).toBe("收入下降了。");
   });
 });

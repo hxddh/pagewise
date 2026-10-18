@@ -6,7 +6,7 @@ import { searchMessages } from "../lib/conversation-search";
 import { useSearchScope } from "./SearchScope";
 import { docCache } from "../lib/doc-cache";
 import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
-import { OPEN_DOC_SEARCH_EVENT } from "../lib/events";
+import { OPEN_DOC_SEARCH_EVENT, type OpenDocSearchDetail } from "../lib/events";
 import type { LoadedDocument } from "../lib/types";
 import { isOverlayOpen } from "../lib/overlay-state";
 import { Button } from "./ui/Button";
@@ -99,7 +99,13 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
   }, [open]);
 
   useEffect(() => {
-    const onOpen = () => setOpen(true);
+    const onOpen = (e: Event) => {
+      // A request may carry the words to look for (24.0): a red citation
+      // chip opens the search on its own quote.
+      const query = (e as CustomEvent<OpenDocSearchDetail | null>).detail?.query;
+      if (query) setQuery(query);
+      setOpen(true);
+    };
     window.addEventListener(OPEN_DOC_SEARCH_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_DOC_SEARCH_EVENT, onOpen);
   }, []);

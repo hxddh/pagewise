@@ -497,7 +497,15 @@
       "noQuote": "{{count}} no quote",
       "unchecked": "{{count}} not checked"
     },
-    "tallyChecking": "{{count}} checking"
+    "tallyChecking": "{{count}} checking",
+    "popover": {
+      "label": "Why this citation is flagged",
+      "quoted": "Quoted as from page {{pages}}",
+      "search": "Search the document for this text",
+      "ask": "Ask the assistant to cite again",
+      "open": "Open the page anyway",
+      "askPrompt": "The words you quoted from page {{pages}} for “{{claim}}” are not in that page's text. Find the passage that supports it and cite it again with its exact wording."
+    }
   },
   "table": {
     "export": "Export table as CSV, with sources",

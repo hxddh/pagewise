@@ -123,6 +123,14 @@ button.pages-read-chip:hover
 .cite-level-check::after
 .cite-level-notFound::after
 .cite-pending
+.cite-claim:has(+ .cite-level-notFound)
+.cite-popover
+.cite-popover-body
+.cite-popover-body p
+.cite-popover-verdict
+.cite-popover-quote
+.cite-popover-page
+.cite-popover-actions
 .cite-inert
 .citation-tally
 .citation-tally-verified

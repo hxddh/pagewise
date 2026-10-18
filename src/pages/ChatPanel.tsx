@@ -12,6 +12,7 @@ import { useConversationKeys } from "../hooks/useConversationKeys";
 import { PageRefContext } from "../components/Markdown";
 import { CitationContext, type CitationEnv } from "../components/CitationChip";
 import type { PdfRect } from "../lib/types";
+import { requestOpenDocSearch } from "../lib/events";
 import { RecordPanel } from "../components/RecordPanel";
 import { findingsAreStale } from "../lib/finding-store";
 import { ChatEmptyState } from "../components/EmptyState";
@@ -113,9 +114,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               if (reveal.onRevealCitation) reveal.onRevealCitation(target, rects, notice);
               else reveal.onJumpToPage?.(target);
             },
+            // A red chip's next steps (24.0): look for the words elsewhere in
+            // the document, or put a request to cite again in the composer.
+            // The request is not sent — it costs a call, and the reader may
+            // want to word it differently — so it waits for Enter.
+            onSearch: (text) => requestOpenDocSearch(text),
+            onAsk: (text) => {
+              onComposerDraftChange(text);
+              requestAnimationFrame(() => focusComposerInput(composerRef.current));
+            },
           }
         : null,
-    [doc?.path, doc?.totalPages, reveal.onRevealCitation, reveal.onJumpToPage],
+    [doc?.path, doc?.totalPages, reveal.onRevealCitation, reveal.onJumpToPage, onComposerDraftChange],
   );
   // Keyed by path: dismissing the scan offer must not hide it for the next doc.
   const [scanHintDismissed, setScanHintDismissed] = useState<string | null>(null);

@@ -118,6 +118,12 @@ export function AnchoredMenu({
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
+            // An item that sent the reader somewhere else — the search field,
+            // the composer (24.0, the citation popover) — has already moved
+            // focus there; pulling it back to the trigger would undo that.
+            const active = document.activeElement;
+            const movedAway = active && active !== document.body && !menuRef.current?.contains(active);
+            if (movedAway && active !== restoreFocusRef.current) return;
             restoreFocusRef.current?.focus?.();
           }}
           onInteractOutside={(event) => {

@@ -101,3 +101,15 @@ describe("DocumentSearch — one search, two sections (⌘F)", () => {
     expect(view.getAllByText("preview.noMatches")).toHaveLength(2);
   });
 });
+
+describe("opened with words to look for (24.0)", () => {
+  it("opens holding the query a red citation chip sent", async () => {
+    docCache.set(doc);
+    const { view } = setup();
+    const { requestOpenDocSearch } = await import("../lib/events");
+    requestOpenDocSearch("alpha beta");
+    const input = (await view.findByPlaceholderText("preview.searchPlaceholder")) as HTMLInputElement;
+    expect(input.value).toBe("alpha beta");
+    await vi.waitFor(() => expect(view.getByText("preview.pageHit")).toBeTruthy());
+  });
+});
