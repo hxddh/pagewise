@@ -78,7 +78,7 @@ export function searchSeed(quote: string): string {
  */
 export function CitationChip({ link, children }: { link: CitationLink; children?: ReactNode }) {
   const env = useContext(CitationContext);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [check, setCheck] = useState<CitationCheck | null>(() => (env ? cachedCitationCheck(env.path, link) : null));
   const pagesKey = link.pages.join(",");
   // Checks forgotten — the page's words were read again (22.0): check again.
@@ -125,7 +125,7 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
   const verdict = t(longKey(status), {
     page: String(read?.page ?? link.pages[0]),
     pages,
-    numbers: (read?.unstated ?? []).join("、"),
+    numbers: (read?.unstated ?? []).join(locale === "zh-CN" ? "、" : ", "),
   });
   const reviewLine = review ? `\n${t(`cite.review.${review.verdict}`)}: ${review.reason}` : "";
   // Three levels on screen; the precise reason in the title (16.0).

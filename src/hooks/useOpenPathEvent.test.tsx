@@ -67,7 +67,7 @@ describe("useOpenPathEvent", () => {
   it("hands over the path a second launch carried", async () => {
     const onPath = vi.fn();
     render(<Harness onPath={onPath} />);
-    await waitFor(() => expect(handlers).toHaveLength(2));
+    await waitFor(() => expect(handlers).toHaveLength(3));
     expect(handlers.map((h) => h.name)).toContain(OPEN_PATH_EVENT);
 
     emit("/docs/paper.pdf");
@@ -77,7 +77,7 @@ describe("useOpenPathEvent", () => {
   it("ignores a payload that is not a usable path", async () => {
     const onPath = vi.fn();
     render(<Harness onPath={onPath} />);
-    await waitFor(() => expect(handlers).toHaveLength(2));
+    await waitFor(() => expect(handlers).toHaveLength(3));
 
     emit("");
     emit("   ");
@@ -91,9 +91,9 @@ describe("useOpenPathEvent", () => {
     // build it again on every render — and a launch landing in the gap is a
     // document that silently fails to open.
     const { rerender } = render(<Harness onPath={() => {}} />);
-    await waitFor(() => expect(handlers).toHaveLength(2));
+    await waitFor(() => expect(handlers).toHaveLength(3));
     for (let i = 0; i < 5; i += 1) rerender(<Harness onPath={() => {}} />);
-    expect(handlers).toHaveLength(2);
+    expect(handlers).toHaveLength(3);
     expect(released).toBe(0);
   });
 
@@ -103,7 +103,7 @@ describe("useOpenPathEvent", () => {
     const first = vi.fn();
     const second = vi.fn();
     const { rerender } = render(<Harness onPath={first} />);
-    await waitFor(() => expect(handlers).toHaveLength(2));
+    await waitFor(() => expect(handlers).toHaveLength(3));
     rerender(<Harness onPath={second} />);
 
     emit("/docs/paper.pdf");
@@ -121,7 +121,7 @@ describe("useOpenPathEvent", () => {
     await act(async () => {
       for (const d of deferred) d();
     });
-    expect(released).toBe(2);
+    expect(released).toBe(3);
   });
 
   it("B15: opens the file this launch was started with (16.0)", async () => {
@@ -135,7 +135,7 @@ describe("useOpenPathEvent", () => {
   it("B15: takes a file macOS hands over later", async () => {
     const onPath = vi.fn();
     render(<Harness onPath={onPath} />);
-    await waitFor(() => expect(handlers).toHaveLength(2));
+    await waitFor(() => expect(handlers).toHaveLength(3));
     pending = "/docs/opened-later.pdf";
     emit(null, OPEN_PENDING_EVENT);
     await waitFor(() => expect(onPath).toHaveBeenCalledWith("/docs/opened-later.pdf"));

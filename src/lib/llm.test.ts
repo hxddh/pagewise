@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { APICallError, StreamProviderError } from "ai";
+import { APICallError, RetryError, StreamProviderError } from "ai";
 import {
+  __clearDeepseekReasoningCacheForTests,
   formatLlmError,
   injectWebSearchPlugin,
   isImageInputError,
+  providerFetch,
   setWebSearchForRun,
   takeWebSearchInjection,
   validateModel,
@@ -272,5 +274,101 @@ describe("takeWebSearchInjection", () => {
     setWebSearchForRun(false);
     setAgentRunAbortSignal(new AbortController().signal);
     expect(takeWebSearchInjection(streamedBody)).toBeNull(); // no opt-in
+  });
+});
+
+describe("RetryError unwrapping & providerFetch protocol fixes (v25)", () => {
+  afterEach(() => {
+    __clearDeepseekReasoningCacheForTests();
+  });
+
+  it("preserves statusCode and url when AI SDK wraps APICallError in RetryError", () => {
+    const inner = new APICallError({
+      message: "Too Many Requests",
+      url: "https://api.openai.com/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseHeaders: {},
+      responseBody: JSON.stringify({
+        error: { message: "Quota exceeded", code: "insufficient_quota" },
+      }),
+      isRetryable: true,
+    });
+    const retry = new RetryError({
+      message: "Failed after 3 attempts",
+      reason: "maxRetriesExceeded",
+      errors: [inner],
+    });
+    expect(formatLlmError(retry)).toContain("top up your balance at OpenAI");
+  });
+
+  it("classifies 502 Bad Gateway HTML/connection-refused as provider overloaded, never local network down", () => {
+    const err = new APICallError({
+      message: "Bad Gateway",
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode: 502,
+      responseHeaders: {},
+      responseBody: "<html><body>502 Bad Gateway: upstream connection refused</body></html>",
+      isRetryable: true,
+    });
+    const msg = formatLlmError(err);
+    expect(msg).toMatch(/overloaded/i);
+    expect(msg).not.toMatch(/check your connection/i);
+  });
+
+  it("injects num_ctx: 32768 for Ollama and preserves DeepSeek reasoning_content across tool steps", async () => {
+    const originalFetch = globalThis.fetch;
+    const seenBodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = (async (_input, init) => {
+      if (typeof init?.body === "string") seenBodies.push(JSON.parse(init.body));
+      const sse = [
+        'data: {"choices":[{"delta":{"reasoning_content":"step-1 chain","tool_calls":[{"id":"call_42"}]}}]}\n\n',
+        "data: [DONE]\n\n",
+      ].join("");
+      return new Response(sse, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const ollamaFetch = providerFetch({
+        provider: "ollama",
+        apiKey: "",
+        model: "qwen3:8b",
+      })!;
+      await ollamaFetch("http://localhost:11434/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "qwen3:8b", messages: [] }),
+      });
+      expect(seenBodies[0]?.options).toEqual({ num_ctx: 32_768 });
+
+      const dsFetch = providerFetch({
+        provider: "deepseek",
+        apiKey: "sk-ds",
+        model: "deepseek-v4-pro",
+        thinkingEnabled: true,
+      })!;
+      const res1 = await dsFetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "deepseek-v4-pro", messages: [] }),
+      });
+      await res1.text(); // drain SSE tap
+
+      await dsFetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "deepseek-v4-pro",
+          messages: [
+            { role: "assistant", content: "", tool_calls: [{ id: "call_42", type: "function" }] },
+          ],
+        }),
+      });
+      const sentMessages = seenBodies[2]?.messages as Array<Record<string, unknown>>;
+      expect(sentMessages[0]?.reasoning_content).toBe("step-1 chain");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

@@ -67,12 +67,10 @@ export function createReadPdfPageTool(
           const page = label ? (pageForLabel(doc.pageLabels ?? null, label) ?? askedPage) : askedPage;
           R.assertPageInBounds(doc, page);
 
-          // Already handed over whole in this run. Answered before R.readPageText
-          // so the repeat costs neither the page's tokens nor — for a page with
-          // no text layer — a second billed vision call.
           if (offset === 0 && R.alreadyDelivered(budget, path, page)) {
             return {
               page,
+              ...(R.printedLabel(doc, page) ? { printedAs: R.printedLabel(doc, page) } : {}),
               text: R.ALREADY_READ_NOTE,
               truncated: false,
               nextOffset: null,
@@ -81,7 +79,8 @@ export function createReadPdfPageTool(
             };
           }
 
-          if (budget.used >= budget.max) {
+          const freeReread = offset === 0 && R.isFreeReread(budget, path, page);
+          if (!freeReread && budget.used >= budget.max) {
             return {
               page,
               text: "",
@@ -111,9 +110,6 @@ export function createReadPdfPageTool(
               note: R.SCAN_LIMIT_NOTE,
             };
           }
-          // An index FAILURE (missing key / vision error / timeout) is not an
-          // empty page — tell the model so it doesn't conclude "no content" or
-          // waste steps re-reading (each retry re-triggers a billed vision call).
           if (!text && indexFailure) {
             return {
               page,
@@ -138,15 +134,15 @@ export function createReadPdfPageTool(
             };
           }
           const from = Math.min(offset, text.length);
-          const room = Math.min(maxChars, R.affordableChars(text.slice(from), budget));
+          const room = freeReread
+            ? maxChars
+            : Math.min(maxChars, R.affordableChars(text.slice(from), budget));
           const slice = text.slice(from, from + room);
-          chargeBudget(runGen, R.estimateTokens(slice));
+          if (!freeReread) chargeBudget(runGen, R.estimateTokens(slice));
 
           const consumedEnd = from + slice.length;
           const truncated = consumedEnd < text.length;
-          const limitedByBudget = truncated && budget.used >= budget.max;
-          // A whole page, read from the start: the next request for it is a
-          // repeat. A truncated read is deliberately not recorded.
+          const limitedByBudget = !freeReread && truncated && budget.used >= budget.max;
           if (offset === 0 && !truncated) R.markDelivered(budget, path, page, runGen);
 
           return {

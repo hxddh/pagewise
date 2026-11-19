@@ -40,6 +40,10 @@ const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif", 
 #[cfg(not(target_os = "macos"))]
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif"];
 
+/// Built-in 2-page bilingual sample brief embedded into the binary (~48 KB).
+const SAMPLE_PDF: &[u8] = include_bytes!("../resources/sample.pdf");
+const SAMPLE_FILE_NAME: &str = "PageWise-Sample-Brief.pdf";
+
 /// The documents granted in earlier sessions. Not `.json`: no store command
 /// accepts the name, so the webview can neither read nor write it.
 const LIST_FILE: &str = "granted-documents.list";
@@ -106,17 +110,12 @@ fn has_document_extension(path: &Path) -> bool {
 
 /// Grant reading one document file, and keep it for the next session.
 ///
-/// Refuses anything that is not an existing file whose content is a document:
-/// a grant is for the document the reader chose, never for a folder. The
-/// refusal is coded (24.0) so the open dialog can say why.
+/// Refuses anything that is not an existing file within the size cap whose
+/// content is a document: a grant is for the document the reader chose, never
+/// for a folder. The refusal is coded (24.0) so the open dialog can say why.
 pub fn grant_document(app: &AppHandle, path: &Path) -> Result<PathBuf, String> {
     let canon = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {e}"))?;
-    if !is_document(&canon) {
-        return Err(crate::doc_check::coded(
-            crate::doc_check::UNSUPPORTED_TYPE,
-            "not a document",
-        ));
-    }
+    crate::doc_check::check_document(&canon)?;
     grant_file_in_session(app, &canon)?;
     persist(app, &canon);
     Ok(canon)
@@ -198,6 +197,16 @@ fn persist(app: &AppHandle, canon: &Path) {
 /// That file was writable from the webview, but everything in it was already
 /// granted by 20.0 at every launch: importing it once grants nothing 20.0 did
 /// not, and nothing written to it afterwards is ever read again.
+/// Whether `query` matches a remembered grant in `list` (comparing both raw
+/// paths and `for_front_end` forms so Windows `\\?\` verbatim prefixes match).
+fn persisted_contains(list: &[PathBuf], query: &Path) -> bool {
+    let front = for_front_end(query);
+    list.iter().any(|p| p == query || for_front_end(p) == front)
+}
+
+/// Read back what earlier sessions granted, without blocking startup on slow or
+/// offline mounts, and without erasing offline USB/NAS entries or content-validated
+/// documents with non-standard extensions from disk.
 pub fn restore(app: &AppHandle) {
     let Some(file) = list_path(app) else {
         return;
@@ -206,36 +215,48 @@ pub fn restore(app: &AppHandle) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
         Err(_) => legacy_documents(app),
     };
-    let mut kept = Vec::new();
-    for path in stored {
-        let Ok(canon) = std::fs::canonicalize(&path) else {
-            continue;
+    {
+        let state = app.state::<AllowedPaths>();
+        if let Ok(mut list) = state.persisted.lock() {
+            let merged = merge_persisted(stored.clone(), &list);
+            if let Ok(json) = serde_json::to_vec(&merged) {
+                let _ = crate::store_io::write_atomic(&file, &json);
+            }
+            *list = merged;
+            state.restored.store(true, Ordering::SeqCst);
         };
-        // A grant from an earlier session is kept by its extension first
-        // (24.0): reading the head of every remembered file at launch would
-        // be slow on a network share, and a file unreadable for a moment
-        // would lose its grant — and the front end its recent entry and chat.
-        // Whether it opens is decided by its content when it is opened.
-        let known = canon.is_file() && (has_document_extension(&canon) || is_document(&canon));
-        if !known || kept.contains(&canon) {
-            continue;
-        }
-        if grant_file_in_session(app, &canon).is_ok() {
-            kept.push(canon);
-        }
     }
-    let state = app.state::<AllowedPaths>();
-    let Ok(mut list) = state.persisted.lock() else {
-        return;
-    };
-    // Documents granted before this ran (an `Opened` event at launch) are the
-    // newest, so they go last; then the cap.
-    let merged = merge_persisted(kept, &list);
-    if let Ok(json) = serde_json::to_vec(&merged) {
-        let _ = crate::store_io::write_atomic(&file, &json);
-    }
-    *list = merged;
-    state.restored.store(true, Ordering::SeqCst);
+
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut invalid: Vec<PathBuf> = Vec::new();
+        for path in stored {
+            let Ok(canon) = std::fs::canonicalize(&path) else {
+                // Unplugged external drive or temporarily unmounted share:
+                // keep the entry in `persisted` so it re-grants when reconnected.
+                continue;
+            };
+            let known = canon.is_file() && (has_document_extension(&canon) || is_document(&canon));
+            if known {
+                let _ = grant_file_in_session(&handle, &canon);
+            } else {
+                invalid.push(path);
+                invalid.push(canon);
+            }
+        }
+        if !invalid.is_empty() {
+            let state = handle.state::<AllowedPaths>();
+            if let Ok(mut list) = state.persisted.lock() {
+                let before = list.len();
+                list.retain(|p| !invalid.iter().any(|bad| bad == p));
+                if list.len() != before {
+                    if let Ok(json) = serde_json::to_vec(&*list) {
+                        let _ = crate::store_io::write_atomic(&file, &json);
+                    }
+                }
+            };
+        }
+    });
 }
 
 /// The list `restore` writes: what was on disk and still exists, then what was
@@ -338,15 +359,94 @@ pub async fn pick_save_path(
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
-/// Whether a document may be opened — granted this session or an earlier one.
-/// The front end asks before it opens a path it got from its own state (a
-/// recent file), so a refusal is a clear message rather than a read error.
-#[tauri::command]
-pub fn path_granted(path: String, app: AppHandle) -> Result<bool, String> {
-    let Ok(canon) = std::fs::canonicalize(&path) else {
-        return Ok(false);
+fn try_regrant_remembered(app: &AppHandle, raw: &Path, canon: &Path) -> bool {
+    let remembered = {
+        let state = app.state::<AllowedPaths>();
+        let Ok(list) = state.persisted.lock() else {
+            return false;
+        };
+        persisted_contains(&list, canon) || persisted_contains(&list, raw)
     };
-    app.state::<AllowedPaths>().can_read(&canon)
+    if !remembered || !canon.is_file() {
+        return false;
+    }
+    if !(has_document_extension(canon) || is_document(canon)) {
+        return false;
+    }
+    grant_file_in_session(app, canon).is_ok()
+}
+
+/// Whether a document may be opened — granted this session or an earlier one.
+/// Runs off the main thread so a slow network share cannot stall the window,
+/// and re-grants a remembered file whose external drive was plugged back in.
+#[tauri::command]
+pub async fn path_granted(path: String, app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let raw = PathBuf::from(&path);
+        let Ok(canon) = std::fs::canonicalize(&raw) else {
+            return Ok(false);
+        };
+        if app.state::<AllowedPaths>().can_read(&canon)? {
+            return Ok(true);
+        }
+        Ok(try_regrant_remembered(&app, &raw, &canon))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
+}
+
+/// Classify recent paths into `"granted"`, `"offline"` (remembered in
+/// `granted-documents.list`, currently unreachable on disk), or `"denied"`.
+#[tauri::command]
+pub async fn check_recent_paths(paths: Vec<String>, app: AppHandle) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = Vec::with_capacity(paths.len());
+        for p in paths {
+            let raw = PathBuf::from(&p);
+            if let Ok(canon) = std::fs::canonicalize(&raw) {
+                let granted = app.state::<AllowedPaths>().can_read(&canon).unwrap_or(false)
+                    || try_regrant_remembered(&app, &raw, &canon);
+                out.push(if granted { "granted".into() } else { "denied".into() });
+            } else {
+                let remembered = app
+                    .state::<AllowedPaths>()
+                    .persisted
+                    .lock()
+                    .map(|list| persisted_contains(&list, &raw))
+                    .unwrap_or(false);
+                out.push(if remembered { "offline".into() } else { "denied".into() });
+            }
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
+}
+
+/// Materialize the built-in 2-page sample PDF into the app data directory,
+/// grant it in Rust, and return its path. Takes no path from the webview.
+#[tauri::command]
+pub async fn open_sample_document(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("App data dir unavailable: {e}"))?;
+        std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to prepare sample dir: {e}"))?;
+        let sample_path = dir.join(SAMPLE_FILE_NAME);
+        let needs_write = match std::fs::metadata(&sample_path) {
+            Ok(meta) => meta.len() != SAMPLE_PDF.len() as u64,
+            Err(_) => true,
+        };
+        if needs_write {
+            crate::store_io::write_atomic(&sample_path, SAMPLE_PDF)
+                .map_err(|e| format!("Failed to write sample PDF: {e}"))?;
+        }
+        let canon = grant_document(&app, &sample_path)?;
+        Ok(for_front_end(&canon))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
 }
 
 /// A drop on the window: grant each document dropped, then tell the front end

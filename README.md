@@ -1,35 +1,34 @@
 # PageWise
 
-Local desktop document agent for **PDF text extraction**, **local OCR of scanned pages**, and **page-wise AI analysis**.
+A local-first desktop PDF reader where **every AI answer cites the exact page and verbatim passage it rests on — and verifies both on your machine**.
 
-Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev). Documents are processed on your machine; only extracted text (and optional vision payloads) are sent to the LLM you configure.
+Built with **Tauri 2**, **React 19**, and the [Vercel AI SDK](https://ai-sdk.dev). Reading, instant full-text search (`⌘F`), highlights, margin notes, and scanned-page OCR work offline out of the box with no account and no API key. When you connect an LLM, only the pages the assistant reads are sent to the provider you choose.
 
-## Features
+## Download
 
-- **Documents** — Open PDFs and images via file picker or drag & drop
-- **Preview** — Page navigation, thumbnails, zoom (⌘+ / ⌘− / ⌘0), in-document search (⌘F), and `j`/`k` to scroll a screenful at a time
-- **Indexing** — PDF text layer; scanned pages are read on your machine (English and Simplified Chinese), with a vision model as an optional fallback for pages that do not read well
-- **Agent** — Streaming chat with tool calls (`document_outline`, `read_pdf_page`, `search_in_document`, …)
-- **Checked citations** — Every fact in an answer cites its page and the words it rests on; PageWise looks the words up on that page and shows whether they are there. Click a citation to see the passage lit on the page — on scanned pages too (prose; a quote from a scanned table or two-column scan is often *unconfirmed*, see [eval/README.md](eval/README.md)). A found quote under a sentence whose number the passage does not state is flagged, and your model can be asked, on demand, whether each passage supports its sentence
-- **Marks** — Highlight a passage, add a note; kept per document, visible to the agent, and included in the Markdown export
-- **Record** — What the assistant establishes and what you keep from its answers, each with the pages it came from, the wording it rests on, and one of three levels (*verified*, *check the page*, *not found*) that the panel, the model and the export all read
-- **Reading** — The answer column is a reading column: resizable, headings that step, ruled tables, and the tool steps below the answer where provenance belongs. A **paper** theme (warm page, warm chrome), a reading text scale, and **Zen** (⌘⇧F): the rail, the toolbar and the panel leave, and the page, a progress hairline and one "Ask" pill stay
-- **Export** — One dialog, three things: **Report** (the record and your marks, with the document's text on request), **PDF with evidence**, and **Conversation**
-- **Evidence in the PDF** — Export a copy of the document with located findings and your marks written in as standard highlights and notes, readable in any PDF reader
-- **Cited tables** — Ask for a list or comparison and get a table with a checked citation in every cell; export it as CSV with each row's sources and whether they were found
-- **Chat** — One thread per document, persisted locally; a renamed or moved file finds its own chat, marks and record by content fingerprint
-- **Library** — Recent files, each reopening at the page you left and saying how much of the record is waiting on you
-- **Providers** — OpenAI, DeepSeek, OpenRouter, Ollama, or any OpenAI-compatible endpoint. First run is one page: a provider, a key, and **Start reading** — the model is chosen from the provider's own presets and everything expert stays behind Advanced
-- **Cost, visible** — One line under every answer: pages read, steps, tokens in and out, cache hits, scan calls (turn it off in Settings → Assistant). The system prompt and tool definitions are budgeted by a test, and the read budget is charged in tokens, not characters, so a Chinese document costs what an English one does
-- **Material** — On macOS and Windows the window sits on real material (vibrancy, Mica) with a theme-matched background; where there is no equivalent, every surface stays opaque
-- **Security** — API keys stored in the **OS keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service)
-- **i18n** — English and 简体中文
+Installers for every release are published on [GitHub Releases](https://github.com/hxddh/pagewise/releases):
 
-## Prerequisites
+| Platform | Asset |
+|---|---|
+| macOS (Apple Silicon & Intel) | `PageWise_<version>_universal.dmg` |
+| Windows (x86-64) | `PageWise_<version>_x64-setup.exe` or `PageWise_<version>_x64_en-US.msi` |
+| Linux (x86-64) | `pagewise_<version>_amd64.AppImage` or `.deb` |
+
+## Highlights
+
+- **First a reader, instant on open** — Smooth virtualized scrolling, printed page labels (`iv`, `A-3`), internal GoTo links with a one-click *Back* jump, non-blocking search (`⌘F`) with match stepping (`Enter` / `⇧Enter` / `⌘G`) and BM25 related-page fallback, plus a built-in **2-page sample document** on the welcome screen so you can try everything in ten seconds.
+- **Scanned pages you can select, search, and cite** — Local OCR (English and Simplified Chinese, auto-detected per document) populates a positioned text layer over scanned pages so you can drag-select text, highlight passages, search, and verify citations without spending a cloud call.
+- **The Living Margin** — Close the assistant column (or enter **Zen**, `⌘⇧F`) and keep asking from the compact floating bar: answers stream directly into cards anchored beside the passages they cite in the page's outer margin, with colour-coded verification ties. Click any margin card to read the full sentence, quote, or edit a mark's note in place without covering the page.
+- **Checked citations & numbers** — Every factual sentence cites its page and verbatim wording (`〔p12 "…"〕`). PageWise locates those words on the page — handling Markdown formatting, ligatures, hyphenated line breaks, and `…` elisions — and flags sentences that state a number, percentage, currency, or negative delta (`−12.5%`) absent from the cited passage. Structural headings and short lead-ins are excluded from the sentence tally so structured answers are never penalized.
+- **Marks, Regions & the Record** — Highlight text or drag a region box (`[Ask about this] [Mark]`), attach notes right in the margin, and keep verified conclusions in the **Record** ledger — persisted locally and carried across file renames/moves by content fingerprint.
+- **Three clean exports** — **Report (`.md`)** with findings, trust status, and marks; **PDF with evidence** writing highlights and pop-up notes directly into a standard PDF copy; and **Conversation (`.md`)** (plus **CSV with sources** under any cited table).
+- **Providers & privacy** — First-run setup is a 2×2 grid (**OpenAI**, **DeepSeek**, **OpenRouter**, **Ollama (local)**) plus custom OpenAI-compatible endpoints, verified before saving. API keys live in the **OS Keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service). Zero telemetry; update checks in **Settings → About** run only when clicked.
+
+## Prerequisites (building from source)
 
 | Requirement | Notes |
 |-------------|-------|
-| [Node.js](https://nodejs.org/) 22+ | For frontend build |
+| [Node.js](https://nodejs.org/) 22+ | Frontend & tooling |
 | [Rust](https://www.rust-lang.org/tools/install) | Tauri backend |
 
 ## Quick start
@@ -43,97 +42,48 @@ npm run tauri dev
 
 ## Configuration
 
-First run is one page: pick a provider, paste an API key (stored in the OS keychain), click **Start reading**. The model is chosen automatically from the provider's presets; the file picker opens next.
+Everything lives in one Settings drawer across three groups:
 
-Afterwards everything lives in one Settings surface, in three groups:
+- **Appearance & language** — Dark, Light, **Paper** (warm page & chrome), or System; English and 简体中文.
+- **Reading** — Reading text scale, local OCR for scanned pages, cloud scan budget (`Off` / `Auto` / `All`), follow-assistant page turning, and the extracted-text cache.
+- **Assistant** — Model preset (`Automatic` by default) and current-page screenshot toggle; **Advanced** holds provider switching, API keys, custom endpoints, scan model, extended thinking, per-answer token/cost line (off by default), and connection testing.
 
-- **Appearance & language** — dark, light, **paper**, or follow the system
-- **Reading** — text size, local OCR for scanned pages, how many pages may be read in the cloud, and the text cache
-- **Assistant** — the model (Automatic by default), the current-page screenshot toggle, the cost line — and **Advanced** for the provider, the key, the endpoint, the scan model, extended thinking and the connection test
-
-**OpenRouter:** Use a **tool-capable** model (e.g. `openai/gpt-4o-mini`) for the document agent. Some DeepSeek routes on OpenRouter do not support tool calling.
-
-**Scans:** Scanned pages are read on your machine with no key and no cost. A multimodal model (e.g. `gpt-4o-mini`, Qwen2.5-VL) is optional, for pages local recognition cannot read or reads poorly, and other languages — 20 pages of a document in the background, 10 per question, both adjustable.
-
-See [docs/SECURITY.md](docs/SECURITY.md) for how credentials are handled.
+See [docs/SECURITY.md](docs/SECURITY.md) for credential storage details.
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Vite dev server only |
-| `npm run perf` | The performance probe: four scenarios, twenty-two budgets (build first) |
-| `npm run tauri dev` | Desktop app (recommended) |
-| `npm run build` | Frontend production build |
-| `npm run tauri build` | Desktop installers for the current platform |
-| `npm test` | Unit tests (Vitest) |
-| `npm run check:secrets` | Pre-release credential scan |
-| `npm run version:sync` | Sync `VERSION` → package / Tauri / Cargo |
-| `npm run eval` | Measure citation location (text layers and scanned pages) and search on the evaluation corpus (see [eval/README.md](eval/README.md)) — needs `npm run eval:fetch` once for the pinned third-party documents |
-| `npm run ui:inventory` | With `npm run dev` running: count what a reader is shown — buttons under an answer, export entries, settings rows, citation levels, and the reading surface's width, heading step, table rules and action contrast |
-| `npm run ui:shots` | With `npm run dev` running: photograph the 13 screens a reader sees into `docs/ui-shots/` |
-| `npm run audit:claims` | With `npm run dev` running: follow a citation whose number does not hold through its chip, the model review and the next question |
-| `npm run audit:tables` | With `npm run dev` running: follow a cited table answer through its chips, the CSV export and the record |
-| `npm run audit:ocr` | After `npm run build`: open a scanned document in Chromium under the app's CSP and follow one cited answer end to end |
+| `npm run dev` | Vite dev server |
+| `npm run tauri dev` | Desktop app in development |
+| `npm run build` | Production frontend build (runs complexity budget check) |
+| `npm run tauri build` | Build platform installers |
+| `npm test` | Unit, CSS hygiene, i18n, capability, and carrier tests |
+| `npm run eval` | Offline evaluation suite: search, quote location, number verification, PDF annotations, and OCR (see [eval/README.md](eval/README.md)) |
+| `npm run perf` | Performance probe across 4 scenarios and 22 budgets |
+| `npm run ui:inventory` | Verify UI budgets, contrast, layout non-clipping, and sentence tallies against a running dev server |
+| `npm run check:secrets` | Pre-release secret scan |
+| `npm run version:sync` | Sync `VERSION` → `package.json`, Cargo, and fallback constants |
 
-## Versioning
+## macOS & Windows first launch notes
 
-The canonical version lives in [`VERSION`](VERSION). Run `npm run version:sync` after editing it, or pass an explicit version:
-
-```bash
-node scripts/sync-version.mjs 0.2.1
-```
-
-Release notes are recorded in [CHANGELOG.md](CHANGELOG.md).
-
-## Architecture
-
-```
-React UI  →  PagewiseChatTransport + ToolLoopAgent (AI SDK)
-          →  Web Worker    →  tesseract.js (local OCR of scanned pages)
-          →  Tauri invoke  →  Rust (pdf-inspector, file I/O, OCR cache, keychain)
-          →  OS Keychain   →  API keys (per provider)
-```
-
-## Install
-
-Every release on [GitHub Releases](https://github.com/hxddh/pagewise/releases) carries installers for three platforms:
-
-| Platform | Asset |
-|---|---|
-| macOS (Apple Silicon **and** Intel) | `PageWise_<version>_universal.dmg` — open it and drag PageWise to Applications |
-| Windows (x86-64) | `PageWise_<version>_x64-setup.exe` or `PageWise_<version>_x64_en-US.msi` |
-| Linux (x86-64) | `pagewise_<version>_amd64.AppImage` (`chmod +x` and run) or `.deb` |
-
-**Nothing is notarized.** The macOS bundle is *ad-hoc signed* (`signingIdentity: "-"`). That matters because an unsigned `.app` downloaded to an Apple Silicon Mac is refused as **“PageWise is damaged and can’t be opened. You should move it to the Trash.”** — no right-clicking clears that. With the signature, the refusal is the ordinary “cannot be opened” of an app macOS cannot verify.
-
-Either way the way through is one command, run once per installed version:
+The macOS universal bundle is ad-hoc signed (`signingIdentity: "-"`). If macOS Gatekeeper blocks first launch after download, run once:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/PageWise.app
 ```
 
-Then open the app normally. Nothing is wrong with the file — the quarantine attribute is what macOS adds to *any* download, and it is what makes an unnotarized app fail its check. To confirm the download itself is intact first, `codesign --verify --deep --strict /Applications/PageWise.app` should print nothing.
+Or attempt to open PageWise once, then open **System Settings → Privacy & Security** and click **Open Anyway**. On Windows SmartScreen, choose **More info → Run anyway**. See [docs/RELEASE.md](docs/RELEASE.md) for full release and signing details.
 
-Without the terminal: attempt to open the app once, then **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the blocked app. macOS 15 removed the old right-click → **Open** shortcut, and this is its replacement. If no such entry appears, the command above is the reliable path.
+## Architecture
 
-Repeat the step after installing a new version: ad-hoc signatures differ per build, so macOS treats each one as an app it has not been told about. **Notarization is what removes the step entirely** — see the release guide for what it needs.
-
-Windows SmartScreen shows a "unrecognized app" warning for the same reason; choose **More info → Run anyway**.
-
-To build locally:
-
-```bash
-npm run tauri build
-# Artifacts: src-tauri/target/release/bundle/
+```
+React 19 UI  →  PagewiseChatTransport + ToolLoopAgent (Vercel AI SDK)
+             →  Web Worker    →  tesseract.js (local OCR + positioned text layer)
+             →  Tauri invoke  →  Rust (pdf-inspector, lopdf annotations, atomic stores, grants)
+             →  OS Keychain   →  API keys (per provider)
 ```
 
-See [docs/RELEASE.md](docs/RELEASE.md) for the full release checklist.
+## Contributing & License
 
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under MIT — see [LICENSE](LICENSE).

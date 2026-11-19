@@ -8,6 +8,37 @@ import { mergePageTextsOnReload, pagesTextChanged } from "./page-text-merge";
 type DocCacheListener = (path: string) => void;
 
 const MAX_CACHED_DOCS = 1;
+const PIPE_SEP_RE = /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*(?::?-{3,}:?\s*\|?)?\s*$/;
+
+/** True when `text` contains a Markdown pipe table (header row + `| --- |` separator). */
+export function hasMarkdownTable(text: string): boolean {
+  if (!text.includes("|") || !text.includes("---")) return false;
+  const lines = text.split(/\r?\n/);
+  for (let i = 1; i < lines.length; i += 1) {
+    if (!PIPE_SEP_RE.test(lines[i]!)) continue;
+    const header = lines[i - 1]!.trim();
+    if (header.includes("|") && header.replace(/\|/g, "").trim().length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function mergeTablePages(
+  existingTablePages: readonly number[] | undefined,
+  pages: readonly PageText[],
+  dropCandidates?: ReadonlySet<number>,
+): number[] | undefined {
+  const set = new Set<number>();
+  for (const p of existingTablePages ?? []) {
+    if (!dropCandidates?.has(p)) set.add(p);
+  }
+  for (const p of pages) {
+    if (hasMarkdownTable(p.text)) set.add(p.page);
+  }
+  if (set.size === 0 && existingTablePages === undefined) return undefined;
+  return [...set].sort((a, b) => a - b);
+}
 
 class DocCache {
   private docs = new Map<string, LoadedDocument>();
@@ -19,8 +50,6 @@ class DocCache {
       if (oldest) {
         this.docs.delete(oldest);
         clearDocumentIndexState(oldest);
-        // Switching documents is the common way a session ends for the outgoing
-        // one — persist whatever its sweep had buffered before it's gone.
         void flushIndexStore();
       }
     }
@@ -32,6 +61,10 @@ class DocCache {
       if (pagesTextChanged(existing.pages, mergedPages)) {
         /* page text updated on reload */
       }
+    }
+    const tablePages = mergeTablePages(nextDoc.tablePages, nextDoc.pages);
+    if (tablePages !== undefined) {
+      nextDoc = { ...nextDoc, tablePages };
     }
     this.docs.set(doc.path, nextDoc);
     this.notify(doc.path);
@@ -76,7 +109,16 @@ class DocCache {
       : [...doc.pages, next];
     nextPages.sort((a, b) => a.page - b.page);
 
-    const nextDoc: LoadedDocument = { ...doc, pages: nextPages };
+    const drop =
+      prev && hasMarkdownTable(prev.text) && !hasMarkdownTable(merged)
+        ? new Set([page])
+        : undefined;
+    const tablePages = mergeTablePages(doc.tablePages, nextPages, drop);
+    const nextDoc: LoadedDocument = {
+      ...doc,
+      pages: nextPages,
+      ...(tablePages !== undefined ? { tablePages } : {}),
+    };
     this.docs.set(path, nextDoc);
     this.notify(path);
   }
@@ -101,6 +143,7 @@ class DocCache {
     const doc = this.docs.get(path);
     if (!doc) return;
     const pageSet = pages ? new Set(pages) : null;
+    const clearedPages = new Set<number>();
     let changed = false;
     const nextPages = doc.pages.map((p) => {
       if (pageSet && !pageSet.has(p.page)) return p;
@@ -108,10 +151,16 @@ class DocCache {
 
       if (p.text.trim().length === 0) return p;
       changed = true;
+      clearedPages.add(p.page);
       return { page: p.page, text: "", source: undefined };
     });
     if (!changed) return;
-    this.docs.set(path, { ...doc, pages: nextPages });
+    const tablePages = mergeTablePages(doc.tablePages, nextPages, clearedPages);
+    this.docs.set(path, {
+      ...doc,
+      pages: nextPages,
+      ...(tablePages !== undefined ? { tablePages } : {}),
+    });
     this.notify(path);
   }
 

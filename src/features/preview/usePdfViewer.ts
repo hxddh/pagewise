@@ -161,9 +161,12 @@ export function usePdfViewer({
   useEffect(() => {
     if (doc.kind !== "pdf") return;
     const onKey = (e: KeyboardEvent) => {
-      // Already handled — the resize handle's arrows, say — is not a page turn (B19).
       if (e.defaultPrevented) return;
       if (isTypingTarget(e.target) || isOverlayOpen()) return;
+      const inChatColumn =
+        (e.target instanceof Element && !!e.target.closest(".chat-column")) ||
+        (document.activeElement instanceof Element && !!document.activeElement.closest(".chat-column"));
+      if (inChatColumn && !(e.metaKey || e.ctrlKey)) return;
       /*
        * Zoom on the chord every reader already knows (17.0), before the
        * modifier guard below — that guard exists to keep page keys unmodified.

@@ -385,6 +385,8 @@ export async function flushFindingStore(): Promise<void> {
   await findings.flush();
 }
 
+export const flushFindings = flushFindingStore;
+
 function mutate(path: string, next: Finding[]): void {
   findings.replace(path, sortFindings(next));
   listeners.notify(path);
@@ -425,6 +427,7 @@ export function duplicateFinding(
   return (
     all.find(
       (f) =>
+        !f.struck &&
         f.claim === claim &&
         f.evidence === evidence &&
         f.pages.join(",") === pages &&
@@ -433,48 +436,63 @@ export function duplicateFinding(
   );
 }
 
-/**
- * The reader's live entries kept from one answer (24.0).
- *
- * Whether an answer has been kept is read from here, not remembered by its
- * button: the button is unmounted whenever the reader turns to another tab,
- * and the record is the only thing that knows. Matched by the answer, not the
- * claim, so an entry the reader has since reworded still counts as kept.
- */
 export function keptFromMessage(path: string, messageId: string): Finding[] {
   const all = getFindings(path);
   return all.filter(
-    (f) => f.author === "reader" && f.source?.messageId === messageId && !isSuperseded(all, f.id),
+    (f) =>
+      !f.struck &&
+      f.author === "reader" &&
+      f.source?.messageId === messageId &&
+      !isSuperseded(all, f.id),
   );
 }
 
-/**
- * Write a finding, or return null when it cannot be written.
- *
- * Null for an empty claim, for no usable pages, at the per-document cap, and
- * for an entry the record already has (24.0 — see `duplicateFinding`).
- * The pages check is the important one and it is deliberately not lenient: a
- * finding with no anchor is the failure mode this whole record has to avoid,
- * because the reader cannot get from the claim back to the text, and the agent
- * will still be told it next turn.
- */
 export function addFinding(path: string, input: NewFinding): Finding | null {
   const existing = getFindings(path);
-  if (existing.length >= MAX_FINDINGS_PER_DOC) return null;
   const claim = input.claim.trim().slice(0, MAX_CLAIM_TEXT);
   if (!claim) return null;
   const pages = normalizePages(input.pages);
   if (pages.length === 0) return null;
-  // The same entry twice is refused (24.0). Keep was once guarded only by the
-  // button's own state, which a tab switch forgot, so a second press wrote a
-  // second identical entry — and the export carried both.
   if (duplicateFinding(path, input)) return null;
+
+  const evidence = (input.evidence ?? "").trim().slice(0, MAX_EVIDENCE_TEXT);
+  const pagesKey = pages.join(",");
+  const struckMatch = existing.find(
+    (f) =>
+      f.struck === true &&
+      f.claim === claim &&
+      f.evidence === evidence &&
+      f.pages.join(",") === pagesKey &&
+      !isSuperseded(existing, f.id),
+  );
+  if (struckMatch) {
+    const nextBody = input.body?.trim()
+      ? input.body.trim().slice(0, MAX_BODY_TEXT)
+      : struckMatch.body;
+    const revived: Finding = {
+      ...struckMatch,
+      struck: undefined,
+      createdAt: Date.now(),
+      stamp: input.stamp,
+      ...(input.author ? { author: input.author } : {}),
+      ...(nextBody ? { body: nextBody } : {}),
+      ...(input.source?.messageId ? { source: { messageId: input.source.messageId } } : {}),
+    };
+    if (revived.body) markBodyPending(revived.id);
+    mutate(
+      path,
+      existing.map((f) => (f.id === struckMatch.id ? revived : f)),
+    );
+    return revived;
+  }
+
+  if (existing.length >= MAX_FINDINGS_PER_DOC) return null;
 
   const finding: Finding = {
     id: crypto.randomUUID(),
     pages,
     claim,
-    evidence: (input.evidence ?? "").trim().slice(0, MAX_EVIDENCE_TEXT),
+    evidence,
     createdAt: Date.now(),
     stamp: input.stamp,
     ...(input.supersedes ? { supersedes: input.supersedes } : {}),
@@ -483,8 +501,6 @@ export function addFinding(path: string, input: NewFinding): Finding | null {
     ...(input.body?.trim() ? { body: input.body.trim().slice(0, MAX_BODY_TEXT) } : {}),
     ...(input.source?.messageId ? { source: { messageId: input.source.messageId } } : {}),
   };
-  // A body is written beside the index, not into it: this is the id the flush
-  // has to store there (see `finding-bodies.ts`).
   if (finding.body) markBodyPending(finding.id);
   mutate(path, [...existing, finding]);
   return finding;

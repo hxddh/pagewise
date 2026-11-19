@@ -1,4 +1,13 @@
-import { createContext, memo, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  memo,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -118,9 +127,64 @@ function TableWrap({ children, node: _node, ...rest }: CellProps) {
   );
 }
 
+function CiteClaimSpan({
+  children,
+  className,
+  node: _node,
+  ...rest
+}: HTMLAttributes<HTMLSpanElement> & { node?: unknown }) {
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const isCiteClaim = typeof className === "string" && className.split(/\s+/).includes("cite-claim");
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !isCiteClaim || !el.parentElement) return;
+    const sync = () => {
+      let sib = el.nextElementSibling;
+      let idx = 0;
+      let laterChipNotFound = false;
+      while (sib && sib.classList.contains("cite")) {
+        if (idx > 0 && sib.classList.contains("cite-level-notFound")) {
+          laterChipNotFound = true;
+          break;
+        }
+        idx += 1;
+        sib = sib.nextElementSibling;
+      }
+      if (laterChipNotFound) {
+        el.dataset.citeNotFound = "true";
+        el.style.textDecoration = "underline dashed var(--danger)";
+        el.style.textDecorationThickness = "1px";
+        el.style.textUnderlineOffset = "3px";
+      } else {
+        delete el.dataset.citeNotFound;
+        el.style.textDecoration = "";
+        el.style.textDecorationThickness = "";
+        el.style.textUnderlineOffset = "";
+      }
+    };
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(el.parentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => obs.disconnect();
+  }, [isCiteClaim, children]);
+
+  return (
+    <span ref={ref} {...rest} className={className}>
+      {children}
+    </span>
+  );
+}
+
 const markdownComponents = {
   a: SafeAnchor,
   img: SafeImg,
+  span: CiteClaimSpan,
   table: TableWrap,
   td: TableCell,
   th: TableHeadCell,

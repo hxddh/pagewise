@@ -368,7 +368,9 @@ export function rememberIndexedPage(
 
 /** Write any buffered pages now (document close, app quit, before stats). */
 export async function flushIndexStore(): Promise<void> {
-  await flushPending();
+  if (pending.size > 0 || flushTimer !== null) {
+    flushInFlight = flushPending();
+  }
   await flushInFlight;
 }
 

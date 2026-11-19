@@ -66,7 +66,6 @@ const FACES = [
   "export-dialog", // one dialog, three exports
   "library-drawer", // recents
   "welcome-view", // no document open
-  "mark-note", // a note on the page
   "selection-popover", // Ask about this / Mark
   "zen-layer", // the pill, the progress hairline, the exit
   // Not faces: the page margin's dots (19.0) are part of the page, like the

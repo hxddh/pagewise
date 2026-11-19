@@ -182,8 +182,52 @@ describe("a long run can still quote its first pages (24.0)", () => {
   it("names the pages a range carried", async () => {
     const { pagesInResult } = await import("./compact-run-messages");
     expect(pagesInResult("--- Page 3 ---\nfoo\n\n--- Page 4 (cont.) ---\nbar")).toEqual([3, 4]);
+    expect(
+      pagesInResult(
+        "--- Page 3 ---\n[already returned in full earlier in this turn]\n\n--- Page 4 ---\nbar",
+      ),
+    ).toEqual([4]);
+    expect(
+      pagesInResult({
+        page: 5,
+        text: "[already returned in full earlier in this turn]",
+        alreadyRead: true,
+      }),
+    ).toEqual([]);
     expect(pagesInResult({ page: 7, text: "x" })).toEqual([7]);
     expect(pagesInResult({ page: 7, text: "" }), "an empty read carried nothing").toEqual([]);
     expect(pagesInResult({ hits: [{ page: 2 }] }), "search hits are not page text").toEqual([]);
+  });
+
+  it("never compacts parallel tool results in the latest step and allows free post-eviction re-reads", async () => {
+    const parallelStep: Msg[] = [
+      { role: "user", content: "compare" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "p1", toolName: "read_pdf_page", input: { page: 1 } },
+          { type: "tool-call", toolCallId: "p2", toolName: "read_pdf_page", input: { page: 2 } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "p1",
+            toolName: "read_pdf_page",
+            output: { type: "json", value: { text: "x".repeat(12_000), page: 1 } },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "p2",
+            toolName: "read_pdf_page",
+            output: { type: "json", value: { text: "y".repeat(12_000), page: 2 } },
+          },
+        ],
+      },
+    ];
+    const compacted = compactRunMessages(parallelStep, 16_000) as Msg[];
+    expect(compacted).toBe(parallelStep);
   });
 });

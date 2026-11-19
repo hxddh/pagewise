@@ -244,6 +244,7 @@ button.pages-read-chip:hover
 .thumb-canvas
 .thumb-label
 .doc-search-input
+.doc-search-step-count
 .doc-search-results
 .doc-search-empty, .doc-search-count
 .doc-search-section + .doc-search-section
@@ -287,6 +288,7 @@ button.pages-read-chip:hover
 .doc-search-panel .doc-search-input
 .doc-search-panel .doc-search-results
 .export-panel
+.export-header
 .export-title
 .export-options
 .export-option
@@ -337,16 +339,7 @@ button.pages-read-chip:hover
 :root[data-theme="dark"] .pdf-mark-text
 .mark-selection-btn
 .mark-selection-btn:hover
-.mark-note
-.mark-note-head
-.mark-note-page
-.mark-note-close
-.mark-note-quote
-.mark-note-stale, .mark-stale-note
 .mark-stale-note
-.mark-note-input
-.mark-note-actions
-.mark-note-delete
 .pdf-region-layer
 .pdf-region-band
 @media (prefers-reduced-motion: reduce)
@@ -419,7 +412,9 @@ button.pages-read-chip:hover
 .welcome-logo
 .welcome-title
 .welcome-subtitle
+.welcome-actions
 .welcome-open-btn
+.welcome-sample-btn
 .welcome-drop-hint
 .welcome-api-hint
 .welcome-recents

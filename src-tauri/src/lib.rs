@@ -398,8 +398,11 @@ pub fn run() {
             // relative path typed in a terminal names a file there (16.0).
             // Granted here, before the front end hears of it (21.0).
             if let Some(path) = open_path::path_from_args(&argv, Path::new(&cwd)) {
-                if let Ok(canon) = grants::grant_document(app, Path::new(&path)) {
-                    let _ = window.emit("pagewise://open-path", grants::for_front_end(&canon));
+                match grants::grant_document(app, Path::new(&path)) {
+                    Ok(canon) => {
+                        let _ = window.emit("pagewise://open-path", grants::for_front_end(&canon));
+                    }
+                    Err(err) => open_path::refuse_open(app, err),
                 }
             }
         }))
@@ -417,6 +420,7 @@ pub fn run() {
         // second launch's file was opened: double-clicking a PDF with the app
         // closed started it empty.
         .manage(open_path::PendingOpen::from_launch())
+        .manage(open_path::PendingOpenError::default())
         .manage(FileReadCancel::default())
         .setup(|app| {
             let handle = app.handle();
@@ -442,6 +446,8 @@ pub fn run() {
             grants::pick_document,
             grants::pick_save_path,
             grants::path_granted,
+            grants::check_recent_paths,
+            grants::open_sample_document,
             cancel_file_read_cmd,
             file_stamp_cmd,
             file_identity_cmd,
@@ -464,6 +470,7 @@ pub fn run() {
             ocr_cache::ocr_cache_stats,
             ocr_cache::ocr_cache_clear,
             open_path::take_pending_open,
+            open_path::take_pending_open_error,
         ])
         .build(tauri::generate_context!());
 

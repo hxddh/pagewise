@@ -24,20 +24,19 @@ import { PageScroller } from "./PageScroller";
 import { PageGutter, type PageMarginBox } from "./PageGutter";
 import { ReadingLine } from "./ReadingLine";
 import { regionSnapshot } from "./region-snapshot";
-import { MarkNote } from "./MarkNote";
 import { useMarkRevision } from "./useMarks";
 import { useRevealedCitation, useSearchHit } from "./useSearchHit";
 import { CitationHighlight, type RevealedCitation } from "./CitationHighlight";
 import { sidebarTabState } from "./sidebar-tabs";
-import { addMark, getMarks } from "../../lib/mark-store";
-import { extractRegion } from "../../lib/pdf";
+import { addMark } from "../../lib/mark-store";
+import { extractRegion, getPageGeometry } from "../../lib/pdf";
 import { pageRuns } from "../../lib/finding-anchors";
 import { wordsInRegion } from "../../lib/ocr/ocr-region";
 import { clientRectToPageRect } from "./selection-quote";
-import { getPageGeometry } from "../../lib/pdf";
-import { displayUrl } from "../../lib/safe-link";
-import type { LoadedDocument } from "../../lib/types";
+import { displayUrl, parseInternalGotoPage } from "../../lib/safe-link";
+import type { LoadedDocument, PdfRect } from "../../lib/types";
 import { Button } from "../../components/ui/Button";
+import { Input } from "../../components/ui/Field";
 import { PreviewToolbar } from "../../components/PreviewToolbar";
 import { ThumbnailSidebar } from "../../components/ThumbnailSidebar";
 import { OutlineSidebar } from "../../components/OutlineSidebar";
@@ -76,6 +75,17 @@ interface PreviewPaneProps {
    * without the panel having to open.
    */
   marginColumn?: boolean;
+  /** Floating Ask bar state when the chat column is closed (Living Margin). */
+  marginAsk?: {
+    visible: boolean;
+    draft: string;
+    busy: boolean;
+    focusNonce: number;
+    onDraftChange: (value: string) => void;
+    onSubmit: (text: string) => void;
+    onStop: () => void;
+    onDismiss?: () => void;
+  };
   /** Read the pages the sweep left — the scan-all flow with its confirmation (22.0). */
   onReadRest?: () => void;
 }
@@ -96,6 +106,7 @@ function PreviewPaneInner({
   notes = null,
   onRevealMessage,
   marginColumn = false,
+  marginAsk,
   onReadRest,
 }: PreviewPaneProps) {
   const { t } = useI18n();
@@ -103,6 +114,14 @@ function PreviewPaneInner({
   const [thumbsVisible, setThumbsVisible] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
   const [regionMode, setRegionMode] = useState(false);
+  const [pendingRegion, setPendingRegion] = useState<{
+    page: number;
+    pdfRect: PdfRect;
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const marginInputRef = useRef<HTMLInputElement | null>(null);
   const markRevision = useMarkRevision(doc.path);
   // What the reader searched for when they jumped here, so the hit can be
   // marked on the page. Forgotten as soon as they navigate away from it — see
@@ -215,18 +234,53 @@ function PreviewPaneInner({
       </Button>
     ) : null;
 
-  // Leaving the mode has to be possible without finding the button again.
+  // Leaving the mode or dismissing a boxed region has to be possible with Escape.
   useEffect(() => {
-    if (!regionMode) return;
+    if (!regionMode && !pendingRegion) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
         setRegionMode(false);
+        setPendingRegion(null);
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [regionMode]);
+  }, [regionMode, pendingRegion]);
+
+  useEffect(() => {
+    setPendingRegion(null);
+  }, [doc.path, page]);
+
+  useEffect(() => {
+    if (askSel) setPendingRegion(null);
+  }, [askSel]);
+
+  useEffect(() => {
+    if (!marginColumn || !marginAsk?.visible || marginAsk.focusNonce === 0) return;
+    const id = requestAnimationFrame(() => marginInputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [marginColumn, marginAsk?.visible, marginAsk?.focusNonce]);
+
+  const handleLinkActivate = useCallback(
+    (url: string) => {
+      const gotoTarget = parseInternalGotoPage(url);
+      if (gotoTarget !== null) {
+        const clamped = Math.max(1, Math.min(doc.kind === "pdf" ? doc.totalPages : 1, gotoTarget));
+        const previousPage = page;
+        onPageChange(clamped);
+        if (clamped !== previousPage) {
+          showToast(t("toast.jumpedToPage", { page: clamped }), "default", {
+            label: t("toast.backToPage", { page: previousPage }),
+            onClick: () => onPageChange(previousPage),
+          });
+        }
+        return;
+      }
+      setPendingLink(url);
+    },
+    [doc, page, onPageChange, showToast, t],
+  );
 
   // The page below indexes itself when it has no text of its own, and indexing
   // a scanned page is a billed vision call. While the preview flipped one page
@@ -344,37 +398,39 @@ function PreviewPaneInner({
         <RegionSelectLayer
           active={regionMode}
           onRegion={(rect, pageBox) => {
+            setRegionMode(false);
+            const anchorX = rect.left + rect.width / 2;
+            const anchorY = Math.max(48, rect.top);
             const run = quoteRun.current;
             void (async () => {
               try {
                 const geometry = await getPageGeometry(doc.path, slotPage);
-                // The reader can scroll on while the geometry is in flight, but
-                // the page a region belongs to is the one it was drawn on,
-                // which is fixed at this point.
                 if (quoteRun.current !== run) return;
                 const pdfRect = clientRectToPageRect(rect, pageBox, geometry);
                 let text = "";
                 try {
                   text = regionSnapshot(await extractRegion(doc.path, slotPage, pdfRect));
                 } catch {
-                  // A region with no readable text is normal on a scan;
-                  // the rectangle is what locates the mark.
+                  // A region with no readable text is normal on a scan.
                 }
                 if (!text.trim()) {
-                  // A scan: the words OCR recognised inside the rectangle.
                   const runs = await pageRuns(doc.path, slotPage);
                   if (runs.source === "ocr") text = wordsInRegion(runs.items, pdfRect, geometry.view);
                 }
                 if (quoteRun.current !== run) return;
-                const mark = addMark(doc.path, {
-                  page: slotPage,
-                  rects: [pdfRect],
-                  text,
-                  stamp: doc.stamp ?? "",
-                  kind: "region",
-                });
-                if (mark) onSelectMark?.(mark.id);
-                else showToast(t("marks.capReached"), "error");
+                if (onAskAboutSelection) {
+                  setPendingRegion({ page: slotPage, pdfRect, text, x: anchorX, y: anchorY });
+                } else {
+                  const mark = addMark(doc.path, {
+                    page: slotPage,
+                    rects: [pdfRect],
+                    text,
+                    stamp: doc.stamp ?? "",
+                    kind: "region",
+                  });
+                  if (mark) onSelectMark?.(mark.id);
+                  else showToast(t("marks.capReached"), "error");
+                }
               } catch {
                 // Nothing to place the mark against.
               }
@@ -400,7 +456,7 @@ function PreviewPaneInner({
             path={doc.path}
             page={slotPage}
             links={doc.links}
-            onActivate={setPendingLink}
+            onActivate={handleLinkActivate}
           />
         )}
         {doc.annotations && doc.annotations.length > 0 && (
@@ -421,6 +477,8 @@ function PreviewPaneInner({
       selectedFindingId,
       onSelectFinding,
       onSelectMark,
+      onAskAboutSelection,
+      handleLinkActivate,
       showToast,
       t,
     ],
@@ -441,6 +499,9 @@ function PreviewPaneInner({
         citations={citations}
         notes={notes}
         totalPages={totalPages}
+        selectedMarkId={selectedMarkId}
+        currentStamp={doc.stamp ?? ""}
+        onCloseMark={() => onSelectMark?.(null)}
         onSelectMark={(target, id) => {
           onPageChange(target);
           onSelectMark?.(id);
@@ -454,11 +515,13 @@ function PreviewPaneInner({
     ),
     [
       doc.path,
+      doc.stamp,
       markRevision,
       marginColumn,
       citations,
       notes,
       totalPages,
+      selectedMarkId,
       onPageChange,
       onSelectMark,
       onSelectFinding,
@@ -513,6 +576,43 @@ function PreviewPaneInner({
           In the chrome rather than on a page: a sweep is the document's, and
           it outlives any one page being scrolled past. */}
       <ReadingLine path={doc.path} onReadRest={onReadRest} />
+      {marginColumn && marginAsk?.visible && (
+        <form
+          className="margin-ask-bar"
+          onClick={(e) => e.stopPropagation()}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const text = marginAsk.draft.trim();
+            if (!text || marginAsk.busy) return;
+            marginAsk.onSubmit(text);
+          }}
+        >
+          <Input
+            ref={marginInputRef}
+            size="sm"
+            className="margin-ask-input"
+            value={marginAsk.draft}
+            placeholder={t("zen.ask")}
+            aria-label={t("zen.ask")}
+            onChange={(e) => marginAsk.onDraftChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && marginAsk.onDismiss) {
+                e.stopPropagation();
+                marginAsk.onDismiss();
+              }
+            }}
+          />
+          {marginAsk.busy ? (
+            <Button type="button" variant="ghost" size="sm" onClick={marginAsk.onStop}>
+              {t("agent.stop")}
+            </Button>
+          ) : (
+            <Button type="submit" variant="primary" size="sm" disabled={!marginAsk.draft.trim()}>
+              {t("agent.send")}
+            </Button>
+          )}
+        </form>
+      )}
     </>
   );
 
@@ -541,12 +641,13 @@ function PreviewPaneInner({
     return (
       <div className="preview-panel">
         <DocumentSearch
-        doc={doc}
-        onJumpToPage={(target, query) => {
-          onPageChange(target);
-          setSearchHit(query ? { page: target, query } : null);
-        }}
-      />
+          doc={doc}
+          onJumpToPage={(target, query) => {
+            onPageChange(target);
+            setSearchHit(query ? { page: target, query } : null);
+          }}
+          onClearHighlight={() => setSearchHit(null)}
+        />
         {toolbar}
         <div className="preview-canvas-wrap image-wrap" onClick={viewer.focusPreview}>
           {canvasBody}
@@ -561,8 +662,6 @@ function PreviewPaneInner({
   // Derived together, so the two cannot disagree — see `sidebar-tabs.ts` for
   // the two-tabs-selected-at-once bug that is about.
   const { showOutline } = sidebarTabState(sidebarTab, outline.length > 0);
-  const marks = (void markRevision, getMarks(doc.path));
-  const selectedMark = marks.find((m) => m.id === selectedMarkId) ?? null;
   const sidebarTabs = (
     <Tabs
       items={[
@@ -585,6 +684,7 @@ function PreviewPaneInner({
           onPageChange(target);
           setSearchHit(query ? { page: target, query } : null);
         }}
+        onClearHighlight={() => setSearchHit(null)}
       />
 
       {thumbsVisible &&
@@ -612,21 +712,53 @@ function PreviewPaneInner({
         </div>
       </div>
       {(askButton || markButton) && askSel && (
-        // One anchored row: the buttons sit next to each other because they are
-        // laid out, not because the second is nudged by the first's width in
-        // one particular language.
         <div className="selection-actions" style={{ left: askSel.x, top: askSel.y }}>
           {askButton}
           {markButton}
         </div>
       )}
-      {selectedMark && (
-        <MarkNote
-          path={doc.path}
-          mark={selectedMark}
-          currentStamp={doc.stamp ?? ""}
-          onClose={() => onSelectMark?.(null)}
-        />
+      {!askSel && pendingRegion && (
+        <div className="selection-actions" style={{ left: pendingRegion.x, top: pendingRegion.y }}>
+          {onAskAboutSelection && (
+            <Button
+              variant="primary"
+              size="md"
+              className="ask-selection-btn"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const region = pendingRegion;
+                setPendingRegion(null);
+                const prompt = region.text.trim()
+                  ? `"${region.text.trim()}"`
+                  : t("preview.askAboutRegion", { page: region.page });
+                onAskAboutSelection(prompt);
+              }}
+            >
+              {t("preview.askAboutSelection")}
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            size="md"
+            className="mark-selection-btn"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const region = pendingRegion;
+              setPendingRegion(null);
+              const mark = addMark(doc.path, {
+                page: region.page,
+                rects: [region.pdfRect],
+                text: region.text,
+                stamp: doc.stamp ?? "",
+                kind: "region",
+              });
+              if (mark) onSelectMark?.(mark.id);
+              else showToast(t("marks.capReached"), "error");
+            }}
+          >
+            {t("marks.markSelection")}
+          </Button>
+        </div>
       )}
 
       <ConfirmDialog

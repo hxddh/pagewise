@@ -97,7 +97,7 @@ describe("evidence written into the PDF", () => {
       let docCovered = 0;
       for (let page = 1; page <= pdf.numPages; page++) {
         const raw = await (await pdf.getPage(page)).getAnnotations();
-        for (const a of readableAnnotations(raw, page)) {
+        for (const a of readableAnnotations(raw, page, { includePageWise: true })) {
           const want = expected.get(a.contents);
           if (!want || a.subtype !== "Highlight" || want.page !== page) continue;
           seen.add(a.contents);

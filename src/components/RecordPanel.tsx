@@ -19,6 +19,7 @@ import { useI18n } from "../i18n";
 import {
   confirmFinding,
   getFindings,
+  removeFinding,
   setFindingClaim,
   setFindingStruck,
   type Finding,
@@ -123,11 +124,19 @@ export const RecordPanel = memo(function RecordPanel({
   const [filter, setFilter] = useState("");
   const [thisPageOnly, setThisPageOnly] = useState(false);
 
-  const { rows, total } = useMemo(() => {
+  const { rows, total, shownMarks } = useMemo(() => {
     void revision;
-    const all = getFindings(path);
-    let shown = all;
-    if (thisPageOnly) shown = shown.filter((f) => f.pages.includes(currentPage));
+    const allFindings = getFindings(path);
+    const allMarks = getMarks(path);
+    if (allFindings.length === 0) {
+      return { rows: allFindings, total: 0, shownMarks: allMarks };
+    }
+    let shown = allFindings;
+    let marksFiltered = allMarks;
+    if (thisPageOnly) {
+      shown = shown.filter((f) => f.pages.includes(currentPage));
+      marksFiltered = marksFiltered.filter((m) => m.page === currentPage);
+    }
     const needle = filter.trim().normalize("NFC").toLowerCase();
     if (needle) {
       shown = shown.filter((f) =>
@@ -136,21 +145,24 @@ export const RecordPanel = memo(function RecordPanel({
           .toLowerCase()
           .includes(needle),
       );
+      marksFiltered = marksFiltered.filter((m) =>
+        `${m.note}\n${m.text}`
+          .normalize("NFC")
+          .toLowerCase()
+          .includes(needle),
+      );
     }
-    return { rows: shown, total: all.length };
+    return {
+      rows: shown,
+      total: allFindings.length,
+      shownMarks: marksFiltered,
+    };
   }, [path, revision, filter, thisPageOnly, currentPage]);
 
   const all = useMemo(() => {
     void revision;
     return getFindings(path);
   }, [path, revision]);
-
-  // The reader's own ink, kept beside the assistant's conclusions: this panel is
-  // the document's ledger, and since 19.0 it is the one home for "everything I
-  // kept on this document". Marks left the page sidebar's tab for the page
-  // margin; the list that holds all of them belongs here, where a finding's
-  // list already lives.
-  const marks = useMemo(() => (void revision, getMarks(path)), [path, revision]);
 
   return (
     <div className="record-panel">
@@ -182,39 +194,38 @@ export const RecordPanel = memo(function RecordPanel({
             </Button>
           </div>
           {stale && <p className="mark-stale-note">{t("record.staleFile")}</p>}
-          {rows.length === 0 ? (
+          {rows.length === 0 && shownMarks.length === 0 ? (
             <EmptyState variant="inline" className="record-none">{t("record.noMatch")}</EmptyState>
           ) : (
-            <ul className="record-list">
-              {/* The list's own movement: an entry arrives by fading up, and
-                  leaves the same way — the reader sees what changed rather
-                  than finding the list rearranged. */}
-              <AnimatePresence initial={false}>
-                {rows.map((finding) => (
-                  <RecordEntry
-                    key={finding.id}
-                    path={path}
-                    finding={finding}
-                    all={all}
-                    stamp={stamp}
-                    totalPages={totalPages}
-                    currentPage={currentPage}
-                    onJumpToPage={onJumpToPage}
-                    onRevealFinding={onRevealFinding}
-                    onRevealMessage={onRevealMessage}
-                    hasMessage={hasMessage}
-                  />
-                ))}
-              </AnimatePresence>
-            </ul>
+            rows.length > 0 && (
+              <ul className="record-list">
+                <AnimatePresence initial={false}>
+                  {rows.map((finding) => (
+                    <RecordEntry
+                      key={finding.id}
+                      path={path}
+                      finding={finding}
+                      all={all}
+                      stamp={stamp}
+                      totalPages={totalPages}
+                      currentPage={currentPage}
+                      onJumpToPage={onJumpToPage}
+                      onRevealFinding={onRevealFinding}
+                      onRevealMessage={onRevealMessage}
+                      hasMessage={hasMessage}
+                    />
+                  ))}
+                </AnimatePresence>
+              </ul>
+            )
           )}
         </>
       )}
 
-      {marks.length > 0 && (
+      {shownMarks.length > 0 && (
         <MarksSection
           path={path}
-          marks={marks}
+          marks={shownMarks}
           stamp={stamp}
           currentPage={currentPage}
           onSelectMark={onSelectMark}
@@ -399,6 +410,19 @@ function RecordEntry({
         >
           <Undo2 size={13} />
         </Button>
+        {inactive && (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            className="record-mark-delete"
+            title={t("record.deleteFinding")}
+            aria-label={t("record.deleteFinding")}
+            onClick={() => removeFinding(path, finding.id)}
+          >
+            <Trash2 size={13} />
+          </Button>
+        )}
       </div>
       {editing ? (
         <form
@@ -510,7 +534,7 @@ function TrustLine({
   stamp: string;
   onRevealFinding?: (id: string, page: number) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   if (trust === "located" && placement?.status === "located") {
     return (
       <Button
@@ -550,7 +574,7 @@ function TrustLine({
   const mismatch = placement?.status === "mismatch" ? placement : null;
   const text = t(longKey(trust), {
     page: mismatch?.anchor.page ?? finding.pages[0],
-    numbers: mismatch ? mismatch.unstated.join("、") : "",
+    numbers: mismatch ? mismatch.unstated.join(locale === "zh-CN" ? "、" : ", ") : "",
   });
   return (
     <p className={`record-locate ${doubtful ? `record-locate-${level}` : "record-locate-unverified"}`}>

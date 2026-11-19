@@ -153,3 +153,52 @@ export function withSteerMessage<M>(
   if (!steer) return messages ?? [];
   return [...(messages ?? []), steer as unknown as M];
 }
+
+const CONTENT_READ_TOOLS = new Set([
+  "read_pdf_page",
+  "read_pdf_range",
+  "read_section",
+  "read_figure",
+]);
+
+export interface StepLike {
+  toolCalls?: ReadonlyArray<{ toolName?: string }>;
+  toolResults?: ReadonlyArray<{ toolName?: string; output?: unknown; result?: unknown }>;
+}
+
+/**
+ * True once the run has read actual page/section/figure material AND is not in
+ * the middle of a mechanical multi-chunk truncated range/section sweep.
+ */
+export function hasSynthesisMaterial(steps: ReadonlyArray<StepLike>): boolean {
+  if (steps.length === 0) return false;
+  const anyContentRead = steps.some((s) =>
+    (s.toolCalls ?? []).some((c) => CONTENT_READ_TOOLS.has(c.toolName ?? "")),
+  );
+  if (!anyContentRead) return false;
+
+  const last = steps[steps.length - 1]!;
+  const calls = last.toolCalls ?? [];
+  const results = last.toolResults ?? [];
+  if (
+    calls.length > 0 &&
+    calls.every((c) => c.toolName === "read_pdf_range" || c.toolName === "read_section") &&
+    results.length > 0 &&
+    results.every((r) => {
+      const raw = "output" in r ? r.output : r.result;
+      const val =
+        raw && typeof raw === "object" && "value" in (raw as object)
+          ? (raw as { value: unknown }).value
+          : raw;
+      return (
+        !!val &&
+        typeof val === "object" &&
+        (val as { truncated?: unknown }).truncated === true &&
+        !(val as { budgetExceeded?: unknown }).budgetExceeded
+      );
+    })
+  ) {
+    return false;
+  }
+  return true;
+}

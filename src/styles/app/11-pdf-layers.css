@@ -157,76 +157,11 @@
   filter: brightness(1.12);
 }
 
-/* Surface, border, radius and shadow come from <Panel tone="elevated">. */
-.mark-note {
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  z-index: var(--z-mark-note);
-  width: min(420px, calc(100% - 32px));
-  padding: var(--space-lg);
-}
-
-.mark-note-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-md);
-}
-
-.mark-note-page {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.mark-note-close {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.mark-note-quote {
-  margin: 0 0 var(--space-md);
-  padding-left: var(--space-md);
-  border-left: 2px solid color-mix(in srgb, var(--mark-highlight) 70%, transparent);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  max-height: 6.5em;
-  overflow-y: auto;
-}
-
-.mark-note-stale,
 .mark-stale-note {
   margin: 0 0 var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   color: var(--text-secondary);
   font-size: var(--text-xs);
-}
-
-.mark-stale-note {
-  padding: var(--space-md) var(--space-lg);
-}
-
-.mark-note-input {
-  min-height: 64px;
-  max-height: 40vh;
-}
-
-.mark-note-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: var(--space-md);
-}
-
-.mark-note-delete {
-  border: none;
-  background: transparent;
-  color: var(--danger);
-  font-size: var(--text-sm);
-  cursor: pointer;
 }
 
 .pdf-region-layer {

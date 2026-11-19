@@ -47,21 +47,35 @@ pub enum DocumentKind {
 /// the first 1,024 bytes (some generators prepend junk), so this does too.
 const HEAD_BYTES: usize = 1024;
 
+fn is_bmp(head: &[u8]) -> bool {
+    if head.len() < 26 || &head[0..2] != b"BM" || head[6..10] != [0, 0, 0, 0] {
+        return false;
+    }
+    let data_offset = u32::from_le_bytes([head[10], head[11], head[12], head[13]]);
+    let dib_size = u32::from_le_bytes([head[14], head[15], head[16], head[17]]);
+    matches!(dib_size, 12 | 40 | 52 | 56 | 64 | 108 | 124) && data_offset >= 14 + dib_size
+}
+
 /// What the first bytes say a file is, among the formats PageWise opens.
 /// `None` for anything else — DOCX (a ZIP), HEIC, and TIFF where the webview
 /// cannot decode it.
 pub fn sniff(head: &[u8]) -> Option<DocumentKind> {
-    if head.windows(5).any(|w| w == b"%PDF-") {
-        return Some(DocumentKind::Pdf);
+    if head.starts_with(b"II*\0") || head.starts_with(b"MM\0*") {
+        return TIFF_DECODES.then_some(DocumentKind::Image);
     }
     let image = head.starts_with(b"\x89PNG\r\n\x1a\n")
         || head.starts_with(b"\xFF\xD8\xFF")
         || head.starts_with(b"GIF87a")
         || head.starts_with(b"GIF89a")
         || (head.len() >= 12 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP")
-        || head.starts_with(b"BM")
-        || (TIFF_DECODES && (head.starts_with(b"II*\0") || head.starts_with(b"MM\0*")));
-    image.then_some(DocumentKind::Image)
+        || is_bmp(head);
+    if image {
+        return Some(DocumentKind::Image);
+    }
+    if head.windows(5).any(|w| w == b"%PDF-") {
+        return Some(DocumentKind::Pdf);
+    }
+    None
 }
 
 /// Whether the webview can show a TIFF: WebKit on macOS can; WebView2 on
@@ -99,7 +113,17 @@ pub fn check_size(path: &Path) -> Result<(), String> {
 
 /// What a file is, checked before it is opened: its size, then its content.
 pub fn check_document(path: &Path) -> Result<DocumentKind, String> {
-    check_size(path)?;
+    let meta = std::fs::metadata(path).map_err(|e| format!("Read failed: {e}"))?;
+    if !meta.is_file() {
+        return Err(coded(UNSUPPORTED_TYPE, "not a PDF or a supported image"));
+    }
+    let len = meta.len();
+    if len > MAX_DOCUMENT_BYTES {
+        return Err(coded(
+            FILE_TOO_LARGE,
+            format!("{len} bytes; max {MAX_DOCUMENT_BYTES}"),
+        ));
+    }
     let head = read_head(path).map_err(|e| format!("Read failed: {e}"))?;
     sniff(&head).ok_or_else(|| coded(UNSUPPORTED_TYPE, "not a PDF or a supported image"))
 }
@@ -158,6 +182,18 @@ mod tests {
         }
         // TIFF only where the webview can draw it.
         assert_eq!(sniff(b"II*\0\x08\0\0\0").is_some(), cfg!(target_os = "macos"));
+        // Text files starting with "BM" must not be misread as BMP images.
+        assert_eq!(sniff(b"BM25 algorithm notes and equations\n"), None);
+        assert_eq!(sniff(b"BMW maintenance schedule 2026\n"), None);
+        // Valid 26-byte BMP header (BITMAPFILEHEADER + 40-byte BITMAPINFOHEADER, offset 54).
+        let mut bmp = [0u8; 26];
+        bmp[0..2].copy_from_slice(b"BM");
+        bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+        bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+        assert_eq!(sniff(&bmp), Some(DocumentKind::Image));
+        // An image whose EXIF/tEXt metadata happens to contain "%PDF-" stays an Image.
+        assert_eq!(sniff(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR%PDF-1.5"), Some(DocumentKind::Image));
+        assert_eq!(sniff(b"\xFF\xD8\xFF\xE1\0\x10Exif\0\0%PDF-1.7"), Some(DocumentKind::Image));
     }
 
     #[test]

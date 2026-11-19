@@ -195,6 +195,13 @@ describe("columnTops", () => {
     // and the page's own top is still beside the page it is about.
     expect(columnTops([undefined, 0.5])).toEqual([0, 0.5]);
   });
+
+  it("pulls crowded bottom entries upward so none clips past the page foot", () => {
+    const tops = columnTops([0.86, 0.87, 0.88]);
+    expect(tops[2]).toBeCloseTo(0.9);
+    expect(tops[1]).toBeCloseTo(0.9 - COLUMN_MIN_STEP);
+    expect(tops[0]).toBeCloseTo(0.9 - COLUMN_MIN_STEP * 2);
+  });
 });
 
 /**

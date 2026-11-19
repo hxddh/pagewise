@@ -208,8 +208,11 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, files: seedFil
       // The dialogs run in Rust since 21.0 and grant what they return; the
       // harness has no allowlist, so every path is granted.
       if (cmd === "pick_document" || cmd === "plugin:dialog|open") return window.__HARNESS_OPEN_PATH__ ?? null;
+      if (cmd === "open_sample_document") return window.__HARNESS_OPEN_PATH__ ?? "/tmp/sample.pdf";
       if (cmd === "pick_save_path" || cmd === "plugin:dialog|save") return window.__HARNESS_SAVE_PATH__ ?? null;
       if (cmd === "path_granted") return true;
+      if (cmd === "check_recent_paths") return (args?.paths ?? []).map(() => "granted");
+      if (cmd === "take_pending_open_error") return null;
       // What an evidence export would write into the PDF (14.1), kept for the
       // harness to read back.
       if (cmd === "write_text_file") {

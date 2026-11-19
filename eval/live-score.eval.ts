@@ -66,7 +66,8 @@ import { describe, it } from "vitest";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { extractCitations, type Citation } from "../src/lib/citations";
-import { locateQuote } from "../src/lib/quote-locate";
+import { claimBefore } from "../src/lib/answer-tables";
+import { locateAcrossPages, locateQuote } from "../src/lib/quote-locate";
 import { passageAround } from "../src/lib/passage";
 import { citationLevel } from "../src/lib/trust-level";
 import {
@@ -74,9 +75,9 @@ import {
   numbersInEvidence,
   sentenceState,
 } from "../src/lib/answer-sentences";
-import type { CitationStatus } from "../src/lib/citation-check";
+import { withClaim, type CitationStatus } from "../src/lib/citation-check";
 import { OUT, ROOT, corpusFiles, loadDoc, type DumpDoc } from "./lib/corpus";
-import { QUESTIONS, squashFact, type Fact, type QuestionKind } from "./questions";
+import { QUESTIONS, containsFact, type Fact, type QuestionKind } from "./questions";
 
 interface Recording {
   /** Recorded since 24.0; older recordings are single lookups by `question`. */
@@ -137,22 +138,48 @@ export interface Score {
 }
 
 /** What the local check would say about one citation, from the corpus dump alone. */
-function statusOf(c: Citation, doc: DumpDoc): CitationStatus {
+function statusOf(c: Citation, doc: DumpDoc, answer?: string): CitationStatus {
   if (c.pages.some((p) => p > doc.page_count)) return "outOfRange";
   if (!c.quote) return "unchecked";
-  const outcomes = c.pages.map((p) => locateQuote(doc.pages[p - 1]?.items ?? [], c.quote!));
-  if (outcomes.some((o) => o.status === "located")) return "located";
-  if (outcomes.some((o) => o.status === "unreadable")) return "unreadable";
-  if (outcomes.every((o) => o.status === "uncheckable")) return "tooShort";
+  let sawUnreadable = false;
+  let allTooShort = true;
+  for (const p of c.pages) {
+    const items = doc.pages[p - 1]?.items ?? [];
+    const out = locateQuote(items, c.quote);
+    if (out.status === "located") {
+      const check = {
+        status: "located" as const,
+        page: p,
+        rects: out.rects,
+        passage: passageAround(items, out.rects),
+      };
+      return answer ? withClaim(check, claimBefore(answer, c.index), c.quote)!.status : "located";
+    }
+    if (out.status !== "uncheckable") allTooShort = false;
+    if (out.status === "unreadable") sawUnreadable = true;
+  }
+  for (let i = 0; i + 1 < c.pages.length; i += 1) {
+    const pA = c.pages[i]!;
+    const pB = c.pages[i + 1]!;
+    if (pB !== pA + 1) continue;
+    const itemsA = doc.pages[pA - 1]?.items ?? [];
+    const itemsB = doc.pages[pB - 1]?.items ?? [];
+    const cross = locateAcrossPages(itemsA, itemsB, c.quote);
+    if (cross) {
+      const check = {
+        status: "located" as const,
+        page: pA,
+        rects: cross.first.rects,
+        passage: `${passageAround(itemsA, cross.first.rects)}\n${passageAround(itemsB, cross.second.rects)}`,
+      };
+      return answer ? withClaim(check, claimBefore(answer, c.index), c.quote)!.status : "located";
+    }
+  }
+  if (sawUnreadable) return "unreadable";
+  if (allTooShort) return "tooShort";
   return "unlocated";
 }
 
-/**
- * One recording's sentences through the app's own table: the split
- * (`answerSentences`), the state rule (`sentenceState`) and the local-evidence
- * rule (`numbersInEvidence`) are the same functions the line under an answer
- * reads, so this column measures the product rather than a copy of it.
- */
 function sentenceScore(answer: string, doc: DumpDoc): Pick<Score, "sentences" | "marked" | "verified" | "unchecked" | "numbers"> {
   const evidence: string[] = [];
   for (const c of extractCitations(answer)) {
@@ -173,7 +200,7 @@ function sentenceScore(answer: string, doc: DumpDoc): Pick<Score, "sentences" | 
       continue;
     }
     out.marked += 1;
-    if (sentenceState(sentence.citations.map((c) => citationLevel(statusOf(c, doc)))) === "verified") {
+    if (sentenceState(sentence.citations.map((c) => citationLevel(statusOf(c, doc, answer)))) === "verified") {
       out.verified += 1;
     }
   }
@@ -208,12 +235,12 @@ export function score(recs: Recording[], docs: Map<string, DumpDoc>): Score {
         continue;
       }
       if (!c.quote) continue;
-      const outcomes = c.pages.map((p) => locateQuote(doc.pages[p - 1]?.items ?? [], c.quote!).status);
-      if (outcomes.includes("uncheckable")) continue;
+      const st = statusOf(c, doc, r.answer);
+      if (st === "tooShort") continue;
       s.quoted += 1;
-      if (outcomes.includes("located")) s.located += 1;
-      else if (outcomes.includes("unreadable")) s.unreadable += 1;
-      else s.unfound += 1;
+      if (st === "located") s.located += 1;
+      else if (st === "unreadable") s.unreadable += 1;
+      else if (st === "unlocated") s.unfound += 1;
     }
     const sentences = sentenceScore(r.answer, doc);
     for (const key of ["sentences", "marked", "verified", "unchecked", "numbers"] as const) {
@@ -321,7 +348,7 @@ export function scoreByKind(recs: Recording[], docs: Map<string, DumpDoc>): Kind
     let locatedHere = 0;
     for (const c of cites) {
       if (!c.quote || c.pages.some((p) => p > doc.page_count)) continue;
-      const status = statusOf(c, doc);
+      const status = statusOf(c, doc, r.answer);
       if (status === "tooShort") continue;
       s.quoted += 1;
       if (status === "located") {
@@ -339,8 +366,9 @@ export function scoreByKind(recs: Recording[], docs: Map<string, DumpDoc>): Kind
       if (coversWordings(cites, wordings, doc)) s.rightPage += 1;
     }
     if (facts.length > 0) {
-      const said = squashFact(r.answer);
-      const stated = facts.filter((f) => (Array.isArray(f) ? f : [f]).some((alt) => said.includes(squashFact(alt))));
+      const stated = facts.filter((f) =>
+        (Array.isArray(f) ? f : [f]).some((alt) => containsFact(r.answer, alt)),
+      );
       s.withFacts += 1;
       s.factShare += stated.length / facts.length;
     }

@@ -1,45 +1,14 @@
 import { PRUNE_DOCUMENT_TOOLS, type DocumentToolName } from "./document-tool-names";
-import { compactToolOutput, COMPACTED_SUFFIX } from "./prune-chat-history";
+import { compactToolOutput, isCompactedSummary } from "./prune-chat-history";
 
-/**
- * Shorten tool results the model has already moved past, within one run.
- *
- * A tool loop re-sends every earlier tool result on every step. Between turns
- * that was already handled — a finished turn keeps `[Read page 12, 5,800 chars]`
- * instead of the page — but inside a run every page read stayed at full size
- * for all remaining steps. Twenty steps over six-thousand-character pages is
- * ~1.26 million characters of input across the run, and about 1.2 million of
- * them are the same pages sent again.
- *
- * The most recent results are left alone: those are what the model is working
- * from right now. Older ones become the same one-line summary used between
- * turns, and the page text behind them is still in the local cache — if the
- * model needs a page again, re-reading it costs a tool call and no tokens
- * beyond the page itself.
- *
- * Only the output value of a tool result is replaced. Nothing is added or
- * removed, so tool-call/tool-result pairing is untouched.
- *
- * The pages a shortened result carried are reported (`onCompacted`, 24.0): a
- * page this run handed over is answered "already returned in full" when asked
- * for again, and once its text has been shortened away that answer left the
- * model nothing to quote from — the early pages of a long run could only be
- * cited from memory, and a quote from memory is what the check rejects.
- */
-
-/**
- * How much recent tool output is left at full size.
- *
- * This used to be a count of four results, which treated a six-page range and
- * a half-page read as equally expensive — four full pages is 24,000 characters
- * carried on every remaining step. A budget measures what it actually costs.
- * Sized to hold two full-length page reads and their envelopes, so an ordinary
- * two-step read is never shortened while it is still being reasoned over.
- */
+/** Default ceiling on uncompacted tool results inside one run. */
 export const KEEP_RECENT_CHARS = 16_000;
 
 /** Always keep at least this many, however large they are. */
 export const KEEP_RECENT_MIN = 1;
+
+/** Batch compaction target ratio so consecutive steps stay append-only (KV cache friendly). */
+const HYSTERESIS_TARGET_RATIO = 0.65;
 
 interface ToolCallPart {
   type: string;
@@ -68,16 +37,11 @@ function isToolCallPart(part: unknown): part is ToolCallPart {
   );
 }
 
-/** Unwrap the `{ type: "json" | "text", value }` envelope a model tool result uses. */
 function outputValue(output: unknown): unknown {
   if (output && typeof output === "object" && "value" in (output as object)) {
     return (output as { value: unknown }).value;
   }
   return output;
-}
-
-function alreadyCompacted(value: unknown): boolean {
-  return typeof value === "string" && value.endsWith(COMPACTED_SUFFIX);
 }
 
 function sizeOf(value: unknown): number {
@@ -89,20 +53,33 @@ function sizeOf(value: unknown): number {
   }
 }
 
+function pagesFromRangeText(raw: string): number[] {
+  const pages = new Set<number>();
+  for (const m of raw.matchAll(/^--- Page (\d+)\b[^\n]*---\n(?!\[already returned)/gm)) {
+    pages.add(Number(m[1]));
+  }
+  return [...pages];
+}
+
 /**
- * The pages whose text a read result carries: a single page's `page`, or the
- * `--- Page N ---` headers a range or a section joins its pages with.
+ * The pages whose full text a read result carries: ignores `alreadyRead` stubs
+ * and `[already returned ...]` markers inside range results so `forgetDelivered`
+ * never evicts a page whose real text is still live in an earlier kept result.
  */
 export function pagesInResult(value: unknown): number[] {
   if (value && typeof value === "object" && !Array.isArray(value)) {
+    if ((value as { alreadyRead?: unknown }).alreadyRead === true) return [];
     const page = (value as { page?: unknown }).page;
     const text = (value as { text?: unknown }).text;
-    if (typeof page === "number" && typeof text === "string" && text.length > 0) return [page];
+    if (typeof page === "number" && typeof text === "string") {
+      if (text.length === 0 || text.startsWith("[already returned")) return [];
+      return [page];
+    }
+    if (typeof text === "string") return pagesFromRangeText(text);
+    return [];
   }
-  const raw = typeof value === "string" ? value : sizeOf(value) > 0 ? JSON.stringify(value) : "";
-  const pages = new Set<number>();
-  for (const m of raw.matchAll(/--- Page (\d+)/g)) pages.add(Number(m[1]));
-  return [...pages];
+  if (typeof value === "string") return pagesFromRangeText(value);
+  return [];
 }
 
 export function compactRunMessages<M extends ModelMessageLike>(
@@ -112,8 +89,6 @@ export function compactRunMessages<M extends ModelMessageLike>(
 ): readonly M[] | M[] {
   if (!messages || messages.length === 0) return messages ?? [];
 
-  // Tool inputs live on the assistant's tool-call part; the summary needs them
-  // to say which page was read.
   const inputById = new Map<string, unknown>();
   for (const message of messages) {
     if (!Array.isArray(message.content)) continue;
@@ -124,41 +99,78 @@ export function compactRunMessages<M extends ModelMessageLike>(
     }
   }
 
-  // Locate every prunable tool result in order, so the newest can be spared.
-  const sites: Array<{ message: number; part: number }> = [];
+  // Identify the latest tool-result step (one or more consecutive trailing `tool`
+  // messages with no `assistant` message after the first of them) so 100% of
+  // parallel tool results from the step that just finished stay uncompacted.
+  let lastToolEnd = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "tool") {
+      lastToolEnd = i;
+      break;
+    }
+  }
+  let latestStepStart = lastToolEnd;
+  while (latestStepStart > 0 && messages[latestStepStart - 1]?.role === "tool") {
+    latestStepStart -= 1;
+  }
+
+  const sites: Array<{ message: number; part: number; chars: number; compacted: boolean; latestStep: boolean }> = [];
   messages.forEach((message, mi) => {
     if (message.role !== "tool" || !Array.isArray(message.content)) return;
+    const inLatestStep = lastToolEnd >= 0 && mi >= latestStepStart && mi <= lastToolEnd;
     message.content.forEach((part, pi) => {
       if (!isToolResultPart(part)) return;
       const name = typeof part.toolName === "string" ? part.toolName : "";
       if (!PRUNE_DOCUMENT_TOOLS.has(name as DocumentToolName)) return;
-      sites.push({ message: mi, part: pi });
+      const val = outputValue(part.output);
+      const compacted = isCompactedSummary(val);
+      sites.push({
+        message: mi,
+        part: pi,
+        chars: compacted ? 0 : sizeOf(val),
+        compacted,
+        latestStep: inLatestStep,
+      });
     });
   });
 
-  // Walk back from the newest result, keeping whole results until the budget
-  // is spent. The newest is always kept, however large it is.
+  if (sites.length === 0) return messages;
+
+  const totalUncompacted = sites.reduce((sum, s) => sum + s.chars, 0);
+  if (totalUncompacted <= keepChars) return messages;
+
+  const targetChars = Math.max(1, Math.floor(keepChars * HYSTERESIS_TARGET_RATIO));
   let kept = 0;
   let keptChars = 0;
-  for (let i = sites.length - 1; i >= 0; i--) {
-    const site = sites[i]!;
-    const message = messages[site.message]!;
-    const part = Array.isArray(message.content) ? message.content[site.part] : undefined;
-    const chars = sizeOf(outputValue((part as ToolCallPart | undefined)?.output));
-    if (kept >= KEEP_RECENT_MIN && keptChars + chars > keepChars) break;
+  const keepSite = new Set<number>();
+
+  for (let i = sites.length - 1; i >= 0; i -= 1) {
+    const s = sites[i]!;
+    if (s.latestStep) {
+      keepSite.add(i);
+      kept += 1;
+      keptChars += s.chars;
+      continue;
+    }
+    if (s.compacted) continue;
+    if (kept >= KEEP_RECENT_MIN && keptChars + s.chars > targetChars) break;
+    keepSite.add(i);
     kept += 1;
-    keptChars += chars;
+    keptChars += s.chars;
   }
 
-  const cutoff = sites.length - kept;
-  if (cutoff <= 0) return messages;
+  const byMessage = new Map<number, Set<number>>();
+  sites.forEach((site, idx) => {
+    if (keepSite.has(idx) || site.compacted) return;
+    let set = byMessage.get(site.message);
+    if (!set) {
+      set = new Set<number>();
+      byMessage.set(site.message, set);
+    }
+    set.add(site.part);
+  });
 
-  const byMessage = new Map<number, number[]>();
-  for (const site of sites.slice(0, cutoff)) {
-    const list = byMessage.get(site.message) ?? [];
-    list.push(site.part);
-    byMessage.set(site.message, list);
-  }
+  if (byMessage.size === 0) return messages;
 
   let changed = false;
   const next = messages.map((message, mi) => {
@@ -166,9 +178,9 @@ export function compactRunMessages<M extends ModelMessageLike>(
     if (!parts || !Array.isArray(message.content)) return message;
     let messageChanged = false;
     const content = message.content.map((part, pi) => {
-      if (!parts.includes(pi) || !isToolResultPart(part)) return part;
+      if (!parts.has(pi) || !isToolResultPart(part)) return part;
       const value = outputValue(part.output);
-      if (alreadyCompacted(value)) return part;
+      if (isCompactedSummary(value)) return part;
       const name = String(part.toolName);
       const id = typeof part.toolCallId === "string" ? part.toolCallId : "";
       const summary = compactToolOutput(name, inputById.get(id), value);

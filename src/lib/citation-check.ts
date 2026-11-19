@@ -21,7 +21,7 @@
 import { pageRuns } from "./finding-anchors";
 import { ocrEnabled } from "./ocr/ocr-service";
 import { onOcrTextReplaced } from "./ocr/ocr-events";
-import { locateQuote } from "./quote-locate";
+import { locateAcrossPages, locateQuote } from "./quote-locate";
 import {
   citationKey,
   extractCitations,
@@ -248,7 +248,19 @@ async function resolve(
       if (runs.source === "ocr") sawRecognised = true;
     }
   }
-  // One page that could not be read is enough to withhold the accusation.
+  for (let idx = 0; idx + 1 < c.pages.length; idx += 1) {
+    const pA = c.pages[idx]!;
+    const pB = c.pages[idx + 1]!;
+    if (pB !== pA + 1) continue;
+    const runsA = await pageRuns(path, pA);
+    const runsB = await pageRuns(path, pB);
+    if (runsA.items.length === 0 || runsB.items.length === 0) continue;
+    const cross = locateAcrossPages(runsA.items, runsB.items, c.quote);
+    if (cross) {
+      const passage = `${passageAround(runsA.items, cross.first.rects)}\n${passageAround(runsB.items, cross.second.rects)}`;
+      return settled({ status: "located", page: pA, rects: cross.first.rects, passage });
+    }
+  }
   if (sawUnreadable) return { check: { status: "unreadable" }, failedRead, emptyPage };
   // So is one page whose only words are OCR's reading of it.
   const text = firstText ?? undefined;

@@ -219,6 +219,12 @@ const VARIANTS: Array<{ name: string; answer: string; pages: Record<number, stri
   { name: "季度", answer: '每3个月结算一次〔p4 "结算"〕。', pages: { 4: "双方每季度结算一次。" }, wrong: '每2个月结算一次〔p4 "结算"〕。' },
   { name: "clause number", answer: '依据第9.2款，乙方承担30%〔p6 "乙方承担"〕。', pages: { 6: "乙方承担损失的30%。" }, wrong: '依据第9.2款，乙方承担40%〔p6 "乙方承担"〕。' },
   { name: "section number", answer: 'Under Section 12.3, notice is due within 30 days〔p7 "notice"〕.', pages: { 7: "notice must be given within thirty (30) days" }, wrong: 'Under Section 12.3, notice is due within 60 days〔p7 "notice"〕.' },
+  { name: "negative percent", answer: 'Net margin was -3.2% in Q4〔p2 "margin"〕.', pages: { 2: "Operating results showed net margin of -3.2% in Q4." }, wrong: 'Net margin was 3.2% in Q4〔p2 "margin"〕.' },
+  { name: "positive vs negative percent", answer: 'Growth was 3.2% year over year〔p2 "growth"〕.', pages: { 2: "Revenue growth was +3.2% year over year." }, wrong: 'Growth was -3.2% year over year〔p2 "growth"〕.' },
+  { name: "negative currency", answer: 'The adjustment was -$500〔p3 "adjustment"〕.', pages: { 3: "A billing adjustment of -$500 was applied." }, wrong: 'The adjustment was $500〔p3 "adjustment"〕.' },
+  { name: "USD million scale", answer: 'The liability cap is $5 million〔p4 "liability cap"〕.', pages: { 4: "Total liability cap shall not exceed $5,000,000 (USD)." }, wrong: 'The liability cap is $5〔p4 "liability cap"〕.' },
+  { name: "shorthand $5M", answer: 'The liability cap is $5M〔p4 "liability cap"〕.', pages: { 4: "Total liability cap shall not exceed USD 5 million." }, wrong: 'The liability cap is $50M〔p4 "liability cap"〕.' },
+  { name: "hyphen range and code", answer: 'Under PW-2026-09, delivery takes 10-15 days〔p5 "delivery"〕.', pages: { 5: "Agreement PW-2026-09 requires delivery within 10-15 days." }, wrong: 'Under PW-2026-09, delivery takes 20-25 days〔p5 "delivery"〕.' },
 ];
 
 function flagsOf(answer: string, pages: Record<number, string>): string[] {

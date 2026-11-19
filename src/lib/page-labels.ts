@@ -81,7 +81,20 @@ export function pageForLabel(labels: readonly string[] | null, label: string): n
 }
 
 function foldLabel(value: string): string {
-  return value.toLowerCase().replace(/[\s._-]+/g, "");
+  return value
+    .trim()
+    .replace(/^(?:pages?|pp?\.?)\s+/i, "")
+    .toLowerCase()
+    .replace(/[\s._-]+/g, "");
+}
+
+/** Suffix for range/section headers when a printed label differs from physical order. */
+export function formatPageHeaderLabel(
+  labels: readonly string[] | null | undefined,
+  page: number,
+): string {
+  const label = labelForPage(labels ?? null, page);
+  return label ? ` (printed "${label}")` : "";
 }
 
 /**

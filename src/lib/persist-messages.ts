@@ -10,6 +10,6 @@ export function prepareMessagesForPersist(messages: UIMessage[]): UIMessage[] {
   // Never persist stale page screenshots — multi-MB base64 that would also be
   // re-hydrated and re-sent on the next turn.
   return dropEmptyPartMessages(
-    stripStaleScreenshotParts(sanitizeDanglingToolParts(pruneToolOutputsForHistory(messages))),
+    stripStaleScreenshotParts(sanitizeDanglingToolParts(pruneToolOutputsForHistory(messages, 0))),
   );
 }

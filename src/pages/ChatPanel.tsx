@@ -26,6 +26,7 @@ import { useRecordBridge } from "./chat/useRecordBridge";
 
 export interface ChatPanelHandle {
   focusComposer: () => void;
+  submitQuestion: (text: string) => void;
 }
 
 /**
@@ -138,10 +139,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const errorMessageRef = useRef(agent.run.errorMessage);
   errorMessageRef.current = agent.run.errorMessage;
 
-  useImperativeHandle(ref, () => ({
-    focusComposer: () => focusComposerInput(composerRef.current),
-  }));
-
   const busy = agent.run.status === "streaming" || agent.run.status === "submitted";
   const agentBusy = agent.run.isBusy();
   const interactionBusy = busy || session.chatLoading || agentBusy;
@@ -181,6 +178,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const sendOrQueue = useCallback(
     (text: string, options: { webSearch: boolean }) => {
+      if (panel.tab === "record") {
+        panel.setTab("chat");
+      }
       // Only a plain ask waits: a correction belongs to a run, and without a
       // document there is nothing to ask about.
       if (doc && connection.settingsReady && !connection.hasApiKey && !interactionBusy) {
@@ -188,19 +188,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       }
       return send(text, options);
     },
-    [doc, connection.settingsReady, connection.hasApiKey, interactionBusy, send, setQueued],
+    [doc, connection.settingsReady, connection.hasApiKey, interactionBusy, panel, send, setQueued],
+  );
+
+  const handleConfigureApi = useCallback(() => {
+    const trimmed = composerDraftRef.current.trim();
+    if (doc && connection.settingsReady && !connection.hasApiKey && trimmed && !interactionBusy) {
+      setQueued({ text: trimmed, webSearch: false });
+    }
+    onConfigureApi();
+  }, [doc, connection.settingsReady, connection.hasApiKey, interactionBusy, onConfigureApi, setQueued]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      focusComposer: () => focusComposerInput(composerRef.current),
+      submitQuestion: (text: string) => {
+        void sendOrQueue(text, { webSearch: false });
+      },
+    }),
+    [sendOrQueue],
   );
 
   useEffect(() => {
     const queued = queuedRef.current;
     if (!queued) return;
-    // The reader changed the text (or opened another document, which empties
-    // the composer): what was queued is no longer what they are asking.
     if (composerDraft.trim() !== queued.text) {
       setQueued(null);
       return;
     }
-    // Cancelling Settings leaves the question in the box and sends nothing.
     if (settingsOpen || !connection.hasApiKey || !doc) return;
     setQueued(null);
     void send(queued.text, { webSearch: queued.webSearch });
@@ -266,7 +282,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                   hasDocument={!!doc}
                   totalPages={doc?.totalPages}
                   previewPage={page}
-                  onConfigureApi={onConfigureApi}
+                  onConfigureApi={handleConfigureApi}
                   questionQueued={questionQueued}
                   onExamplePrompt={(text) => {
                     onComposerDraftChange(text);

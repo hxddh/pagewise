@@ -14,6 +14,7 @@ import { Button } from "./ui/Button";
 interface SettingsDrawerProps {
   open: boolean;
   onClose: () => void;
+  onSetupDone?: () => void;
   /** True once a key is stored for the active provider — decides setup vs settings. */
   assistantConfigured: boolean;
   /** False while the stored settings are still being read. */
@@ -60,6 +61,7 @@ const TAB_ICONS: Record<DrawerTab, typeof Info> = {
 function SettingsDrawerInner({
   open,
   onClose,
+  onSetupDone,
   assistantConfigured,
   settingsReady,
   onLlmSettingsSaved,
@@ -172,7 +174,10 @@ function SettingsDrawerInner({
             <div className="settings-content">
               <div className="settings-pane">
                 <SetupAssistant
-                  onDone={onClose}
+                  onDone={() => {
+                    onClose();
+                    onSetupDone?.();
+                  }}
                   onSkip={() => setSetupSkipped(true)}
                   onSaveError={onSaveError}
                   onRefreshConnection={onRefreshConnection}

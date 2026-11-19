@@ -31,7 +31,10 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
   "google/gemini-2.5-flash-lite": cap(true, true),
   "google/gemini-2.5-flash": cap(true, true),
   "google/gemma-3-4b-it": cap(true, false),
-  "google/gemma-4-31b-it": cap(true, false),
+  "google/gemma-4-31b-it": cap(true, true),
+  "google/gemma-4": cap(true, true),
+  "gemma-4": cap(true, true),
+  gemma4: cap(true, true),
   "qwen/qwen3-vl-8b-instruct": cap(true, false),
   "anthropic/claude-3.5-sonnet": cap(true, true),
 
@@ -118,7 +121,7 @@ function looksLikeToolModel(model: string): boolean {
   if (looksLikeVisionModel(model) && /(?:^|[-_/])(vl|vision|llava|bakllava|minicpm-v)/.test(m)) {
     return false;
   }
-  return /(?:gpt-4|gpt-5|gpt-3\.5|claude|gemini|deepseek|mistral|mixtral|llama-3|llama3|llama-4|llama4|qwen2\.5(?!vl)|qwen3(?!-vl)|command-r|grok|kimi|glm|nova)/.test(
+  return /(?:gpt-4|gpt-5|gpt-3\.5|claude|gemini|gemma-?4|deepseek|mistral|mixtral|llama-3|llama3|llama-4|llama4|qwen2\.5(?!vl)|qwen3(?!-vl)|command-r|grok|kimi|glm|nova)/.test(
     m,
   );
 }
@@ -165,8 +168,44 @@ export function isToolModel(provider: ProviderId, model: string): boolean {
 
 /** Whether the assistant model can accept AI SDK `reasoning` (thinking mode). */
 export function isThinkingCapableModel(provider: ProviderId, model: string): boolean {
-  if (provider === "custom" || provider === "ollama" || provider === "openai") return false;
-  if (provider === "deepseek") return true;
-  const m = model.toLowerCase();
-  return m.startsWith("deepseek/") || m.includes("reasoner") || m.includes("/r1");
+  const m = normalizeModelId(model);
+  if (!m) return false;
+  if (/(?:^|[-_/])(?:non|no)-?thinking(?:$|[-_/:])/.test(m)) return false;
+  const slug = m.includes("/") ? m.slice(m.lastIndexOf("/") + 1) : m;
+  if (/^(?:gpt-4o|gpt-4\.1|gpt-3\.5|llama-?3\.[123])(?:$|[-_.])/.test(slug)) return false;
+  if (provider === "deepseek" || slug.startsWith("deepseek") || m.startsWith("deepseek/")) return true;
+  if (/^(?:o1|o3|o4)(?:$|[-_.])/.test(slug)) return true;
+  if (/^gpt-5(?:$|[-_.])/.test(slug)) return true;
+  if (/^(?:qwen3|qwq)(?:$|[-_.:])/.test(slug)) return true;
+  if (/^claude-(?:3[-.]7|sonnet-4|opus-4|haiku-4\.5|4)/.test(slug)) return true;
+  if (/^gemini-(?:2\.5|3)(?:$|[-_.])/.test(slug)) return true;
+  return /(?:^|[-_/])(?:r1|reasoner|thinking)(?:$|[-_/:0-9])/.test(m);
+}
+
+/** Approximate context window in tokens for budget and compaction sizing. */
+export function modelContextTokens(provider: ProviderId, model: string): number {
+  if (provider === "ollama" || provider === "custom") return 32_768;
+  const m = normalizeModelId(model);
+  const slug = m.includes("/") ? m.slice(m.lastIndexOf("/") + 1) : m;
+  if (/^gemini-(?:1\.5|2|3)/.test(slug) || /^gpt-4\.1/.test(slug)) return 1_000_000;
+  if (/^(?:gpt-5|o1|o3|o4|claude)/.test(slug)) return 200_000;
+  if (
+    provider === "deepseek" ||
+    /^(?:gpt-4o|deepseek|qwen|qwq|gemma-?[34]|llama-?[34]|grok|kimi|glm-4|mistral-(?:large|small3))/.test(slug)
+  ) {
+    return 128_000;
+  }
+  return 32_768;
+}
+
+/** Uncompacted tool-result character ceiling inside a single agent run. */
+export function runKeepRecentChars(provider: ProviderId, model: string): number {
+  if (modelContextTokens(provider, model) >= 128_000) return 72_000;
+  if (provider === "ollama") return 28_000;
+  return 24_000;
+}
+
+/** Per-run page-text token budget scaled by model context window. */
+export function runTokenBudget(provider: ProviderId, model: string): number {
+  return modelContextTokens(provider, model) >= 128_000 ? 120_000 : 50_000;
 }

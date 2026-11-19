@@ -239,6 +239,8 @@ export async function flushMarkStore(): Promise<void> {
   await marks.flush();
 }
 
+export const flushMarks = flushMarkStore;
+
 function mutate(path: string, next: Mark[]): void {
   marks.replace(path, sortMarks(next));
   listeners.notify(path);

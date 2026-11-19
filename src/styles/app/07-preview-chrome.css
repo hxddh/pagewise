@@ -147,6 +147,15 @@
   min-width: 0;
 }
 
+.doc-search-step-count {
+  flex-shrink: 0;
+  padding: 0 var(--space-xs);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* Surface, border, radius and shadow come from <Panel tone="elevated">. */
 .doc-search-results {
   position: absolute;

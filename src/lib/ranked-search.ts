@@ -1,31 +1,10 @@
-/**
- * Which pages are about these words, when no page has them as written.
- *
- * `search_in_document` was an exact substring match, and nothing else. A
- * question asked in the reader's words rather than the document's — "late
- * payment penalty" against a contract that says "overdue amount … liquidated
- * damages", "违约责任" against "违约金" — found nothing, and the model's next
- * move was to page through the document at full price. Measured on the 13.0
- * evaluation corpus, see `eval/search.eval.ts`.
- *
- * This is BM25 over the pages: each query term scored by how rare it is in the
- * document and how often it occurs on the page, with long pages discounted.
- * Terms are words for alphabetic scripts, lightly stemmed so "payments" meets
- * "payment", and overlapping character pairs for CJK, where there are no
- * spaces to split on and a two-character pair is the unit most words share.
- *
- * It is lexical, not semantic, deliberately: no model, no embeddings, nothing
- * leaves the machine, and it is deterministic enough to measure. It runs only
- * after exact matches, and its hits say so, so the model can tell "the page
- * has your phrase" from "the page has your words".
- */
 import { markdownToPlainText } from "./markdown-text";
 import type { PageText } from "./types";
 
 const CJK = /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/;
 const WORD = /[\p{L}\p{N}]+/gu;
+const LINE_WRAP_JOIN = /([\p{L}])[-‐‑\u00AD]\s+([\p{L}])/gu;
 
-/** Words too common to say anything about which page is meant. */
 const STOP = new Set(
   (
     "a an and are as at be been but by can could did do does for from had has have he her his how i if in into is it its " +
@@ -35,32 +14,37 @@ const STOP = new Set(
   ).split(" "),
 );
 
-/**
- * Strip plural and verb inflections. Crude and symmetric — enough for
- * "payments"/"payment" and "terminating"/"terminated". Derivational suffixes
- * ("-ment", "-ation") are left alone: "payment" stemmed to "pay" would meet
- * every page that says "pay".
- */
 function stem(word: string): string {
-  if (word.length <= 4 || /\d/.test(word)) return word;
-  for (const suffix of ["ings", "ing", "ies", "es", "ed", "s"]) {
-    if (word.endsWith(suffix) && word.length - suffix.length >= 3) {
-      return suffix === "ies" ? `${word.slice(0, -3)}y` : word.slice(0, -suffix.length);
-    }
+  if (word.length < 4 || /\d/.test(word)) return word;
+  if (word.length === 4) {
+    if (word === "used" || word === "uses") return "use";
+    return word;
+  }
+  if (word.endsWith("ings") && word.length - 4 >= 3) return word.slice(0, -4);
+  if (word.endsWith("ing") && word.length - 3 >= 3) return word.slice(0, -3);
+  if (word.endsWith("ies") && word.length - 3 >= 3) return `${word.slice(0, -3)}y`;
+  if (/(?:sh|ch|x|z|ss)es$/.test(word) && word.length - 2 >= 3) return word.slice(0, -2);
+  if (word.endsWith("ed") && word.length - 2 >= 3) {
+    const base = word.slice(0, -2);
+    return /(?:[aeiou][^aeiouy]|[cgsvz])$/.test(base) && word.endsWith("eed") === false
+      ? word.slice(0, -1)
+      : base;
+  }
+  if (word.endsWith("s") && !word.endsWith("ss") && word.length - 1 >= 3) {
+    return word.slice(0, -1);
   }
   return word;
 }
 
-/** The terms of a text, in order. */
 export function tokenize(text: string): string[] {
   const out: string[] = [];
-  for (const m of text.normalize("NFKC").toLowerCase().matchAll(WORD)) {
+  const joined = text.replace(LINE_WRAP_JOIN, "$1$2");
+  for (const m of joined.normalize("NFKC").toLowerCase().matchAll(WORD)) {
     const word = m[0];
     if (!CJK.test(word)) {
       if (word.length >= 2 && !STOP.has(word)) out.push(stem(word));
       continue;
     }
-    // Mixed runs ("第5条", "HY-DR760型") are split into their CJK and other parts.
     for (const part of word.match(/[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]+|[^㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]+/g) ?? []) {
       if (!CJK.test(part)) {
         if (part.length >= 2 && !STOP.has(part)) out.push(stem(part));
@@ -77,12 +61,22 @@ export function tokenize(text: string): string[] {
   return out;
 }
 
+function cjkUnigrams(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.normalize("NFKC").matchAll(/[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]{2,}/g)) {
+    for (const ch of m[0]) {
+      if (!STOP.has(ch)) out.push(`\0${ch}`);
+    }
+  }
+  return out;
+}
+
 interface Index {
   plain: string[];
-  /** Term frequencies per page. */
   tf: Map<string, number>[];
-  /** Pages containing each term. */
   df: Map<string, number>;
+  uniTf: Map<string, number>[];
+  uniDf: Map<string, number>;
   lengths: number[];
   avgLength: number;
 }
@@ -100,9 +94,18 @@ function indexOf(pages: PageText[]): Index {
   });
   const df = new Map<string, number>();
   for (const counts of tf) for (const t of counts.keys()) df.set(t, (df.get(t) ?? 0) + 1);
+
+  const uniTf = plain.map((text) => {
+    const counts = new Map<string, number>();
+    for (const u of cjkUnigrams(text)) counts.set(u, (counts.get(u) ?? 0) + 1);
+    return counts;
+  });
+  const uniDf = new Map<string, number>();
+  for (const counts of uniTf) for (const u of counts.keys()) uniDf.set(u, (uniDf.get(u) ?? 0) + 1);
+
   const lengths = tf.map((counts) => [...counts.values()].reduce((a, b) => a + b, 0));
   const avgLength = lengths.reduce((a, b) => a + b, 0) / Math.max(1, lengths.length) || 1;
-  const index = { plain, tf, df, lengths, avgLength };
+  const index = { plain, tf, df, uniTf, uniDf, lengths, avgLength };
   indexCache.set(pages, index);
   return index;
 }
@@ -111,31 +114,29 @@ export interface RankedHit {
   page: number;
   score: number;
   snippet: string;
-  /** The query terms this page has, as they were searched for. */
   terms: string[];
 }
 
 const K1 = 1.2;
 const B = 0.75;
+const UNI_WEIGHT = 0.32;
 
-/**
- * Pages ranked by how well they carry the query's terms.
- *
- * A page must carry at least half of the query's distinct terms (and at least
- * one): a long query otherwise ranks every page that shares one common word
- * with it, which is noise the model then pays to read.
- */
 export function rankPages(pages: PageText[], query: string, limit = 12): RankedHit[] {
   const terms = [...new Set(tokenize(query))];
   if (terms.length === 0 || pages.length === 0) return [];
+  const uniTerms = [...new Set(cjkUnigrams(query))];
   const index = indexOf(pages);
   const n = pages.length;
   const need = Math.max(1, Math.ceil(terms.length / 2));
+  const needUni = uniTerms.length > 0 ? Math.max(1, Math.ceil(uniTerms.length / 2)) : Infinity;
 
-  const scored: RankedHit[] = [];
+  const tier1: RankedHit[] = [];
+  const tier2: RankedHit[] = [];
+
   for (let i = 0; i < n; i += 1) {
     const counts = index.tf[i]!;
-    let score = 0;
+    const lenNorm = K1 * (1 - B + (B * index.lengths[i]!) / index.avgLength);
+    let primaryScore = 0;
     const found: string[] = [];
     for (const term of terms) {
       const f = counts.get(term) ?? 0;
@@ -143,13 +144,56 @@ export function rankPages(pages: PageText[], query: string, limit = 12): RankedH
       found.push(term);
       const df = index.df.get(term) ?? 0;
       const idf = Math.log(1 + (n - df + 0.5) / (df + 0.5));
-      score += idf * ((f * (K1 + 1)) / (f + K1 * (1 - B + (B * index.lengths[i]!) / index.avgLength)));
+      primaryScore += idf * ((f * (K1 + 1)) / (f + lenNorm));
     }
-    if (found.length < need) continue;
-    scored.push({ page: pages[i]!.page, score, snippet: "", terms: found });
+
+    let uniScore = 0;
+    const foundUni: string[] = [];
+    if (uniTerms.length > 0) {
+      const uCounts = index.uniTf[i]!;
+      for (const u of uniTerms) {
+        const f = uCounts.get(u) ?? 0;
+        if (f === 0) continue;
+        foundUni.push(u.slice(1));
+        const df = index.uniDf.get(u) ?? 0;
+        const idf = Math.log(1 + (n - df + 0.5) / (df + 0.5));
+        uniScore += UNI_WEIGHT * idf * ((f * (K1 + 1)) / (f + lenNorm));
+      }
+    }
+
+    if (found.length >= need) {
+      tier1.push({
+        page: pages[i]!.page,
+        score: primaryScore + uniScore,
+        snippet: "",
+        terms: found,
+      });
+    } else if (found.length >= 1 || foundUni.length >= needUni) {
+      tier2.push({
+        page: pages[i]!.page,
+        score: primaryScore + uniScore,
+        snippet: "",
+        terms: found.length > 0 ? found : foundUni,
+      });
+    }
   }
-  scored.sort((a, b) => b.score - a.score || a.page - b.page);
-  const top = scored.slice(0, limit);
+
+  tier1.sort((a, b) => b.score - a.score || a.page - b.page);
+  tier2.sort((a, b) => b.score - a.score || a.page - b.page);
+
+  let combined: RankedHit[];
+  if (tier1.length === 0) {
+    combined = tier2;
+  } else if (tier1.length < Math.min(limit, 3) && terms.length <= 4) {
+    const minBackfillScore = tier1[0]!.score * 0.05;
+    const backfill = tier2.filter(
+      (h) => h.terms.length >= Math.max(1, need - 1) && h.score >= minBackfillScore,
+    );
+    combined = [...tier1, ...backfill];
+  } else {
+    combined = tier1;
+  }
+  const top = combined.slice(0, limit);
   for (const hit of top) {
     const i = pages.findIndex((p) => p.page === hit.page);
     hit.snippet = snippetFor(index.plain[i] ?? "", hit.terms, index);
@@ -157,9 +201,12 @@ export function rankPages(pages: PageText[], query: string, limit = 12): RankedH
   return top;
 }
 
-/** Context around the rarest of the page's matching terms. */
 function snippetFor(text: string, terms: string[], index: Index, radius = 80): string {
-  const rarest = [...terms].sort((a, b) => (index.df.get(a) ?? 0) - (index.df.get(b) ?? 0));
+  const rarest = [...terms].sort(
+    (a, b) =>
+      (index.df.get(a) ?? index.uniDf.get(`\0${a}`) ?? 0) -
+      (index.df.get(b) ?? index.uniDf.get(`\0${b}`) ?? 0),
+  );
   const lower = text.toLowerCase();
   let at = -1;
   let len = 0;

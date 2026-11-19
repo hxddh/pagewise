@@ -87,21 +87,27 @@ export const MAX_MARGIN_ENTRIES = 12;
 export const COLUMN_MIN_STEP = 0.06;
 
 /**
+ * Lowest top edge a margin card may sit at, as a fraction of the page's height,
+ * so a three-line card near the foot of the page stays inside `.page-gutter-column`
+ * instead of clipping at the bottom edge.
+ */
+export const COLUMN_MAX_TOP = 0.9;
+
+/**
  * Where each column entry sits, as a fraction of the page's height.
  *
  * Entries keep the anchor they came with — the passage's own place on the page
  * — unless that would draw them over the entry before them, in which case they
- * are pushed just below it. An entry with no anchor (a quote that was not
- * found, a check still running) starts at the top of the page, where it is at
- * least beside the page it is about. The result is parallel to the input, so
- * the caller's order — and the DOM's — is its own business.
- *
- * The push keeps `COLUMN_MIN_STEP` honest: two cards never overlap. It can
- * leave a card no longer beside its passage, and that is the caller's to draw
- * — `PageGutter` keeps the anchors it passed in and ties a card the push moved
- * back to its passage. This function only decides where cards sit.
+ * are pushed just below it. If pushing near the foot of the page would send a
+ * card past `COLUMN_MAX_TOP`, an upward pass pulls the bottom group up just
+ * enough to keep every card inside the page's height.
  */
 export function columnTops(tops: ReadonlyArray<number | undefined>): number[] {
+  if (tops.length === 0) return [];
+  const step =
+    tops.length > 1
+      ? Math.min(COLUMN_MIN_STEP, COLUMN_MAX_TOP / (tops.length - 1))
+      : COLUMN_MIN_STEP;
   const order = tops
     .map((top, i) => ({ i, top: top ?? 0 }))
     .sort((a, b) => a.top - b.top || a.i - b.i);
@@ -110,7 +116,15 @@ export function columnTops(tops: ReadonlyArray<number | undefined>): number[] {
   for (const { i, top } of order) {
     const placed = Math.max(top, floor);
     out[i] = placed;
-    floor = placed + COLUMN_MIN_STEP;
+    floor = placed + step;
+  }
+  let ceiling = COLUMN_MAX_TOP;
+  for (let k = order.length - 1; k >= 0; k -= 1) {
+    const { i } = order[k]!;
+    if (out[i]! > ceiling) {
+      out[i] = Math.max(0, ceiling);
+    }
+    ceiling = out[i]! - step;
   }
   return out;
 }

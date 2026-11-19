@@ -7,6 +7,8 @@ import { Button } from "../ui/Button";
 interface AdvancedRowsProps {
   includeViewingPageDefault: boolean;
   onIncludeViewingPageDefaultChange: (value: boolean) => void;
+  showUsageLine: boolean;
+  onShowUsageLineChange: (value: boolean) => void;
   /** The thinking switch is only offered for models that support it. */
   showThinking: boolean;
   thinkingEnabled: boolean;
@@ -31,6 +33,8 @@ interface AdvancedRowsProps {
 export function AdvancedRows({
   includeViewingPageDefault,
   onIncludeViewingPageDefaultChange,
+  showUsageLine,
+  onShowUsageLineChange,
   showThinking,
   thinkingEnabled,
   onThinkingChange,
@@ -80,6 +84,18 @@ export function AdvancedRows({
           type="checkbox"
           checked={includeViewingPageDefault}
           onChange={(e) => onIncludeViewingPageDefaultChange(e.target.checked)}
+        />
+      </label>
+
+      <label className="settings-row-toggle">
+        <div>
+          <span className="settings-row-title">{t("settings.showUsageLine")}</span>
+          <span className="settings-row-hint">{t("settings.showUsageLineHint")}</span>
+        </div>
+        <input
+          type="checkbox"
+          checked={showUsageLine}
+          onChange={(e) => onShowUsageLineChange(e.target.checked)}
         />
       </label>
 

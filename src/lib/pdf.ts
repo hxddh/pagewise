@@ -34,34 +34,94 @@ const QUALITY_RANK: Record<PreviewQuality, number> = {
   crisp: 2,
 };
 
-let pdfDocCache: { path: string; doc: PDFDocumentProxy } | null = null;
+const MAX_PDF_DOC_CACHE = 2;
+const MAX_PDF_BYTES_CACHE = 2;
+const MAX_PDF_BYTES_CACHE_BYTES = 128 * 1024 * 1024;
+
+const pdfDocCache = new Map<string, PDFDocumentProxy>();
 const pdfBytesCache = new Map<string, Uint8Array>();
 const pdfBytesCacheOrder: string[] = [];
-const MAX_PDF_BYTES_CACHE = 3;
+let pdfBytesTotal = 0;
 const inFlightDocs = new Map<string, Promise<PDFDocumentProxy>>();
 let renderEpoch = 0;
 let pageCacheBytes = 0;
-/** Bumped on doc switch / clearPdfCache — stale loads must not destroy the active document. */
-let pdfDocEpoch = 0;
-/** Path the UI is currently viewing; late loads for other paths are discarded. */
+const pathEpochs = new Map<string, number>();
+const pathResetWaiters = new Map<string, Set<() => void>>();
+/** Path the UI is currently viewing. */
 let pdfActivePath: string | null = null;
+/** Path currently being staged by `loadDocument` before `PreviewPane` mounts. */
+let stagedPdfPath: string | null = null;
+
+function getPathEpoch(path: string): number {
+  return pathEpochs.get(path) ?? 0;
+}
+
+function bumpPathEpoch(path: string): void {
+  pathEpochs.set(path, getPathEpoch(path) + 1);
+  const waiters = pathResetWaiters.get(path);
+  if (waiters) {
+    for (const onReset of [...waiters]) onReset();
+    waiters.clear();
+  }
+}
+
+/** Mark `nextPath` as staging so `A → B` scope teardown of `A` preserves `B`. */
+export function preparePdfSwitch(nextPath: string | null): void {
+  stagedPdfPath = nextPath;
+}
 
 export function setActivePdfPath(path: string | null): void {
   pdfActivePath = path;
+  if (path && stagedPdfPath === path) stagedPdfPath = null;
+  if (path && pdfDocCache.has(path)) clearPdfBytesCache(path);
+}
+
+export function clearPdfBytesCache(onlyPath?: string): void {
+  if (onlyPath !== undefined) {
+    const prev = pdfBytesCache.get(onlyPath);
+    if (prev) {
+      pdfBytesTotal = Math.max(0, pdfBytesTotal - prev.byteLength);
+      pdfBytesCache.delete(onlyPath);
+    }
+    const idx = pdfBytesCacheOrder.indexOf(onlyPath);
+    if (idx >= 0) pdfBytesCacheOrder.splice(idx, 1);
+    return;
+  }
+  pdfBytesCache.clear();
+  pdfBytesCacheOrder.length = 0;
+  pdfBytesTotal = 0;
+}
+
+function storePdfBytesCache(path: string, data: Uint8Array): void {
+  clearPdfBytesCache(path);
+  if (data.byteLength > MAX_PDF_BYTES_CACHE_BYTES) return;
+  pdfBytesCache.set(path, data);
+  pdfBytesTotal += data.byteLength;
+  pdfBytesCacheOrder.push(path);
+  while (
+    pdfBytesCacheOrder.length > MAX_PDF_BYTES_CACHE ||
+    pdfBytesTotal > MAX_PDF_BYTES_CACHE_BYTES
+  ) {
+    const evict = pdfBytesCacheOrder.shift();
+    if (!evict) break;
+    const removed = pdfBytesCache.get(evict);
+    if (removed) {
+      pdfBytesTotal = Math.max(0, pdfBytesTotal - removed.byteLength);
+      pdfBytesCache.delete(evict);
+    }
+  }
 }
 
 function touchPdfBytesCache(path: string): void {
   const idx = pdfBytesCacheOrder.indexOf(path);
-  if (idx >= 0) pdfBytesCacheOrder.splice(idx, 1);
-  pdfBytesCacheOrder.push(path);
-  while (pdfBytesCacheOrder.length > MAX_PDF_BYTES_CACHE) {
-    const evict = pdfBytesCacheOrder.shift();
-    if (evict) pdfBytesCache.delete(evict);
+  if (idx >= 0) {
+    pdfBytesCacheOrder.splice(idx, 1);
+    pdfBytesCacheOrder.push(path);
   }
 }
 
 function shouldCommitPdfLoad(path: string, epochAtStart: number): boolean {
-  return epochAtStart === pdfDocEpoch && (pdfActivePath === null || pdfActivePath === path);
+  return epochAtStart === getPathEpoch(path);
 }
 
 export class StalePdfLoadError extends Error {
@@ -523,84 +583,96 @@ export async function readAuthorizedFileBytes(
   }
 }
 
-async function loadPdfBytes(path: string, readGen: number): Promise<Uint8Array> {
+async function loadPdfBytes(path: string, epochAtStart: number): Promise<Uint8Array> {
   const cached = pdfBytesCache.get(path);
-  // A detached buffer (byteLength 0 after transfer to the pdf.js worker) is a
-  // cache miss, not a hit — returning it would fail every retry for this path.
   if (cached && cached.buffer.byteLength > 0) {
-    touchPdfBytesCache(path); // mark as most-recently-used so the LRU is a real LRU
+    touchPdfBytesCache(path);
     return cached;
   }
 
+  const readGen = fileReadGen;
   let data: Uint8Array;
   try {
     data = await loadPdfBytesViaIpc(path, readGen);
   } catch (e) {
     if (e instanceof StalePdfLoadError) throw e;
-    // The 256 MiB cap is a deliberate guard — falling back to the asset
-    // protocol here would fetch the whole oversized file into webview memory
-    // anyway, bypassing the cap. Coded since 24.0 ("file-too-large: …").
     if (classifyOpenError(e)?.kind === "tooLarge") throw e;
     data = await loadPdfBytesViaAsset(path);
-    if (readGen !== fileReadGen) throw new StalePdfLoadError(path);
+    if (!shouldCommitPdfLoad(path, epochAtStart)) throw new StalePdfLoadError(path);
   }
 
+  if (!shouldCommitPdfLoad(path, epochAtStart)) throw new StalePdfLoadError(path);
   if (data.byteLength === 0) throw new Error("Empty PDF file");
-  pdfBytesCache.set(path, data);
-  touchPdfBytesCache(path);
+  storePdfBytesCache(path, data);
   return data;
 }
 
 async function loadPdfDocumentOnce(path: string, epochAtStart: number): Promise<PDFDocumentProxy> {
-  const readGen = fileReadGen;
+  const existing = pdfDocCache.get(path);
+  if (existing) return existing;
   const pdfjs = await getPdfJs();
-  const data = await loadPdfBytes(path, readGen);
-  // getDocument TRANSFERS the buffer to the pdf.js worker, detaching it. Hand
-  // pdf.js a copy so the pdfBytesCache entry stays usable for retries
-  // (stale-load loop, parse-failure re-renders) instead of throwing
-  // DataCloneError on every subsequent attempt.
-  const doc = await pdfjs.getDocument(pdfDocumentInit(data.slice())).promise;
+  const data = await loadPdfBytes(path, epochAtStart);
+  const payload = pdfBytesCache.has(path) ? data.slice() : data;
+  const doc = await pdfjs.getDocument(pdfDocumentInit(payload)).promise;
 
   if (!shouldCommitPdfLoad(path, epochAtStart)) {
     void doc.loadingTask.destroy();
     throw new StalePdfLoadError(path);
   }
-  if (pdfDocCache && pdfDocCache.path !== path) {
-    void pdfDocCache.doc.loadingTask.destroy();
+  pdfDocCache.delete(path);
+  pdfDocCache.set(path, doc);
+  while (pdfDocCache.size > MAX_PDF_DOC_CACHE) {
+    const candidate =
+      [...pdfDocCache.keys()].find(
+        (k) => k !== path && k !== pdfActivePath && k !== stagedPdfPath,
+      ) ?? [...pdfDocCache.keys()].find((k) => k !== path);
+    if (!candidate) break;
+    const evicted = pdfDocCache.get(candidate);
+    pdfDocCache.delete(candidate);
+    bumpPathEpoch(candidate);
+    if (evicted) void evicted.loadingTask.destroy();
   }
-  pdfDocCache = { path, doc };
+  clearPdfBytesCache(path);
   return doc;
 }
 
 export async function getPdfDocument(path: string): Promise<PDFDocumentProxy> {
-  if (pdfDocCache?.path === path) return pdfDocCache.doc;
+  const cached = pdfDocCache.get(path);
+  if (cached) {
+    pdfDocCache.delete(path);
+    pdfDocCache.set(path, cached);
+    return cached;
+  }
 
   const inFlight = inFlightDocs.get(path);
   if (inFlight) return inFlight;
 
   const load = (async () => {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const epochAtStart = pdfDocEpoch;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const epochAtStart = getPathEpoch(path);
       try {
         return await loadPdfDocumentOnce(path, epochAtStart);
       } catch (e) {
         if (e instanceof StalePdfLoadError) {
-          if (pdfDocCache?.path === path) return pdfDocCache.doc;
+          const hit = pdfDocCache.get(path);
+          if (hit) return hit;
           continue;
         }
         throw e;
       }
     }
-    return loadPdfDocumentOnce(path, pdfDocEpoch);
+    return loadPdfDocumentOnce(path, getPathEpoch(path));
   })();
 
   inFlightDocs.set(path, load);
   try {
     return await load;
   } finally {
-    inFlightDocs.delete(path);
+    if (inFlightDocs.get(path) === load) inFlightDocs.delete(path);
   }
 }
+
+export const loadPdfDocument = getPdfDocument;
 
 async function paintPage(
   page: PDFPageProxy,
@@ -819,23 +891,53 @@ async function outlineDestToPage(doc: PDFDocumentProxy, dest: unknown): Promise<
  * side: a thousand-page file is a thousand `getAnnotations` round trips, paid on
  * every open, for a feature most documents do not use.
  */
+const ANNOTATION_BATCH_SIZE = 8;
+const ANNOTATION_SCAN_BUDGET_MS = 4_000;
+
 export async function getPdfAnnotations(
   path: string,
   totalPages: number,
   maxPages = ANNOTATION_PAGE_LIMIT,
+  signal?: AbortSignal,
 ): Promise<DocAnnotation[]> {
-  if (totalPages <= 0 || totalPages > maxPages) return [];
+  if (totalPages <= 0 || totalPages > maxPages || signal?.aborted) return [];
+  const startEpoch = getPathEpoch(path);
+  const deadline = performance.now() + ANNOTATION_SCAN_BUDGET_MS;
+  const aborted = () =>
+    Boolean(signal?.aborted) ||
+    getPathEpoch(path) !== startEpoch ||
+    performance.now() >= deadline;
+
   try {
     const doc = await getPdfDocument(path);
+    if (aborted()) return [];
     const out: DocAnnotation[] = [];
-    for (let page = 1; page <= totalPages; page += 1) {
-      const raw = await (await doc.getPage(page)).getAnnotations();
-      out.push(...readableAnnotations(raw, page));
-      if (out.length >= MAX_ANNOTATIONS) return out.slice(0, MAX_ANNOTATIONS);
+    for (let start = 1; start <= totalPages; start += ANNOTATION_BATCH_SIZE) {
+      if (aborted()) break;
+      const end = Math.min(totalPages, start + ANNOTATION_BATCH_SIZE - 1);
+      const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+      const batch = await Promise.all(
+        pages.map(async (p) => {
+          if (aborted()) return [] as DocAnnotation[];
+          const page = await doc.getPage(p);
+          try {
+            if (aborted()) return [] as DocAnnotation[];
+            const raw = await page.getAnnotations();
+            return readableAnnotations(raw, p);
+          } finally {
+            if (pdfActivePath !== path && p > 2 && activePaints.size === 0) {
+              page.cleanup?.();
+            }
+          }
+        }),
+      );
+      for (const pageNotes of batch) {
+        out.push(...pageNotes);
+        if (out.length >= MAX_ANNOTATIONS) return out.slice(0, MAX_ANNOTATIONS);
+      }
     }
     return out;
   } catch {
-    // The document reads fine without other people's notes on it.
     return [];
   }
 }
@@ -935,7 +1037,8 @@ export async function renderTextLayer(
   // Render into an off-DOM staging element and commit atomically: two
   // overlapping runs (rapid page flips) must never interleave appends into the
   // shared container, and a stale run must never wipe a newer run's output.
-  const staging = document.createElement("div");
+  const docDom = container.ownerDocument ?? document;
+  const staging = docDom.createElement("div");
   const layer = new TextLayer({
     textContentSource: textContent as Awaited<ReturnType<PDFPageProxy["getTextContent"]>>,
     container: staging,
@@ -992,25 +1095,82 @@ export function clearPageBitmapCache(): void {
   pageCacheBytes = 0;
 }
 
-export function clearPdfCache(): void {
+function evictPdfPath(targetPath: string): void {
+  bumpPathEpoch(targetPath);
+  const doc = pdfDocCache.get(targetPath);
+  if (doc) {
+    pdfDocCache.delete(targetPath);
+    void doc.loadingTask.destroy();
+  }
+  clearPdfBytesCache(targetPath);
+  for (const key of [...textLayerCache.keys()]) {
+    if (key.startsWith(`${targetPath}|`)) textLayerCache.delete(key);
+  }
+  for (const [key, snap] of [...pageCache.entries()]) {
+    if (key.startsWith(`${targetPath}|`)) {
+      pageCacheBytes = Math.max(0, pageCacheBytes - snap.bytes);
+      snap.bitmap.close();
+      pageCache.delete(key);
+    }
+  }
+  if (pdfActivePath === targetPath) pdfActivePath = null;
+}
+
+export function clearPdfCache(onlyPath?: string): void {
+  if (onlyPath !== undefined) {
+    if (stagedPdfPath === onlyPath) stagedPdfPath = null;
+    evictPdfPath(onlyPath);
+    if (inFlightDocs.size === 0) bumpFileReadGeneration();
+    return;
+  }
+
+  const preserve =
+    stagedPdfPath !== null && stagedPdfPath !== pdfActivePath ? stagedPdfPath : null;
+
   renderEpoch += 1;
-  pdfDocEpoch += 1;
-  for (const onReset of [...cacheResetWaiters]) onReset();
-  bumpFileReadGeneration();
   for (const item of renderQueue) item.cancel();
   renderQueue.length = 0;
   for (const paint of activePaints) paint.cancel();
   activePaints.clear();
-  if (pdfDocCache) {
-    void pdfDocCache.doc.loadingTask.destroy();
-    pdfDocCache = null;
+
+  if (preserve) {
+    for (const p of new Set([
+      ...pdfDocCache.keys(),
+      ...pdfBytesCache.keys(),
+      ...(pdfActivePath ? [pdfActivePath] : []),
+    ])) {
+      if (p !== preserve) evictPdfPath(p);
+    }
+    pdfActivePath = null;
+    return;
   }
-  pdfBytesCache.clear();
-  pdfBytesCacheOrder.length = 0;
+
+  for (const p of new Set([...pdfDocCache.keys(), ...pathResetWaiters.keys()])) {
+    bumpPathEpoch(p);
+  }
+  if (inFlightDocs.size === 0) bumpFileReadGeneration();
+  for (const doc of pdfDocCache.values()) void doc.loadingTask.destroy();
+  pdfDocCache.clear();
+  clearPdfBytesCache();
   textLayerCache.clear();
   for (const snap of pageCache.values()) snap.bitmap.close();
   pageCache.clear();
   pageCacheBytes = 0;
+  pdfActivePath = null;
+  stagedPdfPath = null;
+}
+
+export function disposeDocumentResources(onlyPath?: string): void {
+  clearPdfCache(onlyPath);
+}
+
+export function __resetPdfForTests(): void {
+  stagedPdfPath = null;
+  pdfActivePath = null;
+  inFlightDocs.clear();
+  clearPdfCache();
+  pathEpochs.clear();
+  pathResetWaiters.clear();
 }
 
 /** OCR target ~300 DPI (72 PDF points × ~4.17). */
@@ -1054,23 +1214,17 @@ export async function renderThumbnail(
   });
 }
 
-/** Told when `clearPdfCache` destroys the document a render was using. */
-const cacheResetWaiters = new Set<() => void>();
-
-/**
- * `work` against the cached document, settled even if the document is
- * destroyed under it. pdf.js leaves `getPage` and a render pending forever on
- * a destroyed document, and the cache is reset on every document switch —
- * including the one that starts the index sweep, whose first render lands in
- * exactly that window. A reset rejects with `StalePdfLoadError`.
- */
 function settledAcrossReset<T>(path: string, epoch: number, work: Promise<T>): Promise<T> {
-  // Already reset between the caller's last await and this one.
-  if (epoch !== pdfDocEpoch) return Promise.reject(new StalePdfLoadError(path));
+  if (epoch !== getPathEpoch(path)) return Promise.reject(new StalePdfLoadError(path));
   return new Promise<T>((resolve, reject) => {
     const onReset = () => reject(new StalePdfLoadError(path));
-    cacheResetWaiters.add(onReset);
-    work.then(resolve, reject).finally(() => cacheResetWaiters.delete(onReset));
+    let set = pathResetWaiters.get(path);
+    if (!set) {
+      set = new Set();
+      pathResetWaiters.set(path, set);
+    }
+    set.add(onReset);
+    work.then(resolve, reject).finally(() => set?.delete(onReset));
   });
 }
 
@@ -1089,12 +1243,10 @@ async function paintDetached(
   for (let attempt = 0; ; attempt++) {
     throwIfAborted(signal);
     try {
-      // The document must belong to the cache as it is now; one returned
-      // just before a reset is already destroyed.
-      const epoch = pdfDocEpoch;
+      const epoch = getPathEpoch(path);
       const doc = await getPdfDocument(path);
       throwIfAborted(signal);
-      if (pdfDocCache?.doc !== doc) throw new StalePdfLoadError(path);
+      if (pdfDocCache.get(path) !== doc) throw new StalePdfLoadError(path);
       const page = await settledAcrossReset(path, epoch, doc.getPage(pageNumber));
       const canvas = document.createElement("canvas");
       // The reader's own rendering goes first (19.0). A detached paint is the

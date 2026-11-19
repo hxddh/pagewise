@@ -1,10 +1,12 @@
-import { docCache } from "./doc-cache";
+import { docCache, mergeTablePages } from "./doc-cache";
 import {
+  disposeDocumentResources,
   documentKind,
   getPdfAnnotations,
   getPdfOutline,
   getPdfPageLabels,
   openDocument,
+  preparePdfSwitch,
 } from "./pdf";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import { throwIfAborted } from "./abort-utils";
@@ -80,44 +82,53 @@ export async function loadDocument(
   let doc: LoadedDocument;
 
   if (kind === "pdf") {
-    report(onProgress, { stage: "extracting", message: "load.extracting", percent: 20 });
-    const model = await openDocument(path, signal);
-    throwIfAborted(signal);
+    preparePdfSwitch(path);
+    try {
+      report(onProgress, { stage: "extracting", message: "load.extracting", percent: 20 });
+      const model = await openDocument(path, signal);
+      throwIfAborted(signal);
 
-    report(onProgress, {
-      stage: "extracting",
-      message: "load.extractedPages",
-      messageParams: { count: model.page_count },
-      percent: 55,
-    });
+      report(onProgress, {
+        stage: "extracting",
+        message: "load.extractedPages",
+        messageParams: { count: model.page_count },
+        percent: 55,
+      });
 
-    doc = {
-      path,
-      name,
-      kind: "pdf",
-      pages: model.pages.map((p) => ({ page: p.page, text: p.text, source: "native" as const })),
-      totalPages: model.page_count,
-      stamp,
-      ...(identity ? { identity } : {}),
-      title: model.title ?? undefined,
-      // Arbitrated here, once, rather than by each consumer remembering to.
-      outline: preferAuthoredOutline(
-        usableOutline(
-          (await getPdfOutline(path))
-            .filter((b): b is { title: string; page: number; level: number } => b.page !== null),
-          model.page_count,
+      const [rawOutline, rawLabels, annotations] = await Promise.all([
+        getPdfOutline(path),
+        getPdfPageLabels(path, model.page_count),
+        getPdfAnnotations(path, model.page_count, undefined, signal),
+      ]);
+      throwIfAborted(signal);
+
+      doc = {
+        path,
+        name,
+        kind: "pdf",
+        pages: model.pages.map((p) => ({ page: p.page, text: p.text, source: "native" as const })),
+        totalPages: model.page_count,
+        stamp,
+        ...(identity ? { identity } : {}),
+        title: model.title ?? undefined,
+        outline: preferAuthoredOutline(
+          usableOutline(
+            rawOutline.filter((b): b is { title: string; page: number; level: number } => b.page !== null),
+            model.page_count,
+          ),
+          usableOutline(model.structure_outline, model.page_count),
+          usableOutline(model.outline, model.page_count),
         ),
-        usableOutline(model.structure_outline, model.page_count),
-        usableOutline(model.outline, model.page_count),
-      ),
-      links: model.links,
-      figures: model.figures,
-      tablePages: model.pages.filter((p) => p.has_table).map((p) => p.page),
-      // pdf.js, not Rust: `/PageLabels` is a document-level table and the
-      // extractor does not surface it. Undefined for the common case.
-      pageLabels: (await getPdfPageLabels(path, model.page_count)) ?? undefined,
-      annotations: await getPdfAnnotations(path, model.page_count),
-    };
+        links: model.links,
+        figures: model.figures,
+        tablePages: model.pages.filter((p) => p.has_table).map((p) => p.page),
+        pageLabels: rawLabels ?? undefined,
+        annotations,
+      };
+    } catch (err) {
+      disposeDocumentResources(path);
+      throw err;
+    }
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
     doc = {
@@ -144,6 +155,10 @@ export async function loadDocument(
   const recognised = await restoreOcr(path, identity);
   if (recognised.length > 0) {
     doc = { ...doc, pages: mergePageTextsOnReload(recognised, doc.pages) };
+  }
+  const tablePages = mergeTablePages(doc.tablePages, doc.pages);
+  if (tablePages !== undefined) {
+    doc = { ...doc, tablePages };
   }
   throwIfAborted(signal);
 

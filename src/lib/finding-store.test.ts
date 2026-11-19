@@ -371,10 +371,15 @@ describe("a finding the record already has", () => {
     expect(getFindings(PATH)).toHaveLength(3);
   });
 
-  it("refuses a copy of a struck entry, but not of one a revision overturned", () => {
-    const struck = write();
+  it("revives a struck entry when kept again, and allows re-adding one a revision overturned", () => {
+    const struck = write({ author: "reader", source: { messageId: "m-struck" } });
+    expect(keptFromMessage(PATH, "m-struck")).toHaveLength(1);
     setFindingStruck(PATH, struck!.id, true);
-    expect(write()).toBeNull();
+    expect(keptFromMessage(PATH, "m-struck")).toHaveLength(0);
+    const revived = write({ author: "reader", source: { messageId: "m-struck" } });
+    expect(revived?.id).toBe(struck!.id);
+    expect(revived?.struck).toBeUndefined();
+    expect(keptFromMessage(PATH, "m-struck")).toHaveLength(1);
 
     const old = write({ claim: "The study ran for a year." });
     reviseFinding(PATH, old!.id, { pages: [2], claim: "The study ran for two years.", stamp: STAMP });

@@ -108,4 +108,27 @@ describe("generateVisionText usage", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("preserves HTTP status codes and URLs for quota and local Ollama vision errors", async () => {
+    const { generateVisionText } = await import("./vision-api");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: { message: "Insufficient Balance", code: "insufficient_balance" },
+        }),
+        { status: 402, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      await expect(
+        generateVisionText(
+          { provider: "openrouter", apiKey: "sk-test", model: "google/gemini-2.5-flash-lite" },
+          "test",
+          new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+        ),
+      ).rejects.toThrow(/top up your balance at OpenRouter/i);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

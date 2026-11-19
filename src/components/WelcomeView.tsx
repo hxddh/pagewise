@@ -12,6 +12,7 @@ interface WelcomeViewProps {
   agentToolsSupported?: boolean;
   opening?: boolean;
   onOpenFile: () => void;
+  onOpenSample?: () => void;
   onOpenRecent: (path: string) => void;
   onConfigureApi: () => void;
 }
@@ -23,6 +24,7 @@ function WelcomeViewInner({
   agentToolsSupported = true,
   opening,
   onOpenFile,
+  onOpenSample,
   onOpenRecent,
   onConfigureApi,
 }: WelcomeViewProps) {
@@ -33,28 +35,32 @@ function WelcomeViewInner({
       <div className="welcome-inner">
         <div className="welcome-brand">
           <LogoMark size={40} className="welcome-logo" />
-          {/*
-            No app name under the title. `welcome.title` is already "Welcome to
-            PageWise" / "欢迎使用 PageWise", so printing app.name beneath it put
-            the product's name on screen twice, one line apart, in both locales.
-            Reading this file it looks like a title and a brand mark; on screen
-            it reads as a mistake — which is why it survived until the app was
-            photographed rather than read.
-          */}
           <h1 className="welcome-title">{t("welcome.title")}</h1>
         </div>
-        {/* Said as it is: "connect AI first" to a reader who already has (16.0). */}
         <p className="welcome-subtitle">{t(canUseAgent ? "welcome.subtitleReady" : "welcome.subtitle")}</p>
 
-        <Button
-          variant="primary"
-          size="lg"
-          className="welcome-open-btn"
-          onClick={onOpenFile}
-          disabled={opening}
-        >
-          {opening ? t("sidebar.opening") : t("sidebar.openDocument")}
-        </Button>
+        <div className="welcome-actions">
+          <Button
+            variant="primary"
+            size="lg"
+            className="welcome-open-btn"
+            onClick={onOpenFile}
+            disabled={opening}
+          >
+            {opening ? t("sidebar.opening") : t("sidebar.openDocument")}
+          </Button>
+          {onOpenSample && (
+            <Button
+              variant="secondary"
+              size="lg"
+              className="welcome-sample-btn"
+              onClick={onOpenSample}
+              disabled={opening}
+            >
+              {t("welcome.trySample")}
+            </Button>
+          )}
+        </div>
         <p className="welcome-drop-hint">{t("preview.dropHintShort")}</p>
 
         {!canUseAgent && (

@@ -3,8 +3,12 @@ import {
   isAgentMultimodalModel,
   canSeeWith,
   isKnownNonVisionModel,
+  isThinkingCapableModel,
   isToolModel,
   isVisionModel,
+  modelContextTokens,
+  runKeepRecentChars,
+  runTokenBudget,
 } from "./model-capabilities";
 
 describe("isVisionModel", () => {
@@ -112,5 +116,33 @@ describe("a model that can see is not stopped at the gate (21.1.2)", () => {
     for (const m of ["deepseek-v4-flash", "qwen3:8b", "mistral:7b", "llama3.1", "qwen2.5:14b"]) {
       expect(canSeeWith(m), m).toBe(false);
     }
+  });
+});
+
+describe("Gemma 4, thinking capability, and context budgets (v25)", () => {
+  it("recognizes Gemma 4 as both vision- and tool-capable", () => {
+    expect(isToolModel("openrouter", "google/gemma-4-31b-it")).toBe(true);
+    expect(isToolModel("openrouter", "google/gemma-4-27b-it")).toBe(true);
+    expect(isVisionModel("openrouter", "google/gemma-4-31b-it")).toBe(true);
+    expect(isToolModel("openrouter", "google/gemma-3-4b-it")).toBe(false);
+  });
+
+  it("identifies thinking-capable models across providers without false positives on gpt-4o", () => {
+    expect(isThinkingCapableModel("openai", "gpt-5")).toBe(true);
+    expect(isThinkingCapableModel("openai", "o3-mini")).toBe(true);
+    expect(isThinkingCapableModel("openai", "gpt-4o-mini")).toBe(false);
+    expect(isThinkingCapableModel("ollama", "qwen3:8b")).toBe(true);
+    expect(isThinkingCapableModel("ollama", "deepseek-r1:14b")).toBe(true);
+    expect(isThinkingCapableModel("ollama", "llama3.2:latest")).toBe(false);
+    expect(isThinkingCapableModel("openrouter", "anthropic/claude-sonnet-4")).toBe(true);
+    expect(isThinkingCapableModel("openrouter", "google/gemini-2.5-pro")).toBe(true);
+  });
+
+  it("scales run memory and token budgets with context window", () => {
+    expect(modelContextTokens("openai", "gpt-4.1")).toBe(1_000_000);
+    expect(runKeepRecentChars("deepseek", "deepseek-v4-flash")).toBe(72_000);
+    expect(runTokenBudget("deepseek", "deepseek-v4-flash")).toBe(120_000);
+    expect(runKeepRecentChars("ollama", "qwen3:8b")).toBe(28_000);
+    expect(runTokenBudget("ollama", "qwen3:8b")).toBe(50_000);
   });
 });

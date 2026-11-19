@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { describeLabels, labelForPage, normalizeLabels, pageForLabel } from "./page-labels";
+import {
+  describeLabels,
+  formatPageHeaderLabel,
+  labelForPage,
+  normalizeLabels,
+  pageForLabel,
+} from "./page-labels";
 
 /** A book: twelve pages of front matter in roman, then the body restarts at 1. */
 const BOOK = normalizeLabels(
@@ -80,6 +86,9 @@ describe("pageForLabel", () => {
     expect(pageForLabel(l, "a 1")).toBe(1);
     expect(pageForLabel(l, "A1")).toBe(1);
     expect(pageForLabel(BOOK, "IV")).toBe(4);
+    expect(pageForLabel(BOOK, "p. iv")).toBe(4);
+    expect(formatPageHeaderLabel(BOOK, 1)).toBe(' (printed "i")');
+    expect(formatPageHeaderLabel(null, 1)).toBe("");
   });
 
   it("refuses an ambiguous number rather than picking one", () => {

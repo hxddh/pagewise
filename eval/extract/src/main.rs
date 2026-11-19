@@ -27,6 +27,7 @@ struct PageDump {
     page: u32,
     text: String,
     needs_vision: bool,
+    has_table: bool,
     items: Vec<inspect::TextItemRect>,
     items_error: Option<String>,
 }
@@ -35,6 +36,11 @@ struct PageDump {
 struct DocDump {
     file: String,
     page_count: u32,
+    title: Option<String>,
+    outline: Vec<inspect::Heading>,
+    structure_outline: Vec<inspect::Heading>,
+    links: Vec<inspect::Link>,
+    figures: Vec<inspect::Figure>,
     pages: Vec<PageDump>,
 }
 
@@ -76,10 +82,26 @@ fn main() {
                     Ok(items) => (items, None),
                     Err(e) => (Vec::new(), Some(e)),
                 };
-                PageDump { page: p.page, text: p.text, needs_vision: p.needs_vision, items, items_error }
+                PageDump {
+                    page: p.page,
+                    text: p.text,
+                    needs_vision: p.needs_vision,
+                    has_table: p.has_table,
+                    items,
+                    items_error,
+                }
             })
             .collect();
-        let dump = DocDump { file: file.clone(), page_count: model.page_count, pages };
+        let dump = DocDump {
+            file: file.clone(),
+            page_count: model.page_count,
+            title: model.title,
+            outline: model.outline,
+            structure_outline: model.structure_outline,
+            links: model.links,
+            figures: model.figures,
+            pages,
+        };
         println!("{}", serde_json::to_string(&dump).expect("serialize"));
     }
 }

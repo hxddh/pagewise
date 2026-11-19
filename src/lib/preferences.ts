@@ -110,11 +110,19 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   agentScanPages: 10,
   localOcr: true,
   ocrLanguage: "auto",
-  showUsageLine: true,
+  showUsageLine: false,
   readingScale: 1,
 };
 
 const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
+const prefListeners = new Set<(prefs: AppPreferences) => void>();
+
+export function subscribePreferences(listener: (prefs: AppPreferences) => void): () => void {
+  prefListeners.add(listener);
+  return () => {
+    prefListeners.delete(listener);
+  };
+}
 
 const THEME_MODES: ThemeMode[] = ["dark", "light", "paper", "system"];
 const LOCALE_MODES: LocaleMode[] = ["en", "zh-CN", "system"];
@@ -197,12 +205,20 @@ async function writePreferences(prefs: AppPreferences): Promise<void> {
 export async function patchPreferences(
   patch: Partial<AppPreferences>,
 ): Promise<AppPreferences> {
-  return runtime.withStoreLock(async () => {
+  const saved = await runtime.withStoreLock(async () => {
     const current = await loadPreferences();
     const next = { ...current, ...patch };
     await writePreferences(next);
     return next;
   });
+  for (const listener of prefListeners) {
+    try {
+      listener(saved);
+    } catch {
+      // Listener errors must never reject preference writes.
+    }
+  }
+  return saved;
 }
 
 export function resolveTheme(mode: ThemeMode): ResolvedTheme {

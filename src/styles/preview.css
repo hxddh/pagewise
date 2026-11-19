@@ -767,3 +767,43 @@
 .preview-reading-cancel {
   flex-shrink: 0;
 }
+
+.gutter-mark-input {
+  min-height: 64px;
+  max-height: 160px;
+  margin-top: var(--space-xs);
+}
+
+/* Floating Living Margin Ask bar while the 420px chat column is closed (25.0). */
+.margin-ask-bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-lg);
+  transform: translateX(-50%);
+  z-index: var(--z-toolbar);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: min(440px, calc(100% - 140px));
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-md);
+  animation: popover-in var(--transition);
+}
+
+.margin-ask-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+}
+
+/* focus-exception: the floating bar itself frames the input while typing;
+   an inner outline clips against the bar's rounded edge. */
+.margin-ask-input:focus-visible {
+  outline: none;
+}

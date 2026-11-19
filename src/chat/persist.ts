@@ -60,30 +60,31 @@ const runtime = createStoreRuntime(() => createAtomicStore(STORE_PATH));
  * conversation rather than an empty one.
  */
 export async function loadChat(path: string, identity?: string): Promise<UIMessage[]> {
-  const store = await runtime.store();
-  let raw = await store.get<unknown>(chatKey(path));
-  if ((raw === null || raw === undefined) && identity) {
-    const index = await readIdentityIndex(store);
-    const oldPath = index[identity];
-    if (oldPath && oldPath !== path) {
-      const moved = await store.get<unknown>(chatKey(oldPath));
-      if (moved !== null && moved !== undefined) {
-        raw = moved;
-        await runtime.withStoreLock(async () => {
-          await store.set(chatKey(path), moved);
-          await store.delete(chatKey(oldPath));
-          await store.set(IDENTITY_INDEX_KEY, { ...index, [identity]: path });
-          await store.save();
-        });
+  try {
+    const store = await runtime.store();
+    let raw = await store.get<unknown>(chatKey(path));
+    if ((raw === null || raw === undefined) && identity) {
+      const index = await readIdentityIndex(store);
+      const oldPath = index[identity];
+      if (oldPath && oldPath !== path) {
+        const moved = await store.get<unknown>(chatKey(oldPath));
+        if (moved !== null && moved !== undefined) {
+          raw = moved;
+          await runtime.withStoreLock(async () => {
+            await store.set(chatKey(path), moved);
+            await store.delete(chatKey(oldPath));
+            await store.set(IDENTITY_INDEX_KEY, { ...index, [identity]: path });
+            await store.save();
+          });
+        }
       }
     }
+    const messages = normalizeUIMessages(raw);
+    if (messages.length === 0) return [];
+    return hydrateChatMessages(messages);
+  } catch {
+    return [];
   }
-  // Normalize before hydrating: a malformed persisted row (torn write, legacy
-  // shape) must degrade to "skip that row", never throw — a throw here would
-  // surface as a document-open failure.
-  const messages = normalizeUIMessages(raw);
-  if (messages.length === 0) return [];
-  return hydrateChatMessages(messages);
 }
 
 export async function saveChat(
@@ -91,17 +92,13 @@ export async function saveChat(
   messages: UIMessage[],
   identity?: string,
 ): Promise<void> {
-  // Every save of the conversation goes through here — the autosave, the save
-  // before a switch, the close flush — so this is where the reader is told the
-  // conversation did not reach the disk, and told again it did (24.0). Until
-  // then the autosave's failure was a console line in dev builds only.
   try {
     await writeChat(path, messages, identity);
   } catch (err) {
-    reportWriteFailed("conversation");
+    reportWriteFailed(STORE_PATH, "conversation");
     throw err;
   }
-  reportWriteSucceeded("conversation");
+  reportWriteSucceeded(STORE_PATH);
 }
 
 function writeChat(path: string, messages: UIMessage[], identity?: string): Promise<void> {
@@ -120,15 +117,13 @@ function writeChat(path: string, messages: UIMessage[], identity?: string): Prom
 }
 
 export async function clearChat(path: string): Promise<void> {
-  // A clear is a write of the conversation too: after a failed autosave, a
-  // clear that lands is what clears "Not saved", and one that fails says so.
   try {
     await removeChat(path);
   } catch (err) {
-    reportWriteFailed("conversation");
+    reportWriteFailed(STORE_PATH, "conversation");
     throw err;
   }
-  reportWriteSucceeded("conversation");
+  reportWriteSucceeded(STORE_PATH);
 }
 
 function removeChat(path: string): Promise<void> {

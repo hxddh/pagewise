@@ -269,12 +269,15 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
     identityByPath.delete(path);
   }
 
-  function scheduleFlush(): void {
+  let retryCount = 0;
+  const MAX_AUTO_RETRIES = 2;
+
+  function scheduleFlush(delayMs = flushDelayMs): void {
     if (flushTimer) return;
     flushTimer = setTimeout(() => {
       flushTimer = null;
       void store.flush();
-    }, flushDelayMs);
+    }, delayMs);
   }
 
   const store: DocumentStore<Doc, Entry> = {
@@ -314,6 +317,7 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
     },
 
     replace(path, entries) {
+      retryCount = 0;
       byPath.set(path, entries);
       dirty.add(path);
       scheduleFlush();
@@ -339,9 +343,8 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
         .withStoreLock(async () => {
           const { docs, newer } = await readStored();
           if (newer) {
-            // Held back, not dropped: the edits stay in memory and dirty, and
-            // the reader is told why they will not reach the disk.
             reportStoreProblem(file, "newer");
+            if (writeKind) reportWriteFailed(file, writeKind, { toast: false });
             throw new HeldBackError(`${file} was written by a later PageWise`);
           }
           const before = new Map(docs.map((d) => [d.path, d] as const));
@@ -395,24 +398,28 @@ export function createDocumentStore<Doc extends { path: string; identity?: strin
           if (refused.length > 0) {
             for (const path of refused) dirty.add(path);
             reportStoreProblem(file, "full");
+            if (writeKind) reportWriteFailed(file, writeKind, { toast: false });
+          } else {
+            retryCount = 0;
+            if (writeKind) reportWriteSucceeded(file);
           }
           for (const path of paths) if (!dirty.has(path)) forgetNow(path);
-          // The write landed, so whatever an earlier failure said is no longer
-          // true (24.0). A refusal for room is its own report, above.
-          if (writeKind) reportWriteSucceeded(writeKind);
         })
         .catch((err) => {
-          // A failed write must not lose the entries — they stay in memory and
-          // in `dirty` for the next attempt.
           for (const path of paths) dirty.add(path);
-          // And the reader hears it, once (24.0); until then this was only a
-          // retry. A later version's file has said so already, in its own words.
-          if (writeKind && !(err instanceof HeldBackError)) reportWriteFailed(writeKind);
+          if (!(err instanceof HeldBackError)) {
+            if (writeKind) reportWriteFailed(file, writeKind);
+            if (retryCount < MAX_AUTO_RETRIES) {
+              retryCount += 1;
+              scheduleFlush(flushDelayMs * 2 ** retryCount);
+            }
+          }
         });
       await flushInFlight;
     },
 
     reset() {
+      retryCount = 0;
       forgetAfterFlush.clear();
       byPath.clear();
       identityByPath.clear();

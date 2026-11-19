@@ -71,9 +71,40 @@ export async function pickSavePath(
   }
 }
 
+export type RecentPathStatus = "granted" | "offline" | "denied";
+
+/** Classify recent paths without deleting entries whose external drive is temporarily offline. */
+export async function checkRecentPaths(
+  paths: readonly string[],
+): Promise<RecentPathStatus[]> {
+  if (paths.length === 0) return [];
+  const trimmed = paths.map((p) => p.trim());
+  try {
+    const raw = await invoke<unknown>("check_recent_paths", { paths: trimmed });
+    if (Array.isArray(raw) && raw.length === trimmed.length) {
+      return raw.map((v) =>
+        v === "granted" || v === "offline" || v === "denied" ? v : "denied",
+      );
+    }
+  } catch {
+    // Fallback in test harnesses that only mock `path_granted`.
+  }
+  const granted = await Promise.all(trimmed.map(isPathGranted));
+  return granted.map((ok) => (ok ? "granted" : "denied"));
+}
+
+/** Materialize and grant the built-in 2-page sample brief in Rust, returning its path. */
+export async function openSampleDocument(): Promise<string> {
+  try {
+    return await invoke<string>("open_sample_document");
+  } catch (e) {
+    throw new Error(message(e, "Failed to open sample document"));
+  }
+}
+
 /** Of these paths, the ones no longer granted (moved, deleted, never granted). */
 export async function ungrantedPaths(paths: readonly string[]): Promise<string[]> {
   const unique = [...new Set(paths.map((p) => p.trim()).filter(Boolean))];
-  const granted = await Promise.all(unique.map(isPathGranted));
-  return unique.filter((_, i) => !granted[i]);
+  const statuses = await checkRecentPaths(unique);
+  return unique.filter((_, i) => statuses[i] === "denied");
 }
