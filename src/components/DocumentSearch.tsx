@@ -21,10 +21,11 @@ import { EmptyState } from "./EmptyState";
 interface DocumentSearchProps {
   doc: LoadedDocument;
   onJumpToPage: (page: number, query?: string) => void;
+  onClearHighlight?: () => void;
   containerRef?: RefObject<HTMLElement | null>;
 }
 
-export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSearchProps) {
+export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerRef }: DocumentSearchProps) {
   const { t } = useI18n();
   const scope = useSearchScope();
   const [open, setOpen] = useState(false);
@@ -40,8 +41,8 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
   const close = useCallback(() => {
     setOpen(false);
     setResultsCollapsed(false);
-    onJumpToPage(doc.pages[0]?.page ?? 1, undefined);
-  }, [doc.pages, onJumpToPage]);
+    onClearHighlight?.();
+  }, [onClearHighlight]);
 
   const dismissBar = useCallback(() => {
     setOpen(false);

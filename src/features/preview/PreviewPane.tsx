@@ -641,12 +641,13 @@ function PreviewPaneInner({
     return (
       <div className="preview-panel">
         <DocumentSearch
-        doc={doc}
-        onJumpToPage={(target, query) => {
-          onPageChange(target);
-          setSearchHit(query ? { page: target, query } : null);
-        }}
-      />
+          doc={doc}
+          onJumpToPage={(target, query) => {
+            onPageChange(target);
+            setSearchHit(query ? { page: target, query } : null);
+          }}
+          onClearHighlight={() => setSearchHit(null)}
+        />
         {toolbar}
         <div className="preview-canvas-wrap image-wrap" onClick={viewer.focusPreview}>
           {canvasBody}
@@ -683,6 +684,7 @@ function PreviewPaneInner({
           onPageChange(target);
           setSearchHit(query ? { page: target, query } : null);
         }}
+        onClearHighlight={() => setSearchHit(null)}
       />
 
       {thumbsVisible &&

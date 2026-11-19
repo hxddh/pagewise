@@ -71,65 +71,24 @@ pub struct AnnotationIn {
     pub color: [f32; 3],
 }
 
-/// Inheritable `/Rotate` attribute on a page, normalized to `0`, `90`, `180` or `270`.
-fn inherited_rotate(doc: &Document, page: ObjectId) -> i32 {
-    let mut id = page;
-    for _ in 0..32 {
-        let Ok(dict) = doc.get_dictionary(id) else { break };
-        if let Ok(obj) = dict.get(b"Rotate") {
-            let resolved = match obj {
-                Object::Reference(r) => doc.get_object(*r).ok(),
-                other => Some(other),
-            };
-            if let Some(Object::Integer(deg)) = resolved {
-                return (deg.rem_euclid(360)) as i32;
-            }
-        }
-        match dict.get(b"Parent") {
-            Ok(Object::Reference(parent)) => id = *parent,
-            _ => break,
-        }
-    }
-    0
-}
-
 /// A rect in absolute user space, as `[x0, y0, x1, y1]`.
-fn absolute(r: &Rect, frame: Frame, view: [f32; 4], rotate: i32) -> Option<[f32; 4]> {
+///
+/// Note on rotation: `clientRectToPageRect` already maps screen coordinates
+/// through pdf.js's `toPdfPoint` and stores an unrotated, crop-relative
+/// top-left rectangle (`Frame::View`), so converting `Frame::View` back to PDF
+/// user space only translates from the visible box's top-left without rotating
+/// a second time.
+fn absolute(r: &Rect, frame: Frame, view: [f32; 4]) -> Option<[f32; 4]> {
     if ![r.x, r.y, r.width, r.height].iter().all(|v| v.is_finite()) || r.width <= 0.0 || r.height <= 0.0 {
         return None;
     }
     Some(match frame {
-        // A text run's rect starts at the baseline. A highlight must cover the
-        // descenders too, as any reader's own highlights do — and pdf.js places
-        // a glyph for "what text is under this highlight" at a point that can
-        // sit just under the baseline, so a quad starting exactly on it reads
-        // back as covering nothing (measured in `eval/annotate.eval.ts`).
         Frame::Pdf => [r.x, r.y - DESCENT * r.height, r.x + r.width, r.y + r.height],
-        Frame::View => match rotate {
-            90 => [
-                view[0] + r.y,
-                view[1] + r.x,
-                view[0] + r.y + r.height,
-                view[1] + r.x + r.width,
-            ],
-            180 => [
-                view[2] - r.x - r.width,
-                view[1] + r.y,
-                view[2] - r.x,
-                view[1] + r.y + r.height,
-            ],
-            270 => [
-                view[2] - r.y - r.height,
-                view[3] - r.x - r.width,
-                view[2] - r.y,
-                view[3] - r.x,
-            ],
-            _ => {
-                let x0 = view[0] + r.x;
-                let top = view[3] - r.y;
-                [x0, top - r.height, x0 + r.width, top]
-            }
-        },
+        Frame::View => {
+            let x0 = view[0] + r.x;
+            let top = view[3] - r.y;
+            [x0, top - r.height, x0 + r.width, top]
+        }
     })
 }
 
@@ -235,12 +194,11 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
     for a in annotations {
         let Some(&page) = pages.get(&a.page) else { continue };
         let view = visible_box(doc, page);
-        let rotate = inherited_rotate(doc, page);
         let rects: Vec<[f32; 4]> = a
             .rects
             .iter()
             .take(MAX_RECTS)
-            .filter_map(|r| absolute(r, a.frame, view, rotate))
+            .filter_map(|r| absolute(r, a.frame, view))
             .collect();
         if rects.is_empty() {
             continue;
@@ -546,12 +504,9 @@ mod tests {
     }
 
     #[test]
-    fn view_frame_marks_map_across_rotated_pages() {
-        let view = [0.0, 0.0, 612.0, 792.0];
+    fn view_frame_marks_do_not_double_rotate() {
+        let view = [100.0, 100.0, 512.0, 692.0];
         let r = Rect { x: 10.0, y: 20.0, width: 50.0, height: 12.0 };
-        assert_eq!(absolute(&r, Frame::View, view, 0), Some([10.0, 760.0, 60.0, 772.0]));
-        assert_eq!(absolute(&r, Frame::View, view, 90), Some([20.0, 10.0, 32.0, 60.0]));
-        assert_eq!(absolute(&r, Frame::View, view, 180), Some([552.0, 20.0, 602.0, 32.0]));
-        assert_eq!(absolute(&r, Frame::View, view, 270), Some([580.0, 732.0, 592.0, 782.0]));
+        assert_eq!(absolute(&r, Frame::View, view), Some([110.0, 660.0, 160.0, 672.0]));
     }
 }

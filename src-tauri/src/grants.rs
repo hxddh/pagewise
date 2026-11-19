@@ -205,7 +205,8 @@ fn persisted_contains(list: &[PathBuf], query: &Path) -> bool {
 }
 
 /// Read back what earlier sessions granted, without blocking startup on slow or
-/// offline mounts, and without erasing offline USB/NAS entries from disk.
+/// offline mounts, and without erasing offline USB/NAS entries or content-validated
+/// documents with non-standard extensions from disk.
 pub fn restore(app: &AppHandle) {
     let Some(file) = list_path(app) else {
         return;
@@ -214,25 +215,22 @@ pub fn restore(app: &AppHandle) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
         Err(_) => legacy_documents(app),
     };
-    let candidate_stored: Vec<PathBuf> = stored
-        .into_iter()
-        .filter(|p| has_document_extension(p))
-        .collect();
     {
         let state = app.state::<AllowedPaths>();
         if let Ok(mut list) = state.persisted.lock() {
-            let merged = merge_persisted(candidate_stored.clone(), &list);
+            let merged = merge_persisted(stored.clone(), &list);
             if let Ok(json) = serde_json::to_vec(&merged) {
                 let _ = crate::store_io::write_atomic(&file, &json);
             }
             *list = merged;
             state.restored.store(true, Ordering::SeqCst);
-        }
+        };
     }
 
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        for path in candidate_stored {
+        let mut invalid: Vec<PathBuf> = Vec::new();
+        for path in stored {
             let Ok(canon) = std::fs::canonicalize(&path) else {
                 // Unplugged external drive or temporarily unmounted share:
                 // keep the entry in `persisted` so it re-grants when reconnected.
@@ -241,7 +239,22 @@ pub fn restore(app: &AppHandle) {
             let known = canon.is_file() && (has_document_extension(&canon) || is_document(&canon));
             if known {
                 let _ = grant_file_in_session(&handle, &canon);
+            } else {
+                invalid.push(path);
+                invalid.push(canon);
             }
+        }
+        if !invalid.is_empty() {
+            let state = handle.state::<AllowedPaths>();
+            if let Ok(mut list) = state.persisted.lock() {
+                let before = list.len();
+                list.retain(|p| !invalid.iter().any(|bad| bad == p));
+                if list.len() != before {
+                    if let Ok(json) = serde_json::to_vec(&*list) {
+                        let _ = crate::store_io::write_atomic(&file, &json);
+                    }
+                }
+            };
         }
     });
 }

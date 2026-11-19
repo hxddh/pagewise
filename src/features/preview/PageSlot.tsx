@@ -76,6 +76,7 @@ export const PageSlot = memo(function PageSlot({
   const [drawn, setDrawn] = useState(false);
 
   const path = doc.path;
+  const stamp = doc.stamp ?? "";
   const textLen = getPageTextLen(path, page, doc.pages);
 
   useEffect(() => {
@@ -122,7 +123,7 @@ export const PageSlot = memo(function PageSlot({
     return () => {
       cancelled = true;
     };
-  }, [path, page, scale, quality, hurried, zoom, containerWidth, reservedWidth, textLen, t]);
+  }, [path, stamp, page, scale, quality, hurried, zoom, containerWidth, reservedWidth, textLen, t]);
 
   const [ocrEpoch, setOcrEpoch] = useState(0);
   useEffect(() => {
@@ -161,7 +162,7 @@ export const PageSlot = memo(function PageSlot({
       cancelled = true;
       cleanup?.();
     };
-  }, [wantTextLayer, path, page, scale, width, height, ocrEpoch]);
+  }, [wantTextLayer, path, stamp, page, scale, width, height, ocrEpoch]);
 
   const printed = labelForPage(doc.pageLabels ?? null, page);
 

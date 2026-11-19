@@ -103,6 +103,7 @@ export function useWorkbench(): Workbench {
   const [fileError, setFileError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatHydrateNonce, setChatHydrateNonce] = useState(0);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const recentFilesRef = useRef<RecentFile[]>([]);
@@ -167,7 +168,7 @@ export function useWorkbench(): Workbench {
     agentSetMessagesRef.current(pending.messages);
     chatHydrateRef.current = null;
     setChatLoading(false);
-  }, [document?.path, chatId]);
+  }, [document?.path, chatId, chatHydrateNonce]);
 
   const saveTimerRef = useRef<number | undefined>(undefined);
 
@@ -354,6 +355,7 @@ export function useWorkbench(): Workbench {
         await loadReviews(doc.path, doc.stamp ?? "");
         void prewarmPlacements(doc.path, findings);
         chatHydrateRef.current = { path: doc.path, messages };
+        setChatHydrateNonce((n) => n + 1);
         setDocument(docCache.get(doc.path) ?? doc);
         const remembered = options?.forceReload
           ? previewPageRef.current
