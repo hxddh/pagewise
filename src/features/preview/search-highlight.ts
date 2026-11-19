@@ -1,4 +1,5 @@
 import type { PageGeometry } from "../../lib/pdf";
+import { locateQuote } from "../../lib/quote-locate";
 import type { TextItemRect } from "../../lib/types";
 
 /**
@@ -25,13 +26,21 @@ const MAX_BOXES = 60;
  * degrades to "no highlight" rather than to a wrong one.
  */
 export function matchingItems(items: TextItemRect[], query: string): TextItemRect[] {
-  const needle = query.trim().toLowerCase();
+  const needle = query.trim().normalize("NFKC").toLowerCase();
   if (!needle) return [];
   const out: TextItemRect[] = [];
   for (const item of items) {
-    if (item.text.toLowerCase().includes(needle)) {
+    if (item.text.normalize("NFKC").toLowerCase().includes(needle)) {
       out.push(item);
       if (out.length >= MAX_BOXES) break;
+    }
+  }
+  if (out.length === 0) {
+    const located = locateQuote(items, query);
+    if (located.status === "located" && located.items.length >= 2) {
+      const firstY = located.items[0]!.rect.y;
+      const spansLines = located.items.some((it) => Math.abs(it.rect.y - firstY) > 2);
+      if (spansLines) return located.items.slice(0, MAX_BOXES);
     }
   }
   return out;

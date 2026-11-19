@@ -20,9 +20,15 @@ import { AGENT_TIMEOUT } from "./agent-timeouts";
 import { buildRecordInstructions } from "./agent-record-context";
 import { buildCitationFeedback } from "./agent-citation-context";
 import { labelHintFor } from "./agent-label-context";
-import { compactRunMessages } from "./compact-run-messages";
-import { beginSteerRun, withSteerMessage } from "./agent-steer";
+import { compactRunMessages, KEEP_RECENT_CHARS } from "./compact-run-messages";
+import {
+  beginSteerRun,
+  hasSynthesisMaterial,
+  withSteerMessage,
+  type StepLike,
+} from "./agent-steer";
 import { resolveModel, resolveReasoning } from "./llm";
+import { runKeepRecentChars, runTokenBudget } from "./model-capabilities";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { getAgentScanCap } from "../document/index-queue";
@@ -43,13 +49,11 @@ import {
 import {
   createDocumentTools,
   newReadBudget,
-  RUN_TOKEN_BUDGET,
 } from "./agent-tools";
 import { forgetDelivered } from "./agent-tools/reading";
 
-// The tool layer moved to ./agent-tools; these keep their long-standing import
-// path for the rest of the app and the tests.
 export {
+  createAgentTools,
   createDocumentTools,
   newReadBudget,
   compressPageRanges,
@@ -57,6 +61,7 @@ export {
   DEFAULT_RANGE_MAX_CHARS,
   DEFAULT_SEARCH_HITS,
   DEFAULT_FIGURE_INDEX,
+  MAX_FREE_REREADS,
   type ReadBudget,
 } from "./agent-tools";
 
@@ -116,45 +121,18 @@ export const STREAM_RETRIES = 1;
  */
 const MECHANICAL_STEP_REASONING = "low" as const;
 
-/**
- * The reasoning effort for a step that still has tools available.
- *
- * `prepareStep` runs BEFORE the step, so it cannot know whether the model is
- * about to call a tool or write the answer. The previous rule restored full
- * effort only at `stepNumber >= runMaxSteps - 1` — the step ceiling — and its
- * comment claimed that was "the step that writes the answer". It is not: a run
- * ends when the model decides it has enough, which in practice is step 3 or 4
- * of a permitted 20. Measured against a real request: a four-step run sent
- * `reasoning_effort: "low"` on all four, the answering one included, while the
- * run was configured for `medium`. Full effort was being spent only when the
- * run was being cut off, which is the least useful moment there is.
- *
- * Since which step answers is unknowable in advance, this bets the other way:
- * only the steps with nothing to reason over yet are mechanical. "Go find
- * something" is; every step after the first tool result might be the answer.
- *
- * THE COST IS REAL. A twenty-step run now spends nineteen steps at full effort
- * instead of one, so most of the saving this was written for is given back. The
- * trade was made deliberately — an answer written at low effort is the thing
- * the reader actually receives, and it cannot be measured from here without a
- * live model, so the choice went to quality over a number nobody can check.
- */
 export function stepReasoning<R>(
   runReasoning: R | undefined,
-  hasMaterial: boolean,
+  materialOrSteps: boolean | ReadonlyArray<StepLike>,
 ): R | typeof MECHANICAL_STEP_REASONING | undefined {
   if (!runReasoning) return undefined;
+  const hasMaterial =
+    typeof materialOrSteps === "boolean"
+      ? materialOrSteps
+      : hasSynthesisMaterial(materialOrSteps);
   return hasMaterial ? runReasoning : MECHANICAL_STEP_REASONING;
 }
 
-
-
-
-/**
- * The system prompt. Exported because it is half of the fixed prefix every
- * request re-sends, and `agent-tool-prefix.test.ts` measures the whole prefix
- * (prompt + tool definitions) against a byte budget — see the test for why.
- */
 export const SYSTEM_INSTRUCTIONS = `You are PageWise, a local desktop PDF assistant.
 
 Rules:
@@ -164,39 +142,37 @@ Rules:
 - If search returns nothing useful, read the pages anyway — a figure or scanned page defeats search; "no hits" is not evidence of absence. Pages reported as unindexed have no text yet, so search cannot match them: reading one reads it on demand, locally or by a billed vision call within a per-question allowance. Read only what you need, and say so if the allowance runs out.
 - When the user asks about a term or topic while viewing a page, read that page first — it is usually what they mean; for an ambiguous term (e.g. an acronym), read where it appears rather than guessing.
 - If a page doesn't fully answer, read on or search again; don't answer a document-spanning question from one page.
-- Cite every document fact right after it with a marker: 〔p12 "words copied exactly from page 12"〕 — the page number as the tools number it, and a short quote (a phrase to one sentence) copied character for character from the page text, punctuation included. PageWise shows the reader whether the quote is on that page: never quote from memory, never paraphrase or translate inside the quotes, never join words from different places. Spanning pages: 〔p12-13 "the term ends on"〕, quote from one of them. A figure or chart you cannot quote: 〔p12〕. No marker on your own reasoning or background knowledge.
+- Cite every document fact right after it with a marker: 〔p12 "words copied exactly from page 12"〕 — the page number as the tools number it, and a short quote (a phrase to one sentence) copied verbatim from the page text, punctuation included. PageWise shows the reader whether the quote is on that page: never quote from memory, never paraphrase or translate inside the quotes, never join words from different places. Spanning pages: 〔p12-13 "words spanning pages 12–13"〕. A figure or chart you cannot quote: 〔p12〕. No marker on your own reasoning or background knowledge.
 - When the user asks to list, extract, compare or tabulate things across the document (every payment term, all deadlines), answer with a Markdown table: one row per item, one column per attribute asked for, a citation marker right after every document value. Search and read until every occurrence is covered, and say which pages you went through. A value you could not find is "—" with no marker, never a guess. Keep \`|\` out of quotes in table cells.
 - If no document is loaded, ask the user to open a PDF.
 - Re-reading a page still above returns a short marker; one summarized to a line returns its text — re-read it before quoting.
 - Tool results carry attachments beside the page text, one field each. \`marks\` are passages the reader singled out, with notes — their strongest signal of what matters, and read-only. \`links\` are hyperlink destinations, which live only in the PDF's annotations, never in the page text; the line each sits on is its context. The outline's \`pagesWithFigures\` names pages where read_figure can look at a figure the text does not convey.
 - A page that failed to index (missing key, vision error, timeout) is not blank: do not treat it as empty, do not re-read it, and tell the user indexing failed.`;
 
-/**
- * The system message for this run, with OpenAI's cache breakpoint where it
- * belongs.
- *
- * The fixed prefix — this prompt and the eight tool definitions ahead of it —
- * is byte-identical from step to step and from turn to turn; that is what the
- * digest test and the "volatile half rides on the newest user message" design
- * in `agent-view-context.ts` are for. Providers cache such a prefix on their
- * own, and `promptCacheBreakpoint` is the request saying so out loud. It is a
- * per-message option (the AI SDK reads it from the message's `providerOptions`,
- * not the call's), so it rides on the system message — the last fixed block
- * before the conversation begins.
- *
- * OpenAI only: the field belongs to OpenAI's Chat Completions API, and the other
- * providers this app speaks to are other implementations of it. The installed
- * SDK documents explicit breakpoints for GPT-5.6 and later; if an older OpenAI
- * model ever answers with an unknown-parameter error, this is the line to look
- * at first.
- */
-export function systemMessageFor(settings: Pick<LlmSettings, "provider">): Instructions {
-  if (settings.provider !== "openai") return SYSTEM_INSTRUCTIONS;
-  return {
-    role: "system",
-    content: SYSTEM_INSTRUCTIONS,
-    providerOptions: { openai: { promptCacheBreakpoint: { mode: "explicit" } } },
-  };
+const OPENAI_CACHE_BREAKPOINT_MODEL = /^gpt-(?:5\.[6-9]|[6-9])(?:$|[-.])/;
+
+export function systemMessageFor(
+  settings: Pick<LlmSettings, "provider"> & { model?: string },
+): Instructions {
+  const model = (settings.model ?? "").trim().toLowerCase();
+  if (settings.provider === "openai" && OPENAI_CACHE_BREAKPOINT_MODEL.test(model)) {
+    return {
+      role: "system",
+      content: SYSTEM_INSTRUCTIONS,
+      providerOptions: { openai: { promptCacheBreakpoint: { mode: "explicit" } } },
+    };
+  }
+  if (settings.provider === "openrouter" && model.startsWith("anthropic/")) {
+    return {
+      role: "system",
+      content: SYSTEM_INSTRUCTIONS,
+      providerOptions: {
+        openrouter: { cacheControl: { type: "ephemeral" } },
+        anthropic: { cacheControl: { type: "ephemeral" } },
+      },
+    };
+  }
+  return SYSTEM_INSTRUCTIONS;
 }
 
 /**
@@ -238,9 +214,7 @@ function buildToolsContext(runtime: ReturnType<typeof buildRuntimeContext>) {
 export function createDocAgent() {
   const budget = newReadBudget();
   let runMaxSteps = DEFAULT_MAX_AGENT_STEPS;
-  // The reasoning effort this run was configured with. Steps that have nothing
-  // to reason over yet drop below it (see `stepReasoning`); every step after
-  // the first tool result keeps it, because any of them might be the answer.
+  let runKeepChars = KEEP_RECENT_CHARS;
   let runReasoning: ReturnType<typeof resolveReasoning> = undefined;
   const tools = createDocumentTools(budget);
   const defaultRuntime = buildRuntimeContext(null);
@@ -292,60 +266,31 @@ export function createDocAgent() {
     // Only sets toolChoice; never mutates messages, so tool-call/result pairing
     // is safe.
     prepareStep: ({ stepNumber, steps, messages }) => {
-      // Shorten the reads the model has already moved past. A tool loop resends
-      // every earlier result on every step, so without this a twenty-step run
-      // pays for the same pages up to twenty times. The most recent results are
-      // left whole — those are what this step is reasoning over.
-      // A page whose text is shortened here is no longer one the model can
-      // quote from: asking for it again returns its text (24.0).
       const compacted = compactRunMessages(
         messages as ReadonlyArray<{ role: string; content: unknown }> | undefined,
-        undefined,
+        runKeepChars,
         (pages) => {
           for (const page of pages) forgetDelivered(budget, page);
         },
       ) as typeof messages;
 
-      // A correction the reader typed while this run was working. Appended at
-      // the very end, after the last tool result, so every tool call still sits
-      // next to its own result — the pairing the provider validates. Sending
-      // during a run used to stop it and start another, which put every page it
-      // had read back into a fresh context at full price.
       const withSteer = withSteerMessage(compacted ?? [], budget.gen) as typeof messages;
       const carry = withSteer !== messages ? { messages: withSteer } : {};
 
-      // Reasoning is billed output, and most steps of a document run are
-      // mechanical — "read page 14" needs no deliberation. The step that has to
-      // put the answer together does, and that is the one with no tools left.
       if (stepNumber >= runMaxSteps - 1) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
-      // 7.1 retired document_outline here, by dropping it from activeTools once
-      // it had been used. That changes the tool block — which sits ahead of the
-      // messages in the request — so the cached prefix (~1,400 tokens of system
-      // prompt and tool schemas) missed for the whole rest of the run. It saved
-      // one schema per step, about 150 tokens, and paid far more than that back
-      // on any run with more than a step or two left; the runs that consult the
-      // outline are the long ones. The tool set is now fixed for the run, and
-      // the "don't re-read the tree" nudge rides in the outline's own result,
-      // where it costs nothing to say and cannot invalidate the prefix. The
-      // meta-loop guard below still stops an actual repeat.
       if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
-      // Anything already read is material this step could answer from.
-      const hasMaterial = steps.some((step) => step.toolCalls.length > 0);
-      return { ...carry, reasoning: stepReasoning(runReasoning, hasMaterial) };
+      return { ...carry, reasoning: stepReasoning(runReasoning, steps as ReadonlyArray<StepLike>) };
     },
     prepareCall: async ({ toolsContext, runtimeContext: incomingRuntime, ...rest }) => {
       budget.used = 0;
       budget.scans = 0;
       budget.gen += 1;
       budget.delivered.clear();
-      // A correction typed as the previous run was ending belongs to that run.
-      // Carrying it into this one would put words in the reader's mouth: they
-      // were correcting an answer they have since received, and this question
-      // came with its own.
+      budget.pageReads.clear();
       beginSteerRun(budget.gen);
 
       const settings = await loadSettings();
@@ -355,33 +300,18 @@ export function createDocAgent() {
       const viewCtx = runtime.messageContext;
       let viewHint = viewCtx ? buildViewContextInstructions(viewCtx) : "";
 
-      // The whole-document intent regex now ONLY adds an optional survey hint —
-      // it no longer gates how much of the document the agent is allowed to read.
-      // Budget and step room are uniform, so a broad question phrased outside the
-      // keyword set is never silently capped.
       if (viewCtx && hasWholeDocumentIntent(viewCtx.userText)) {
         viewHint += buildWholeDocumentInstructions(viewCtx);
       }
-      // What earlier questions already established, so this one does not have to
-      // re-derive it. Appended to the user message with the rest of the volatile
-      // context — never to the system prompt, which is what providers cache.
       viewHint += buildRecordInstructions(runtime.activeDocPath);
-      // Which of the last answer's citations were not on their pages — what the
-      // reader sees as red chips, told to the one who wrote them.
       viewHint += buildCitationFeedback(
         runtime.activeDocPath,
         rest.prompt as ReadonlyArray<{ role: string; content: unknown }> | undefined,
       );
-      // Whether THIS document numbers its pages unusually. One sentence, and
-      // only for the documents that do. It rides on the user message with the
-      // rest of the volatile half, so it costs nothing from the cached prefix —
-      // unlike the tool description, which had to say the `label` argument
-      // exists at all.
       viewHint += labelHintFor(runtime.activeDocPath);
       runMaxSteps = resolveRunMaxSteps(viewCtx?.totalPages ?? 0);
-      budget.max = RUN_TOKEN_BUDGET;
-      // Read at call time so a Settings change takes effect on the next
-      // question without restarting the app.
+      runKeepChars = runKeepRecentChars(settings.provider, settings.model);
+      budget.max = runTokenBudget(settings.provider, settings.model);
       budget.maxScans = getAgentScanCap();
       runReasoning = resolveReasoning(settings);
 

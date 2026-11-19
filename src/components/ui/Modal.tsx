@@ -33,6 +33,8 @@ import { Panel, type PanelTone } from "./Panel";
 interface ModalProps {
   open: boolean;
   onClose: () => void;
+  /** When false, renders a non-blocking floating bar (e.g. ⌘F search) with no scrim or scroll lock. */
+  modal?: boolean;
   /** The full-bleed layer: where the modal sits, and what dims behind it. */
   overlayClassName: string;
   /** The surface's own class — `palette-panel`, `library-drawer`, … */
@@ -51,6 +53,7 @@ interface ModalProps {
 export function Modal({
   open,
   onClose,
+  modal = true,
   overlayClassName,
   className,
   tone,
@@ -63,53 +66,44 @@ export function Modal({
   const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !modal) return;
     const token = openOverlay();
     const layer = pushOverlayLayer();
     return () => {
       closeOverlay(token);
       popOverlayLayer(layer);
     };
-  }, [open]);
+  }, [open, modal]);
 
   return (
     <Dialog.Root
       open={open}
+      modal={modal}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
     >
       <Dialog.Portal container={container ?? undefined}>
-        {/*
-          The overlay class is the app's *container* — every one of these was
-          written as a full-bleed box that positions the panel inside it (flex
-          centring for the palette, flex-end for the drawer, absolute inset for
-          the library). Radix renders its overlay and its content as siblings,
-          so applying that class to the overlay alone left the panel a
-          normal-flow child of the portal: at the top-left of the window, under
-          the scrim, unclickable. Wrapping both keeps the old geometry and the
-          old z-index, and the scrim becomes one shared rule.
-        */}
         <div className={overlayClassName}>
-          <Dialog.Overlay className="modal-scrim" />
+          {modal && <Dialog.Overlay className="modal-scrim" />}
           <Dialog.Content
-          asChild
-          aria-label={ariaLabel}
-          aria-labelledby={ariaLabelledBy}
-          onOpenAutoFocus={(event) => {
-            // The element to hand focus back to on close. Radix has no Trigger
-            // here — these dialogs are opened from state — so its own restore
-            // has nothing to aim at.
-            openerRef.current = document.activeElement as HTMLElement | null;
-            if (initialFocus?.current) {
+            asChild
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledBy}
+            onInteractOutside={(event) => {
+              if (!modal) event.preventDefault();
+            }}
+            onOpenAutoFocus={(event) => {
+              openerRef.current = document.activeElement as HTMLElement | null;
+              if (initialFocus?.current) {
+                event.preventDefault();
+                initialFocus.current.focus();
+              }
+            }}
+            onCloseAutoFocus={(event) => {
               event.preventDefault();
-              initialFocus.current.focus();
-            }
-          }}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            openerRef.current?.focus?.();
-          }}
+              openerRef.current?.focus?.();
+            }}
           >
             {tone ? (
               <Panel tone={tone} className={className}>

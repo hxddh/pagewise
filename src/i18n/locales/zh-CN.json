@@ -42,7 +42,8 @@
     "subtitle": "打开文档即可在本机阅读、搜索、识别扫描页；配置 AI 后可以就文档提问。",
     "apiHint": "配置 AI 后即可开始对话。",
     "toolsHint": "当前模型不支持助手工具调用，请换用支持工具的模型。",
-    "subtitleReady": "打开文档即可提问，每个回答都注明出自哪一页。"
+    "subtitleReady": "打开文档即可提问，每个回答都注明出自哪一页。",
+    "trySample": "用示例文档试试"
   },
   "sidebar": {
     "openDocument": "打开文档",
@@ -112,14 +113,17 @@
     "stopReading": "停止读取页面",
     "readPoorly": "从扫描件识别（把握 {{confidence}}%）— 个别文字可能有误，请看原页",
     "searchDocHeading": "本文档",
+    "searchRelatedHeading": "相关页面",
     "searchConversationHeading": "本次会话",
+    "previousMatch": "上一处匹配",
+    "nextMatch": "下一处匹配",
+    "askAboutRegion": "第 {{page}} 页框选区域里是什么内容？",
     "notSaved": "未保存"
   },
   "marks": {
     "markSelection": "标记",
     "markPlain": "标记：{{text}}",
     "markWithNote": "带批注的标记：{{note}}",
-    "noteDialog": "标记批注",
     "notePlaceholder": "写点什么…",
     "onPage": "第 {{page}} 页",
     "delete": "删除标记",
@@ -135,7 +139,8 @@
   },
   "gutter": {
     "label": "页边",
-    "answerCites": "有答案引用了第 {{page}} 页"
+    "answerCites": "有答案引用了第 {{page}} 页",
+    "openInChat": "在对话中查看"
   },
   "drop": {
     "title": "拖放以打开",
@@ -321,7 +326,7 @@
     "agentNeedTools": "此模型不支持工具调用，无法使用文档助手。请选择助手预置（如 openai/gpt-4o-mini）。",
     "scanNeedMultimodal": "当前模型不支持图片识别。请选择支持视觉的扫页预置（如 gemini-2.5-flash-lite、Qwen3-VL）。",
     "thinkingMode": "扩展思考",
-    "thinkingHint": "助手模型进行更慢、更深的推理。仅 DeepSeek 路由支持。",
+    "thinkingHint": "为支持推理预算的模型启用更深入的思考。",
     "advancedSection": "高级",
     "providerCurrentlyActive": "当前使用中",
     "version": "版本",
@@ -356,13 +361,20 @@
     "showUsageLine": "显示每次问答的用量",
     "showUsageLineHint": "每个答案下方一行：页数、步数、token 与缓存命中。",
     "setupTitle": "配置助手",
-    "setupSomethingElse": "本地模型（Ollama）或其他服务…",
+    "setupSomethingElse": "自定义 OpenAI 兼容接口…",
     "setupStart": "开始阅读",
     "setupStarting": "正在保存…",
     "setupAdvanced": "高级",
     "setupNote": "模型会自动选择，之后可在设置中更改。",
     "setupModelHint": "除非你明确知道自己要用的模型，否则不用改。",
     "customNeedsEndpoint": "Base URL 与模型 ID 都需要填写。",
+    "updates": "更新",
+    "checkForUpdates": "检查更新",
+    "updateChecking": "检查中…",
+    "updateUpToDate": "已是最新版本",
+    "updateAvailable": "有新版本 {{version}} 可用",
+    "updateDownload": "前往下载",
+    "updateFailed": "无法检查更新",
     "reportProblem": "报告问题",
     "reportProblemAction": "在 GitHub 上提交"
   },
@@ -415,6 +427,11 @@
     "annotatedNothing": "暂无可写入的内容：没有已找到原文的结论，也没有标记",
     "tableExported": "表格已连同出处导出",
     "reportExported": "报告已导出",
+    "revealFile": "在文件夹中显示",
+    "fileChangedOnDisk": "此文件在磁盘上已被修改",
+    "reloadAction": "重新加载",
+    "jumpedToPage": "已跳到第 {{page}} 页",
+    "backToPage": "返回第 {{page}} 页",
     "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖",
     "storeNewer": "{{file}} 由更新版本的 PageWise 保存 —— 已保持原样，在此做的改动不会保存，请更新应用",
     "storeFull": "{{file}} 已满 —— 这次改动没有保存；删除不再需要的条目以腾出空间",
@@ -472,7 +489,8 @@
     "bodyOf": "这条结论所来自的完整回答",
     "keepWhole": "留存整条回答",
     "keepShort": "留存",
-    "keptShort": "已留存"
+    "keptShort": "已留存",
+    "deleteFinding": "彻底删除"
   },
   "annotations": {
     "byAuthor": "{{author}}：{{text}}",
@@ -486,7 +504,8 @@
   "cite": {
     "keepVerified": "只留下已核对的句子（{{count}}）",
     "keptVerified": "已将 {{count}} 句已核对内容留到记录",
-    "reviewAction": "让模型逐条判断原文是否支持这句话（{{count}} 条引文，{{calls}} 次调用）",
+    "reviewAction": "让模型判断原文是否支持这句话（1 条引文，{{calls}} 次调用）",
+    "reviewAction_plural": "让模型逐条判断原文是否支持这句话（{{count}} 条引文，{{calls}} 次调用）",
     "reviewed": "已由模型复核",
     "reviewDone": "模型复核：{{supports}} 条支持，{{contradicts}} 条矛盾，{{insufficient}} 条原文不足以判断",
     "reviewFailed": "模型复核未能运行，请检查模型设置",

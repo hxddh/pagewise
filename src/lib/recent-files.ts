@@ -21,6 +21,8 @@ export interface RecentFile {
   findingCount?: number;
   /** Findings the reader has been asked to re-check — see `finding-trust.ts`. */
   openCount?: number;
+  /** True when the file's external drive / share is currently offline (kept, not pruned). */
+  offline?: boolean;
 }
 
 export type RecentProgress = Pick<
@@ -61,7 +63,13 @@ function wholeOrUndefined(v: unknown): number | undefined {
 }
 
 function sanitizeProgress(f: RecentFile): RecentFile {
-  const out: RecentFile = { path: f.path, name: f.name, kind: f.kind, openedAt: f.openedAt };
+  const out: RecentFile = {
+    path: f.path,
+    name: f.name,
+    kind: f.kind,
+    openedAt: f.openedAt,
+    ...(f.offline === true ? { offline: true } : {}),
+  };
   for (const k of PROGRESS_KEYS) {
     const v = wholeOrUndefined((f as unknown as Record<string, unknown>)[k]);
     if (v !== undefined) out[k] = v;
@@ -100,7 +108,7 @@ export async function addRecentFile(entry: Omit<RecentFile, "openedAt">): Promis
     const previous = existing.find((f) => f.path === entry.path);
     // Reopening keeps the progress the last visit left, unless the caller
     // says otherwise: "where was I" is the reason the entry exists.
-    const next: RecentFile = { ...(previous ?? {}), ...entry, openedAt: Date.now() };
+    const next: RecentFile = { ...(previous ?? {}), ...entry, offline: undefined, openedAt: Date.now() };
     const filtered = existing.filter((f) => f.path !== entry.path);
     const updated = [next, ...filtered].slice(0, MAX_RECENT);
     await s.set(KEY, updated);
@@ -143,6 +151,37 @@ export async function removeRecentFiles(paths: string[]): Promise<RecentFile[]> 
     const removeSet = new Set(paths);
     const s = await runtime.store();
     const updated = existing.filter((f) => !removeSet.has(f.path));
+    await s.set(KEY, updated);
+    await s.save();
+    return updated;
+  });
+}
+
+export async function reconcileRecentFiles(
+  statuses: ReadonlyMap<string, "granted" | "offline" | "denied">,
+): Promise<RecentFile[]> {
+  return runtime.withStoreLock(async () => {
+    const existing = await readRecentFiles();
+    if (statuses.size === 0) return existing;
+    let changed = false;
+    const updated: RecentFile[] = [];
+    for (const f of existing) {
+      const status = statuses.get(f.path);
+      if (status === "denied") {
+        changed = true;
+        continue;
+      }
+      const wantOffline = status === "offline" ? true : undefined;
+      if ((f.offline ? true : undefined) !== wantOffline) {
+        changed = true;
+        const { offline: _drop, ...rest } = f;
+        updated.push(wantOffline ? { ...rest, offline: true } : rest);
+      } else {
+        updated.push(f);
+      }
+    }
+    if (!changed) return existing;
+    const s = await runtime.store();
     await s.set(KEY, updated);
     await s.save();
     return updated;

@@ -8,15 +8,21 @@ import {
   type ReactNode,
 } from "react";
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface Toast {
   id: string;
   message: string;
   tone?: "default" | "success" | "error";
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
   toasts: Toast[];
-  showToast: (message: string, tone?: Toast["tone"]) => void;
+  showToast: (message: string, tone?: Toast["tone"], action?: ToastAction) => void;
   dismissToast: (id: string) => void;
 }
 
@@ -36,12 +42,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const showToast = useCallback(
-    (message: string, tone: Toast["tone"] = "default") => {
+    (message: string, tone: Toast["tone"] = "default", action?: ToastAction) => {
       const id = crypto.randomUUID();
-      setToasts((t) => [...t, { id, message, tone }]);
-      // Track the timer so a manual dismiss can cancel it — otherwise the late
-      // timeout fires a no-op setToasts render on an already-removed toast.
-      const timer = window.setTimeout(() => dismissToast(id), 3200);
+      setToasts((t) => [...t, { id, message, tone, ...(action ? { action } : {}) }]);
+      const durationMs = action ? 5500 : 3200;
+      const timer = window.setTimeout(() => dismissToast(id), durationMs);
       timers.current.set(id, timer);
     },
     [dismissToast],

@@ -40,7 +40,7 @@ import { newReadBudget } from "./agent-tools/reading";
  */
 const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
   document_outline: "xU7wy5t-7njCbASQRrJz1IY7-dFM1aKn95duDRb9Jhw",
-  read_figure: "bnyABvjquQNxLMBGuFHPyHxNwZCThbyxrB9W4ejqiLs",
+  read_figure: "OnkWQxIUIAbR6pnGn9rbjQPx7KsfUd_87jE9Xupap2E",
   // 9.4's `label` argument, and the sentence that tells the model when to use
   // it. Deliberate, and paid on every request by every reader whether or not
   // their document numbers its pages unusually.
@@ -61,8 +61,8 @@ const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
   // characters instead of an unbounded per-document table, and the resolution
   // is exact rather than arithmetic the model has to get right.
   read_pdf_page: "etahlunPZHnesYfy-DAXKGd27vuaMOUZNVzLJBcFtY4",
-  read_pdf_range: "pT7WNbX6Zw_egBSnLLVi4cptVRY3ppk-s0NwxogI9Gw",
-  read_section: "ECqqd5W-4Bl-wypQJXG9JIzEpJHZFh4QT__TTqMKJqE",
+  read_pdf_range: "w2KcnFiiBpChZYJS3uBBFQlSyLkpsDX3T3r22RgGEYA",
+  read_section: "WHCaIDtibrQU_633SwjmUmXDFhsB-DF4SHxOjEgvkrE",
   search_in_document: "nFbX8pj6hTbxlxu3ZRgKeTufbBXF1BkDYEXfoaGuW9Y",
   // 9.0's two writers. Added deliberately, and they are not free: measured by
   // description + resolved input schema + name, they are 1,298 characters

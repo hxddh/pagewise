@@ -67,6 +67,7 @@ const problemListeners = new Set<(report: StoreProblemReport) => void>();
 
 /** Record that `file` held a write back. Reported once per file and kind. */
 export function reportStoreProblem(file: string, problem: StoreProblem, now: number = Date.now()): void {
+  heldBackStores.add(file);
   const id = `${problem}:${file}`;
   const last = problems.get(id);
   if (last !== undefined && (problem === "newer" || now - last < REPEAT_FULL_MS)) return;
@@ -122,11 +123,9 @@ export function subscribeStoreUnreadable(
  */
 export type WriteKind = "conversation" | "annotations" | "findings";
 
-/**
- * The kinds whose last write failed, in the order they started failing.
- * Replaced, never mutated, so a React view can hold it as a snapshot.
- */
+const failedByStore = new Map<string, WriteKind>();
 let failedWrites: readonly WriteKind[] = [];
+const heldBackStores = new Set<string>();
 const writeListeners = new Set<(change: WriteHealthChange) => void>();
 
 export interface WriteHealthChange {
@@ -145,23 +144,72 @@ function notifyWrite(change: WriteHealthChange): void {
   }
 }
 
-/**
- * Record that a write of `kind` failed. Said once per run of failures, not per
- * retry (24.0): a dead disk fails every debounced flush and every autosave, and
- * a toast for each would bury the one sentence the reader needs. The persistent
- * indicator carries the state between the first failure and the next success.
- */
-export function reportWriteFailed(kind: WriteKind): void {
-  if (failedWrites.includes(kind)) return;
-  failedWrites = [...failedWrites, kind];
-  notifyWrite({ kind, failed: true });
+function syncFailedWrites(): void {
+  const next: WriteKind[] = [];
+  for (const k of failedByStore.values()) {
+    if (!next.includes(k)) next.push(k);
+  }
+  if (next.length !== failedWrites.length || next.some((k, i) => k !== failedWrites[i])) {
+    failedWrites = next;
+  }
 }
 
-/** Record that a write of `kind` landed — clears its "not saved" state. */
-export function reportWriteSucceeded(kind: WriteKind): void {
-  if (!failedWrites.includes(kind)) return;
-  failedWrites = failedWrites.filter((k) => k !== kind);
-  notifyWrite({ kind, failed: false });
+const WRITE_KINDS = new Set<string>(["conversation", "annotations", "findings"]);
+
+/**
+ * Record a failed write. Supports `(storeFile, kind)` (per-store tracking so B
+ * succeeding never clears A's failure) as well as legacy `(kind)`.
+ */
+export function reportWriteFailed(
+  storeOrKind: string,
+  maybeKind?: WriteKind,
+  options?: { toast?: boolean },
+): void {
+  const isLegacy = maybeKind === undefined && WRITE_KINDS.has(storeOrKind);
+  const storeKey = isLegacy ? storeOrKind : storeOrKind;
+  const kind: WriteKind = isLegacy ? (storeOrKind as WriteKind) : maybeKind!;
+  const wasKindFailed = failedWrites.includes(kind);
+  failedByStore.set(storeKey, kind);
+  syncFailedWrites();
+  if (!wasKindFailed && options?.toast !== false) {
+    notifyWrite({ kind, failed: true });
+  } else if (!wasKindFailed && options?.toast === false) {
+    // Silent header indicator (e.g. `full` / `newer` already showed its own toast).
+    notifyWrite({ kind, failed: false });
+  }
+}
+
+/** Record that a write landed — clears its store's "not saved" state. */
+export function reportWriteSucceeded(storeOrKind: string): void {
+  const kind = failedByStore.get(storeOrKind);
+  heldBackStores.delete(storeOrKind);
+  if (!kind) {
+    // Also support clearing by WriteKind directly when legacy callers used `reportWriteFailed(kind)`.
+    if (WRITE_KINDS.has(storeOrKind)) {
+      let removed = false;
+      for (const [k, v] of [...failedByStore.entries()]) {
+        if (v === storeOrKind) {
+          failedByStore.delete(k);
+          removed = true;
+        }
+      }
+      if (removed) {
+        syncFailedWrites();
+        notifyWrite({ kind: storeOrKind as WriteKind, failed: false });
+      }
+    }
+    return;
+  }
+  failedByStore.delete(storeOrKind);
+  syncFailedWrites();
+  if (!failedWrites.includes(kind)) {
+    notifyWrite({ kind, failed: false });
+  }
+}
+
+/** True when any store has an unsaved write failure or held-back (`full`/`newer`) edit. */
+export function hasUnsavedWork(): boolean {
+  return failedWrites.length > 0 || heldBackStores.size > 0;
 }
 
 /**
@@ -186,6 +234,8 @@ export function __resetStoreHealthForTests(): void {
   listeners.clear();
   problems.clear();
   problemListeners.clear();
+  failedByStore.clear();
+  heldBackStores.clear();
   failedWrites = [];
   writeListeners.clear();
 }

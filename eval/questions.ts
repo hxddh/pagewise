@@ -216,3 +216,25 @@ export const squashFact = (s: string): string =>
     .toLowerCase()
     .replace(/(\d),(?=\d{3})/g, "$1")
     .replace(/[\s\-­‐-—'"‘’“”]/g, "");
+
+/**
+ * Match a required fact against an answer, guarding short numeric or short
+ * ASCII token facts ("5", "8", "30%", "ARC") from matching inside larger
+ * numbers or unrelated words ("2025", "130%", "search").
+ */
+export function containsFact(answer: string, fact: string): boolean {
+  const needle = squashFact(fact);
+  if (!needle) return false;
+  const hay = squashFact(answer);
+  if (/^\d+(?:\.\d+)?%?$/.test(needle)) {
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?<!\\d|\\d\\.)${escaped}(?!\\d|\\.\\d)`).test(hay);
+  }
+  if (/^[a-z0-9]{1,3}$/.test(needle)) {
+    const rawEscaped = fact.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?<![a-z0-9])${rawEscaped}(?![a-z0-9])`, "i").test(
+      answer.normalize("NFKC"),
+    );
+  }
+  return hay.includes(needle);
+}

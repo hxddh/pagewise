@@ -9,34 +9,39 @@ import type { LoadedDocument } from "./types";
  * reader's original file — corrupting a contract costs more than portability
  * between readers is worth.
  */
-export function marksSection(path: string): string[] {
+export interface ExportDocOptions {
+  /** Whether `documentToMarkdown` includes the `## Marks` section (default true; pass false when marks were already emitted earlier in a combined report). */
+  includeMarks?: boolean;
+  locale?: "en" | "zh-CN";
+}
+
+export function marksSection(path: string, locale: "en" | "zh-CN" = "en"): string[] {
   const marks = getMarks(path);
   if (marks.length === 0) return [];
-  const parts = ["## Marks", ""];
+  const zh = locale === "zh-CN";
+  const parts = [zh ? "## 批注" : "## Marks", ""];
   for (const mark of marks) {
-    parts.push(`- **p. ${mark.page}** — ${mark.text || "(no text)"}`);
+    const pageLabel = zh ? `**第 ${mark.page} 页**` : `**p. ${mark.page}**`;
+    const body = mark.text || (zh ? "（无文字）" : "(no text)");
+    parts.push(`- ${pageLabel} — ${body}`);
     if (mark.note) parts.push(`  - ${mark.note}`);
   }
   parts.push("");
   return parts;
 }
 
-/**
- * Render a loaded document as one Markdown file.
- *
- * Page text is already Markdown — headings, lists and tables intact — so this
- * is a join, not a conversion. Page markers are HTML comments: invisible when
- * rendered, but enough to trace a passage back to the page it came from.
- */
-export function documentToMarkdown(doc: LoadedDocument): string {
+export function documentToMarkdown(doc: LoadedDocument, options?: ExportDocOptions): string {
+  const zh = options?.locale === "zh-CN";
   const parts: string[] = [];
   const heading = doc.title?.trim() || doc.name;
   parts.push(`# ${heading}`, "");
   if (doc.title?.trim() && doc.title.trim() !== doc.name) {
-    parts.push(`**Source:** ${doc.name}`, "");
+    parts.push(`${zh ? "**来源：**" : "**Source:**"} ${doc.name}`, "");
   }
 
-  parts.push(...marksSection(doc.path));
+  if (options?.includeMarks !== false) {
+    parts.push(...marksSection(doc.path, options?.locale));
+  }
 
   for (const page of [...doc.pages].sort((a, b) => a.page - b.page)) {
     const text = page.text.trim();
@@ -52,15 +57,10 @@ export function emptyExportPages(doc: LoadedDocument): number[] {
   return doc.pages.filter((p) => !p.text.trim()).map((p) => p.page);
 }
 
-/**
- * The marks alone, as their own document.
- *
- * What a reader worked out on a pass through a contract is a thing in itself;
- * appended to forty thousand words of the contract it is not findable.
- */
-export function marksToMarkdown(doc: LoadedDocument): string {
-  const section = marksSection(doc.path);
+export function marksToMarkdown(doc: LoadedDocument, locale: "en" | "zh-CN" = "en"): string {
+  const section = marksSection(doc.path, locale);
   if (section.length === 0) return "";
   const heading = doc.title?.trim() || doc.name;
-  return [`# ${heading} — marks`, "", ...section].join("\n").trimEnd() + "\n";
+  const suffix = locale === "zh-CN" ? "批注" : "marks";
+  return [`# ${heading} — ${suffix}`, "", ...section].join("\n").trimEnd() + "\n";
 }

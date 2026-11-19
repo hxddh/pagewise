@@ -111,6 +111,33 @@ describe("readableAnnotations", () => {
     const long = { ...STICKY, contentsObj: { str: "x".repeat(5000) } };
     expect(readableAnnotations([long], 1)[0]!.contents.length).toBeLessThanOrEqual(600);
   });
+
+  it("filters PageWise's own exported annotations unless explicitly requested", () => {
+    const exported = [
+      { ...HIGHLIGHT, id: "pagewise-f-123" },
+      { ...HIGHLIGHT, id: "9R", nm: "pagewise-m-456" },
+      { ...HIGHLIGHT, id: "10R", titleObj: { str: "PageWise", dir: "ltr" } },
+      { ...HIGHLIGHT, id: "11R", subjectObj: { str: "Finding (PageWise)", dir: "ltr" } },
+      STICKY,
+    ];
+    expect(readableAnnotations(exported, 1).map((a) => a.id)).toEqual(["7R"]);
+    expect(readableAnnotations(exported, 1, { includePageWise: true })).toHaveLength(5);
+  });
+
+  it("extracts multi-line rects from quadPoints on markup annotations", () => {
+    const multiLine = {
+      ...HIGHLIGHT,
+      quadPoints: new Float32Array([
+        40, 720, 240, 720, 40, 708, 240, 708,
+        40, 704, 180, 704, 40, 692, 180, 692,
+      ]),
+    };
+    const [a] = readableAnnotations([multiLine], 2);
+    expect(a!.rects).toEqual([
+      { x: 40, y: 708, width: 200, height: 12 },
+      { x: 40, y: 692, width: 140, height: 12 },
+    ]);
+  });
 });
 
 describe("describeAnnotations", () => {

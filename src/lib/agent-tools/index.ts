@@ -1,4 +1,4 @@
-import type { ReadBudget } from "./reading";
+import { newReadBudget, type ReadBudget } from "./reading";
 import { compactToolSchemas } from "./compact-schema";
 import { createDocumentOutlineTool } from "./tools/document-outline";
 import { createReadPdfPageTool } from "./tools/read-page";
@@ -16,25 +16,19 @@ export {
   DEFAULT_RANGE_MAX_CHARS,
   DEFAULT_SEARCH_HITS,
   DEFAULT_FIGURE_INDEX,
+  MAX_FREE_REREADS,
   RUN_TOKEN_BUDGET,
   estimateTokens,
   type ReadBudget,
 } from "./reading";
 
-/**
- * The document tools: six that read, two that write.
- *
- * One file per tool, over a shared reading layer. The alternative — which this
- * replaces — was 1,106 lines in which two readers sat two hundred lines apart
- * and disagreed about what a page ships.
- *
- * The two writers cost prefix tokens on every request whether or not they are
- * ever called, which is why their descriptions are the shortest here. See
- * `agent-tool-prefix.test.ts`, which pins what each one contributes.
- */
-export function createDocumentTools(budget: ReadBudget) {
-  // Charge chars to the run's budget — unless the charging tool belongs to an
-  // earlier aborted run (stale generation), so it can't drain the new run.
+export function createDocumentTools(
+  budget: ReadBudget = newReadBudget(),
+  options?: { tokenBudget?: number },
+) {
+  if (options?.tokenBudget !== undefined) {
+    budget.max = options.tokenBudget;
+  }
   const chargeBudget = (runGen: number, chars: number): void => {
     if (budget.gen === runGen) budget.used += chars;
   };
@@ -46,9 +40,9 @@ export function createDocumentTools(budget: ReadBudget) {
     read_section: createReadSectionTool(budget, chargeBudget),
     read_figure: createReadFigureTool(budget, chargeBudget),
     search_in_document: createSearchInDocumentTool(budget, chargeBudget),
-    // Writers. No budget: that budget caps how much of the document a run may
-    // pull into context, and writing pulls nothing.
     note_finding: createNoteFindingTool(),
     revise_finding: createReviseFindingTool(),
   });
 }
+
+export const createAgentTools = createDocumentTools;

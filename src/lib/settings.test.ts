@@ -773,4 +773,24 @@ describe("session key cache", () => {
     await saveProviderProfile("openai", {}, "sk-new");
     expect(await loadApiKeyForProvider("openai")).toBe("sk-new");
   });
+
+  it("preserves custom DeepSeek model IDs without resetting connectionVerified", async () => {
+    __resetSettingsStoreForTests({
+      store: {
+        version: 3,
+        activeProvider: "deepseek",
+        profiles: {
+          deepseek: {
+            model: "deepseek-v3.2",
+            thinkingEnabled: true,
+            connectionVerified: true,
+          },
+        },
+      },
+      keychain: memoryKeychain(),
+    });
+    const store = await loadLlmStore();
+    expect(store.profiles.deepseek?.model).toBe("deepseek-v3.2");
+    expect(store.profiles.deepseek?.connectionVerified).toBe(true);
+  });
 });

@@ -138,9 +138,10 @@ export async function pruneBodies<T extends { findings: Finding[] }>(docs: T[]):
   const names = await listStoreDir(BODIES_DIR);
   const orphans = names.filter((name) => !keep.has(idOf(name)));
   if (orphans.length === 0) return;
-  await deleteStoreFiles(orphans);
-  for (const name of orphans) {
-    const id = idOf(name);
+  const results = await Promise.allSettled(orphans.map((name) => deleteStoreFiles([name])));
+  for (let i = 0; i < orphans.length; i += 1) {
+    if (results[i]?.status !== "fulfilled") continue;
+    const id = idOf(orphans[i]!);
     stored.delete(id);
     pending.delete(id);
   }

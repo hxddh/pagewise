@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { docCache } from "./doc-cache";
+import { docCache, hasMarkdownTable } from "./doc-cache";
 import type { LoadedDocument } from "./types";
 
 /**
@@ -81,5 +81,19 @@ describe("invalidateIndexedPageText", () => {
     load([{ page: 1, text: "x", source: "vision" }]);
     expect(() => docCache.invalidateIndexedPageText("/tmp/other.pdf", [1])).not.toThrow();
     expect(textOf(1)).toBe("x");
+  });
+
+  it("updates tablePages when Vision or OCR recognizes a Markdown table", () => {
+    expect(hasMarkdownTable("| Item | Price |\n| --- | ---: |\n| Unit | $10 |")).toBe(true);
+    expect(hasMarkdownTable("Not a | table")).toBe(false);
+    load([
+      { page: 1, text: "plain prose", source: "native" },
+      { page: 2, text: "", source: "native" },
+    ]);
+    expect(docCache.get(PATH)?.tablePages).toBeUndefined();
+    docCache.upsertPageText(PATH, 2, "| Col A | Col B |\n| --- | --- |\n| 1 | 2 |", "vision");
+    expect(docCache.get(PATH)?.tablePages).toEqual([2]);
+    docCache.invalidateIndexedPageText(PATH, [2]);
+    expect(docCache.get(PATH)?.tablePages).toEqual([]);
   });
 });

@@ -21,7 +21,7 @@
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { locateQuote } from "../src/lib/quote-locate";
+import { locateAcrossPages, locateQuote } from "../src/lib/quote-locate";
 import { corpusFiles, loadDoc, OUT, type DumpDoc } from "./lib/corpus";
 import { CJK, NEGATIVES, quotesFor, rng, type Kind } from "./lib/quotes";
 
@@ -133,7 +133,11 @@ function falsePositives(doc: DumpDoc): {
     }
     // 24.0: an elision joining this quote's opening to words from another
     // page — the fabrication an ellipsis makes easy — must not be located.
-    const other = quotes[(n + 1 + Math.floor(next() * (quotes.length - 1))) % quotes.length]!;
+    const otherPages = quotes.filter((x) => x.page !== q.page);
+    const other =
+      otherPages.length > 0
+        ? otherPages[(n + Math.floor(next() * otherPages.length)) % otherPages.length]!
+        : quotes[(n + 1) % quotes.length]!;
     const head = elide(q.text)?.split(/\s*…\s*/)[0];
     const tail = elide(other.text)?.split(/\s*…\s*/)[1];
     if (other.page !== q.page && head && tail) {
@@ -212,5 +216,71 @@ describe("citation location rate", () => {
     expect(found / tried).toBeLessThanOrEqual(FALSE_POSITIVE_CEILING);
     expect(splicesTried).toBeGreaterThan(100);
     expect(spliced / splicesTried).toBeLessThanOrEqual(FALSE_POSITIVE_CEILING);
+  });
+});
+
+describe("formatting, bracketed elisions, and cross-page quotes (v25)", () => {
+  const run = (text: string, y: number, x = 72) => ({
+    text,
+    rect: { x, y, width: 420, height: 12 },
+  });
+
+  it("locates quotes containing inline HTML tags and Markdown table pipes", () => {
+    const items = [
+      run("Section 4: Payment Obligations and Delivery Schedule", 700),
+      run("Milestone A   30%   Upon contract signing", 680),
+    ];
+    expect(locateQuote(items, "<u>Section 4: Payment Obligations</u>").status).toBe("located");
+    expect(locateQuote(items, "| Milestone A | 30% | Upon contract signing |").status).toBe(
+      "located",
+    );
+  });
+
+  it("backtracks across repeated prefixes and supports bracketed [...] / . . . elisions", () => {
+    const items = [
+      run("The supplier shall maintain all equipment in good order during transit.", 720),
+      run("Intermediate operational clauses occupy this middle paragraph.", 660),
+      run("The supplier shall indemnify the buyer against third-party patent claims.", 600),
+    ];
+    expect(
+      locateQuote(
+        items,
+        "The supplier shall [...] indemnify the buyer against third-party patent claims.",
+      ).status,
+    ).toBe("located");
+    expect(
+      locateQuote(
+        items,
+        "The supplier shall . . . indemnify the buyer against third-party patent claims.",
+      ).status,
+    ).toBe("located");
+  });
+
+  it("locates cross-page quotes across running footers/headers while rejecting non-seam splices", () => {
+    const page1 = [
+      run("All confidential materials disclosed under this Agreement shall be returned", 84),
+      run("Page 1 of 12", 24),
+    ];
+    const page2 = [
+      run("Master Services Agreement — Confidential", 768),
+      run("or destroyed within fifteen business days of termination.", 720),
+    ];
+    const cross = locateAcrossPages(
+      page1,
+      page2,
+      "materials disclosed under this Agreement shall be returned or destroyed within fifteen business days",
+    );
+    expect(cross?.status).toBe("located");
+    expect(cross?.first.items[0]?.text).toContain("disclosed under this Agreement");
+    expect(cross?.second.items[0]?.text).toContain("or destroyed within fifteen");
+
+    const unrelated = [run("Appendix B lists the hardware serial numbers.", 720)];
+    expect(
+      locateAcrossPages(
+        page1,
+        unrelated,
+        "materials disclosed under this Agreement shall be returned or destroyed within fifteen business days",
+      ),
+    ).toBeNull();
   });
 });

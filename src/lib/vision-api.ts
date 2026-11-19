@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import { formatLlmError, resolveBaseURL, validateModel } from "./llm";
 import { addDocumentVisionUsage, addIndexUsage } from "./usage-tracker";
 import type { LlmSettings } from "./types";
@@ -89,34 +90,51 @@ export async function generateVisionText(
   const url = `${baseURL}/chat/completions`;
   const dataUrl = imageBytesToDataUrl(imageJpeg, options.mediaType ?? "image/jpeg");
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: visionHeaders(settings),
-    signal: options.signal,
-    body: JSON.stringify({
-      model: settings.model,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: dataUrl } },
-          ],
-        },
-      ],
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: visionHeaders(settings),
+      signal: options.signal,
+      body: JSON.stringify({
+        model: settings.model,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+      }),
+    });
+  } catch (err) {
+    if (options.signal?.aborted || (err instanceof Error && err.name === "AbortError")) {
+      throw err;
+    }
+    const apiErr = new APICallError({
+      message: `Cannot connect to API: ${err instanceof Error ? err.message : String(err)}`,
+      url,
+      requestBodyValues: {},
+      cause: err,
+      isRetryable: true,
+    });
+    throw new Error(formatLlmError(apiErr, undefined));
+  }
 
   const raw = await response.text();
   if (!response.ok) {
-    let message = raw;
-    try {
-      const parsed = JSON.parse(raw) as { error?: { message?: string } };
-      if (parsed.error?.message) message = parsed.error.message;
-    } catch {
-      /* use raw body */
-    }
-    throw new Error(formatLlmError(new Error(message || response.statusText)));
+    const apiErr = new APICallError({
+      message: response.statusText || `HTTP ${response.status}`,
+      url,
+      requestBodyValues: {},
+      statusCode: response.status,
+      responseHeaders: Object.fromEntries(response.headers.entries()),
+      responseBody: raw,
+      isRetryable: response.status >= 429,
+    });
+    throw new Error(formatLlmError(apiErr, undefined));
   }
 
   try {

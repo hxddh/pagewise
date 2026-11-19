@@ -361,8 +361,20 @@
   line-height: 1.55;
 }
 
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+}
+
 .welcome-open-btn {
   min-width: 180px;
+}
+
+.welcome-sample-btn {
+  min-width: 160px;
 }
 
 .welcome-drop-hint {

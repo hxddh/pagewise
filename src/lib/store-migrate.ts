@@ -81,6 +81,14 @@ export function preserveKey(key: string): string {
  * let the second — which would find the store empty and write an empty blob —
  * replace the first, which is the one with the reader's work in it.
  */
+function cloneJson<T>(value: T): T {
+  try {
+    return structuredClone(value);
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+}
+
 export async function preserveNewer(
   store: {
     get<T>(key: string): Promise<T | null | undefined>;
@@ -93,6 +101,6 @@ export async function preserveNewer(
   const slot = preserveKey(key);
   const existing = await store.get<unknown>(slot);
   if (existing !== null && existing !== undefined) return;
-  await store.set(slot, raw);
+  await store.set(slot, cloneJson(raw));
   await store.save();
 }

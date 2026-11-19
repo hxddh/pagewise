@@ -6,21 +6,35 @@ export async function saveMarkdownFile(
   defaultName: string,
   filterName = "Markdown",
 ): Promise<boolean> {
-  return saveTextFile(content, defaultName, filterName, ["md"]);
+  return (await saveMarkdownFileWithPath(content, defaultName, filterName)) !== null;
 }
 
-/** Ask where to save text with these extensions, and write it there. */
+export async function saveMarkdownFileWithPath(
+  content: string,
+  defaultName: string,
+  filterName = "Markdown",
+): Promise<string | null> {
+  return saveTextFileWithPath(content, defaultName, filterName, ["md"]);
+}
+
 export async function saveTextFile(
   content: string,
   defaultName: string,
   filterName: string,
   extensions: string[],
 ): Promise<boolean> {
-  // The dialog runs in Rust, which grants one write to the file chosen
-  // (21.1.0); the webview cannot grant a path itself.
+  return (await saveTextFileWithPath(content, defaultName, filterName, extensions)) !== null;
+}
+
+export async function saveTextFileWithPath(
+  content: string,
+  defaultName: string,
+  filterName: string,
+  extensions: string[],
+): Promise<string | null> {
   const path = await pickSavePath(defaultName, filterName, extensions);
-  if (!path) return false;
+  if (!path) return null;
 
   await invoke("write_text_file", { path, content });
-  return true;
+  return path;
 }

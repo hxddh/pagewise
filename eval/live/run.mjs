@@ -204,19 +204,43 @@ function usageOfSse(body) {
  * given, else the wait doubles from 10 s, and the whole wait stays inside the
  * question's own timeout.
  */
+const OPENAI_CACHE_BREAKPOINT_MODEL = /^gpt-(?:5\.[6-9]|[6-9])(?:$|[-.])/i;
+
+function sanitizeEvalRequestBody(body, model) {
+  if (!OPENAI_CACHE_BREAKPOINT_MODEL.test(model)) {
+    if (Array.isArray(body.messages)) {
+      for (const m of body.messages) {
+        if (m && typeof m === "object") delete m.prompt_cache_breakpoint;
+      }
+    }
+    delete body.prompt_cache_breakpoint;
+  }
+}
+
 async function forward(route, body, deadline) {
-  for (let wait = 10_000; ; wait *= 2) {
-    const res = await route.fetch({
-      url: `${BASE}/chat/completions`,
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${KEY}` },
-      postData: JSON.stringify(body),
-      timeout: Math.max(1_000, deadline - Date.now()),
-    });
-    if (res.status() !== 429) return res;
-    const after = Number(res.headers()["retry-after"]) * 1000 || wait;
-    if (Date.now() + after > deadline) return res;
-    process.stderr.write(`  rate limited; waiting ${Math.round(after / 1000)} s\n`);
+  let attempt = 0;
+  for (let wait = 2_000; ; wait = Math.min(60_000, wait * 2)) {
+    attempt += 1;
+    let res;
+    try {
+      res = await route.fetch({
+        url: `${BASE}/chat/completions`,
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${KEY}` },
+        postData: JSON.stringify(body),
+        timeout: Math.max(1_000, deadline - Date.now()),
+      });
+    } catch (err) {
+      if (attempt >= 5 || Date.now() + wait > deadline) throw err;
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    const status = res.status();
+    if (status !== 429 && status < 500) return res;
+    const baseWait = status === 429 ? Math.max(10_000, wait) : wait;
+    const after = Number(res.headers()["retry-after"]) * 1000 || baseWait;
+    if (attempt >= 5 || Date.now() + after > deadline) return res;
+    process.stderr.write(`  HTTP ${status}; waiting ${Math.round(after / 1000)} s\n`);
     await new Promise((r) => setTimeout(r, after));
   }
 }
@@ -252,6 +276,7 @@ async function ask(browser, q, run) {
     } else {
       body.model = MODEL;
       body.stream_options = { include_usage: true };
+      sanitizeEvalRequestBody(body, MODEL);
       const res = await forward(route, body, deadline);
       sse = await res.text();
       if (!res.ok()) {

@@ -12,47 +12,79 @@
 //! The front end takes the pending path once it is ready, so a file that
 //! arrives before the webview has loaded is not lost in between.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-/// The first argument after the program that is not a flag, as an absolute
-/// path: relative ones are joined to `cwd`.
-pub fn path_from_args(argv: &[String], cwd: &Path) -> Option<String> {
-    let arg = argv
-        .iter()
-        .skip(1)
-        .find(|a| !a.starts_with('-') && !a.trim().is_empty())?;
-    let path = PathBuf::from(arg);
-    let path = if path.is_absolute() || cwd.as_os_str().is_empty() {
+/// The first argument after the program that is not a flag (honoring `--` as
+/// flag terminator), joined to `cwd` when relative, without panicking on
+/// non-UTF-8 OS strings.
+pub fn path_from_os_args<I, S>(argv: I, cwd: &Path) -> Option<PathBuf>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut after_terminator = false;
+    let mut picked: Option<PathBuf> = None;
+    for arg in argv.into_iter().skip(1) {
+        let os = arg.as_ref();
+        if !after_terminator {
+            if os == OsStr::new("--") {
+                after_terminator = true;
+                continue;
+            }
+            let lossy = os.to_string_lossy();
+            if lossy.starts_with('-') || lossy.trim().is_empty() {
+                continue;
+            }
+        } else if os.is_empty() {
+            continue;
+        }
+        picked = Some(PathBuf::from(os));
+        break;
+    }
+    let path = picked?;
+    Some(if path.is_absolute() || cwd.as_os_str().is_empty() {
         path
     } else {
         cwd.join(path)
-    };
-    Some(path.to_string_lossy().into_owned())
+    })
+}
+
+/// String-slice wrapper used by `single_instance` callback and tests.
+pub fn path_from_args(argv: &[String], cwd: &Path) -> Option<String> {
+    path_from_os_args(argv.iter(), cwd).map(|p| p.to_string_lossy().into_owned())
 }
 
 #[derive(Default)]
-pub struct PendingOpen(Mutex<Option<String>>);
+pub struct PendingOpen(Mutex<Option<PathBuf>>);
+
+#[derive(Default)]
+pub struct PendingOpenError(Mutex<Option<String>>);
 
 impl PendingOpen {
     pub fn from_launch() -> Self {
-        let argv: Vec<String> = std::env::args().collect();
         let cwd = std::env::current_dir().unwrap_or_default();
-        Self(Mutex::new(path_from_args(&argv, &cwd)))
+        Self(Mutex::new(path_from_os_args(std::env::args_os(), &cwd)))
     }
 
-    /// Replace the pending path with what was granted for it, or drop it.
-    fn replace(&self, f: impl FnOnce(String) -> Option<String>) {
-        if let Ok(mut p) = self.0.lock() {
-            *p = p.take().and_then(f);
-        }
+    fn take_path(&self) -> Option<PathBuf> {
+        self.0.lock().ok().and_then(|mut p| p.take())
     }
 
-    fn set(&self, path: String) {
+    fn set(&self, path: PathBuf) {
         if let Ok(mut p) = self.0.lock() {
             *p = Some(path);
+        }
+    }
+}
+
+impl PendingOpenError {
+    fn set(&self, err: String) {
+        if let Ok(mut e) = self.0.lock() {
+            *e = Some(err);
         }
     }
 }
@@ -60,17 +92,35 @@ impl PendingOpen {
 /// The file the app was asked to open and has not opened yet, once.
 #[tauri::command]
 pub fn take_pending_open(pending: State<'_, PendingOpen>) -> Option<String> {
-    pending.0.lock().ok().and_then(|mut p| p.take())
+    pending
+        .take_path()
+        .map(|p| crate::grants::for_front_end(&p))
+}
+
+/// A coded error from a launch / desktop open that was refused before the
+/// webview was listening, read once at startup.
+#[tauri::command]
+pub fn take_pending_open_error(pending: State<'_, PendingOpenError>) -> Option<String> {
+    pending.0.lock().ok().and_then(|mut e| e.take())
+}
+
+/// Record and emit a refused desktop/CLI open so the window shows why instead
+/// of opening silently empty.
+pub fn refuse_open(app: &AppHandle, err: String) {
+    app.state::<PendingOpenError>().set(err.clone());
+    let _ = app.emit("pagewise://open-refused", err);
 }
 
 /// Grant the file this launch was started with (21.0). A path that is not a
-/// document the reader can open is dropped rather than handed to the front end.
+/// document records its coded refusal for the front end instead of vanishing.
 pub fn grant_pending(app: &AppHandle) {
-    app.state::<PendingOpen>().replace(|path| {
-        crate::grants::grant_document(app, Path::new(&path))
-            .ok()
-            .map(|canon| crate::grants::for_front_end(&canon))
-    });
+    let Some(raw) = app.state::<PendingOpen>().take_path() else {
+        return;
+    };
+    match crate::grants::grant_document(app, &raw) {
+        Ok(canon) => app.state::<PendingOpen>().set(canon),
+        Err(err) => refuse_open(app, err),
+    }
 }
 
 /// macOS: the files of an "open" event. The first one that is a local file.
@@ -79,18 +129,19 @@ pub fn opened(app: &AppHandle, urls: &[tauri::Url]) {
     let Some(path) = urls.iter().find_map(|u| u.to_file_path().ok()) else {
         return;
     };
-    // Granted before the front end is told (21.0).
-    let Ok(canon) = crate::grants::grant_document(app, &path) else {
-        return;
-    };
-    app.state::<PendingOpen>()
-        .set(crate::grants::for_front_end(&canon));
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
-    let _ = app.emit("pagewise://open-pending", ());
+    // Granted before the front end is told (21.0).
+    match crate::grants::grant_document(app, &path) {
+        Ok(canon) => {
+            app.state::<PendingOpen>().set(canon);
+            let _ = app.emit("pagewise://open-pending", ());
+        }
+        Err(err) => refuse_open(app, err),
+    }
 }
 
 #[cfg(test)]
@@ -116,6 +167,10 @@ mod tests {
         assert_eq!(
             path_from_args(&args(&["pagewise", "-psn_0_12345"]), cwd),
             None
+        );
+        assert_eq!(
+            path_from_args(&args(&["pagewise", "--", "-weird-name.pdf"]), cwd).as_deref(),
+            Some("/home/reader/-weird-name.pdf")
         );
     }
 

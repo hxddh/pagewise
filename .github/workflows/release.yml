@@ -178,6 +178,9 @@ jobs:
         run: npm run version:sync
 
       - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --bundles ${{ matrix.bundles }} ${{ matrix.args }}
 
       - name: Verify bundle version
@@ -195,14 +198,20 @@ jobs:
           for bundle in src-tauri/target/release/bundle \
                         src-tauri/target/universal-apple-darwin/release/bundle; do
             [ -d "$bundle" ] || continue
-            for f in "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe \
-                     "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage; do
+            for f in "$bundle"/dmg/*.dmg "$bundle"/dmg/*.dmg.sig \
+                     "$bundle"/msi/*.msi "$bundle"/msi/*.msi.sig \
+                     "$bundle"/nsis/*.exe "$bundle"/nsis/*.exe.sig \
+                     "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage \
+                     "$bundle"/appimage/*.AppImage.sig; do
               cp "$f" release-artifacts/
             done
             # A raw .app directory cannot be a release asset; tar keeps its
             # symlinks and permissions intact.
             for app in "$bundle"/macos/*.app; do
               tar -czf release-artifacts/PageWise.app.tar.gz -C "$bundle/macos" "$(basename "$app")"
+            done
+            for sig in "$bundle"/macos/*.tar.gz.sig; do
+              cp "$sig" release-artifacts/
             done
           done
           ls -la release-artifacts/

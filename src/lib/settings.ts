@@ -176,10 +176,6 @@ function normalizeProfile(provider: ProviderId, profile: ProviderProfile): Provi
     thinking = legacy.thinkingEnabled;
     verified = false;
   }
-  if (provider === "deepseek" && model.startsWith("deepseek-") && !model.includes("v4")) {
-    model = "deepseek-v4-flash";
-    verified = false;
-  }
   if (
     provider === "deepseek" &&
     (baseURL === "https://api.deepseek.com/v1" || baseURL === "https://api.deepseek.com/v1/")

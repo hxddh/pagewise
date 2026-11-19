@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getPageGeometry } from "../../lib/pdf";
-import { isSafeLink } from "../../lib/safe-link";
+import { isSafeLink, parseInternalGotoPage } from "../../lib/safe-link";
 import type { DocLink } from "../../lib/types";
 import { pdfRectToBox, type HighlightBox } from "./search-highlight";
 
@@ -28,22 +28,20 @@ interface PlacedLink {
  */
 function linkLabel(context: string, url: string): string {
   const trimmed = context.trim();
+  const internalPage = parseInternalGotoPage(url);
+  if (internalPage !== null) {
+    return trimmed ? `${trimmed} — p. ${internalPage}` : `p. ${internalPage}`;
+  }
   return trimmed ? `${trimmed} — ${url}` : url;
 }
 
-/**
- * Make the links a PDF already contains clickable.
- *
- * The URLs come out of the document, which is untrusted input, so anything
- * outside the app's scheme allowlist is not drawn at all — an unclickable
- * region is a better answer than a clickable `javascript:`. Activating a link
- * asks first; `onActivate` owns that confirmation.
- */
 export function LinkLayer({ path, page, links, onActivate }: LinkLayerProps) {
   const [placed, setPlaced] = useState<PlacedLink[]>([]);
 
   useEffect(() => {
-    const onPage = links.filter((l) => l.page === page && isSafeLink(l.url));
+    const onPage = links.filter(
+      (l) => l.page === page && (isSafeLink(l.url) || parseInternalGotoPage(l.url) !== null),
+    );
     if (onPage.length === 0) {
       setPlaced([]);
       return;

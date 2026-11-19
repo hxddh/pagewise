@@ -99,18 +99,219 @@ export function takeWebSearchInjection(body: string): string | null {
   return injectWebSearchPlugin(body);
 }
 
-function providerFetch(settings: LlmSettings): typeof fetch | undefined {
-  if (settings.provider !== "openrouter") return undefined;
+const MAX_CACHED_REASONING = 256;
+const reasoningByToolCallId = new Map<string, string>();
+
+export function __clearDeepseekReasoningCacheForTests(): void {
+  reasoningByToolCallId.clear();
+}
+
+function rememberDeepseekReasoning(ids: readonly string[], reasoning: string): void {
+  for (const id of ids) {
+    if (!id) continue;
+    if (reasoningByToolCallId.has(id)) reasoningByToolCallId.delete(id);
+    reasoningByToolCallId.set(id, reasoning);
+    while (reasoningByToolCallId.size > MAX_CACHED_REASONING) {
+      const oldest = reasoningByToolCallId.keys().next().value;
+      if (oldest === undefined) break;
+      reasoningByToolCallId.delete(oldest);
+    }
+  }
+}
+
+function transformProviderRequestBody(settings: LlmSettings, rawBody: string): string {
+  const withWeb = settings.provider === "openrouter" ? takeWebSearchInjection(rawBody) : null;
+  const source = withWeb ?? rawBody;
+  const isOllama = settings.provider === "ollama";
+  const isAnthropicRoute =
+    settings.provider === "openrouter" &&
+    settings.model.trim().toLowerCase().startsWith("anthropic/");
+  const isDeepseek = isDeepseekModel(settings);
+  if (!isOllama && !isAnthropicRoute && !isDeepseek) return source;
+
+  try {
+    const parsed = JSON.parse(source) as Record<string, unknown>;
+    let mutated = false;
+
+    if (isOllama) {
+      const existing =
+        parsed.options && typeof parsed.options === "object" && !Array.isArray(parsed.options)
+          ? (parsed.options as Record<string, unknown>)
+          : {};
+      if (existing.num_ctx === undefined) {
+        parsed.options = { num_ctx: 32_768, ...existing };
+        mutated = true;
+      }
+    }
+
+    if (isAnthropicRoute && Array.isArray(parsed.messages)) {
+      for (const m of parsed.messages as Array<Record<string, unknown>>) {
+        if (!m || m.role !== "system") continue;
+        if (typeof m.content === "string") {
+          m.content = [
+            { type: "text", text: m.content, cache_control: { type: "ephemeral" } },
+          ];
+          mutated = true;
+        } else if (Array.isArray(m.content) && m.content.length > 0) {
+          const last = m.content[m.content.length - 1] as Record<string, unknown>;
+          if (last && typeof last === "object" && last.cache_control === undefined) {
+            last.cache_control = { type: "ephemeral" };
+            mutated = true;
+          }
+        }
+      }
+    }
+
+    if (isDeepseek && Array.isArray(parsed.messages)) {
+      for (const m of parsed.messages as Array<Record<string, unknown>>) {
+        if (
+          !m ||
+          m.role !== "assistant" ||
+          !Array.isArray(m.tool_calls) ||
+          m.tool_calls.length === 0 ||
+          m.reasoning_content !== undefined
+        ) {
+          continue;
+        }
+        let recorded: string | undefined;
+        for (const tc of m.tool_calls as Array<{ id?: unknown }>) {
+          if (typeof tc?.id === "string") {
+            const hit = reasoningByToolCallId.get(tc.id);
+            if (hit !== undefined) {
+              recorded = hit;
+              break;
+            }
+          }
+        }
+        if (recorded !== undefined) {
+          m.reasoning_content = recorded;
+          mutated = true;
+        } else if (settings.thinkingEnabled || parsed.reasoning_effort != null) {
+          m.reasoning_content = "";
+          mutated = true;
+        }
+      }
+    }
+
+    return mutated ? JSON.stringify(parsed) : source;
+  } catch {
+    return source;
+  }
+}
+
+async function tapDeepseekResponse(settings: LlmSettings, res: Response): Promise<Response> {
+  const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+  if (ct.includes("text/event-stream") && res.body) {
+    const decoder = new TextDecoder();
+    let sseBuf = "";
+    let reasoningBuf = "";
+    const toolCallIds = new Set<string>();
+
+    const consumeLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) return;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") return;
+      try {
+        const frame = JSON.parse(payload) as {
+          choices?: Array<{
+            delta?: {
+              reasoning_content?: unknown;
+              tool_calls?: Array<{ id?: unknown }>;
+            };
+          }>;
+        };
+        const delta = frame.choices?.[0]?.delta;
+        if (!delta) return;
+        if (typeof delta.reasoning_content === "string") {
+          reasoningBuf += delta.reasoning_content;
+        }
+        if (Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            if (typeof tc?.id === "string" && tc.id) toolCallIds.add(tc.id);
+          }
+        }
+      } catch {
+        /* ignore malformed SSE frames */
+      }
+    };
+
+    const tap = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+        sseBuf += decoder.decode(chunk, { stream: true });
+        let nl = sseBuf.indexOf("\n");
+        while (nl >= 0) {
+          consumeLine(sseBuf.slice(0, nl));
+          sseBuf = sseBuf.slice(nl + 1);
+          nl = sseBuf.indexOf("\n");
+        }
+      },
+      flush() {
+        sseBuf += decoder.decode();
+        if (sseBuf) {
+          for (const line of sseBuf.split("\n")) consumeLine(line);
+        }
+        if (toolCallIds.size > 0 && (reasoningBuf.length > 0 || settings.thinkingEnabled)) {
+          rememberDeepseekReasoning([...toolCallIds], reasoningBuf);
+        }
+      },
+    });
+    return new Response(res.body.pipeThrough(tap), {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  }
+
+  if (ct.includes("application/json")) {
+    const text = await res.text();
+    try {
+      const parsed = JSON.parse(text) as {
+        choices?: Array<{
+          message?: {
+            reasoning_content?: unknown;
+            tool_calls?: Array<{ id?: unknown }>;
+          };
+        }>;
+      };
+      const msg = parsed.choices?.[0]?.message;
+      const ids = Array.isArray(msg?.tool_calls)
+        ? msg.tool_calls
+            .map((tc) => (typeof tc?.id === "string" ? tc.id : ""))
+            .filter(Boolean)
+        : [];
+      if (ids.length > 0 && typeof msg?.reasoning_content === "string") {
+        rememberDeepseekReasoning(ids, msg.reasoning_content);
+      }
+    } catch {
+      /* ignore non-completion JSON */
+    }
+    return new Response(text, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  }
+
+  return res;
+}
+
+export function providerFetch(settings: LlmSettings): typeof fetch | undefined {
+  if (settings.provider === "openai" || settings.provider === "custom") return undefined;
 
   return async (input, init) => {
     const headers = new Headers(init?.headers);
-    headers.set("HTTP-Referer", "https://pagewise.app");
-    headers.set("X-Title", "PageWise");
-    // Inject OpenRouter's `web` plugin only when the user opted in for this run.
-    const injected =
-      typeof init?.body === "string" ? takeWebSearchInjection(init.body) : null;
-    const body = injected ?? init?.body;
-    return fetch(input, { ...init, headers, body });
+    if (settings.provider === "openrouter") {
+      headers.set("HTTP-Referer", "https://pagewise.app");
+      headers.set("X-Title", "PageWise");
+    }
+    const body =
+      typeof init?.body === "string"
+        ? transformProviderRequestBody(settings, init.body)
+        : init?.body;
+    const res = await globalThis.fetch(input, { ...init, headers, body });
+    return isDeepseekModel(settings) ? tapDeepseekResponse(settings, res) : res;
   };
 }
 
@@ -245,37 +446,40 @@ function parseApiErrorBody(body: unknown): string | null {
   return null;
 }
 
+function nextErrorInChain(err: unknown): unknown {
+  if (!err || typeof err !== "object") return undefined;
+  const e = err as { lastError?: unknown; errors?: unknown[]; cause?: unknown };
+  if (e.lastError && e.lastError !== err) return e.lastError;
+  if (Array.isArray(e.errors) && e.errors.length > 0) {
+    const last = e.errors[e.errors.length - 1];
+    if (last && last !== err) return last;
+  }
+  if (e.cause && e.cause !== err) return e.cause;
+  return undefined;
+}
+
 function unwrapApiError(error: unknown): unknown {
   if (APICallError.isInstance(error)) {
     const fromBody = parseApiErrorBody(error.responseBody);
     if (fromBody) return new Error(fromBody);
   }
-  // A provider that fails after the stream started (OpenRouter mid-run, a
-  // DeepSeek overload) sends an error frame, not an HTTP status. Before AI
-  // SDK 7.0.80 that frame reached here as a plain object and the reader saw
-  // "[object Object]". It is a StreamProviderError now, whose `data` is the
-  // same JSON an HTTP error body carries — so the same parser reads it.
   if (StreamProviderError.isInstance(error) && error.data != null) {
     const fromData = parseApiErrorBody(typeof error.data === "string" ? error.data : JSON.stringify(error.data));
     if (fromData && fromData !== error.message) return new Error(fromData);
   }
   if (error instanceof Error) {
-    const cause = (error as Error & { cause?: unknown }).cause;
-    if (cause && cause !== error) return unwrapApiError(cause);
+    const next = nextErrorInChain(error);
+    if (next) return unwrapApiError(next);
   }
   return error;
 }
 
-/**
- * The machine-readable parts of a provider error (24.0). The HTTP status alone
- * cannot tell an empty balance from a rate limit — OpenAI sends both as 429 and
- * only `code: "insufficient_quota"` says which — so the body's `code` / `type`
- * are read too, from the response body, a stream error frame, or a plain object.
- */
 interface ApiErrorFields {
   code?: string;
   type?: string;
   url?: string;
+  statusCode?: number;
+  cannotConnect?: boolean;
 }
 
 function fieldsFromJson(value: unknown, out: ApiErrorFields): void {
@@ -307,14 +511,21 @@ function readApiErrorFields(error: unknown): ApiErrorFields {
     visited.add(current);
     if (APICallError.isInstance(current)) {
       out.url ??= current.url;
+      if (typeof current.statusCode === "number") out.statusCode ??= current.statusCode;
+      if (current.message.startsWith("Cannot connect to API")) out.cannotConnect = true;
       fieldsFromJson(current.responseBody, out);
       fieldsFromJson(current.data, out);
     } else if (StreamProviderError.isInstance(current)) {
+      if (typeof current.statusCode === "number") out.statusCode ??= current.statusCode;
       fieldsFromJson(current.data, out);
-    } else if (!(current instanceof Error)) {
+    } else if (current instanceof Error) {
+      const errCode = (current as Error & { code?: unknown }).code;
+      if (out.code === undefined && typeof errCode === "string") out.code = errCode;
+      if (current.message.startsWith("Cannot connect to API")) out.cannotConnect = true;
+    } else {
       fieldsFromJson(current, out);
     }
-    current = (current as { cause?: unknown }).cause;
+    current = nextErrorInChain(current);
   }
   return out;
 }
@@ -394,17 +605,17 @@ function formatLlmErrorWith(
   inherited: ApiErrorFields,
 ): string {
   const unwrapped = unwrapApiError(error);
-  // Prefer the AI SDK's structured status code; substring digit matching (e.g. "429") is
-  // only a fallback, since a model id like "gpt-4-0429" would otherwise be misclassified.
-  const statusCode = APICallError.isInstance(unwrapped)
-    ? unwrapped.statusCode
-    : APICallError.isInstance(error)
-      ? error.statusCode
-      : StreamProviderError.isInstance(error)
-        ? error.statusCode
-        : undefined;
-  const hasStatus = typeof statusCode === "number";
   const fields = { ...inherited, ...readApiErrorFields(error) };
+  const statusCode =
+    fields.statusCode ??
+    (APICallError.isInstance(unwrapped)
+      ? unwrapped.statusCode
+      : APICallError.isInstance(error)
+        ? error.statusCode
+        : StreamProviderError.isInstance(error)
+          ? error.statusCode
+          : undefined);
+  const hasStatus = typeof statusCode === "number";
   const code = `${fields.code ?? ""} ${fields.type ?? ""}`.toLowerCase();
 
   if (unwrapped instanceof Error) {
@@ -487,12 +698,15 @@ function formatLlmErrorWith(
     ) {
       return t?.("llm.rateLimited") ?? "Rate limited — try again shortly.";
     }
-    // DeepSeek sends 503 "Server Overloaded" under load (Anthropic-style
-    // gateways 529); retrying in a minute usually works (24.0).
     if (
       statusCode === 503 ||
       statusCode === 529 ||
       /overloaded/.test(code) ||
+      ((statusCode === 502 || statusCode === 504) &&
+        (/<html\b|<!doctype\b/i.test(msg) ||
+          /bad gateway|gateway time-?out|connection refused|timed out|upstream connect error/i.test(
+            msg,
+          ))) ||
       (!hasStatus && /server overloaded|service unavailable/i.test(msg))
     ) {
       return (
@@ -501,24 +715,27 @@ function formatLlmErrorWith(
       );
     }
     if (
-      /context_length_exceeded/.test(code) ||
-      /maximum context length|exceeds (the )?(model'?s? )?context (length|window)|prompt is too long/i.test(msg)
+      /context_length_exceeded|context_too_long|prompt_too_long/.test(code) ||
+      /maximum context length|exceeds (the )?(model'?s? )?context (length|window)|prompt is too long|input is too long|too many tokens/i.test(
+        msg,
+      )
     ) {
       return (
         t?.("llm.contextTooLong") ??
         "The conversation is too long for this model — start a new chat, or choose a model with a larger context window."
       );
     }
-    // WebKit (macOS / Linux webviews) reports a failed fetch as "Load failed",
-    // Chromium as "Failed to fetch", Firefox as "NetworkError when attempting
-    // to fetch resource" (24.0). A local URL is almost always Ollama not running.
     if (
-      lower.includes("network") ||
-      lower.includes("fetch failed") ||
-      lower.includes("failed to fetch") ||
-      lower.includes("load failed") ||
-      lower.includes("econnrefused") ||
-      (APICallError.isInstance(error) && error.message.startsWith("Cannot connect to API"))
+      !hasStatus &&
+      (lower.includes("network") ||
+        lower.includes("fetch failed") ||
+        lower.includes("failed to fetch") ||
+        lower.includes("load failed") ||
+        lower.includes("econnrefused") ||
+        lower.includes("connection refused") ||
+        lower.includes("enotfound") ||
+        /econnrefused|enotfound|econnreset|etimedout/.test(code) ||
+        fields.cannotConnect)
     ) {
       if (isLocalUrl(fields.url)) {
         return (

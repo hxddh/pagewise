@@ -35,19 +35,21 @@ export function createSearchInDocumentTool(
         () => budget.gen,
         async ({ query, maxResults = R.DEFAULT_SEARCH_HITS }, options, runGen) => {
           const path = R.activeDocPath(options);
-          R.requireLoadedDoc(path);
+          const doc = R.requireLoadedDoc(path);
           if (budget.used >= budget.max) {
             return { hits: [], truncated: false, budgetExceeded: true, note: R.BUDGET_NOTE };
           }
           const pages = docCache.getPages(path);
-          // Silently bound a degenerate query instead of failing the call —
-          // snippets embed the match, so a huge query inflates every hit.
           const boundedQuery = query.length > 400 ? query.slice(0, 400) : query;
-          // Probe one hit past the cap so truncated distinguishes "exactly
-          // maxResults matches" from "more matches exist".
           const raw = searchForAgent(pages, boundedQuery, maxResults + 1);
           const truncated = raw.length > maxResults;
-          const hits = truncated ? raw.slice(0, maxResults) : raw;
+          const sliced = truncated ? raw.slice(0, maxResults) : raw;
+          const hits = doc.pageLabels
+            ? sliced.map((h) => {
+                const printedAs = R.printedLabel(doc, h.page);
+                return printedAs ? { ...h, printedAs } : h;
+              })
+            : sliced;
           const preview = formatSearchPreview(hits);
           if (preview) {
             emitAgentProgress(preview.message, "search", {

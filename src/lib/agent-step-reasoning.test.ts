@@ -32,9 +32,29 @@ describe("reasoning effort per step", () => {
   });
 
   it("stays absent when the run asked for no reasoning at all", () => {
-    // Thinking off, or a model that does not support it: sending "low" would
-    // turn a feature the reader disabled back on at its cheapest setting.
     expect(stepReasoning(undefined, false)).toBeUndefined();
     expect(stepReasoning(undefined, true)).toBeUndefined();
+  });
+
+  it("keeps low effort on search/outline-only and truncated range sweep steps", () => {
+    expect(
+      stepReasoning("medium", [{ toolCalls: [{ toolName: "document_outline" }] }]),
+    ).toBe("low");
+    expect(
+      stepReasoning("medium", [
+        {
+          toolCalls: [{ toolName: "read_pdf_range" }],
+          toolResults: [{ toolName: "read_pdf_range", output: { truncated: true } }],
+        },
+      ]),
+    ).toBe("low");
+    expect(
+      stepReasoning("medium", [
+        {
+          toolCalls: [{ toolName: "read_pdf_page" }],
+          toolResults: [{ toolName: "read_pdf_page", output: { truncated: false } }],
+        },
+      ]),
+    ).toBe("medium");
   });
 });

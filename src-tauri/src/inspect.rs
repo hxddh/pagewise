@@ -38,16 +38,19 @@
 //! frontend already sends them relative to pdf.js's view box, which is the
 //! same box, and the frame 1.25 reads them in.
 
-use pdf_inspector::extractor::{extract_text_with_positions, extract_text_with_positions_pages};
+use pdf_inspector::extractor::extract_text_with_positions_mem;
 use pdf_inspector::types::ItemType;
 use pdf_inspector::{
-    detect_pdf, extract_pages_markdown, extract_structure_elements,
+    detect_pdf_mem, extract_pages_markdown_mem, extract_structure_elements_mem,
     extract_tables_in_regions_mem, extract_text_in_regions_mem, PdfType,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::doc_check;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
+use std::time::SystemTime;
 
 /// Above this page count the positions pass (links/figures) is skipped.
 ///
@@ -166,6 +169,12 @@ const WHOLE_PAGE: [f32; 4] = [0.0, 0.0, 20_000.0, 20_000.0];
 /// a collapsed table silently merges adjacent numbers.
 fn has_table(markdown: &str) -> bool {
     markdown.contains("|---")
+        || markdown.lines().any(|l| {
+            let t = l.trim();
+            t.starts_with('|')
+                && t.contains("---")
+                && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' '))
+        })
 }
 
 /// Recover pages whose text was extracted and then discarded.
@@ -190,16 +199,34 @@ fn recover_blank_pages(bytes: &[u8], blank: &[usize]) -> Vec<(usize, String)> {
     let Ok(results) = extract_text_in_regions_mem(bytes, &regions) else {
         return Vec::new();
     };
+    let tables = extract_tables_in_regions_mem(bytes, &regions).ok();
 
     let mut out = Vec::new();
-    for (slot, page_result) in blank.iter().zip(results.iter()) {
+    for (idx, (slot, page_result)) in blank.iter().zip(results.iter()).enumerate() {
+        let table_md = tables
+            .as_ref()
+            .and_then(|ts| ts.get(idx))
+            .map(|p| {
+                p.regions
+                    .iter()
+                    .map(|r| r.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .trim()
+                    .to_string()
+            })
+            .filter(|md| has_table(md));
         let text: String = page_result
             .regions
             .iter()
             .map(|r| r.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        if !text.trim().is_empty() {
+        if let Some(md) = table_md {
+            let prose = reflow_lines(&text);
+            let combined = if prose.is_empty() { md } else { format!("{prose}\n\n{md}") };
+            out.push((*slot, combined));
+        } else if !text.trim().is_empty() {
             out.push((*slot, reflow_lines(&text)));
         }
     }
@@ -282,8 +309,9 @@ const RUNNING_LINE_MAX_CHARS: usize = 80;
 /// that follow, a running footer; without this the chapter vanished from the
 /// outline. If the extractor promoted a line by font size, it is structure.
 fn strip_running_lines(pages: &mut [String]) {
-    let mut first_counts: HashMap<String, usize> = HashMap::new();
-    let mut last_counts: HashMap<String, usize> = HashMap::new();
+    let mut first_stats: HashMap<String, (usize, bool, std::collections::HashSet<String>)> = HashMap::new();
+    let mut last_stats: HashMap<String, (usize, bool, std::collections::HashSet<String>)> = HashMap::new();
+    let total_pages = pages.len();
 
     for text in pages.iter() {
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -291,21 +319,38 @@ fn strip_running_lines(pages: &mut [String]) {
             continue;
         }
         if let Some(first) = lines.first().filter(|l| !is_structural_line(l)) {
-            *first_counts.entry(running_key(first)).or_default() += 1;
+            let (key, has_page_num) = running_key_info(first);
+            let entry = first_stats.entry(key).or_insert_with(|| (0, false, Default::default()));
+            entry.0 += 1;
+            entry.1 |= has_page_num;
+            entry.2.insert(clean_heading(first));
         }
         if let Some(last) = lines.last().filter(|l| !is_structural_line(l)) {
-            *last_counts.entry(running_key(last)).or_default() += 1;
+            let (key, has_page_num) = running_key_info(last);
+            let entry = last_stats.entry(key).or_insert_with(|| (0, false, Default::default()));
+            entry.0 += 1;
+            entry.1 |= has_page_num;
+            entry.2.insert(clean_heading(last));
         }
     }
 
-    let repeats = |counts: &HashMap<String, usize>, line: &str| {
+    let repeats = |stats: &HashMap<String, (usize, bool, std::collections::HashSet<String>)>, line: &str| {
         if is_structural_line(line) {
             return false;
         }
-        let key = running_key(line);
-        !key.is_empty()
-            && key.chars().count() <= RUNNING_LINE_MAX_CHARS
-            && counts.get(&key).copied().unwrap_or(0) >= RUNNING_LINE_MIN_PAGES
+        let (key, _) = running_key_info(line);
+        if key.is_empty() || key.chars().count() > RUNNING_LINE_MAX_CHARS {
+            return false;
+        }
+        let Some((count, has_page_num, distinct)) = stats.get(&key) else {
+            return false;
+        };
+        if *count >= RUNNING_LINE_MIN_PAGES {
+            return true;
+        }
+        // On a 2-page brief (e.g. "1 / 2" and "2 / 2"), strip only genuine
+        // page-numbered furniture whose page number varies across both pages.
+        total_pages == 2 && *count == 2 && *has_page_num && distinct.len() > 1
     };
 
     for text in pages.iter_mut() {
@@ -323,10 +368,10 @@ fn strip_running_lines(pages: &mut [String]) {
         let mut drop_first = false;
         let mut drop_last = false;
         if let Some(&i) = content.first() {
-            drop_first = repeats(&first_counts, lines[i]);
+            drop_first = repeats(&first_stats, lines[i]);
         }
         if let Some(&i) = content.last() {
-            drop_last = repeats(&last_counts, lines[i]);
+            drop_last = repeats(&last_stats, lines[i]);
         }
         if !drop_first && !drop_last {
             continue;
@@ -346,10 +391,110 @@ fn strip_running_lines(pages: &mut [String]) {
     }
 }
 
-/// Compare running lines by their words, not their decoration: the same header
-/// appears both underlined and bold in the sample document.
-fn running_key(line: &str) -> String {
-    clean_heading(line).to_lowercase()
+/// Compare running lines by their words, normalizing page-number numerators
+/// ("Page 1 of 12", "1 / 2", "第 3 页") while leaving prose numbers and
+/// numbered list markers ("1. Scope", "Page 1 line 0 revenue of 7") intact.
+fn running_key_info(line: &str) -> (String, bool) {
+    let cleaned = clean_heading(line).to_lowercase();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        return (String::new(), false);
+    }
+    // Never treat numbered list items ("1. Foo", "2) Bar", "(3) Baz") as page-numbered furniture.
+    if trimmed
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit() || c == '(')
+    {
+        let rest = trimmed.trim_start_matches('(').trim_start_matches(|c: char| c.is_ascii_digit());
+        if rest.starts_with(". ") || rest.starts_with(") ") {
+            return (trimmed.to_string(), false);
+        }
+    }
+    // Standalone / decorated page number: "12", "- 12 -", "— 12 —", "[12]".
+    let bare = trimmed.trim_matches(|c: char| matches!(c, '-' | '–' | '—' | '[' | ']' | ' ' | '·'));
+    if !bare.is_empty() && bare.len() <= 5 && bare.chars().all(|c| c.is_ascii_digit()) {
+        return ("#".to_string(), true);
+    }
+
+    let mut changed = false;
+    // Fraction footer/header: "1 / 2" or "1/12" (only when short furniture).
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    if tokens.len() == 3
+        && tokens[1] == "/"
+        && tokens[0].chars().all(|c| c.is_ascii_digit())
+        && tokens[2].chars().all(|c| c.is_ascii_digit())
+    {
+        return (format!("# / {}", tokens[2]), true);
+    }
+
+    // Token-level normalization for "page 1 of 12", "p. 3", "pg. 3", "seite 4"
+    // ONLY on short lines without multiple body numbers (e.g. not "page 1 line 0 revenue of 7").
+    let mut norm_tokens: Vec<String> = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+    while i < tokens.len() {
+        let tok = tokens[i];
+        if matches!(tok, "page" | "p." | "pg." | "seite")
+            && i + 1 < tokens.len()
+            && tokens[i + 1].chars().all(|c| c.is_ascii_digit())
+            && !tokens.iter().any(|w| *w == "line")
+        {
+            norm_tokens.push(tok.to_string());
+            norm_tokens.push("#".to_string());
+            changed = true;
+            i += 2;
+            continue;
+        }
+        // "1/12" single token
+        if let Some((a, b)) = tok.split_once('/') {
+            if !a.is_empty()
+                && !b.is_empty()
+                && a.chars().all(|c| c.is_ascii_digit())
+                && b.chars().all(|c| c.is_ascii_digit())
+            {
+                norm_tokens.push(format!("#/{b}"));
+                changed = true;
+                i += 1;
+                continue;
+            }
+        }
+        // CJK "第12页" or "第 12 页"
+        if tok == "第"
+            && i + 2 < tokens.len()
+            && tokens[i + 1].chars().all(|c| c.is_ascii_digit())
+            && tokens[i + 2].starts_with('页')
+        {
+            norm_tokens.push("第".to_string());
+            norm_tokens.push("#".to_string());
+            norm_tokens.push(tokens[i + 2].to_string());
+            changed = true;
+            i += 3;
+            continue;
+        }
+        if let Some(after) = tok.strip_prefix('第') {
+            if let Some((digits, tail)) = after.split_once('页') {
+                if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+                    norm_tokens.push(format!("第#页{tail}"));
+                    changed = true;
+                    i += 1;
+                    continue;
+                }
+            }
+        }
+        norm_tokens.push(tok.to_string());
+        i += 1;
+    }
+    // Trailing "| 3" or "— 3" or "- 3" at the end of a header/footer
+    let len = norm_tokens.len();
+    if len >= 3
+        && matches!(norm_tokens[len - 2].as_str(), "|" | "—" | "–" | "-" | "·")
+        && norm_tokens[len - 1].chars().all(|c| c.is_ascii_digit())
+    {
+        norm_tokens[len - 1] = "#".to_string();
+        changed = true;
+    }
+
+    (norm_tokens.join(" "), changed)
 }
 
 /// Structure, not decoration — exempt from stripping however often it repeats.
@@ -469,11 +614,442 @@ pub fn synthesize_outline(pages: &[Page]) -> Vec<Heading> {
 /// Levels are clamped to 1 and 2 to match [`Heading`], whose own doc says
 /// deeper levels are dropped as noise: an outline is for navigating, and an H4
 /// under an H3 under an H2 is a paragraph with ambitions.
-fn structure_outline(path: &str, page_count: usize) -> Vec<Heading> {
+type PdfCacheKey = (PathBuf, u64, Option<SystemTime>);
+
+struct LopdfMeta {
+    origins: Vec<(f32, f32)>,
+    goto_links: Vec<Link>,
+}
+
+struct PositionsData {
+    by_page: HashMap<u32, Vec<TextItemRect>>,
+    mcid_runs: Vec<(u32, i64, String)>,
+    links: Vec<Link>,
+    figures: Vec<Figure>,
+}
+
+struct CachedPdf {
+    key: PdfCacheKey,
+    bytes: Vec<u8>,
+    lopdf_meta: OnceLock<LopdfMeta>,
+    positions: OnceLock<Result<PositionsData, String>>,
+}
+
+static ACTIVE_PDF: LazyLock<Mutex<Option<Arc<CachedPdf>>>> = LazyLock::new(|| Mutex::new(None));
+static LOADING_PDF: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+fn lock_unpoisoned<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match m.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn pdf_key(path: &str) -> Result<PdfCacheKey, String> {
+    let p = Path::new(path);
+    let meta = std::fs::metadata(p).map_err(map_err)?;
+    let len = meta.len();
+    if len > doc_check::MAX_DOCUMENT_BYTES {
+        return Err(doc_check::coded(
+            doc_check::FILE_TOO_LARGE,
+            format!("{len} bytes; max {}", doc_check::MAX_DOCUMENT_BYTES),
+        ));
+    }
+    let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    Ok((canon, len, meta.modified().ok()))
+}
+
+fn get_or_load_pdf(path: &str) -> Result<Arc<CachedPdf>, String> {
+    let key = pdf_key(path)?;
+    if let Some(existing) = lock_unpoisoned(&ACTIVE_PDF).as_ref() {
+        if existing.key == key {
+            return Ok(Arc::clone(existing));
+        }
+    }
+    let _guard = lock_unpoisoned(&LOADING_PDF);
+    if let Some(existing) = lock_unpoisoned(&ACTIVE_PDF).as_ref() {
+        if existing.key == key {
+            return Ok(Arc::clone(existing));
+        }
+    }
+    let bytes = std::fs::read(path).map_err(map_err)?;
+    if bytes.len() as u64 > doc_check::MAX_DOCUMENT_BYTES {
+        return Err(doc_check::coded(
+            doc_check::FILE_TOO_LARGE,
+            format!("{} bytes; max {}", bytes.len(), doc_check::MAX_DOCUMENT_BYTES),
+        ));
+    }
+    let cached = Arc::new(CachedPdf {
+        key,
+        bytes,
+        lopdf_meta: OnceLock::new(),
+        positions: OnceLock::new(),
+    });
+    *lock_unpoisoned(&ACTIVE_PDF) = Some(Arc::clone(&cached));
+    Ok(cached)
+}
+
+impl CachedPdf {
+    fn lopdf_meta(&self) -> &LopdfMeta {
+        self.lopdf_meta.get_or_init(|| parse_lopdf_meta(&self.bytes))
+    }
+
+    fn positions(&self) -> Result<&PositionsData, String> {
+        self.positions
+            .get_or_init(|| build_positions_data(&self.bytes, self.lopdf_meta()))
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+}
+
+fn pdf_string_text(obj: &lopdf::Object) -> Option<String> {
+    match obj {
+        lopdf::Object::String(bytes, _) => {
+            if bytes.starts_with(&[0xFE, 0xFF]) && bytes.len() >= 2 {
+                let units: Vec<u16> = bytes[2..]
+                    .chunks_exact(2)
+                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                    .collect();
+                String::from_utf16(&units).ok()
+            } else {
+                Some(String::from_utf8_lossy(bytes).into_owned())
+            }
+        }
+        lopdf::Object::Name(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        _ => None,
+    }
+}
+
+fn resolve_dest_array_page(
+    arr: &[lopdf::Object],
+    obj_to_page: &HashMap<lopdf::ObjectId, u32>,
+    page_count: u32,
+) -> Option<u32> {
+    match arr.first()? {
+        lopdf::Object::Reference(id) => obj_to_page.get(id).copied(),
+        lopdf::Object::Integer(idx) if *idx >= 0 => {
+            let p = (*idx as u32) + 1;
+            (p >= 1 && p <= page_count).then_some(p)
+        }
+        _ => None,
+    }
+}
+
+fn collect_name_tree_dests(
+    doc: &lopdf::Document,
+    node_obj: &lopdf::Object,
+    obj_to_page: &HashMap<lopdf::ObjectId, u32>,
+    page_count: u32,
+    depth: usize,
+    out: &mut HashMap<String, u32>,
+) {
+    if depth > 16 {
+        return;
+    }
+    let dict = match node_obj {
+        lopdf::Object::Reference(id) => match doc.get_dictionary(*id) {
+            Ok(d) => d,
+            Err(_) => return,
+        },
+        lopdf::Object::Dictionary(d) => d,
+        _ => return,
+    };
+    if let Ok(names_obj) = dict.get(b"Names") {
+        let arr = match names_obj {
+            lopdf::Object::Reference(id) => doc.get_object(*id).ok().and_then(|o| o.as_array().ok()),
+            lopdf::Object::Array(a) => Some(a),
+            _ => None,
+        };
+        if let Some(arr) = arr {
+            for pair in arr.chunks_exact(2) {
+                if let Some(name) = pdf_string_text(&pair[0]) {
+                    if let Some(p) = resolve_dest_value(doc, &pair[1], obj_to_page, page_count, None) {
+                        out.insert(name, p);
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(kids_obj) = dict.get(b"Kids") {
+        let arr = match kids_obj {
+            lopdf::Object::Reference(id) => doc.get_object(*id).ok().and_then(|o| o.as_array().ok()),
+            lopdf::Object::Array(a) => Some(a),
+            _ => None,
+        };
+        if let Some(arr) = arr {
+            for kid in arr {
+                collect_name_tree_dests(doc, kid, obj_to_page, page_count, depth + 1, out);
+            }
+        }
+    }
+}
+
+fn resolve_dest_value(
+    doc: &lopdf::Document,
+    val: &lopdf::Object,
+    obj_to_page: &HashMap<lopdf::ObjectId, u32>,
+    page_count: u32,
+    named_dests: Option<&HashMap<String, u32>>,
+) -> Option<u32> {
+    let resolved = match val {
+        lopdf::Object::Reference(id) => doc.get_object(*id).ok()?,
+        other => other,
+    };
+    match resolved {
+        lopdf::Object::Array(arr) => resolve_dest_array_page(arr, obj_to_page, page_count),
+        lopdf::Object::Dictionary(d) => {
+            let inner = d.get(b"D").ok()?;
+            resolve_dest_value(doc, inner, obj_to_page, page_count, named_dests)
+        }
+        lopdf::Object::String(_, _) | lopdf::Object::Name(_) => {
+            let name = pdf_string_text(resolved)?;
+            named_dests?.get(&name).copied()
+        }
+        _ => None,
+    }
+}
+
+fn build_named_dests(
+    doc: &lopdf::Document,
+    obj_to_page: &HashMap<lopdf::ObjectId, u32>,
+    page_count: u32,
+) -> HashMap<String, u32> {
+    let mut out = HashMap::new();
+    let Ok(catalog) = doc.catalog() else {
+        return out;
+    };
+    if let Ok(dests_obj) = catalog.get(b"Dests") {
+        let dict = match dests_obj {
+            lopdf::Object::Reference(id) => doc.get_dictionary(*id).ok(),
+            lopdf::Object::Dictionary(d) => Some(d),
+            _ => None,
+        };
+        if let Some(dict) = dict {
+            for (k, v) in dict.iter() {
+                let key = String::from_utf8_lossy(k).into_owned();
+                if let Some(p) = resolve_dest_value(doc, v, obj_to_page, page_count, None) {
+                    out.insert(key, p);
+                }
+            }
+        }
+    }
+    if let Ok(names_obj) = catalog.get(b"Names") {
+        let names_dict = match names_obj {
+            lopdf::Object::Reference(id) => doc.get_dictionary(*id).ok(),
+            lopdf::Object::Dictionary(d) => Some(d),
+            _ => None,
+        };
+        if let Some(names_dict) = names_dict {
+            if let Ok(dests_tree) = names_dict.get(b"Dests") {
+                collect_name_tree_dests(doc, dests_tree, obj_to_page, page_count, 0, &mut out);
+            }
+        }
+    }
+    out
+}
+
+fn annot_rect(doc: &lopdf::Document, dict: &lopdf::Dictionary) -> Option<Rect> {
+    let obj = dict.get(b"Rect").ok()?;
+    let arr = match obj {
+        lopdf::Object::Reference(id) => doc.get_object(*id).ok()?.as_array().ok()?,
+        lopdf::Object::Array(a) => a,
+        _ => return None,
+    };
+    let num = |o: &lopdf::Object| -> Option<f32> {
+        let o = match o {
+            lopdf::Object::Reference(id) => doc.get_object(*id).ok()?,
+            other => other,
+        };
+        match o {
+            lopdf::Object::Integer(i) => Some(*i as f32),
+            lopdf::Object::Real(r) => Some(*r),
+            _ => None,
+        }
+    };
+    if arr.len() < 4 {
+        return None;
+    }
+    let (x0, y0, x1, y1) = (num(&arr[0])?, num(&arr[1])?, num(&arr[2])?, num(&arr[3])?);
+    let x = x0.min(x1);
+    let y = y0.min(y1);
+    let width = (x1 - x0).abs();
+    let height = (y1 - y0).abs();
+    (width > 0.0 && height > 0.0).then_some(Rect { x, y, width, height })
+}
+
+fn parse_lopdf_meta(bytes: &[u8]) -> LopdfMeta {
+    let Ok(mut doc) = lopdf::Document::load_mem(bytes) else {
+        return LopdfMeta {
+            origins: Vec::new(),
+            goto_links: Vec::new(),
+        };
+    };
+    if doc.is_encrypted() {
+        let _ = doc.decrypt("");
+    }
+    let pages: BTreeMap<u32, lopdf::ObjectId> = doc.get_pages();
+    let page_count = pages.len() as u32;
+    let origins: Vec<(f32, f32)> = pages.values().map(|&id| visible_origin(&doc, id)).collect();
+    if pages.len() > POSITIONS_PAGE_LIMIT {
+        return LopdfMeta {
+            origins,
+            goto_links: Vec::new(),
+        };
+    }
+    let obj_to_page: HashMap<lopdf::ObjectId, u32> =
+        pages.iter().map(|(&num, &id)| (id, num)).collect();
+    let named_dests = build_named_dests(&doc, &obj_to_page, page_count);
+    let mut goto_links = Vec::new();
+
+    for (&page_num, &page_id) in &pages {
+        let Ok(page_dict) = doc.get_dictionary(page_id) else {
+            continue;
+        };
+        let annots = match page_dict.get(b"Annots") {
+            Ok(lopdf::Object::Array(a)) => Some(a.clone()),
+            Ok(lopdf::Object::Reference(id)) => {
+                doc.get_object(*id).ok().and_then(|o| o.as_array().ok()).cloned()
+            }
+            _ => None,
+        };
+        let Some(annots) = annots else { continue };
+        for annot in &annots {
+            let dict = match annot {
+                lopdf::Object::Reference(id) => match doc.get_dictionary(*id) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                },
+                lopdf::Object::Dictionary(d) => d,
+                _ => continue,
+            };
+            if dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) != Some(b"Link") {
+                continue;
+            }
+            let Some(rect) = annot_rect(&doc, dict) else {
+                continue;
+            };
+            let mut target_page = dict
+                .get(b"Dest")
+                .ok()
+                .and_then(|d| resolve_dest_value(&doc, d, &obj_to_page, page_count, Some(&named_dests)));
+            if target_page.is_none() {
+                if let Ok(action_obj) = dict.get(b"A") {
+                    let action_dict = match action_obj {
+                        lopdf::Object::Reference(id) => doc.get_dictionary(*id).ok(),
+                        lopdf::Object::Dictionary(d) => Some(d),
+                        _ => None,
+                    };
+                    if let Some(ad) = action_dict {
+                        let subtype = ad.get(b"S").ok().and_then(|o| o.as_name().ok());
+                        if subtype == Some(b"GoTo") {
+                            target_page = ad.get(b"D").ok().and_then(|d| {
+                                resolve_dest_value(&doc, d, &obj_to_page, page_count, Some(&named_dests))
+                            });
+                        } else if subtype == Some(b"URI") {
+                            if let Some(uri) = ad.get(b"URI").ok().and_then(pdf_string_text) {
+                                if let Some(frag) = uri.strip_prefix('#') {
+                                    target_page = named_dests.get(frag).copied();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(tp) = target_page {
+                goto_links.push(Link {
+                    page: page_num,
+                    url: format!("pagewise-goto:{tp}"),
+                    context: String::new(),
+                    rect,
+                });
+            }
+        }
+    }
+
+    LopdfMeta {
+        origins,
+        goto_links,
+    }
+}
+
+fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData, String> {
+    let items = extract_text_with_positions_mem(bytes).map_err(map_err)?;
+    let mut by_page: HashMap<u32, Vec<TextItemRect>> = HashMap::new();
+    let mut mcid_runs: Vec<(u32, i64, String)> = Vec::new();
+    let mut links = Vec::new();
+    let mut figures = Vec::new();
+    let mut lines: Vec<(u32, Rect, String)> = Vec::new();
+
+    for item in items {
+        let (dx, dy) = origin_of(&meta.origins, item.page);
+        let rect = Rect {
+            x: item.x + dx,
+            y: item.y + dy,
+            width: item.width,
+            height: item.height,
+        };
+        if let Some(mcid) = item.mcid {
+            mcid_runs.push((item.page, mcid, item.text.clone()));
+        }
+        match item.item_type {
+            ItemType::Link(url) => {
+                if !url.starts_with('#') {
+                    links.push(Link {
+                        page: item.page,
+                        url,
+                        context: String::new(),
+                        rect,
+                    });
+                }
+            }
+            ItemType::Image => figures.push(Figure {
+                page: item.page,
+                rect,
+            }),
+            ItemType::Text => {
+                if !item.text.trim().is_empty() {
+                    lines.push((item.page, rect, item.text.clone()));
+                    if item.width > 0.0 && item.height > 0.0 {
+                        by_page.entry(item.page).or_default().push(TextItemRect {
+                            text: item.text,
+                            rect,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for g in &meta.goto_links {
+        let dup = links.iter().any(|l| {
+            l.page == g.page
+                && l.url == g.url
+                && (l.rect.x - g.rect.x).abs() < 1.0
+                && (l.rect.y - g.rect.y).abs() < 1.0
+        });
+        if !dup {
+            links.push(g.clone());
+        }
+    }
+
+    for link in links.iter_mut() {
+        link.context = link_context(link, &lines);
+    }
+
+    Ok(PositionsData {
+        by_page,
+        mcid_runs,
+        links,
+        figures,
+    })
+}
+
+fn structure_outline(cached: &CachedPdf, page_count: usize) -> Vec<Heading> {
     if page_count > POSITIONS_PAGE_LIMIT {
         return Vec::new();
     }
-    let Ok(elements) = extract_structure_elements(path, None) else {
+    let Ok(elements) = extract_structure_elements_mem(&cached.bytes, None) else {
         return Vec::new();
     };
     if elements.is_empty() {
@@ -488,7 +1064,7 @@ fn structure_outline(path: &str, page_count: usize) -> Vec<Heading> {
         return Vec::new();
     }
 
-    let Ok(items) = extract_text_with_positions(path) else {
+    let Ok(pos) = cached.positions() else {
         return Vec::new();
     };
 
@@ -496,24 +1072,23 @@ fn structure_outline(path: &str, page_count: usize) -> Vec<Heading> {
     // Runs carrying the same mcid are one heading split across draw calls;
     // joining them is what turns "Chapter", " ", "One" back into a title.
     let mut current: Option<((u32, i64), u8, String)> = None;
-    for item in items {
-        let Some(mcid) = item.mcid else { continue };
-        let key = (item.page, mcid);
+    for (page, mcid, text_piece) in &pos.mcid_runs {
+        let key = (*page, *mcid);
         let Some(&level) = roles.get(&key) else {
             continue;
         };
         match current.as_mut() {
             Some((k, _, text)) if *k == key => {
-                if !text.ends_with(' ') && !item.text.starts_with(' ') {
+                if !text.ends_with(' ') && !text_piece.starts_with(' ') {
                     text.push(' ');
                 }
-                text.push_str(&item.text);
+                text.push_str(text_piece);
             }
             _ => {
                 if let Some((k, level, text)) = current.take() {
                     push_structure_heading(&mut out, k.0, level, &text);
                 }
-                current = Some((key, level, item.text.clone()));
+                current = Some((key, level, text_piece.clone()));
             }
         }
         if out.len() >= MAX_OUTLINE_ENTRIES {
@@ -552,52 +1127,14 @@ fn push_structure_heading(out: &mut Vec<Heading>, page: u32, level: u8, text: &s
     out.push(Heading { title, page, level });
 }
 
-fn collect_positions(path: &str, page_count: usize) -> (Vec<Link>, Vec<Figure>) {
+fn collect_positions(cached: &CachedPdf, page_count: usize) -> (Vec<Link>, Vec<Figure>) {
     if page_count > POSITIONS_PAGE_LIMIT {
         return (Vec::new(), Vec::new());
     }
-    let Ok(items) = extract_text_with_positions(path) else {
+    let Ok(pos) = cached.positions() else {
         return (Vec::new(), Vec::new());
     };
-
-    let mut links = Vec::new();
-    let mut figures = Vec::new();
-    // The same pass already reports the page's text runs; keeping them lets a
-    // link be placed in its sentence without parsing the file a second time.
-    let mut lines: Vec<(u32, Rect, String)> = Vec::new();
-    let origins = visible_origins(path);
-    for item in items {
-        let (dx, dy) = origin_of(&origins, item.page);
-        let rect = Rect {
-            x: item.x + dx,
-            y: item.y + dy,
-            width: item.width,
-            height: item.height,
-        };
-        match item.item_type {
-            ItemType::Link(url) => links.push(Link {
-                page: item.page,
-                url,
-                context: String::new(),
-                rect,
-            }),
-            ItemType::Image => figures.push(Figure {
-                page: item.page,
-                rect,
-            }),
-            ItemType::Text => {
-                if !item.text.trim().is_empty() {
-                    lines.push((item.page, rect, item.text));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    for link in links.iter_mut() {
-        link.context = link_context(link, &lines);
-    }
-    (links, figures)
+    (pos.links.clone(), pos.figures.clone())
 }
 
 /// A link box must cover at least this much of a line to be sitting on it.
@@ -657,12 +1194,10 @@ fn covered_share(link: &Rect, line: &Rect) -> f32 {
 
 /// Parse a PDF once and return everything PageWise needs from it.
 pub fn open_document(path: &str) -> Result<DocumentModel, String> {
-    // Before anything reads the file whole (24.0): the previews cannot show a
-    // file over the cap, so it must not "open" only to fail on every page.
-    doc_check::check_size(std::path::Path::new(path))?;
+    let cached = get_or_load_pdf(path)?;
     // Coded, so the reader sees "password-protected" or "damaged" in their
     // language with a next step instead of the extractor's sentence (24.0).
-    let detected = detect_pdf(path).map_err(|e| doc_check::pdf_error(&e))?;
+    let detected = detect_pdf_mem(&cached.bytes).map_err(|e| doc_check::pdf_error(&e))?;
     let title = detected
         .title
         .map(|t| t.trim().to_string())
@@ -690,7 +1225,7 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         });
     }
 
-    let extracted = extract_pages_markdown(path, None).map_err(|e| doc_check::pdf_error(&e))?;
+    let extracted = extract_pages_markdown_mem(&cached.bytes, None).map_err(|e| doc_check::pdf_error(&e))?;
     // Page identity is array position, never the `page` label — see module docs.
     let mut texts: Vec<String> = extracted
         .pages
@@ -709,10 +1244,8 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         .map(|(i, _)| i)
         .collect();
     if !blank.is_empty() {
-        if let Ok(bytes) = std::fs::read(path) {
-            for (slot, text) in recover_blank_pages(&bytes, &blank) {
-                texts[slot] = text.trim().to_string();
-            }
+        for (slot, text) in recover_blank_pages(&cached.bytes, &blank) {
+            texts[slot] = text.trim().to_string();
         }
     }
 
@@ -730,8 +1263,8 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         .collect();
 
     let outline = synthesize_outline(&pages);
-    let structure_outline = structure_outline(path, pages.len());
-    let (links, figures) = collect_positions(path, pages.len());
+    let structure_outline = structure_outline(&cached, pages.len());
+    let (links, figures) = collect_positions(&cached, pages.len());
 
     Ok(DocumentModel {
         page_count: pages.len() as u32,
@@ -743,52 +1276,6 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         figures,
     })
 }
-
-/// Each page's visible-box origin `(x0, y0)` in raw user space, by page index.
-///
-/// The box pdf-inspector measures positions from: CropBox ∩ MediaBox, else the
-/// MediaBox, both inheritable, US Letter when neither is declared — the same
-/// rules as its own `visible_page_box`, which is crate-private. Only the
-/// origin is needed to undo the shift; see the module docs.
-fn visible_origins(path: &str) -> Vec<(f32, f32)> {
-    let key = file_key(path);
-    if let Some(key) = &key {
-        if let Ok(cache) = ORIGINS.lock() {
-            if let Some((k, origins)) = cache.get(path) {
-                if k == key {
-                    return origins.clone();
-                }
-            }
-        }
-    }
-    let origins = lopdf::Document::load(path)
-        .map(|doc| {
-            doc.get_pages()
-                .values()
-                .map(|&id| visible_origin(&doc, id))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if let Some(key) = key {
-        if let Ok(mut cache) = ORIGINS.lock() {
-            if cache.len() > 8 {
-                cache.clear();
-            }
-            cache.insert(path.to_string(), (key, origins.clone()));
-        }
-    }
-    origins
-}
-
-/// Size and modification time: enough to notice the file was replaced.
-fn file_key(path: &str) -> Option<(u64, std::time::SystemTime)> {
-    let meta = std::fs::metadata(path).ok()?;
-    Some((meta.len(), meta.modified().ok()?))
-}
-
-type OriginCache = HashMap<String, ((u64, std::time::SystemTime), Vec<(f32, f32)>)>;
-static ORIGINS: std::sync::LazyLock<std::sync::Mutex<OriginCache>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
 fn visible_origin(doc: &lopdf::Document, page: lopdf::ObjectId) -> (f32, f32) {
     let visible = visible_box(doc, page);
@@ -875,31 +1362,36 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
     if page == 0 {
         return Err("page must be 1-based".to_string());
     }
-    // This filter is 1-based, unlike the region API's 0-based page index.
-    let filter: HashSet<u32> = HashSet::from([page]);
-    let items = extract_text_with_positions_pages(path, Some(&filter)).map_err(map_err)?;
-    let (dx, dy) = origin_of(&visible_origins(path), page);
-    Ok(items
-        .into_iter()
-        // A run with no area cannot be pointed at: a zero-width box draws
-        // nothing, and a caller highlighting it would look broken rather than
-        // absent. Measured at 75 of 23,107 runs in a real document.
-        .filter(|item| {
-            matches!(item.item_type, ItemType::Text)
-                && !item.text.trim().is_empty()
-                && item.width > 0.0
-                && item.height > 0.0
-        })
-        .map(|item| TextItemRect {
-            text: item.text,
-            rect: Rect {
-                x: item.x + dx,
-                y: item.y + dy,
-                width: item.width,
-                height: item.height,
-            },
-        })
-        .collect())
+    let cached = get_or_load_pdf(path)?;
+    let meta = cached.lopdf_meta();
+    // Large (>1,000 page) documents skip full-document position caching on open;
+    // for those, extract only the requested page from disk.
+    if meta.origins.len() > POSITIONS_PAGE_LIMIT {
+        let filter = std::collections::HashSet::from([page]);
+        let items = pdf_inspector::extractor::extract_text_with_positions_pages(path, Some(&filter))
+            .map_err(map_err)?;
+        let (dx, dy) = origin_of(&meta.origins, page);
+        return Ok(items
+            .into_iter()
+            .filter(|item| {
+                matches!(item.item_type, ItemType::Text)
+                    && !item.text.trim().is_empty()
+                    && item.width > 0.0
+                    && item.height > 0.0
+            })
+            .map(|item| TextItemRect {
+                text: item.text,
+                rect: Rect {
+                    x: item.x + dx,
+                    y: item.y + dy,
+                    width: item.width,
+                    height: item.height,
+                },
+            })
+            .collect());
+    }
+    let pos = cached.positions()?;
+    Ok(pos.by_page.get(&page).cloned().unwrap_or_default())
 }
 
 /// Read one rectangle of one page — the text under a selection.
@@ -911,12 +1403,13 @@ pub fn extract_region(path: &str, page: u32, rect: Rect) -> Result<RegionText, S
     if page == 0 {
         return Err("page must be 1-based".to_string());
     }
-    let bytes = std::fs::read(path).map_err(map_err)?;
+    let cached = get_or_load_pdf(path)?;
+    let bytes = &cached.bytes;
     let bbox = [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height];
     // The region API indexes pages from zero.
     let regions = vec![(page - 1, vec![bbox])];
 
-    let results = extract_text_in_regions_mem(&bytes, &regions).map_err(map_err)?;
+    let results = extract_text_in_regions_mem(bytes, &regions).map_err(map_err)?;
     let text = results
         .iter()
         .flat_map(|p| p.regions.iter())
@@ -927,7 +1420,7 @@ pub fn extract_region(path: &str, page: u32, rect: Rect) -> Result<RegionText, S
         .to_string();
 
     // A selected table is worth far more as a table than as reflowed prose.
-    let table = extract_tables_in_regions_mem(&bytes, &regions)
+    let table = extract_tables_in_regions_mem(bytes, &regions)
         .ok()
         .and_then(|tables| {
             let md = tables
@@ -949,7 +1442,31 @@ mod tests {
     use super::*;
 
     fn fixture(name: &str) -> String {
-        format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name)
+        let local = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
+        if local.exists() {
+            return local.to_string_lossy().into_owned();
+        }
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../src-tauri/tests/fixtures")
+            .join(name)
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn resource(name: &str) -> String {
+        let local = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join(name);
+        if local.exists() {
+            return local.to_string_lossy().into_owned();
+        }
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../src-tauri/resources")
+            .join(name)
+            .to_string_lossy()
+            .into_owned()
     }
 
     fn page(page: u32, text: &str) -> Page {
@@ -1455,5 +1972,31 @@ mod tests {
         // so it must not be reported as needing one.
         let doc = open_document(&fixture("encrypted-owner-only.pdf")).expect("opens");
         assert!(doc.page_count >= 1);
+    }
+
+    #[test]
+    fn sample_pdf_extracts_internal_goto_link_table_and_strips_page_footers() {
+        let doc = open_document(&resource("sample.pdf")).expect("sample opens");
+        assert_eq!(doc.page_count, 2);
+        assert!(doc.pages[0].has_table, "expected pricing table on page 1");
+        assert!(
+            doc.links.iter().any(|l| l.page == 1 && l.url == "pagewise-goto:2"),
+            "expected internal link to page 2, got {:?}",
+            doc.links
+        );
+        assert!(!doc.pages[0].text.ends_with("1 / 2"), "running footer should be stripped");
+        assert!(!doc.pages[1].text.ends_with("2 / 2"), "running footer should be stripped");
+    }
+
+    #[test]
+    fn strips_numbered_running_footers_while_keeping_numbered_lists() {
+        let mut pages = pages_of(&[
+            "1. Scope of work\nbody one\nPage 1 of 3",
+            "1. Scope of work\nbody two\nPage 2 of 3",
+            "2. Payment terms\nbody three\nPage 3 of 3",
+        ]);
+        strip_running_lines(&mut pages);
+        assert!(pages[0].starts_with("1. Scope of work"));
+        assert!(pages.iter().all(|p| !p.contains("of 3")));
     }
 }

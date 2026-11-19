@@ -22,6 +22,7 @@ use std::path::Path;
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, StringFormat};
 use serde::Deserialize;
 
+use crate::doc_check;
 use crate::inspect::{visible_box, Rect};
 
 /// Prefix of the `/NM` of every annotation PageWise writes.
@@ -70,8 +71,30 @@ pub struct AnnotationIn {
     pub color: [f32; 3],
 }
 
+/// Inheritable `/Rotate` attribute on a page, normalized to `0`, `90`, `180` or `270`.
+fn inherited_rotate(doc: &Document, page: ObjectId) -> i32 {
+    let mut id = page;
+    for _ in 0..32 {
+        let Ok(dict) = doc.get_dictionary(id) else { break };
+        if let Ok(obj) = dict.get(b"Rotate") {
+            let resolved = match obj {
+                Object::Reference(r) => doc.get_object(*r).ok(),
+                other => Some(other),
+            };
+            if let Some(Object::Integer(deg)) = resolved {
+                return (deg.rem_euclid(360)) as i32;
+            }
+        }
+        match dict.get(b"Parent") {
+            Ok(Object::Reference(parent)) => id = *parent,
+            _ => break,
+        }
+    }
+    0
+}
+
 /// A rect in absolute user space, as `[x0, y0, x1, y1]`.
-fn absolute(r: &Rect, frame: Frame, view: [f32; 4]) -> Option<[f32; 4]> {
+fn absolute(r: &Rect, frame: Frame, view: [f32; 4], rotate: i32) -> Option<[f32; 4]> {
     if ![r.x, r.y, r.width, r.height].iter().all(|v| v.is_finite()) || r.width <= 0.0 || r.height <= 0.0 {
         return None;
     }
@@ -82,11 +105,31 @@ fn absolute(r: &Rect, frame: Frame, view: [f32; 4]) -> Option<[f32; 4]> {
         // sit just under the baseline, so a quad starting exactly on it reads
         // back as covering nothing (measured in `eval/annotate.eval.ts`).
         Frame::Pdf => [r.x, r.y - DESCENT * r.height, r.x + r.width, r.y + r.height],
-        Frame::View => {
-            let x0 = view[0] + r.x;
-            let top = view[3] - r.y;
-            [x0, top - r.height, x0 + r.width, top]
-        }
+        Frame::View => match rotate {
+            90 => [
+                view[0] + r.y,
+                view[1] + r.x,
+                view[0] + r.y + r.height,
+                view[1] + r.x + r.width,
+            ],
+            180 => [
+                view[2] - r.x - r.width,
+                view[1] + r.y,
+                view[2] - r.x,
+                view[1] + r.y + r.height,
+            ],
+            270 => [
+                view[2] - r.y - r.height,
+                view[3] - r.x - r.width,
+                view[2] - r.y,
+                view[3] - r.x,
+            ],
+            _ => {
+                let x0 = view[0] + r.x;
+                let top = view[3] - r.y;
+                [x0, top - r.height, x0 + r.width, top]
+            }
+        },
     })
 }
 
@@ -192,11 +235,12 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
     for a in annotations {
         let Some(&page) = pages.get(&a.page) else { continue };
         let view = visible_box(doc, page);
+        let rotate = inherited_rotate(doc, page);
         let rects: Vec<[f32; 4]> = a
             .rects
             .iter()
             .take(MAX_RECTS)
-            .filter_map(|r| absolute(r, a.frame, view))
+            .filter_map(|r| absolute(r, a.frame, view, rotate))
             .collect();
         if rects.is_empty() {
             continue;
@@ -251,17 +295,39 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
     Ok(written)
 }
 
-/// Load `src`, annotate it, and save the result to `out`.
-pub fn annotate_file(src: &Path, out: &Path, annotations: &[AnnotationIn]) -> Result<usize, String> {
-    let mut doc = Document::load(src).map_err(|e| format!("Failed to read PDF: {e}"))?;
+fn ensure_decrypted(doc: &mut Document) -> Result<(), String> {
     if doc.is_encrypted() {
-        return Err("Encrypted PDFs cannot be annotated".into());
+        let _ = doc.decrypt("");
     }
+    if doc.is_encrypted() {
+        return Err(doc_check::coded(
+            doc_check::PDF_ENCRYPTED,
+            "PDF requires a password",
+        ));
+    }
+    Ok(())
+}
+
+/// Annotate a PDF byte buffer in memory, returning `(pdf_bytes, count_written)`.
+pub fn annotate_bytes(bytes: &[u8], annotations: &[AnnotationIn]) -> Result<(Vec<u8>, usize), String> {
+    let mut doc = Document::load_mem(bytes).map_err(|e| format!("Failed to read PDF: {e}"))?;
+    ensure_decrypted(&mut doc)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let written = annotate_document(&mut doc, annotations, now)?;
+    let mut out = Vec::new();
+    doc.save_to(&mut out)
+        .map_err(|e| format!("Failed to write PDF: {e}"))?;
+    Ok((out, written))
+}
+
+/// Load `src`, annotate it, and save the result to `out`.
+pub fn annotate_file(src: &Path, out: &Path, annotations: &[AnnotationIn]) -> Result<usize, String> {
+    use std::io::Write;
+    let src_bytes = std::fs::read(src).map_err(|e| format!("Failed to read PDF: {e}"))?;
+    let (pdf_bytes, written) = annotate_bytes(&src_bytes, annotations)?;
     // Written beside the target and renamed over it, so a failure midway never
     // leaves half a PDF where the reader asked for one. The temp is created
     // exclusively under a name of ours (21.1.2): it was `<file>.pdf.partial`
@@ -281,13 +347,13 @@ pub fn annotate_file(src: &Path, out: &Path, annotations: &[AnnotationIn]) -> Re
         .map_err(|e| format!("Failed to write PDF: {e}"))?;
     // Ours from here: removed on any failure, the save's included.
     let commit = (|| -> std::io::Result<()> {
-        let written = (|| -> std::io::Result<()> {
-            doc.save_to(&mut file).map_err(|e| std::io::Error::other(e.to_string()))?;
+        let saved = (|| -> std::io::Result<()> {
+            file.write_all(&pdf_bytes)?;
             file.sync_all()
         })();
         // Closed before the rename: Windows will not rename an open file.
         drop(file);
-        written?;
+        saved?;
         std::fs::rename(&tmp, out)?;
         if let Some(dir) = out.parent().and_then(|p| std::fs::File::open(p).ok()) {
             let _ = dir.sync_all();
@@ -306,7 +372,15 @@ mod tests {
     use super::*;
 
     fn fixture(name: &str) -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+        let local = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
+        if local.exists() {
+            return local;
+        }
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../src-tauri/tests/fixtures")
+            .join(name)
     }
 
     fn annot(id: &str, page: u32, frame: Frame, rect: Rect, contents: &str) -> AnnotationIn {
@@ -455,5 +529,29 @@ mod tests {
             .collect();
         assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn owner_only_encrypted_pdf_can_be_annotated_while_user_encrypted_is_refused() {
+        let owner_bytes = std::fs::read(fixture("encrypted-owner-only.pdf")).unwrap();
+        let r = Rect { x: 72.0, y: 640.0, width: 120.0, height: 12.0 };
+        let (out, n) = annotate_bytes(&owner_bytes, &[annot("own", 1, Frame::Pdf, r, "verified")]).unwrap();
+        assert_eq!(n, 1);
+        let reopened = Document::load_mem(&out).unwrap();
+        assert_eq!(page_annots(&reopened, 1).len(), 1);
+
+        let user_bytes = std::fs::read(fixture("encrypted.pdf")).unwrap();
+        let err = annotate_bytes(&user_bytes, &[annot("enc", 1, Frame::Pdf, r, "x")]).unwrap_err();
+        assert!(err.starts_with(doc_check::PDF_ENCRYPTED), "{err}");
+    }
+
+    #[test]
+    fn view_frame_marks_map_across_rotated_pages() {
+        let view = [0.0, 0.0, 612.0, 792.0];
+        let r = Rect { x: 10.0, y: 20.0, width: 50.0, height: 12.0 };
+        assert_eq!(absolute(&r, Frame::View, view, 0), Some([10.0, 760.0, 60.0, 772.0]));
+        assert_eq!(absolute(&r, Frame::View, view, 90), Some([20.0, 10.0, 32.0, 60.0]));
+        assert_eq!(absolute(&r, Frame::View, view, 180), Some([552.0, 20.0, 602.0, 32.0]));
+        assert_eq!(absolute(&r, Frame::View, view, 270), Some([580.0, 732.0, 592.0, 782.0]));
     }
 }

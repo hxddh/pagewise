@@ -50,6 +50,8 @@ export interface DocAnnotation {
   quoted: string;
   /** Where it sits, bottom-left origin — `pdfRectToBox`, not the mark path. */
   rect: PdfRect;
+  /** Per-line rectangles from `quadPoints` on markup annotations, bottom-left origin. */
+  rects?: PdfRect[];
 }
 
 /** pdf.js returns `{str, dir}` here, not a string. */
@@ -88,12 +90,19 @@ function rectOf(value: unknown): PdfRect | null {
  * says so nowhere.
  */
 function numbersOf(value: unknown): number[] {
-  if (Array.isArray(value)) return value.filter((v): v is number => typeof v === "number");
+  if (Array.isArray(value)) {
+    return value.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  }
+  if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
+    return Array.from(value as unknown as ArrayLike<number>).filter(
+      (v): v is number => typeof v === "number" && Number.isFinite(v),
+    );
+  }
   if (value && typeof value === "object") {
     const out: number[] = [];
     for (let i = 0; ; i += 1) {
       const v = (value as Record<number, unknown>)[i];
-      if (typeof v !== "number") break;
+      if (typeof v !== "number" || !Number.isFinite(v)) break;
       out.push(v);
     }
     return out;
@@ -101,29 +110,71 @@ function numbersOf(value: unknown): number[] {
   return [];
 }
 
-/**
- * The annotations on one page worth carrying, in the order the file lists them.
- *
- * WHAT IS DROPPED, and why: a mark with no comment and no text under it says
- * nothing that can be read back. A `Link` is already handled as a link, and a
- * `Popup` is the container an existing note is displayed in rather than a note
- * of its own — carrying either would double-count.
- */
-export function readableAnnotations(raw: readonly unknown[], page: number): DocAnnotation[] {
+const QUAD_MARKUP_SUBTYPES = new Set(["Highlight", "Underline", "StrikeOut", "Squiggly"]);
+
+function quadRectsOf(value: unknown): PdfRect[] {
+  const n = numbersOf(value);
+  if (n.length < 8) return [];
+  const out: PdfRect[] = [];
+  for (let i = 0; i + 7 < n.length; i += 8) {
+    const xs = [n[i]!, n[i + 2]!, n[i + 4]!, n[i + 6]!];
+    const ys = [n[i + 1]!, n[i + 3]!, n[i + 5]!, n[i + 7]!];
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    const width = Math.max(...xs) - x;
+    const height = Math.max(...ys) - y;
+    if (width > 0 && height > 0) out.push({ x, y, width, height });
+  }
+  return out;
+}
+
+function unionRects(rects: readonly PdfRect[]): PdfRect | null {
+  if (rects.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const r of rects) {
+    minX = Math.min(minX, r.x);
+    minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, r.x + r.width);
+    maxY = Math.max(maxY, r.y + r.height);
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+function isPageWiseAnnotation(a: Record<string, unknown>): boolean {
+  for (const candidate of [a.id, a.nm, a.annotationName, a.name]) {
+    if (typeof candidate === "string" && candidate.toLowerCase().startsWith("pagewise-")) {
+      return true;
+    }
+  }
+  const author = strOf(a.titleObj);
+  if (author === "PageWise" || author.toLowerCase().startsWith("pagewise-")) return true;
+  const subject = strOf(a.subjectObj) || strOf(a.subj);
+  if (subject.includes("PageWise")) return true;
+  return false;
+}
+
+export function readableAnnotations(
+  raw: readonly unknown[],
+  page: number,
+  options?: { includePageWise?: boolean },
+): DocAnnotation[] {
   const out: DocAnnotation[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const a = item as Record<string, unknown>;
     const subtype = typeof a.subtype === "string" ? a.subtype : "";
     if (!subtype || subtype === "Link" || subtype === "Popup" || subtype === "Widget") continue;
+    if (!options?.includePageWise && isPageWiseAnnotation(a)) continue;
 
     const contents = strOf(a.contentsObj).slice(0, MAX_CONTENTS);
     const quoted = strOf(a.overlaidText).slice(0, MAX_OVERLAID);
-    // Nothing written and nothing underlined: a coloured box that means
-    // something only to whoever drew it.
     if (!contents && !quoted) continue;
 
-    const rect = rectOf(a.rect);
+    const quadRects = QUAD_MARKUP_SUBTYPES.has(subtype) ? quadRectsOf(a.quadPoints) : [];
+    const rect = rectOf(a.rect) ?? unionRects(quadRects);
     if (!rect) continue;
 
     out.push({
@@ -134,6 +185,7 @@ export function readableAnnotations(raw: readonly unknown[], page: number): DocA
       author: strOf(a.titleObj).slice(0, 80),
       quoted,
       rect,
+      ...(quadRects.length > 0 ? { rects: quadRects } : {}),
     });
   }
   return out;

@@ -266,18 +266,6 @@ export function AssistantSettings({
         />
       )}
 
-      <label className="settings-row-toggle">
-        <div>
-          <span className="settings-row-title">{t("settings.showUsageLine")}</span>
-          <span className="settings-row-hint">{t("settings.showUsageLineHint")}</span>
-        </div>
-        <input
-          type="checkbox"
-          checked={showUsageLine}
-          onChange={(e) => onShowUsageLineChange(e.target.checked)}
-        />
-      </label>
-
       {error && (
         <p className="settings-error-banner" role="alert">
           {error}
@@ -377,6 +365,8 @@ export function AssistantSettings({
           <AdvancedRows
             includeViewingPageDefault={includeViewingPageDefault}
             onIncludeViewingPageDefaultChange={onIncludeViewingPageDefaultChange}
+            showUsageLine={showUsageLine}
+            onShowUsageLineChange={onShowUsageLineChange}
             showThinking={showThinking}
             thinkingEnabled={!!settings.thinkingEnabled}
             onThinkingChange={(value) => patchSettings({ thinkingEnabled: value })}

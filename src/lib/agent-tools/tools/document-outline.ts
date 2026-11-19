@@ -5,6 +5,7 @@ import { MIN_INDEX_CHARS } from "../../page-text-merge";
 import { pagesWithFigures } from "../../read-figure";
 import { pagesWithLinks } from "../../page-links";
 import { getMarks, pagesWithMarks } from "../../mark-store";
+import { describeLabels } from "../../page-labels";
 import * as R from "../reading";
 import type { ReadBudget } from "../reading";
 
@@ -43,26 +44,27 @@ export function createDocumentOutlineTool(
             return { budgetExceeded: true, note: R.BUDGET_NOTE };
           }
           const pages = docCache.getPages(path);
-          // Previews are the expensive half of this result: 200 of them measures
-          // 19,693 characters — about 4,900 tokens for one call, which the loop
-          // then resends on every later step. (An earlier version of this note
-          // said 40,000 characters and ten thousand tokens; it was an estimate,
-          // and it was double.)
-          const allStats = pages.map((p) => ({
-            page: p.page,
-            chars: p.text.length,
-            ...(previews ? { preview: p.text.trim().slice(0, R.OUTLINE_PREVIEW_CHARS) } : {}),
-          }));
+          const allStats = pages.map((p) => {
+            const printedAs = R.printedLabel(doc, p.page);
+            return {
+              page: p.page,
+              ...(printedAs ? { printedAs } : {}),
+              chars: p.text.length,
+              ...(previews ? { preview: p.text.trim().slice(0, R.OUTLINE_PREVIEW_CHARS) } : {}),
+            };
+          });
           const totalChars = allStats.reduce((sum, p) => sum + p.chars, 0);
           const unindexedPages = pages
             .filter((p) => p.text.trim().length < MIN_INDEX_CHARS)
             .map((p) => p.page);
-          // A section tree so the agent can jump by section ("summarize chapter
-          // 3") instead of scanning per-page previews. Authored bookmarks are
-          // authoritative when the PDF carries them; most do not, and for those
-          // the headings recovered from the page text are the only structure
-          // there is. Image documents have neither.
-          const bookmarks = R.resolveOutline(doc);
+          const rawBookmarks = R.resolveOutline(doc);
+          const bookmarks = doc.pageLabels
+            ? rawBookmarks.map((b) => {
+                const printedAs = R.printedLabel(doc, b.page);
+                return printedAs ? { ...b, printedAs } : b;
+              })
+            : rawBookmarks;
+          const pageLabelsNote = describeLabels(doc.pageLabels ?? null);
           const figurePages = pagesWithFigures(doc.figures);
           const linkPages = pagesWithLinks(doc.links);
           const markPages = pagesWithMarks(path);
@@ -112,6 +114,7 @@ export function createDocumentOutlineTool(
                 }
               : {}),
             ...(bookmarks.length > 0 ? { bookmarks } : {}),
+            ...(pageLabelsNote ? { pageLabelsNote } : {}),
             // Tables must be read whole — a reflowed table merges neighbouring
             // numbers into one wrong number.
             ...(doc.tablePages?.length ? { pagesWithTables: R.compressPageRanges(doc.tablePages) } : {}),

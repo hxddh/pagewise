@@ -107,7 +107,7 @@ export function GeneralSettings({
   const { theme, setTheme } = useTheme();
   const [autoIndexPages, setAutoIndexPages] = useState<number | null>(null);
   const [readingScale, setReadingScale] = useState<number | null>(null);
-  const [showUsageLine, setShowUsageLine] = useState(true);
+  const [showUsageLine, setShowUsageLine] = useState(false);
   const [localOcr, setLocalOcr] = useState<boolean | null>(null);
 
   useEffect(() => {

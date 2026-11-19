@@ -12,23 +12,61 @@ import {
 /** Synthesized output for a tool call that never produced a real result. */
 export const CANCELLED_OUTPUT = "[cancelled]";
 
-/**
- * Suffix shared by every compacted tool-output summary. Used to make
- * {@link pruneToolOutputsForHistory} idempotent: a summary that is pruned again
- * on a later turn must not be re-measured (its own length would replace the
- * original char count) — re-pruning an already-compacted output is a no-op.
- */
+/** Legacy suffix kept for idempotency across stored/migrated summaries. */
 export const COMPACTED_SUFFIX = "— omitted from chat history]";
 
-/** Replace bulky tool outputs in prior turns so follow-ups don't re-send full document text. */
-export function pruneToolOutputsForHistory(messages: UIMessage[]): UIMessage[] {
+/** Max chars of tool outputs kept warm on the latest assistant turn for follow-ups. */
+export const WARM_TURN_MAX_CHARS = 12_000;
+
+export function isCompactedSummary(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    value.startsWith("[") &&
+    (value.endsWith(COMPACTED_SUFFIX) || /— re-read [^\]]*to quote verbatim\]$/.test(value))
+  );
+}
+
+/**
+ * Replace bulky tool outputs in prior turns while keeping up to `warmMaxChars`
+ * on the latest assistant turn so immediate follow-ups don't pay to re-read.
+ */
+export function pruneToolOutputsForHistory(
+  messages: UIMessage[],
+  warmMaxChars: number = WARM_TURN_MAX_CHARS,
+): UIMessage[] {
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "assistant") {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
+
   let changed = false;
 
-  const next = messages.map((msg) => {
+  const next = messages.map((msg, idx) => {
     if (msg.role !== "assistant") return msg;
 
+    const warmIndices = new Set<number>();
+    if (idx === lastAssistantIdx && warmMaxChars > 0) {
+      let usedWarm = 0;
+      for (let pi = msg.parts.length - 1; pi >= 0; pi -= 1) {
+        const part = msg.parts[pi];
+        if (!part || !isToolUIPart(part) || part.state !== "output-available") continue;
+        const name = getToolName(part);
+        if (!PRUNE_DOCUMENT_TOOLS.has(name as DocumentToolName)) continue;
+        if (isCompactedSummary(part.output) || part.output === CANCELLED_OUTPUT) continue;
+        const len = textLength(part.output);
+        if (usedWarm + len <= warmMaxChars) {
+          warmIndices.add(pi);
+          usedWarm += len;
+        }
+      }
+    }
+
     let msgChanged = false;
-    const parts = msg.parts.map((part) => {
+    const parts = msg.parts.map((part, pi) => {
+      if (warmIndices.has(pi)) return part;
       if (!isToolUIPart(part) || part.state !== "output-available") return part;
 
       const name = getToolName(part);
@@ -42,8 +80,6 @@ export function pruneToolOutputsForHistory(messages: UIMessage[]): UIMessage[] {
       return { ...part, output: compact };
     });
 
-    // Preserve identity for messages that were not actually modified so
-    // downstream referential-equality checks (e.g. React memoization) hold.
     if (!msgChanged) return msg;
     return { ...msg, parts };
   });
@@ -53,12 +89,7 @@ export function pruneToolOutputsForHistory(messages: UIMessage[]): UIMessage[] {
 
 /**
  * Strip or repair non-terminal tool parts so a Stop-mid-stream or a reload
- * can't leave dangling tool_use parts that break tool_use/tool_result pairing
- * on the next request. A part whose input finished streaming
- * (`input-available`) gets a synthesized `[cancelled]` output; a part whose
- * input never finished (`input-streaming`) is REMOVED — its input is partial
- * and would fail the tool's schema validation, which the send-time repair loop
- * could only "fix" by dropping whole rows.
+ * can't leave dangling tool_use parts that break tool_use/tool_result pairing.
  */
 export function sanitizeDanglingToolParts(messages: UIMessage[]): UIMessage[] {
   let changed = false;
@@ -100,33 +131,77 @@ export function sanitizeDanglingToolParts(messages: UIMessage[]): UIMessage[] {
   return changed ? next : messages;
 }
 
-/**
- * The one-line stand-in for a bulky tool output. Shared with the in-run
- * compactor so a page read reads the same whether it was shortened during the
- * run or between turns.
- */
+function extractRawText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (output && typeof output === "object") {
+    const t = (output as { text?: unknown }).text;
+    if (typeof t === "string") return t;
+  }
+  return "";
+}
+
+/** Deterministic ~175-char digest of headings, table headers, and key figures/clauses. */
+export function extractPageDigest(raw: string, maxChars = 175): string {
+  if (!raw) return "";
+  const cleaned = raw
+    .replace(/^--- Page \d+[^\n]*---\n?/gm, "")
+    .replace(/^\[already returned[^\]]*\]$/gm, "")
+    .trim();
+  if (!cleaned || /^(.)\1{19,}$/.test(cleaned)) return "";
+
+  const lines = cleaned
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter((l) => l.length > 0 && !/^(.)\1{19,}$/.test(l));
+  if (lines.length === 0) return "";
+
+  const picks: string[] = [];
+  const seen = new Set<string>();
+  const add = (s: string) => {
+    const t = s.slice(0, 90).trim();
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    picks.push(t);
+  };
+
+  for (const l of lines) {
+    const h = l.match(/^#{1,6}\s+(.+)/);
+    if (h) add(h[1]!);
+    if (picks.length >= 3) break;
+  }
+  for (const l of lines) {
+    if (/^\|.+\|$/.test(l) && !/^\|[\s:|-]+\|$/.test(l)) {
+      add(l);
+      break;
+    }
+  }
+  for (const l of lines) {
+    if (/\d|[%$€£¥￥元万亿]|第[一二三四五六七八九十百\d]+[条章节]|Section\s+\d/i.test(l)) {
+      add(l);
+      if (picks.length >= 4) break;
+    }
+  }
+  if (picks.length === 0) add(lines[0]!);
+
+  const joined = picks.join(" · ");
+  return joined.length <= maxChars ? joined : `${joined.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function formatActualPages(pages: readonly number[]): string | null {
+  if (pages.length === 0) return null;
+  const first = pages[0]!;
+  const last = pages[pages.length - 1]!;
+  return first === last ? `page ${first}` : `pages ${first}–${last}`;
+}
+
 export function compactToolOutput(
   name: string,
   input: unknown,
   output: unknown,
 ): string | Record<string, unknown> {
-  // Idempotency guard: if this output was already compacted on a prior turn,
-  // leave it untouched so its char/hit count isn't overwritten by the summary's
-  // own length (see COMPACTED_SUFFIX).
-  if (typeof output === "string" && output.endsWith(COMPACTED_SUFFIX)) {
-    return output;
-  }
+  if (isCompactedSummary(output)) return output as string;
+  if (output === CANCELLED_OUTPUT) return output;
 
-  // A cancelled tool call never produced a result — keep it as "[cancelled]"
-  // rather than summarizing it into a fabricated count ("11 hits" that never
-  // happened would mislead the model on the next turn).
-  if (output === CANCELLED_OUTPUT) {
-    return output;
-  }
-
-  // A budget-refused call is already tiny AND carries meaning: summarizing
-  // `{hits: [], budgetExceeded: true}` as "0 hits" would tell the model the
-  // term isn't in the document when the search never ran.
   if (
     output &&
     typeof output === "object" &&
@@ -140,20 +215,54 @@ export function compactToolOutput(
 
   if (name === READ_PDF_PAGE_TOOL && typeof inp.page === "number") {
     const chars = textLength(output);
-    return `[Read page ${inp.page}, ${chars} chars — omitted from chat history]`;
+    const digest = extractPageDigest(extractRawText(output));
+    const digestPart = digest ? `: ${digest}` : "";
+    return `[Read page ${inp.page}, ${chars} chars${digestPart} — re-read page ${inp.page} to quote verbatim]`;
   }
 
   if (name === READ_PDF_RANGE_TOOL) {
     const start = inp.start;
     const end = inp.end;
-    const range =
+    const raw = extractRawText(output);
+    const headerPages = [
+      ...new Set(
+        [...raw.matchAll(/^--- Page (\d+)\b/gm)].map((m) => Number(m[1])),
+      ),
+    ];
+    const startPage =
+      output && typeof output === "object" && typeof (output as { startPage?: unknown }).startPage === "number"
+        ? ((output as { startPage: number }).startPage)
+        : undefined;
+    const endPage =
+      output && typeof output === "object" && typeof (output as { endPage?: unknown }).endPage === "number"
+        ? ((output as { endPage: number }).endPage)
+        : undefined;
+    const actualPages =
+      headerPages.length > 0
+        ? headerPages
+        : startPage !== undefined && endPage !== undefined
+          ? [startPage, endPage]
+          : [];
+    const actualLabel = formatActualPages(actualPages);
+    const requestedLabel =
       typeof start === "number" && typeof end === "number"
         ? start === end
           ? `page ${start}`
           : `pages ${start}–${end}`
         : "page range";
+    const range = actualLabel ?? requestedLabel;
+    const actualEnd = actualPages.length > 0 ? actualPages[actualPages.length - 1]! : undefined;
+    const wasTruncated =
+      (output && typeof output === "object" && (output as { truncated?: unknown }).truncated === true) ||
+      (typeof end === "number" && actualEnd !== undefined && actualEnd < end);
+    const truncNote =
+      wasTruncated && typeof start === "number" && typeof end === "number" && actualEnd !== undefined && actualEnd < end
+        ? ` (truncated from ${start}–${end})`
+        : "";
     const chars = textLength(output);
-    return `[Read ${range}, ${chars} chars — omitted from chat history]`;
+    const digest = extractPageDigest(raw);
+    const digestPart = digest ? `: ${digest}` : "";
+    return `[Read ${range}${truncNote}, ${chars} chars${digestPart} — re-read to quote verbatim]`;
   }
 
   if (name === SEARCH_IN_DOCUMENT_TOOL) {
@@ -164,20 +273,21 @@ export function compactToolOutput(
         ? (output as { hits: unknown[] }).hits
         : null;
     const hits = hitList ? hitList.length : textLength(output);
-    return `[Search "${q.slice(0, 40)}", ${hits} hits — omitted from chat history]`;
+    return `[Search "${q.slice(0, 40)}", ${hits} hits ${COMPACTED_SUFFIX}`;
   }
 
   if (name === READ_SECTION_TOOL) {
-    // Free to recover — the section is page text already in the cache — so
-    // pruning it costs nothing but the tokens it was taking up.
     const title = typeof inp.title === "string" ? inp.title : "section";
+    const raw = extractRawText(output);
     const chars = textLength(output);
-    return `[Read section "${title.slice(0, 60)}", ${chars} chars — omitted from chat history]`;
+    const digest = extractPageDigest(raw);
+    const digestPart = digest ? `: ${digest}` : "";
+    return `[Read section "${title.slice(0, 60)}", ${chars} chars${digestPart} — re-read to quote verbatim]`;
   }
 
   if (name === DOCUMENT_OUTLINE_TOOL) {
     const chars = textLength(output);
-    return `[Document index, ${chars} chars — omitted from chat history]`;
+    return `[Document index, ${chars} chars ${COMPACTED_SUFFIX}`;
   }
 
   return output as string | Record<string, unknown>;
@@ -189,8 +299,6 @@ function textLength(output: unknown): number {
     const obj = output as Record<string, unknown>;
     if (typeof obj.text === "string") return obj.text.length;
     if (typeof obj.charCount === "number") return obj.charCount;
-    // Fall back to a serialized size for object outputs lacking text/charCount
-    // so we never mislabel real content as "0 chars".
     try {
       return JSON.stringify(output).length;
     } catch {

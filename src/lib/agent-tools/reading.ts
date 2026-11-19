@@ -28,7 +28,7 @@ import { getMarks } from "./../mark-store";
 import { usableOutline } from "./../outline-nav";
 import { getAgentRunAbortSignal } from "./../agent-abort";
 import { yieldToUi } from "./../yield-to-ui";
-import { labelForPage } from "./../page-labels";
+import { formatPageHeaderLabel, labelForPage } from "./../page-labels";
 import { describeAnnotations } from "./../pdf-annotations";
 import type { ReadAttachments, ReadResult } from "./result";
 
@@ -47,10 +47,13 @@ import { attachmentTokenCost, attachmentsFor } from "./attachments";
  * nobody sees both at once.
  */
 
-/** Default cap per read_pdf_range call — keeps tool results out of context blowups. */
-export const DEFAULT_RANGE_MAX_CHARS = 6_000;
+/** Default cap per read_pdf_range call (~3–6 pages in one round-trip). */
+export const DEFAULT_RANGE_MAX_CHARS = 18_000;
 /** Default cap per read_pdf_page call. */
 export const DEFAULT_PAGE_MAX_CHARS = 6_000;
+
+/** Max free post-eviction re-reads of the same page before charging again. */
+export const MAX_FREE_REREADS = 2;
 
 /**
  * Estimated tokens a single run may read before it must synthesize. The real
@@ -134,110 +137,79 @@ export interface ReadBudget {
    * next run's budget after the reset.
    */
   gen: number;
-  /**
-   * Pages whose text this run has already returned in full.
-   *
-   * The budget counted characters, not pages, so nothing stopped the same page
-   * being handed over twice — read a range, then read one page inside it, and
-   * the second copy went into the context and onto the bill. The text is still
-   * right there in the transcript, so the repeat carries no information; it
-   * only costs. Keyed `path#page`.
-   */
+  /** Pages whose text is currently live in context (`path#page`). */
   delivered: Set<string>;
+  /** Full-delivery count per `path#page` in this run (for fair post-eviction re-reads). */
+  pageReads: Map<string, number>;
 }
 
-/**
- * Has this run already handed the model the whole of this page?
- *
- * Kept next to the budget rather than inside a reader: 7.2 put the same logic
- * in the range reader alone, and the single-page tool — which has its own path
- * through readPageText — silently fell outside the guarantee it was written
- * for. Two functions both readers call is harder to grow out of.
- *
- * Only whole deliveries count. A page cut short must stay continuable, or a
- * long page becomes unreadable past its first slice.
- */
 export function alreadyDelivered(budget: ReadBudget, path: string, page: number): boolean {
   return budget.delivered.has(`${path}#${page}`);
 }
 
-/**
- * `runGen` is the run the read was dispatched in. A read from a run that was
- * stopped and replaced finishes after the new run reset the budget; recording
- * it there would tell the new run it has a page it never saw (16.0, B13).
- */
-export function markDelivered(budget: ReadBudget, path: string, page: number, runGen?: number): void {
-  if (runGen !== undefined && budget.gen !== runGen) return;
-  budget.delivered.add(`${path}#${page}`);
+export function isFreeReread(budget: ReadBudget, path: string, page: number): boolean {
+  const key = `${path}#${page}`;
+  if (budget.delivered.has(key)) return false;
+  const prior = budget.pageReads.get(key) ?? 0;
+  return prior >= 1 && prior <= MAX_FREE_REREADS;
 }
 
-/**
- * The page's text has left the model's context (24.0): an earlier result was
- * shortened to a one-line summary by the in-run compactor, so the next
- * request for the page gets its text again rather than "already returned".
- * Every document's key for the page goes — a run reads one document.
- */
+export function markDelivered(budget: ReadBudget, path: string, page: number, runGen?: number): void {
+  if (runGen !== undefined && budget.gen !== runGen) return;
+  const key = `${path}#${page}`;
+  budget.delivered.add(key);
+  budget.pageReads.set(key, (budget.pageReads.get(key) ?? 0) + 1);
+}
+
 export function forgetDelivered(budget: ReadBudget, page: number): void {
   for (const key of [...budget.delivered]) {
     if (key.endsWith(`#${page}`) && !key.includes("#figure:")) budget.delivered.delete(key);
   }
 }
 
-/**
- * Has this run already had this figure described?
- *
- * The page rule, applied to figures (20.0). A page's text is handed over once
- * per run; a figure was handed over once per CALL, so asking about the same
- * chart twice sent the same crop and paid for the description a second time.
- * Same set and same generation guard as `markDelivered`; the key names the
- * figure — `path#figure:page:index`, the index being the figure's rank on the
- * page, which is what the model asked by.
- */
+function figureDeliveryKey(path: string, page: number, index: number, question?: string): string {
+  const q = (question ?? "").trim().toLowerCase();
+  return q ? `${path}#figure:${page}:${index}:${q}` : `${path}#figure:${page}:${index}`;
+}
+
 export function alreadyDeliveredFigure(
   budget: ReadBudget,
   path: string,
   page: number,
   index: number,
+  question?: string,
 ): boolean {
-  return budget.delivered.has(`${path}#figure:${page}:${index}`);
+  return budget.delivered.has(figureDeliveryKey(path, page, index, question));
 }
 
-/** Record that this run's model has seen this figure's description. */
 export function markFigureDelivered(
   budget: ReadBudget,
   path: string,
   page: number,
   index: number,
   runGen?: number,
+  question?: string,
 ): void {
   if (runGen !== undefined && budget.gen !== runGen) return;
-  budget.delivered.add(`${path}#figure:${page}:${index}`);
+  budget.delivered.add(figureDeliveryKey(path, page, index, question));
 }
 
-/** How many of the longest pages a survey names. Enough to point, not to list. */
 export const DENSEST_PAGE_COUNT = 5;
 
-/**
- * The densest pages of a document, as page numbers.
- *
- * Replaces sending every page's character count. A model cannot act on "page 87
- * has 3,421 characters", but "the substance is around pages 12, 40 and 63" is a
- * place to start reading.
- */
 export function densest(stats: ReadonlyArray<{ page: number; chars: number }>): string {
   const ranked = [...stats].sort((a, b) => b.chars - a.chars).slice(0, DENSEST_PAGE_COUNT);
   return compressPageRanges(ranked.map((s) => s.page).sort((a, b) => a - b));
 }
 
-/** A fresh budget for one run. One definition, so a run and a test agree. */
-export function newReadBudget(): ReadBudget {
+export function newReadBudget(tokenBudget: number = RUN_TOKEN_BUDGET): ReadBudget {
   return {
     used: 0,
-    max: RUN_TOKEN_BUDGET,
+    max: tokenBudget,
     scans: 0,
     maxScans: DEFAULT_AGENT_SCAN_PAGES,
     gen: 0,
     delivered: new Set(),
+    pageReads: new Map(),
   };
 }
 
@@ -585,23 +557,20 @@ export async function readPageRange(
         const deliveredPages: number[] = [];
 
         for (let page = from; page <= pageLimit; page++) {
-          if (budget.used >= budget.max) {
+          const pageStartOffset = page === from ? offset : 0;
+          const freeReread = pageStartOffset === 0 && isFreeReread(budget, path, page);
+          if (!freeReread && budget.used >= budget.max) {
             truncated = true;
             nextStart = page;
-            nextOffset = page === from ? offset : 0;
+            nextOffset = pageStartOffset;
             budgetExceeded = true;
             break;
           }
 
-          // Already handed over whole in this run: answered before the page is
-          // read, so a repeat costs neither its tokens nor — for a page with no
-          // text layer — a second billed vision call (the single-page reader's
-          // order since 16.0; the range reader read first until 21.0).
+          const labelSuffix = formatPageHeaderLabel(doc.pageLabels, page);
           if ((page !== from || offset === 0) && alreadyDelivered(budget, path, page)) {
-            const header = `--- Page ${page} ---\n`;
+            const header = `--- Page ${page}${labelSuffix} ---\n`;
             const separator = parts.length > 0 ? 2 : 0;
-            // Counted against `maxChars` like any page (22.0): a range of
-            // pages already read came back as one marker each, past the cap.
             if (charCount + separator + header.length + ALREADY_READ_NOTE.length > maxChars) {
               truncated = true;
               nextStart = page;
@@ -615,36 +584,23 @@ export async function readPageRange(
           }
 
           const { text, indexFailure, scanLimit } = await readPageText(path, page, budget, runGen);
-          // The allowance is gone: keep walking the range so already-indexed
-          // pages further in are still returned, but record what was skipped
-          // instead of letting it read as "these pages are blank".
           if (scanLimit) {
             scanLimitReached = true;
             unscannedPages.push(page);
             continue;
           }
-          // Record pages that couldn't be indexed so the model doesn't read
-          // their absence as "empty page".
           if (!text && indexFailure) {
             failedPages.push(page);
             if (!failureReasons.includes(indexFailure)) failureReasons.push(indexFailure);
           }
           const pageOffset = page === from ? Math.min(offset, text.length) : 0;
           const remainingText = text.slice(pageOffset);
-          const header = `--- Page ${page}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
+          const header = `--- Page ${page}${labelSuffix}${pageOffset > 0 ? " (cont.)" : ""} ---\n`;
           const separator = parts.length > 0 ? 2 : 0;
 
-          // Nothing to hand over: a page with no text, or a continuation that
-          // starts at the page's end. Measured against the budget, an empty
-          // page affords 0 characters, which used to end the whole range as
-          // "budget reached" — a scan's first blank page stopped every range
-          // read there, and told the model to stop reading (21.0). An empty page
-          // costs nothing and says so; a failed one is listed below instead.
           if (remainingText.length === 0) {
             if (text.length === 0) {
               const marker = indexFailure ? INDEX_FAILED_MARK : EMPTY_PAGE_NOTE;
-              // The markers count against `maxChars` like text does: a run of
-              // blank pages must not pass the cap while saying it is whole.
               if (charCount + separator + header.length + marker.length > maxChars) {
                 truncated = true;
                 nextStart = page;
@@ -660,10 +616,11 @@ export async function readPageRange(
           }
 
           const maxRoom = maxChars - charCount - separator - header.length;
-          const budgetRoom =
-            affordableChars(remainingText, budget) - separator - header.length;
+          const budgetRoom = freeReread
+            ? maxRoom
+            : affordableChars(remainingText, budget) - separator - header.length;
           const room = Math.min(maxRoom, budgetRoom);
-          const limitedByBudget = budgetRoom <= maxRoom;
+          const limitedByBudget = !freeReread && budgetRoom <= maxRoom;
 
           if (room <= 0) {
             truncated = true;
@@ -677,7 +634,7 @@ export async function readPageRange(
             const slice = remainingText.slice(0, room);
             parts.push(header + slice);
             charCount += separator + header.length + slice.length;
-            chargeBudget(runGen, estimateTokens(slice));
+            if (!freeReread) chargeBudget(runGen, estimateTokens(slice));
             deliveredPages.push(page);
             lastPage = page;
             truncated = true;
@@ -689,7 +646,7 @@ export async function readPageRange(
 
           parts.push(header + remainingText);
           charCount += separator + header.length + remainingText.length;
-          chargeBudget(runGen, estimateTokens(remainingText));
+          if (!freeReread) chargeBudget(runGen, estimateTokens(remainingText));
           deliveredPages.push(page);
           if (pageOffset === 0) markDelivered(budget, path, page, runGen);
           lastPage = page;

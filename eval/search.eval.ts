@@ -89,7 +89,30 @@ describe("search", () => {
     }
     expect(after / rows.length).toBeGreaterThanOrEqual(SEARCH_GATE);
   });
+
+  it("handles ligatures, hyphenated line wraps, fair multi-page coverage, and CJK synonym backoff (v25)", () => {
+    const ligPages = [
+      { page: 1, text: "Introductory overview." },
+      { page: 2, text: "An efﬁcient workﬂow improves admis-\nsion control latency." },
+    ];
+    expect(searchInDocument(ligPages, "efficient workflow", 10).map((h) => h.page)).toEqual([2]);
+    expect(searchInDocument(ligPages, "admission control", 10).map((h) => h.page)).toEqual([2]);
+
+    const densePages = [
+      { page: 1, text: "clause ".repeat(120) },
+      { page: 2, text: "unrelated body" },
+      { page: 5, text: "final termination clause applies here" },
+    ];
+    const fair = searchInDocument(densePages, "clause", 10);
+    expect(fair.some((h) => h.page === 5)).toBe(true);
+
+    const cjkPages = [
+      { page: 1, text: "第一条 合同标的与交付地点" },
+      { page: 3, text: "第六条 质保期为最终验收合格之日起三十六个月" },
+    ];
+    expect(searchForAgent(cjkPages, "保修期限", 5)[0]?.page).toBe(3);
+  });
 });
 
 /** Right page in the first three, over the whole question set. */
-export const SEARCH_GATE = 0.8;
+export const SEARCH_GATE = 0.95;

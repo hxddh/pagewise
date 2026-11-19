@@ -224,9 +224,8 @@
    */
   align-items: flex-start;
   padding-top: 48px;
-  /* The wash that used to be a backdrop button. Radix sets pointer-events on
-     this layer itself, so nothing here needs to. */
-  background: rgba(0, 0, 0, 0.35);
+  background: transparent;
+  pointer-events: none;
   cursor: default;
 }
 
@@ -244,8 +243,16 @@
   padding: var(--space-md);
 }
 
+.export-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
 .export-title {
-  margin: 0 0 var(--space-sm);
+  margin: 0;
   font-size: var(--text-md);
   font-weight: 600;
   color: var(--text);

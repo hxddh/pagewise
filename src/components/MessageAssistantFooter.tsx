@@ -36,7 +36,7 @@ import {
   resolveAgentTokenTotals,
   type PageWiseUIMessage,
 } from "../lib/message-metadata";
-import { loadPreferences } from "../lib/preferences";
+import { loadPreferences, subscribePreferences } from "../lib/preferences";
 import { Button } from "./ui/Button";
 import { hasAnswerTable, tablesToCsv, type CsvLabels } from "../lib/answer-tables";
 import { saveTextFile } from "../lib/save-markdown";
@@ -144,10 +144,10 @@ function MessageAssistantFooterInner({
   const [copied, setCopied] = useState(false);
   const statsBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimerRef = useRef<number | undefined>(undefined);
-  // The usage line is a preference (`showUsageLine`, on by default): a reader
-  // paying per question is entitled to the number, and off is for the reader who
-  // finds it noise. Read once, like the other preference reads in the app.
-  const [showUsageLine, setShowUsageLine] = useState(true);
+  // Off by default since 25.0 so reading stays quiet; readers who want per-turn
+  // token/scan totals can toggle it in Assistant → Advanced, and existing footers
+  // follow the change immediately via `subscribePreferences`.
+  const [showUsageLine, setShowUsageLine] = useState(false);
 
   const metadata = getPageWiseMetadata(message);
   const showFooter = live || metadata?.startedAt != null;
@@ -158,12 +158,14 @@ function MessageAssistantFooterInner({
       (prefs) => {
         if (alive) setShowUsageLine(prefs.showUsageLine);
       },
-      // A store that rejects leaves the default (on) in place rather than
-      // turning the line off for everyone.
       () => undefined,
     );
+    const unsub = subscribePreferences((prefs) => {
+      if (alive) setShowUsageLine(prefs.showUsageLine);
+    });
     return () => {
       alive = false;
+      unsub();
     };
   }, []);
 
@@ -539,8 +541,8 @@ function MessageAssistantFooterInner({
               reviewedAll
                 ? t("cite.reviewed")
                 : t("cite.reviewAction", {
-                    count: String(reviewable.length),
-                    calls: String(Math.ceil(reviewPending / REVIEW_BATCH)),
+                    count: reviewable.length,
+                    calls: Math.ceil(reviewPending / REVIEW_BATCH),
                   })
             }
             onClick={() => { setMoreOpen(false); void reviewCitations(); }}

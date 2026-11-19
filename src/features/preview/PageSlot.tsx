@@ -9,6 +9,10 @@ import {
   tryApplyCachedPage,
 } from "../../lib/pdf";
 import { getPageTextLen } from "../../lib/doc-text";
+import { labelForPage } from "../../lib/page-labels";
+import { getCachedOcrWords } from "../../lib/ocr/ocr-service";
+import { onOcrTextReplaced } from "../../lib/ocr/ocr-events";
+import { hasNativeTextSpans, populateOcrTextLayer } from "../../lib/ocr/ocr-text-layer";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
 
 export interface PageSlotProps {
@@ -120,10 +124,14 @@ export const PageSlot = memo(function PageSlot({
     };
   }, [path, page, scale, quality, hurried, zoom, containerWidth, reservedWidth, textLen, t]);
 
-  // The text layer is what makes a page selectable. It is skipped on pages with
-  // no extracted text — there would be nothing in it — and while scrolling
-  // fast, where building it for pages about to leave the screen is wasted work.
-  const wantTextLayer = drawn && !hurried && textLen > 0;
+  const [ocrEpoch, setOcrEpoch] = useState(0);
+  useEffect(() => {
+    return onOcrTextReplaced((changedPath) => {
+      if (changedPath === path) setOcrEpoch((n) => n + 1);
+    });
+  }, [path]);
+
+  const wantTextLayer = drawn && !hurried && (textLen > 0 || (getCachedOcrWords(path, page)?.length ?? 0) > 0);
 
   useEffect(() => {
     if (!wantTextLayer) {
@@ -137,6 +145,13 @@ export const PageSlot = memo(function PageSlot({
     void (async () => {
       try {
         cleanup = await renderTextLayer(path, page, scale, container, () => cancelled);
+        if (cancelled) return;
+        if (!hasNativeTextSpans(container)) {
+          const ocrWords = getCachedOcrWords(path, page);
+          if (ocrWords && ocrWords.length > 0 && !cancelled) {
+            populateOcrTextLayer(container, ocrWords, width, height);
+          }
+        }
         if (!cancelled) setTextLayerActive(true);
       } catch {
         // A page reads fine without a selectable text layer.
@@ -146,7 +161,9 @@ export const PageSlot = memo(function PageSlot({
       cancelled = true;
       cleanup?.();
     };
-  }, [wantTextLayer, path, page, scale]);
+  }, [wantTextLayer, path, page, scale, width, height, ocrEpoch]);
+
+  const printed = labelForPage(doc.pageLabels ?? null, page);
 
   return (
     <div
@@ -155,8 +172,6 @@ export const PageSlot = memo(function PageSlot({
       data-page={page}
       aria-label={t("preview.pageHit", { page })}
     >
-      {/* The page clips its own content, not its number (22.0): the number
-          sits in the gap below the page, and a clipping slot hid it. */}
       <div className="pdf-page-clip">
         <canvas ref={canvasRef} className="preview-canvas" />
         <div
@@ -168,7 +183,7 @@ export const PageSlot = memo(function PageSlot({
         {error && <div className="pdf-page-error">{error}</div>}
       </div>
       <span className="pdf-page-number" aria-hidden>
-        {page}
+        {printed ? `${printed} · ${page}` : page}
       </span>
     </div>
   );

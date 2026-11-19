@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
+import { formatLlmError, testConnection } from "../../lib/llm";
 import { loadProviderSettings, saveProviderProfile, setActiveProvider } from "../../lib/settings";
 import { isToolModel } from "../../lib/model-capabilities";
 import {
@@ -12,28 +13,19 @@ import { ApiKeyField } from "./ApiKeyField";
 import { Button } from "../ui/Button";
 import { Field, Input } from "../ui/Field";
 
-/**
- * The one page a new reader sees.
- *
- * Before 18.0 this was a settings drawer with four tabs, five providers, an
- * assistant model, a scan model, a thinking switch and a "Set active" button
- * that separated editing from using — six clicks and a paste before the first
- * question, and three concepts (provider, assistant model, scan model) to
- * understand first. This page asks for one decision and one key, chooses the
- * model from the provider's own preset table, and puts everything else behind
- * "Advanced". "Start reading" is the end of setup: it saves, makes the provider
- * active, and the caller opens the document picker.
- */
 interface SetupAssistantProps {
-  /** Called once the key is saved and the provider is active. */
   onDone: () => void;
-  /** The reader asked for the full settings surface instead (Ollama, custom). */
   onSkip: () => void;
   onSaveError?: () => void;
   onRefreshConnection?: () => void;
 }
 
-const SETUP_PROVIDERS: Array<Exclude<ProviderId, "custom">> = ["openai", "deepseek", "openrouter"];
+const SETUP_PROVIDERS: Array<Exclude<ProviderId, "custom">> = [
+  "openai",
+  "deepseek",
+  "openrouter",
+  "ollama",
+];
 
 export function SetupAssistant({ onDone, onSkip, onSaveError, onRefreshConnection }: SetupAssistantProps) {
   const { t } = useI18n();
@@ -61,7 +53,9 @@ export function SetupAssistant({ onDone, onSkip, onSaveError, onRefreshConnectio
 
   const preset = provider !== "custom" ? PROVIDER_PRESETS[provider] : null;
   const effectiveModel = model || preset?.defaultModel || "";
-  const canStart = keyDraft.trim().length > 0 && !busy;
+  const requiresKey = provider !== "ollama";
+  const hasKeyInput = keyDraft.trim().length > 0 || !!existing?.apiKey;
+  const canStart = (!requiresKey || hasKeyInput) && !busy;
 
   async function start() {
     setBusy(true);
@@ -70,26 +64,32 @@ export function SetupAssistant({ onDone, onSkip, onSaveError, onRefreshConnectio
       if (provider === "custom" && (!baseURL.trim() || !model.trim())) {
         throw new Error(t("settings.customNeedsEndpoint"));
       }
-      const saved = await saveProviderProfile(
+      const effectiveKey = keyDraft.trim() || existing?.apiKey || "";
+      const candidate: LlmSettings = {
         provider,
-        {
-          model: effectiveModel,
-          visionModel: provider === "custom" ? "" : defaultVisionModel(provider),
-          baseURL: provider === "custom" ? baseURL.trim() : undefined,
-          connectionVerified: false,
-        },
-        keyDraft,
-      );
-      if (!isToolModel(provider, saved.model) && provider !== "custom") {
-        // The key is saved either way — a model without tool calling can still
-        // be switched later, and refusing to save would lose the key.
+        apiKey: effectiveKey,
+        model: effectiveModel,
+        baseURL: provider === "custom" ? baseURL.trim() : baseURL.trim() || undefined,
+      };
+      if (!isToolModel(provider, candidate.model) && provider !== "custom") {
         throw new Error(t("settings.agentNeedTools"));
       }
+      await testConnection(candidate, t);
+      await saveProviderProfile(
+        provider,
+        {
+          model: candidate.model,
+          visionModel: provider === "custom" ? "" : defaultVisionModel(provider),
+          baseURL: candidate.baseURL,
+          connectionVerified: true,
+        },
+        keyDraft.trim() ? keyDraft.trim() : undefined,
+      );
       await setActiveProvider(provider);
       onRefreshConnection?.();
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("errors.saveFailed"));
+      setError(e instanceof Error && e.message ? e.message : formatLlmError(e, t));
       onSaveError?.();
     } finally {
       setBusy(false);
@@ -106,7 +106,10 @@ export function SetupAssistant({ onDone, onSkip, onSaveError, onRefreshConnectio
             type="button"
             className={`provider-cell ${provider === id ? "active" : ""}`}
             aria-pressed={provider === id}
-            onClick={() => setProvider(id)}
+            onClick={() => {
+              setProvider(id);
+              setError(null);
+            }}
           >
             {PROVIDER_PRESETS[id].label}
           </button>
@@ -121,19 +124,21 @@ export function SetupAssistant({ onDone, onSkip, onSaveError, onRefreshConnectio
         <p className="settings-row-hint">{t("settings.apiKeySaved")}</p>
       )}
 
-      <ApiKeyField
-        provider={provider}
-        value={keyDraft}
-        touched={keyDraft.length > 0}
-        hasStoredKey={!!existing?.apiKey}
-        onChange={(next) => {
-          setKeyDraft(next);
-          setError(null);
-        }}
-        onCommit={() => void start()}
-      />
+      {provider !== "ollama" && (
+        <ApiKeyField
+          provider={provider}
+          value={keyDraft}
+          touched={keyDraft.length > 0}
+          hasStoredKey={!!existing?.apiKey}
+          onChange={(next) => {
+            setKeyDraft(next);
+            setError(null);
+          }}
+          onCommit={() => void start()}
+        />
+      )}
 
-      {advanced && (
+      {(advanced || provider === "ollama") && (
         <div className="setup-advanced">
           {provider === "custom" ? (
             <>
@@ -189,9 +194,11 @@ export function SetupAssistant({ onDone, onSkip, onSaveError, onRefreshConnectio
         <Button variant="primary" size="lg" disabled={!canStart} onClick={() => void start()}>
           {busy ? t("settings.setupStarting") : t("settings.setupStart")}
         </Button>
-        <Button variant="link" size="sm" onClick={() => setAdvanced((a) => !a)} aria-expanded={advanced}>
-          {t("settings.setupAdvanced")}
-        </Button>
+        {provider !== "ollama" && (
+          <Button variant="link" size="sm" onClick={() => setAdvanced((a) => !a)} aria-expanded={advanced}>
+            {t("settings.setupAdvanced")}
+          </Button>
+        )}
       </div>
 
       <p className="setup-note">{t("settings.setupNote")}</p>

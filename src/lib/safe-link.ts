@@ -1,6 +1,15 @@
 /** Schemes a link may use before the app will offer to open it. */
 export const SAFE_LINK_SCHEMES = ["http:", "https:", "mailto:"];
 
+/** Internal in-document page jump scheme emitted by the Rust PDF inspector. */
+export const INTERNAL_GOTO_PREFIX = "pagewise-goto:";
+
+export function parseInternalGotoPage(url: string): number | null {
+  if (!url.startsWith(INTERNAL_GOTO_PREFIX)) return null;
+  const n = Number.parseInt(url.slice(INTERNAL_GOTO_PREFIX.length).trim(), 10);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
 export function schemeOf(url: string): string | null {
   try {
     return new URL(url, "app://local").protocol;

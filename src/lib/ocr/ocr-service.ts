@@ -19,9 +19,9 @@ import { docCache } from "../doc-cache";
 import { bothModelsWin, CJK_RETRY_CONFIDENCE, doubtfulInEnglish, MIN_PROBE_CHARS } from "./ocr-language";
 import { readAuthorizedFileBytes, renderPageForOcr } from "../pdf";
 import { recognizeCanvas, terminateOcr, terminateOcrSlot, type OcrLanguages } from "./ocr-engine";
-import { readOcrDoc, writeOcrDoc, type StoredOcrPage } from "./ocr-store";
+import { flushOcrStoreWrites, readOcrDoc, writeOcrDoc, type StoredOcrPage } from "./ocr-store";
 import { ocrDpiFor } from "./ocr-result";
-import type { PageText } from "../types";
+import type { PageText, TextItemRect } from "../types";
 import { ocrTextReplaced } from "./ocr-events";
 
 export const OCR_SLOTS = 2;
@@ -176,6 +176,18 @@ export async function restoreOcr(path: string, identity?: string): Promise<PageT
 /** The page as already read, without reading it. */
 export function cachedOcrPage(path: string, page: number): StoredOcrPage | undefined {
   return docs.get(path)?.pages.get(page);
+}
+
+export function getCachedOcrWords(docPathOrIdentity: string, page: number): TextItemRect[] {
+  const byPath = docs.get(docPathOrIdentity)?.pages.get(page);
+  if (byPath) return byPath.items;
+  for (const state of docs.values()) {
+    if (state.identity === docPathOrIdentity) {
+      const hit = state.pages.get(page);
+      if (hit) return hit.items;
+    }
+  }
+  return [];
 }
 
 // ---------------------------------------------------------------- the queue
@@ -476,6 +488,11 @@ export async function flushOcr(path: string): Promise<void> {
     state.dirty = true;
     if (import.meta.env.DEV) console.warn("[ocr] cache write failed", err);
   }
+}
+
+export async function flushOcrService(): Promise<void> {
+  await Promise.allSettled([...docs.keys()].map((p) => flushOcr(p)));
+  await flushOcrStoreWrites();
 }
 
 /** The document is closing: save what was read, drop the rest of its queue. */

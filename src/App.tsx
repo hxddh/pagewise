@@ -115,6 +115,7 @@ function AppContent() {
     setSelectedMarkId(null);
     setRevealedCitation(null);
     setZen(false);
+    setMarginAskOpen(false);
   }, [doc?.path]);
 
   // A store file the app could not read is the one failure the stores cannot
@@ -169,20 +170,17 @@ function AppContent() {
   }, [doc?.path]);
 
   const recordCount = useMemo(
-    () => (doc ? (void recordRevision, activeFindings(doc.path).length) : 0),
+    () =>
+      doc
+        ? (void recordRevision, activeFindings(doc.path).length + getMarks(doc.path).length)
+        : 0,
     [doc, recordRevision],
   );
 
-  /**
-   * Put something from the document into the composer and show it.
-   *
-   * "Ask about this" has to end with the caret in the input (17.0): a click
-   * that leaves focus on the page is a click that has to be followed by
-   * another one. The panel may be closed at this instant, so the focus
-   * request is queued on a counter and served after the panel has mounted.
-   */
   const chatRef = useRef<ChatPanelHandle>(null);
   const [focusComposerNonce, setFocusComposerNonce] = useState(0);
+  const [marginFocusNonce, setMarginFocusNonce] = useState(0);
+  const [marginAskOpen, setMarginAskOpen] = useState(false);
   // Zen (18.0): the rail, the header and the panel leave; the page and a
   // progress hairline stay. Not persisted — a posture for this sitting.
   const [zen, setZen] = useState(false);
@@ -191,26 +189,37 @@ function AppContent() {
       const insert = text.trim();
       if (!insert) return;
       setComposerDraft((prev) => (prev.trim() ? `${prev.trim()} ${insert} ` : `${insert} `));
-      s.assistant.setOpen(true);
-      setFocusComposerNonce((n) => n + 1);
+      if (s.assistant.open) {
+        setFocusComposerNonce((n) => n + 1);
+      } else {
+        setMarginAskOpen(true);
+        setMarginFocusNonce((n) => n + 1);
+      }
     },
-    [s.assistant.setOpen],
+    [s.assistant.open],
   );
 
   useEffect(() => {
     if (focusComposerNonce === 0) return;
-    // Two frames: one for the panel to mount, one for its textarea to exist.
     const id = requestAnimationFrame(() => requestAnimationFrame(() => chatRef.current?.focusComposer()));
     return () => cancelAnimationFrame(id);
   }, [focusComposerNonce]);
 
-  const toggleZen = useCallback(() => setZen((z) => !z), []);
-  /** The pill in Zen: leave it, show the panel, put the caret in the composer. */
+  const toggleZen = useCallback(() => {
+    setZen((z) => {
+      const next = !z;
+      if (!next) setMarginAskOpen(false);
+      return next;
+    });
+  }, []);
+  /** The pill in Zen: open the floating margin ask bar in-place without leaving Zen. */
   const askFromZen = useCallback(() => {
-    setZen(false);
-    s.assistant.setOpen(true);
-    setFocusComposerNonce((n) => n + 1);
-  }, [s.assistant.setOpen]);
+    if (s.assistant.open) {
+      s.assistant.setOpen(false);
+    }
+    setMarginAskOpen(true);
+    setMarginFocusNonce((n) => n + 1);
+  }, [s.assistant]);
 
   const openableRecents = openableRecentFiles(s.library.recentFiles);
 
@@ -292,6 +301,8 @@ function AppContent() {
   // a hit in front of the reader.
   const gotoMessage = useCallback(
     (id: string) => {
+      setZen(false);
+      setPanelTab("chat");
       s.assistant.setOpen(true);
       // The row exists even while the panel is closed (the column is hidden,
       // not unmounted), so one frame is enough for its render.
@@ -450,6 +461,9 @@ function AppContent() {
         onTestResult={(message, ok) => showToast(message, ok ? "success" : "error")}
         onSaveError={() => showToast(t("settings.saveFailed"), "error")}
         onRefreshConnection={() => conn.refresh()}
+        onSetupDone={() => {
+          if (!s.document.doc) s.library.openFileDialog();
+        }}
       />
 
       {zen && doc && (
@@ -464,9 +478,11 @@ function AppContent() {
           <Button variant="ghost" size="sm" className="zen-exit" onClick={toggleZen}>
             {t("zen.exit")}
           </Button>
-          <Button variant="secondary" size="lg" className="zen-ask" onClick={askFromZen}>
-            {t("zen.ask")}
-          </Button>
+          {!marginAskOpen && (
+            <Button variant="secondary" size="lg" className="zen-ask" onClick={askFromZen}>
+              {t("zen.ask")}
+            </Button>
+          )}
         </>
       )}
 
@@ -489,6 +505,7 @@ function AppContent() {
             agentToolsSupported={conn.agentToolsSupported}
             opening={loading}
             onOpenFile={s.library.openFileDialog}
+            onOpenSample={() => void s.library.openSample()}
             onOpenRecent={s.library.openPath}
             onConfigureApi={overlays.openSettings}
           />
@@ -516,6 +533,19 @@ function AppContent() {
                       citations={citedPages}
                       notes={marginNotes}
                       marginColumn={!s.assistant.open}
+                      marginAsk={{
+                        visible: !zen || marginAskOpen,
+                        draft: composerDraft,
+                        busy: agentBusy,
+                        focusNonce: marginFocusNonce,
+                        onDraftChange: setComposerDraft,
+                        onSubmit: (text) => {
+                          chatRef.current?.submitQuestion(text);
+                          if (zen) setMarginAskOpen(false);
+                        },
+                        onStop: agent.run.stop,
+                        onDismiss: zen ? () => setMarginAskOpen(false) : undefined,
+                      }}
                       onRevealMessage={gotoMessage}
                       onReadRest={requestScanAll}
                     />

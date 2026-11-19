@@ -211,12 +211,32 @@ function ownerOf(markdown: string, units: readonly Unit[], index: number): numbe
 }
 
 /**
- * The answer's sentences, in order. Code fences, math blocks and the header
- * and delimiter lines of a table are not sentences; a heading is a title, not
- * a claim, and is left out so a structured answer is not charged for its
- * structure. A table's body row is one sentence: in a table, the row is the
- * claim (`answer-tables.ts`).
+ * Pure structural framing / meta-summary lead-ins carry zero documentary
+ * assertions of their own (SYSTEM_INSTRUCTIONS forbids markers on reasoning),
+ * so excluding them keeps `unchecked` strictly reserved for uncited claims.
  */
+export function isFramingSentence(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (/\d|[%‰‱$€£¥￥]|["“”「」『』]/.test(t) || quantities(t).length > 0) return false;
+  if (/[:：]$/.test(t)) return true;
+  if (
+    /^(?:below\s+(?:is|are)|the\s+following\s+(?:table|list|section|summary|comparison)|here\s+(?:is|are)\s+(?:a|the)\s+(?:summary|comparison|breakdown|overview|list|table)|in\s+(?:summary|conclusion|short|brief)\s*,|to\s+(?:summarize|sum\s+up)\s*,|overall\s*,|taken\s+together\s*,|based\s+on\s+the\s+(?:above|foregoing|cited\s+passages)\s*,)/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /^(?:以下(?:是|为)|下面(?:是|为)|综上所述[，,]?|总(?:体|的)(?:而言|来说)[，,]?|简而言之[，,]?|概括(?:而言|来说)[，,]?|根据上述(?:内容|条款)[，,]?)/.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function answerSentences(markdown: string): AnswerSentence[] {
   const tables = answerTables(markdown);
   const rowAtStart = new Map<number, { table: AnswerTable; row: AnswerRow }>();
@@ -265,6 +285,7 @@ export function answerSentences(markdown: string): AnswerSentence[] {
     // A span with no words — a bare marker, a stray pipe — is not a sentence.
     if (!text) continue;
     const mine = citations.filter((_, at) => owners[at] === i);
+    if (mine.length === 0 && !unit.row && isFramingSentence(text)) continue;
     sentences.push({
       text,
       start: unit.start,

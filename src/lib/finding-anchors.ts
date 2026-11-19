@@ -34,7 +34,7 @@ import { pageTextItems } from "./pdf";
 import { ocrEnabled, ocrPage } from "./ocr/ocr-service";
 import { onOcrTextReplaced } from "./ocr/ocr-events";
 import { docCache } from "./doc-cache";
-import { locateQuote, unionRect, type LocateOutcome } from "./quote-locate";
+import { locateAcrossPages, locateQuote, unionRect, type LocateOutcome } from "./quote-locate";
 import { passageAround } from "./passage";
 import { unstatedQuantities } from "./quantities";
 import type { Finding } from "./finding-store";
@@ -201,6 +201,27 @@ async function resolvePlacement(path: string, finding: Finding): Promise<Finding
       if (runs.source === "ocr") sawRecognised = true;
     }
     if (outcome.status === "unreadable") sawUnreadable = true;
+  }
+  for (let idx = 0; idx + 1 < finding.pages.length; idx += 1) {
+    const pA = finding.pages[idx]!;
+    const pB = finding.pages[idx + 1]!;
+    if (pB !== pA + 1) continue;
+    const runsA = await pageRuns(path, pA);
+    const runsB = await pageRuns(path, pB);
+    if (runsA.items.length === 0 || runsB.items.length === 0) continue;
+    const cross = locateAcrossPages(runsA.items, runsB.items, quote);
+    if (cross) {
+      const bounds = unionRect(cross.first.rects);
+      if (bounds) {
+        const anchor = { page: pA, rects: cross.first.rects, bounds };
+        const passage = `${passageAround(runsA.items, cross.first.rects)}\n${passageAround(runsB.items, cross.second.rects)}\n${quote}`;
+        const unstated = unstatedQuantities(finding.claim, passage);
+        if (unstated.length > 0) {
+          return { status: "mismatch", anchor, unstated: unstated.map((q) => q.text) };
+        }
+        return { status: "located", anchor };
+      }
+    }
   }
   if (sawUnreadable) return { status: "unreadable" };
   // One page searched only through recognised words is enough to withhold

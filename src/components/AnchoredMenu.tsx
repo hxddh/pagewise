@@ -57,6 +57,10 @@ export function AnchoredMenu({
         return;
       }
 
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
       const items = getItems();
       if (items.length === 0) return;
       const current = document.activeElement as HTMLElement | null;

@@ -7,23 +7,16 @@ export interface FlushChatDeps {
   stop: () => void;
   /** Read the current document path (called AFTER the stream is idle). */
   getPath: () => string | undefined;
+  /** Read the current document content fingerprint, if any. */
+  getIdentity?: () => string | undefined;
   /** Read the current messages (called AFTER the stream is idle). */
   getMessages: () => PageWiseUIMessage[];
   /** Cancel any pending debounced autosave so it can't fire a duplicate write. */
   clearAutosave: () => void;
   /** Persist the messages for the given path. */
-  saveChat: (path: string, messages: PageWiseUIMessage[]) => Promise<void>;
+  saveChat: (path: string, messages: PageWiseUIMessage[], identity?: string) => Promise<void>;
 }
 
-/**
- * Flush the active chat to disk (used on window close and document switch).
- *
- * Ordering matters: it awaits stream idle FIRST, then reads the path and
- * messages, so the just-finished stream tail is persisted rather than a stale
- * pre-abort snapshot (the M3 fix). Skips the write entirely when there is no
- * document or the chat is empty, so a transient empty state during hydration
- * can't clobber a document's saved history.
- */
 export async function flushChat(deps: FlushChatDeps): Promise<void> {
   await deps.waitForStreamIdle();
   deps.stop();
@@ -31,5 +24,10 @@ export async function flushChat(deps: FlushChatDeps): Promise<void> {
   const messages = deps.getMessages();
   if (!path || messages.length === 0) return;
   deps.clearAutosave();
-  await deps.saveChat(path, messages);
+  const identity = deps.getIdentity?.();
+  if (identity !== undefined) {
+    await deps.saveChat(path, messages, identity);
+  } else {
+    await deps.saveChat(path, messages);
+  }
 }

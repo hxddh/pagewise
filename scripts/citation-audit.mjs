@@ -15,7 +15,7 @@
  * Not a CI check — it needs the dev server and a browser, like ui-shots.
  */
 import { chromium } from "playwright";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installTauriMock, sampleDocument, PAGE_RUNS } from "./ui-harness/tauri-mock.mjs";
@@ -43,7 +43,11 @@ const ANSWER =
   'It also reports that revenue fell sharply〔p1 "revenue fell by twelve percent"〕, ' +
   'and the appendix gives the totals〔p9 "totals for the year"〕.';
 
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await chromium.launch({
+  executablePath:
+    process.env.PLAYWRIGHT_CHROMIUM_PATH ||
+    (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined),
+});
 const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
 await p.addInitScript(installTauriMock, {
   pdfB64: readFileSync(F).toString("base64"),

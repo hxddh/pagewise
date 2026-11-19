@@ -173,3 +173,7 @@ export async function getOcrCacheStats(): Promise<{ bytes: number; docs: number 
 export async function clearOcrCache(): Promise<void> {
   await invokeCmd<void>("ocr_cache_clear");
 }
+
+export async function flushOcrStoreWrites(): Promise<void> {
+  await Promise.allSettled([...writes.values()]);
+}

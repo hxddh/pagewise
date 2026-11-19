@@ -1,22 +1,15 @@
-/**
- * The workbench: everything one open document session needs, as a hook.
- *
- * This was `SessionProvider` — a context with thirty fields and exactly one
- * consumer (`App`). With one reader the indirection bought nothing, and the
- * body (document switching, chat persistence, the export actions) was harder
- * to find than the code that used it. The return is three groups rather than
- * thirty fields, and per-document module state is closed through
- * `document-scope.ts` instead of a hand-written teardown list.
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   commitLoadedDocument,
   loadDocument,
 } from "../lib/load-document";
 import { docCache } from "../lib/doc-cache";
-import { getMarks, loadMarks } from "../lib/mark-store";
-import { loadFindings, subscribeFindings } from "../lib/finding-store";
+import { flushMarks, getMarks, loadMarks, subscribeMarks } from "../lib/mark-store";
+import { flushFindings, loadFindings, subscribeFindings } from "../lib/finding-store";
+import { flushIndexStore } from "../lib/index-store";
+import { flushOcrService } from "../lib/ocr/ocr-service";
 import { checkCitation } from "../lib/citation-check";
 import { loadReviews } from "../lib/claim-review";
 import { prewarmPlacements } from "../lib/finding-anchors";
@@ -26,15 +19,19 @@ import { briefToMarkdown, BRIEF_LABELS_EN, BRIEF_LABELS_ZH } from "../lib/export
 import {
   addRecentFile,
   getRecentFiles,
+  reconcileRecentFiles,
   removeRecentFile,
-  removeRecentFiles,
   updateRecentProgress,
   type RecentFile,
 } from "../lib/recent-files";
-import { pickDocument, ungrantedPaths } from "../lib/allowed-paths";
+import { checkRecentPaths, openSampleDocument, pickDocument } from "../lib/allowed-paths";
 import { openErrorMessage } from "../lib/open-error";
 import { reindexDocument } from "../document/index-queue";
-import { evidenceAnnotations, saveAnnotatedPdf, type AnnotationLabels } from "../lib/export-annotated";
+import {
+  evidenceAnnotations,
+  saveAnnotatedPdfWithPath,
+  type AnnotationLabels,
+} from "../lib/export-annotated";
 import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
@@ -48,51 +45,46 @@ import { useI18n } from "../i18n";
 import { useToast } from "../hooks/useToast";
 import { stampMissingFinishedAt, type PageWiseUIMessage } from "../lib/message-metadata";
 import { chatToMarkdown } from "../lib/export-markdown";
-import { saveMarkdownFile } from "../lib/save-markdown";
+import { saveMarkdownFileWithPath } from "../lib/save-markdown";
+import { fileStamp } from "../lib/file-stamp";
 import type { LoadedDocument } from "../lib/types";
 import type { LoadProgress } from "../lib/load-progress";
 
-/** How long a report export waits for its entries' checks before it files what it has (v23). */
 const EXPORT_CHECK_WAIT_MS = 4000;
 
 export type AppPhase = "empty" | "switching" | "ready";
 
 export interface Workbench {
-  /** The open document, its load state, and the reading position. */
   document: {
     phase: AppPhase;
     doc: LoadedDocument | null;
-    /** The page the reader is on. */
     page: number;
     setPage: (page: number) => void;
     chatLoading: boolean;
     progress: LoadProgress | null;
     reindex: () => void;
-    /** The last open failure, and the way to dismiss it. */
+    reload: () => void;
     fileError: { message: string | null; clear: () => void };
     dragging: boolean;
   };
-  /** Opening files, by any of the routes that reach them. */
   library: {
     recentFiles: RecentFile[];
     openFileDialog: () => void;
+    openSample: () => void;
     openPath: (path: string) => void;
     removeRecent: (path: string) => Promise<void>;
   };
-  /** The assistant column: its run, its visibility, and what it can write out. */
   assistant: {
     open: boolean;
     setOpen: (open: boolean) => void;
     agent: DocAgent;
     connection: ReturnType<typeof useConnectionStatus>;
     clearChat: () => Promise<void>;
-    /** One way out for everything the app writes (16.0). */
     exports: {
       chat: () => Promise<void>;
       report: (options?: { includeText?: boolean }) => Promise<void>;
       annotatedPdf: () => Promise<void>;
     };
-    /** Window chrome the shell renders around the columns. */
     shell: {
       settingsOpen: boolean;
       setSettingsOpen: (open: boolean) => void;
@@ -100,7 +92,6 @@ export interface Workbench {
     };
   };
 }
-
 
 export function useWorkbench(): Workbench {
   const { t, locale } = useI18n();
@@ -114,7 +105,6 @@ export function useWorkbench(): Workbench {
   const [chatLoading, setChatLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
-  // Read synchronously while opening: where the reader left off.
   const recentFilesRef = useRef<RecentFile[]>([]);
   recentFilesRef.current = recentFiles;
   const previewPageRef = useRef(1);
@@ -129,9 +119,10 @@ export function useWorkbench(): Workbench {
   documentRef.current = document;
   const loadingRef = useRef(false);
   loadingRef.current = loading;
+  const queuedOpenPathRef = useRef<string | null>(null);
+  const notifiedStampRef = useRef<string | null>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
   const chatHydrateRef = useRef<{ path: string; messages: PageWiseUIMessage[] } | null>(null);
-  // The open document's module state. Disposed when the document is left.
   const scopeRef = useRef<DocumentScope | null>(null);
 
   const chatId = document?.path ?? "pagewise-local";
@@ -151,18 +142,12 @@ export function useWorkbench(): Workbench {
     void getRecentFiles()
       .then(async (files) => {
         setRecentFiles(files);
-        // Recents Rust has not granted (moved, deleted, or only ever named in
-        // this webview-written list) are pruned, so a dead entry doesn't linger
-        // and later report "path not authorized". Nothing is granted from here
-        // since 21.0: Rust restores its own list of documents at startup.
-        const failed = await ungrantedPaths(files.map((f) => f.path));
-        let kept = files;
-        if (failed.length > 0) {
-          kept = await removeRecentFiles(failed);
-          setRecentFiles(kept);
-        }
-        // Evict chats for documents no longer in recents so the chat store
-        // doesn't grow unbounded across sessions.
+        const statuses = await checkRecentPaths(files.map((f) => f.path));
+        const statusMap = new Map(
+          files.map((f, i) => [f.path, statuses[i] ?? ("denied" as const)]),
+        );
+        const kept = await reconcileRecentFiles(statusMap);
+        setRecentFiles(kept);
         void pruneOrphanedChats(kept.map((f) => f.path));
       })
       .catch(() => {});
@@ -192,6 +177,7 @@ export function useWorkbench(): Workbench {
         waitForStreamIdle: () => agent.run.waitForIdle(),
         stop: () => agent.run.stop(),
         getPath: () => documentRef.current?.path,
+        getIdentity: () => documentRef.current?.identity,
         getMessages: () => messagesRef.current,
         clearAutosave: () => {
           if (saveTimerRef.current !== undefined) {
@@ -203,9 +189,6 @@ export function useWorkbench(): Workbench {
       }),
     [agent],
   );
-  // `flushChatNow` changes identity on every streamed chunk, so the close
-  // handler reads it through a ref: the Tauri onCloseRequested listener
-  // registers once instead of re-registering hundreds of times per reply.
   const flushChatNowRef = useRef(flushChatNow);
   flushChatNowRef.current = flushChatNow;
 
@@ -217,8 +200,6 @@ export function useWorkbench(): Workbench {
       const msgs = messagesRef.current;
       if (!path || msgs.length === 0) return;
       void saveChat(path, msgs, documentRef.current?.identity).catch((e) => {
-        // The reader is told by `saveChat` itself, through store health (24.0);
-        // the next message's autosave is the retry.
         if (import.meta.env.DEV) console.warn("[session] autosave failed", e);
       });
     }, 500);
@@ -229,16 +210,19 @@ export function useWorkbench(): Workbench {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    // Registration is async: if the effect tears down before it resolves,
-    // `unlisten` is still undefined and the cleanup cannot remove the handler.
-    // Track cancellation so the resolved listener is removed instead of leaking.
     let cancelled = false;
     void (async () => {
       const win = getCurrentWindow();
       const fn = await win.onCloseRequested(async (event) => {
         event.preventDefault();
         try {
-          await flushChatNowRef.current();
+          await Promise.allSettled([
+            flushChatNowRef.current(),
+            flushFindings(),
+            flushMarks(),
+            flushIndexStore(),
+            flushOcrService(),
+          ]);
         } catch (e) {
           if (import.meta.env.DEV) console.warn("[session] flush on close failed", e);
         } finally {
@@ -255,11 +239,8 @@ export function useWorkbench(): Workbench {
       cancelled = true;
       unlisten?.();
     };
-    // Registered once; the handler reads the latest flush via ref.
   }, []);
 
-  // What the library row says about a document, best-effort and written only
-  // when it changed: position, entries kept, entries waiting.
   const recordProgress = useCallback(
     async (path: string, page: number, totalPages: number) => {
       try {
@@ -272,13 +253,12 @@ export function useWorkbench(): Workbench {
         });
         setRecentFiles(updated);
       } catch {
-        // The row is a convenience; the document is not.
+        // Best-effort library metadata.
       }
     },
     [],
   );
 
-  // The page the reader is on, remembered a moment after they stop turning.
   useEffect(() => {
     const doc = documentRef.current;
     if (!doc || phase !== "ready") return;
@@ -288,21 +268,32 @@ export function useWorkbench(): Workbench {
     return () => window.clearTimeout(timer);
   }, [previewPage, phase, recordProgress]);
 
-  // And the record's counts, whenever the record changes.
   useEffect(() => {
-    return subscribeFindings((path) => {
+    const bump = (path: string) => {
       const doc = documentRef.current;
       if (!doc || doc.path !== path) return;
       void recordProgress(path, previewPageRef.current, doc.totalPages);
+    };
+    const unsubFindings = subscribeFindings(bump);
+    const unsubMarks = subscribeMarks(() => {
+      const doc = documentRef.current;
+      if (doc) void recordProgress(doc.path, previewPageRef.current, doc.totalPages);
     });
+    return () => {
+      unsubFindings();
+      unsubMarks();
+    };
   }, [recordProgress]);
 
   const switchDocument = useCallback(
-    async (path: string) => {
-      if (loadingRef.current) return;
+    async (path: string, options?: { forceReload?: boolean }) => {
+      if (loadingRef.current) {
+        queuedOpenPathRef.current = path;
+        return;
+      }
 
       const prev = documentRef.current;
-      if (prev?.path === path) return;
+      if (!options?.forceReload && prev?.path === path) return;
 
       const myEpoch = ++epochRef.current;
       const prevPath = prev?.path ?? null;
@@ -314,8 +305,6 @@ export function useWorkbench(): Workbench {
       setFileError(null);
 
       await agent.run.waitForIdle();
-      // Stamp finishedAt deterministically: an aborted last message's
-      // setMessages may not have flushed to messagesRef before this snapshot.
       const messagesToSave = stampMissingFinishedAt([...messagesRef.current], Date.now());
       agent.run.stop();
       agent.run.reset();
@@ -325,9 +314,6 @@ export function useWorkbench(): Workbench {
         try {
           await saveChat(prevPath, messagesToSave, prev?.identity);
         } catch (e) {
-          // No toast of its own any more (24.0): `saveChat` reports the failure
-          // to store health, which says it once and keeps "Not saved" up — a
-          // second toast here doubled it.
           if (import.meta.env.DEV) console.warn("[session] save chat on switch failed", e);
         }
       }
@@ -348,8 +334,6 @@ export function useWorkbench(): Workbench {
 
         if (epochRef.current !== myEpoch) return;
 
-        // Chat-history corruption is recoverable; failing the whole open over
-        // it is not.
         let messages: PageWiseUIMessage[] = [];
         try {
           messages = (await loadChat(path, staged.identity)) as PageWiseUIMessage[];
@@ -359,43 +343,38 @@ export function useWorkbench(): Workbench {
 
         if (epochRef.current !== myEpoch) return;
 
-        // Every per-document cache for the document being left, closed in one
-        // place (see `document-scope.ts`) — this used to be a hand-kept list.
         scopeRef.current?.dispose();
         scopeRef.current = null;
 
         const doc = commitLoadedDocument(staged);
+        notifiedStampRef.current = doc.stamp ?? null;
         scopeRef.current = createDocumentScope(doc.path);
-        // Marks and findings are drawn synchronously from memory, so both load
-        // with the document rather than on first paint.
         await loadMarks(doc.path, doc.identity);
         const findings = await loadFindings(doc.path, doc.identity);
-        // The reader's model reviews of this file, kept since 21.0 — read
-        // before the document is ready, so "Review citations" never offers
-        // (and bills) a citation whose verdict is still on its way from disk.
-        // A local read; a failure is no reviews, never a failed open.
         await loadReviews(doc.path, doc.stamp ?? "");
-        // Where each finding's quote sits on the page, resolved once now so
-        // the first question's record note can read it — see `trustOf`.
         void prewarmPlacements(doc.path, findings);
         chatHydrateRef.current = { path: doc.path, messages };
         setDocument(docCache.get(doc.path) ?? doc);
-        // Back where the reader left off, when the library remembers and the
-        // page still exists. Page 1 otherwise.
-        const remembered = recentFilesRef.current.find((f) => f.path === doc.path)?.lastPage ?? 1;
+        const remembered = options?.forceReload
+          ? previewPageRef.current
+          : (recentFilesRef.current.find((f) => f.path === doc.path)?.lastPage ?? 1);
         const resumeAt = remembered > 1 && remembered <= doc.totalPages ? remembered : 1;
         setPreviewPage(resumeAt);
         setPhase("ready");
 
-        const recent = await addRecentFile({
-          path: doc.path,
-          name: doc.name,
-          kind: doc.kind,
-          totalPages: doc.totalPages,
-        });
-        if (epochRef.current === myEpoch) setRecentFiles(recent);
+        try {
+          const recent = await addRecentFile({
+            path: doc.path,
+            name: doc.name,
+            kind: doc.kind,
+            totalPages: doc.totalPages,
+          });
+          if (epochRef.current === myEpoch) setRecentFiles(recent);
+        } catch {
+          // Recents failure never aborts an already-opened document.
+        }
         showToast(
-          resumeAt > 1
+          resumeAt > 1 && !options?.forceReload
             ? t("toast.resumedAt", { page: resumeAt })
             : t("toast.opened", { name: doc.name }),
           "success",
@@ -403,18 +382,9 @@ export function useWorkbench(): Workbench {
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
         if (e instanceof Error && e.name === "AbortError") return;
-        // Tauri rejects invoke() with a plain string, so a Rust-side load
-        // error ("Encrypted PDF requires a password", …) arrives as a string,
-        // not an Error — read both so the real cause reaches the user.
         const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
-        // Encrypted, damaged, too large, unsupported: translated, with a next
-        // step (24.0) — these reached the reader as Rust's English sentence.
         const msg =
           openErrorMessage(e, t) ?? (raw.startsWith("errors.") ? t(raw) : raw || t("load.failed"));
-        // The banner only, not a toast as well: both sat in the same top-right
-        // corner and the toast covered the banner's Dismiss (16.0 moved toasts
-        // to the bottom left; css-hygiene asserts the corners). A load failure
-        // is a state the reader is left in, not an event.
         setFileError(msg);
         setPhase(prev ? "ready" : "empty");
         setChatLoading(false);
@@ -425,23 +395,66 @@ export function useWorkbench(): Workbench {
       } finally {
         if (epochRef.current === myEpoch) {
           setLoading(false);
+          loadingRef.current = false;
           setProgress(null);
           if (loadAbortRef.current === controller) {
             loadAbortRef.current = null;
           }
+          const queued = queuedOpenPathRef.current;
+          queuedOpenPathRef.current = null;
+          if (queued && queued !== documentRef.current?.path) {
+            void switchDocument(queued);
+          }
         }
       }
     },
-    [agent, showToast, t],
+    [agent, recordProgress, showToast, t],
   );
+
+  const reload = useCallback(() => {
+    const cur = documentRef.current;
+    if (!cur || loadingRef.current) return;
+    void switchDocument(cur.path, { forceReload: true });
+  }, [switchDocument]);
+
+  // Detect external modifications on window focus and offer a 1-click reload.
+  useEffect(() => {
+    const onFocus = () => {
+      const cur = documentRef.current;
+      if (!cur || phase !== "ready" || loadingRef.current || !cur.stamp) return;
+      void fileStamp(cur.path)
+        .then((freshStamp) => {
+          if (!freshStamp || documentRef.current?.path !== cur.path) return;
+          if (freshStamp !== cur.stamp && notifiedStampRef.current !== freshStamp) {
+            notifiedStampRef.current = freshStamp;
+            showToast(t("toast.fileChangedOnDisk"), "default", {
+              label: t("toast.reloadAction"),
+              onClick: () => void switchDocument(cur.path, { forceReload: true }),
+            });
+          }
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [phase, showToast, switchDocument, t]);
 
   const openPath = useCallback(
     (path: string) => {
-      if (loadingRef.current) return;
       void switchDocument(path);
     },
     [switchDocument],
   );
+
+  const openSample = useCallback(() => {
+    if (loadingRef.current) return;
+    void openSampleDocument()
+      .then((samplePath) => switchDocument(samplePath))
+      .catch((e: unknown) => {
+        const msg = openErrorMessage(e, t) ?? t("load.failed");
+        setFileError(msg);
+      });
+  }, [switchDocument, t]);
 
   const removeRecent = useCallback(async (path: string) => {
     const updated = await removeRecentFile(path);
@@ -451,9 +464,6 @@ export function useWorkbench(): Workbench {
   const openFileDialog = useCallback(() => {
     if (loadingRef.current) return;
     void (async () => {
-      // The dialog runs in Rust, which grants the file picked (21.0). A file
-      // whose content is not a document (a DOCX renamed .pdf) is refused
-      // there; say so rather than nothing (24.0).
       const selected = await pickDocument().catch((e: unknown) => {
         const msg = openErrorMessage(e, t);
         if (msg) showToast(msg, "error");
@@ -463,12 +473,8 @@ export function useWorkbench(): Workbench {
     })();
   }, [switchDocument, showToast, t]);
 
-  // Rust grants only what is a document by content, so every path here may
-  // be opened; a drop with none (a DOCX, a HEIC photo) arrives as `onRefused`
-  // and is a toast — it used to be nothing at all (24.0).
   const { isDragging } = useTauriFileDrop(
     (paths) => {
-      if (loadingRef.current) return;
       const docPath = paths[0];
       if (docPath) void switchDocument(docPath);
     },
@@ -477,20 +483,20 @@ export function useWorkbench(): Workbench {
     },
   );
 
-  // A document opened from the desktop — double-clicked, or handed over by a
-  // second launch that the single-instance plugin turned back. Same treatment
-  // as a drop: the reader asked for this file in this window.
-  useOpenPathEvent((path) => {
-    if (loadingRef.current) return;
-    // Granted by Rust only if its content is a document (24.0); no name check.
-    void switchDocument(path);
-  });
+  useOpenPathEvent(
+    (path) => {
+      void switchDocument(path);
+    },
+    (reason) => {
+      const msg = openErrorMessage(reason, t) ?? reason;
+      if (msg) setFileError(msg);
+    },
+  );
 
   const reindex = useCallback(() => {
     const path = documentRef.current?.path;
     if (!path) return;
     const pages = reindexDocument(path);
-    // The budget governs how many pages a re-index rescans, and it can be zero.
     if (pages === 0) {
       showToast(t("toast.reindexNothingToDo"), "default");
       return;
@@ -498,8 +504,6 @@ export function useWorkbench(): Workbench {
     showToast(t("toast.reindexStarted", { pages }), "default");
   }, [showToast, t]);
 
-  // Clamp preview jumps: models cite printed or hallucinated page numbers, and
-  // an out-of-range page would leave the canvas stuck on the old page.
   const setPage = useCallback((page: number) => {
     if (!Number.isFinite(page)) return;
     const total = documentRef.current?.totalPages ?? 0;
@@ -510,8 +514,6 @@ export function useWorkbench(): Workbench {
   const clearChat = useCallback(async () => {
     const doc = documentRef.current;
     if (!doc) return;
-    // Cancel any pending autosave so a queued write can't re-persist the old
-    // messages after we delete them.
     if (saveTimerRef.current !== undefined) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = undefined;
@@ -519,6 +521,14 @@ export function useWorkbench(): Workbench {
     agent.messages.clear();
     await clearChatFile(doc.path);
   }, [agent]);
+
+  const revealAction = useCallback(
+    (savedPath: string) => ({
+      label: t("toast.revealFile"),
+      onClick: () => void revealItemInDir(savedPath).catch(() => {}),
+    }),
+    [t],
+  );
 
   const exportChat = useCallback(async () => {
     const doc = documentRef.current;
@@ -529,24 +539,18 @@ export function useWorkbench(): Workbench {
     const md = chatToMarkdown(agent.messages.list, doc.name);
     const name = doc.name.replace(/\.[^.]+$/, "") + "-chat.md";
     try {
-      const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
-      if (ok) showToast(t("toast.chatExported"), "success");
+      const savedPath = await saveMarkdownFileWithPath(md, name, t("dialog.markdownFilter"));
+      if (savedPath) showToast(t("toast.chatExported"), "success", revealAction(savedPath));
     } catch {
       showToast(t("toast.exportFailed"), "error");
     }
-  }, [agent.messages.list, showToast, t]);
+  }, [agent.messages.list, revealAction, showToast, t]);
 
   const exportReport = useCallback(
     async (options: { includeText?: boolean } = {}) => {
       const doc = documentRef.current;
       if (!doc) return;
       const entries = trustedFindings(doc.path).filter((e) => e.trust !== "retracted");
-      // The model's verdicts are filed against the passage each entry's check
-      // finds now (22.0), so the checks run first; each is cached, so one an
-      // answer's chip already ran costs nothing. Waited for a few seconds at
-      // most (v23): a scanned page not read yet is an OCR reading or two, and
-      // the export sat there with nothing on screen. An entry whose check is
-      // still running files no verdict, as before 21.1.
       await Promise.race([
         Promise.all(
           entries.map(({ finding }) =>
@@ -563,23 +567,25 @@ export function useWorkbench(): Workbench {
       if (entries.length > 0) {
         parts.push(briefToMarkdown(doc, entries, locale === "zh-CN" ? BRIEF_LABELS_ZH : BRIEF_LABELS_EN).trimEnd());
       }
-      const marks = marksToMarkdown(doc);
+      const marks = marksToMarkdown(doc, locale);
       if (marks) parts.push(marks.trimEnd());
       if (parts.length === 0) {
         showToast(t("toast.noFindings"), "error");
         return;
       }
-      if (options.includeText) parts.push(documentToMarkdown(doc).trimEnd());
+      if (options.includeText) {
+        parts.push(documentToMarkdown(doc, { includeMarks: false, locale }).trimEnd());
+      }
       const md = `${parts.join("\n\n---\n\n")}\n`;
       const name = doc.name.replace(/\.[^.]+$/, "") + "-report.md";
       try {
-        const ok = await saveMarkdownFile(md, name, t("dialog.markdownFilter"));
-        if (ok) showToast(t("toast.reportExported"), "success");
+        const savedPath = await saveMarkdownFileWithPath(md, name, t("dialog.markdownFilter"));
+        if (savedPath) showToast(t("toast.reportExported"), "success", revealAction(savedPath));
       } catch {
         showToast(t("toast.exportFailed"), "error");
       }
     },
-    [locale, showToast, t],
+    [locale, revealAction, showToast, t],
   );
 
   const exportAnnotatedPdf = useCallback(async () => {
@@ -601,13 +607,19 @@ export function useWorkbench(): Workbench {
         return;
       }
       const name = doc.name.replace(/\.[^.]+$/, "") + "-annotated.pdf";
-      const written = await saveAnnotatedPdf(doc.path, annotations, name, t("dialog.pdfFilter"));
-      if (written !== null) showToast(t("toast.annotatedExported", { count: written }), "success");
+      const written = await saveAnnotatedPdfWithPath(doc.path, annotations, name, t("dialog.pdfFilter"));
+      if (written !== null) {
+        showToast(
+          t("toast.annotatedExported", { count: written.count }),
+          "success",
+          revealAction(written.path),
+        );
+      }
     } catch (e) {
       if (import.meta.env.DEV) console.warn("[export] annotated PDF failed", e);
       showToast(t("toast.exportFailed"), "error");
     }
-  }, [showToast, t]);
+  }, [revealAction, showToast, t]);
 
   return {
     document: {
@@ -618,12 +630,14 @@ export function useWorkbench(): Workbench {
       chatLoading,
       progress,
       reindex,
+      reload,
       fileError: { message: fileError, clear: () => setFileError(null) },
       dragging: isDragging,
     },
     library: {
       recentFiles,
       openFileDialog,
+      openSample,
       openPath,
       removeRecent,
     },

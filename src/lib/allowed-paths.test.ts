@@ -33,7 +33,7 @@ describe("allowed-paths", () => {
     await ungrantedPaths(["/a.pdf", "/b.pdf"]);
     const commands = invokeMock.mock.calls.map(([cmd]) => cmd);
     expect(commands).not.toContain("register_allowed_path");
-    expect(new Set(commands)).toEqual(new Set(["path_granted"]));
+    expect(new Set(commands)).toEqual(new Set(["check_recent_paths", "path_granted"]));
   });
 
   it("refuses a path Rust has not granted", async () => {

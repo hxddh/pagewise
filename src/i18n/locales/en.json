@@ -42,7 +42,8 @@
     "subtitle": "Open a document to read, search and OCR it on this computer. Connect AI to ask questions about it.",
     "apiHint": "Connect an AI provider to start chatting.",
     "toolsHint": "The current model cannot use tools, which the assistant needs — pick another model in Settings.",
-    "subtitleReady": "Open a document and ask about it — every answer says which page it came from."
+    "subtitleReady": "Open a document and ask about it — every answer says which page it came from.",
+    "trySample": "Try sample document"
   },
   "sidebar": {
     "openDocument": "Open document",
@@ -112,14 +113,17 @@
     "stopReading": "Stop reading pages",
     "readPoorly": "Read from a scan ({{confidence}}% sure) — some words may be misread; check the page",
     "searchDocHeading": "This document",
+    "searchRelatedHeading": "Related pages",
     "searchConversationHeading": "This conversation",
+    "previousMatch": "Previous match",
+    "nextMatch": "Next match",
+    "askAboutRegion": "What is shown in this boxed region on page {{page}}?",
     "notSaved": "Not saved"
   },
   "marks": {
     "markSelection": "Mark",
     "markPlain": "Mark: {{text}}",
     "markWithNote": "Mark with note: {{note}}",
-    "noteDialog": "Mark note",
     "notePlaceholder": "Add a note…",
     "onPage": "Page {{page}}",
     "delete": "Delete mark",
@@ -135,7 +139,8 @@
   },
   "gutter": {
     "label": "Page margin",
-    "answerCites": "Cited in an answer on page {{page}}"
+    "answerCites": "Cited in an answer on page {{page}}",
+    "openInChat": "Show in chat"
   },
   "drop": {
     "title": "Drop to open",
@@ -321,7 +326,7 @@
     "agentNeedTools": "This model cannot use tool calling, so the document assistant will not work. Pick an assistant preset (e.g. openai/gpt-4o-mini).",
     "scanNeedMultimodal": "This model cannot read images. Pick a scan preset that supports vision (e.g. gemini-2.5-flash-lite, Qwen3-VL).",
     "thinkingMode": "Extended thinking",
-    "thinkingHint": "Slower, deeper reasoning for the assistant model. Only DeepSeek routes support this.",
+    "thinkingHint": "Slower, deeper reasoning for models that support thinking budgets.",
     "advancedSection": "Advanced",
     "providerCurrentlyActive": "Currently in use",
     "version": "Version",
@@ -356,13 +361,20 @@
     "showUsageLine": "Show cost per answer",
     "showUsageLineHint": "Pages, steps, tokens and cache hits, under every answer.",
     "setupTitle": "Set up the assistant",
-    "setupSomethingElse": "Local model (Ollama) or another service…",
+    "setupSomethingElse": "Custom OpenAI-compatible endpoint…",
     "setupStart": "Start reading",
     "setupStarting": "Saving…",
     "setupAdvanced": "Advanced",
     "setupNote": "The model is chosen automatically. Change it later in Settings.",
     "setupModelHint": "Only change this if you know the model you want.",
     "customNeedsEndpoint": "A base URL and a model id are both required.",
+    "updates": "Updates",
+    "checkForUpdates": "Check for updates",
+    "updateChecking": "Checking…",
+    "updateUpToDate": "Up to date",
+    "updateAvailable": "Version {{version}} is available",
+    "updateDownload": "Download release",
+    "updateFailed": "Could not check for updates",
     "reportProblem": "Report a problem",
     "reportProblemAction": "Open a GitHub issue"
   },
@@ -415,6 +427,11 @@
     "annotatedNothing": "Nothing to write yet: no found evidence and no marks",
     "tableExported": "Table exported with its sources",
     "reportExported": "Report exported",
+    "revealFile": "Reveal",
+    "fileChangedOnDisk": "This file changed on disk since you opened it",
+    "reloadAction": "Reload",
+    "jumpedToPage": "Jumped to page {{page}}",
+    "backToPage": "Back to page {{page}}",
     "storeUnreadable": "{{file}} could not be read — it was left as it is, and nothing will overwrite it",
     "storeNewer": "{{file}} was saved by a newer PageWise — it is left as it is, and changes made here are not saved until you update",
     "storeFull": "{{file}} is full — this change is not saved; remove entries you no longer need to make room",
@@ -472,7 +489,8 @@
     "bodyOf": "The whole answer this was kept from",
     "keepWhole": "Keep the whole answer",
     "keepShort": "Keep",
-    "keptShort": "Kept"
+    "keptShort": "Kept",
+    "deleteFinding": "Delete permanently"
   },
   "annotations": {
     "byAuthor": "{{author}}: {{text}}",
@@ -486,7 +504,8 @@
   "cite": {
     "keepVerified": "Keep the verified sentences ({{count}})",
     "keptVerified": "Kept {{count}} verified sentences to the record",
-    "reviewAction": "Ask your model whether each passage supports its sentence ({{count}} citations, {{calls}} calls)",
+    "reviewAction": "Ask your model whether this passage supports its sentence (1 citation, {{calls}} call)",
+    "reviewAction_plural": "Ask your model whether each passage supports its sentence ({{count}} citations, {{calls}} calls)",
     "reviewed": "Citations reviewed by your model",
     "reviewDone": "Model review: {{supports}} supported, {{contradicts}} contradicted, {{insufficient}} not settled by the passage",
     "reviewFailed": "The model review could not run — check the model settings",

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { FileText, MessagesSquare, Highlighter } from "lucide-react";
 import { useI18n } from "../i18n";
+import { Button } from "./ui/Button";
 import { ListRow } from "./ui/ListRow";
 import { Modal } from "./ui/Modal";
 
@@ -61,9 +62,20 @@ export function ExportDialog({ open, available, busy, onExport, onClose }: Expor
       ariaLabelledBy="export-title"
       initialFocus={firstRef}
     >
-      <h2 id="export-title" className="export-title">
-        {t("export.title")}
-      </h2>
+      <div className="export-header">
+        <h2 id="export-title" className="export-title">
+          {t("export.title")}
+        </h2>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon
+          onClick={onClose}
+          aria-label={t("common.close")}
+        >
+          ×
+        </Button>
+      </div>
       <div className="export-options">
         {rows.map((row) => (
           <div key={row.id} className="export-option-wrap">

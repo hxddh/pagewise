@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
+  compactToolOutput,
   pruneToolOutputsForHistory,
   sanitizeDanglingToolParts,
 } from "./prune-chat-history";
 
-function readPageMessage(page: number, text: string): UIMessage {
+function readPageMessage(page: number, text: string, id = `m-${page}`): UIMessage {
   return {
-    id: `m-${page}`,
+    id,
     role: "assistant",
     parts: [
       {
@@ -21,29 +22,52 @@ function readPageMessage(page: number, text: string): UIMessage {
   } as UIMessage;
 }
 
-function firstOutput(messages: UIMessage[]): unknown {
-  const part = messages[0]?.parts[0];
+function firstOutput(messages: UIMessage[], index = 0): unknown {
+  const part = messages[index]?.parts[0];
   return part && "output" in part ? part.output : undefined;
 }
 
 describe("pruneToolOutputsForHistory", () => {
-  it("compacts a bulky read output and records the original char count", () => {
+  it("keeps the latest assistant turn warm within WARM_TURN_MAX_CHARS for follow-ups", () => {
     const text = "x".repeat(5234);
     const out = pruneToolOutputsForHistory([readPageMessage(3, text)]);
-    expect(firstOutput(out)).toBe(
-      "[Read page 3, 5234 chars — omitted from chat history]",
+    expect(firstOutput(out)).toBe(text);
+  });
+
+  it("compacts older assistant turns (or warmMaxChars=0) with char count and digest", () => {
+    const text = "x".repeat(5234);
+    const out = pruneToolOutputsForHistory([
+      readPageMessage(3, text, "a1"),
+      { id: "a2", role: "assistant", parts: [{ type: "text", text: "Done." }] } as UIMessage,
+    ]);
+    expect(firstOutput(out, 0)).toBe(
+      "[Read page 3, 5234 chars — re-read page 3 to quote verbatim]",
     );
+
+    const rich = "--- Page 2 ---\n# 4 Payment Schedule\n| Stage | Share |\nDeposit is 30% within 5 days.";
+    const summary = compactToolOutput("read_pdf_page", { page: 2 }, rich);
+    expect(summary).toContain("4 Payment Schedule");
+    expect(summary).toContain("30%");
+    expect(summary).toMatch(/— re-read page 2 to quote verbatim\]$/);
+  });
+
+  it("records actual truncated range pages instead of claiming unread pages were read", () => {
+    const raw = "--- Page 1 ---\nIntro\n\n--- Page 2 ---\nTerms";
+    const summary = compactToolOutput(
+      "read_pdf_range",
+      { start: 1, end: 10 },
+      { text: raw, startPage: 1, endPage: 2, truncated: true },
+    );
+    expect(summary).toContain("pages 1–2 (truncated from 1–10)");
   });
 
   it("is idempotent: re-pruning does not overwrite the char count (N2 regression)", () => {
     const text = "x".repeat(5234);
-    const once = pruneToolOutputsForHistory([readPageMessage(3, text)]);
-    const twice = pruneToolOutputsForHistory(once);
-    // The summary's own length (~53) must not replace the original 5234.
+    const once = pruneToolOutputsForHistory([readPageMessage(3, text)], 0);
+    const twice = pruneToolOutputsForHistory(once, 0);
     expect(firstOutput(twice)).toBe(
-      "[Read page 3, 5234 chars — omitted from chat history]",
+      "[Read page 3, 5234 chars — re-read page 3 to quote verbatim]",
     );
-    // No change on the second pass → the array identity is preserved.
     expect(twice).toBe(once);
   });
 
@@ -62,8 +86,7 @@ describe("pruneToolOutputsForHistory", () => {
         ],
       } as UIMessage,
     ]);
-    const pruned = pruneToolOutputsForHistory(cancelled);
-    // Must stay "[cancelled]", not become `[Search "term", 11 hits — omitted…]`.
+    const pruned = pruneToolOutputsForHistory(cancelled, 0);
     expect(firstOutput(pruned)).toBe("[cancelled]");
   });
 });
@@ -109,7 +132,7 @@ describe("read_figure output", () => {
         ],
       },
     ];
-    const pruned = pruneToolOutputsForHistory(messages as never);
+    const pruned = pruneToolOutputsForHistory(messages as never, 0);
     const part = (pruned[0]!.parts[0] as { output: { description: string } }).output;
     expect(part.description).toBe(description);
   });

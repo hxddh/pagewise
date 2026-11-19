@@ -1,7 +1,9 @@
 import type { ReactNode, RefObject } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useI18n } from "../i18n";
-import { searchDocumentPages, type SearchHit } from "../lib/document-search";
+import { MAX_SEARCH_HITS, searchDocumentPages, type SearchHit } from "../lib/document-search";
+import { rankPages, type RankedHit } from "../lib/ranked-search";
 import { searchMessages } from "../lib/conversation-search";
 import { useSearchScope } from "./SearchScope";
 import { docCache } from "../lib/doc-cache";
@@ -19,37 +21,33 @@ import { EmptyState } from "./EmptyState";
 interface DocumentSearchProps {
   doc: LoadedDocument;
   onJumpToPage: (page: number, query?: string) => void;
-  /**
-   * Where the search portals to: the preview panel, not the window. The panel
-   * is a translucent bar over the document it searches, so it has to stay
-   * inside the panel's box.
-   */
   containerRef?: RefObject<HTMLElement | null>;
 }
 
-/**
- * The one search (⌘F since 19.0).
- *
- * It used to be two — this overlay for the document, the chat panel's own find
- * bar for the conversation — with the same chord and a rule the reader had to
- * hold in their head ("where is the focus?"). Now one input returns two
- * sections: the page in front of them, and the conversation about it.
- * Alt+Up/Down still walks the conversation (useConversationKeys).
- */
 export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSearchProps) {
   const { t } = useI18n();
   const scope = useSearchScope();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [relatedHits, setRelatedHits] = useState<RankedHit[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [resultsCollapsed, setResultsCollapsed] = useState(false);
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const searchGenRef = useRef(0);
 
-  const close = () => {
+  const close = useCallback(() => {
     setOpen(false);
-    setQuery("");
-  };
+    setResultsCollapsed(false);
+    onJumpToPage(doc.pages[0]?.page ?? 1, undefined);
+  }, [doc.pages, onJumpToPage]);
+
+  const dismissBar = useCallback(() => {
+    setOpen(false);
+    setResultsCollapsed(false);
+  }, []);
+
   const [cacheRevision, setCacheRevision] = useState(0);
 
   useEffect(() => {
@@ -61,50 +59,74 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
   useEffect(() => {
     if (!query.trim()) {
       setHits([]);
+      setRelatedHits([]);
+      setActiveIndex(0);
       setSearching(false);
       return;
     }
     const gen = ++searchGenRef.current;
     setSearching(true);
+    setResultsCollapsed(false);
     const id = window.setTimeout(() => {
       const pages = docCache.getPages(doc.path);
-      const results = searchDocumentPages(pages, query, 30);
+      const results = searchDocumentPages(pages, query, MAX_SEARCH_HITS);
+      const related = results.length === 0 && query.trim().length >= 2 ? rankPages(pages, query, 5) : [];
       if (gen !== searchGenRef.current) return;
       setHits(results);
+      setRelatedHits(related);
+      setActiveIndex(0);
       setSearching(false);
-    }, 120);
+    }, 100);
     return () => {
       window.clearTimeout(id);
     };
   }, [query, doc.path, cacheRevision]);
 
-  // The conversation half: the same substring rule as the document half.
   const messageMatches = useMemo(
     () => (query.trim() && scope ? searchMessages(scope.messages, query) : []),
     [query, scope],
   );
 
+  const stepHit = useCallback(
+    (delta: 1 | -1) => {
+      if (hits.length === 0) return;
+      const next = (activeIndex + delta + hits.length) % hits.length;
+      setActiveIndex(next);
+      const hit = hits[next]!;
+      onJumpToPage(hit.page, query);
+    },
+    [activeIndex, hits, onJumpToPage, query],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // `!e.shiftKey`: ⌘⇧F is Zen (18.0) — without this the chord opened the
-      // search *and* hid the chrome.
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
         if (!open && isOverlayOpen()) return;
         e.preventDefault();
         setOpen(true);
+        setResultsCollapsed(false);
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        });
+        return;
+      }
+      if (open && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        stepHit(e.shiftKey ? -1 : 1);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, stepHit]);
 
   useEffect(() => {
     const onOpen = (e: Event) => {
-      // A request may carry the words to look for (24.0): a red citation
-      // chip opens the search on its own quote.
-      const query = (e as CustomEvent<OpenDocSearchDetail | null>).detail?.query;
-      if (query) setQuery(query);
+      const nextQuery = (e as CustomEvent<OpenDocSearchDetail | null>).detail?.query;
+      if (nextQuery) setQuery(nextQuery);
       setOpen(true);
+      setResultsCollapsed(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
     };
     window.addEventListener(OPEN_DOC_SEARCH_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_DOC_SEARCH_EVENT, onOpen);
@@ -115,7 +137,8 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
   return (
     <Modal
       open={open}
-      onClose={close}
+      modal={false}
+      onClose={dismissBar}
       overlayClassName="doc-search-overlay"
       className="doc-search-panel"
       container={containerRef?.current ?? null}
@@ -129,12 +152,62 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setResultsCollapsed(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && hits.length > 0) {
+            e.preventDefault();
+            if (e.shiftKey) stepHit(-1);
+            else {
+              const target = hits[activeIndex] ?? hits[0]!;
+              onJumpToPage(target.page, query);
+              setActiveIndex((prev) => (prev + 1) % hits.length);
+            }
+          }
+        }}
         placeholder={t("preview.searchPlaceholder")}
       />
-      <Button variant="ghost" size="md" icon onClick={close} aria-label={t("preview.closeSearch")}>
+      {hits.length > 0 && (
+        <span className="doc-search-step-count" aria-live="polite">
+          {Math.min(activeIndex + 1, hits.length)} / {hits.length}
+        </span>
+      )}
+      {hits.length > 1 && (
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            onClick={() => stepHit(-1)}
+            aria-label={t("preview.previousMatch")}
+            title={t("preview.previousMatch")}
+          >
+            <ChevronUp size={14} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            onClick={() => stepHit(1)}
+            aria-label={t("preview.nextMatch")}
+            title={t("preview.nextMatch")}
+          >
+            <ChevronDown size={14} />
+          </Button>
+        </>
+      )}
+      <Button
+        variant="ghost"
+        size="md"
+        icon
+        onClick={() => {
+          setQuery("");
+          close();
+        }}
+        aria-label={t("preview.closeSearch")}
+      >
         ×
       </Button>
-      {query.trim() && (
+      {query.trim() && !resultsCollapsed && (
         <Panel tone="elevated" className="doc-search-results">
           {searching ? (
             <EmptyState variant="inline" className="doc-search-empty" live="polite">
@@ -152,24 +225,44 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
                   )}
                 </p>
                 {hits.length === 0 ? (
-                  <EmptyState variant="inline" className="doc-search-empty" live="polite">
-                    {docCache
-                      .getPages(doc.path)
-                      .some((p) => p.text.trim().length < MIN_INDEX_CHARS)
-                      ? t("preview.searchIndexing")
-                      : t("preview.noMatches")}
-                  </EmptyState>
+                  relatedHits.length > 0 ? (
+                    <>
+                      <p className="doc-search-count">{t("preview.searchRelatedHeading")}</p>
+                      <ul>
+                        {relatedHits.map((hit) => (
+                          <li key={`rel-${hit.page}`}>
+                            <ListRow
+                              className="doc-search-hit"
+                              onClick={() => {
+                                onJumpToPage(hit.page, hit.terms[0] ?? query);
+                                setResultsCollapsed(true);
+                              }}
+                              label={<span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>}
+                              meta={<span className="hit-snippet">{highlightTerms(hit.snippet, hit.terms.join(" "))}</span>}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <EmptyState variant="inline" className="doc-search-empty" live="polite">
+                      {docCache
+                        .getPages(doc.path)
+                        .some((p) => p.text.trim().length < MIN_INDEX_CHARS)
+                        ? t("preview.searchIndexing")
+                        : t("preview.noMatches")}
+                    </EmptyState>
+                  )
                 ) : (
                   <ul>
                     {hits.map((hit, i) => (
                       <li key={`${hit.page}-${hit.index}-${i}`}>
                         <ListRow
-                          className="doc-search-hit"
+                          className={`doc-search-hit${i === activeIndex ? " active" : ""}`}
                           onClick={() => {
-                            // The query travels with the jump so the page can
-                            // show where the hit is, not just which page.
+                            setActiveIndex(i);
                             onJumpToPage(hit.page, query);
-                            close();
+                            setResultsCollapsed(true);
                           }}
                           label={<span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>}
                           meta={<span className="hit-snippet">{highlightTerms(hit.snippet, query)}</span>}
@@ -200,9 +293,8 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
                           <ListRow
                             className="doc-search-hit"
                             onClick={() => {
-                              // Opens the panel when it is closed.
                               conversation.gotoMessage(match.id);
-                              close();
+                              setResultsCollapsed(true);
                             }}
                             label={<span className="hit-snippet">{highlightTerms(match.excerpt, query)}</span>}
                           />
@@ -220,10 +312,6 @@ export function DocumentSearch({ doc, onJumpToPage, containerRef }: DocumentSear
   );
 }
 
-/**
- * The snippet with the searched words marked (16.0): a list of results that
- * all begin "Section 1 Lorem ipsum…" said nothing about where the words were.
- */
 export function highlightTerms(snippet: string, query: string): ReactNode {
   const terms = [...new Set(query.trim().split(/\s+/).filter((w) => w.length > 0))]
     .sort((a, b) => b.length - a.length)

@@ -20,6 +20,7 @@ vi.mock("./llm", () => ({ resolveModel: () => "model", assertApiKeyForAgent: () 
 
 import {
   answerSentences,
+  isFramingSentence,
   sentenceState,
   sentenceStates,
   sentenceTally,
@@ -273,5 +274,23 @@ describe("keep-verified agrees with the sentence states (20.0)", () => {
     expect(cachedReview(PATH, "质保期为 36 个月", WARRANTY, { page: 3, passage: "质保期为最终验收合格之日起三十六个月。" })?.verdict).toBe("contradicts");
     expect(sentenceStates(PATH, md)[0]!.state).toBe("notFound");
     expect(verifiedSentences(PATH, md)).toEqual([]);
+  });
+
+  it("excludes pure structural lead-ins and summary framing from unchecked while keeping concrete claims", () => {
+    expect(isFramingSentence("Below is a comparison of the two clauses:")).toBe(true);
+    expect(isFramingSentence("以下是各章节付款节点汇总：")).toBe(true);
+    expect(isFramingSentence("In summary, both clauses allocate delivery risk to the supplier.")).toBe(true);
+    expect(isFramingSentence("The supplier pays for repairs.")).toBe(false);
+    expect(isFramingSentence("Below is the 30% deposit rule:")).toBe(false);
+
+    const structured = [
+      "Below is a summary of the warranty obligations:",
+      "",
+      `质保期为 36 个月${WARRANTY_QUOTE}。`,
+      "In summary, the supplier bears repair responsibility.",
+      "乙方另需承担运输保险费用。",
+    ].join("\n");
+    const texts = answerSentences(structured).map((s) => s.text);
+    expect(texts).toEqual(["质保期为 36 个月。", "乙方另需承担运输保险费用。"]);
   });
 });
