@@ -41,8 +41,9 @@
 use pdf_inspector::extractor::extract_text_with_positions_mem;
 use pdf_inspector::types::ItemType;
 use pdf_inspector::{
-    detect_pdf_mem, extract_pages_markdown_mem, extract_structure_elements_mem,
-    extract_tables_in_regions_mem, extract_text_in_regions_mem, PdfType,
+    detect_pdf_mem, extract_math_latex_in_regions_mem, extract_pages_markdown_mem,
+    extract_structure_elements_mem, extract_tables_in_regions_mem, extract_text_in_regions_mem,
+    MathGate, PdfType, PositionFrame, OCR_REASON_NO_TEXT,
 };
 use serde::{Deserialize, Serialize};
 
@@ -155,6 +156,10 @@ pub struct RegionText {
     pub text: String,
     /// Markdown table, when the region encloses one.
     pub table: Option<String>,
+    /// Reconstructed LaTeX formula (without `$` delimiters), when the region's
+    /// glyphs pass `pdf-inspector`'s math-font gate (27.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latex: Option<String>,
 }
 
 fn map_err(e: impl std::fmt::Display) -> String {
@@ -1108,7 +1113,15 @@ fn annot_rect(doc: &lopdf::Document, dict: &lopdf::Dictionary) -> Option<Rect> {
 }
 
 fn parse_lopdf_meta(bytes: &[u8]) -> LopdfMeta {
-    let Ok(mut doc) = lopdf::Document::load_mem(bytes) else {
+    let Ok(mut doc) = lopdf::Document::load_mem_with_options(
+        bytes,
+        lopdf::LoadOptions {
+            password: Some(String::new()),
+            ..Default::default()
+        },
+    )
+    .or_else(|_| lopdf::Document::load_mem(bytes))
+    else {
         return LopdfMeta {
             origins: Vec::new(),
             goto_links: Vec::new(),
@@ -1433,14 +1446,28 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty());
 
+    let no_text_pages: std::collections::HashSet<u32> = detected
+        .ocr_reasons_by_page
+        .iter()
+        .filter(|r| r.reasons.iter().any(|s| s == OCR_REASON_NO_TEXT))
+        .map(|r| r.page)
+        .collect();
+    let detected_ocr_pages: std::collections::HashSet<u32> = detected
+        .pages_needing_ocr
+        .iter()
+        .copied()
+        .filter(|p| !no_text_pages.contains(p))
+        .collect();
+
     // A confident scan has no text layer to extract. Detection costs about a
-    // millisecond and saves parsing the whole document to produce blank pages.
+    // millisecond and saves parsing the whole document to produce blank pages;
+    // pages flagged `no_text` (neither text nor images) stay off the vision queue.
     if matches!(detected.pdf_type, PdfType::Scanned) && detected.confidence >= SCANNED_CONFIDENCE {
         let pages = (1..=detected.page_count)
             .map(|page| Page {
                 page,
                 text: String::new(),
-                needs_vision: true,
+                needs_vision: !no_text_pages.contains(&page),
                 has_table: false,
             })
             .collect();
@@ -1455,49 +1482,73 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         });
     }
 
-    let extracted = extract_pages_markdown_mem(&cached.bytes, None).map_err(|e| doc_check::pdf_error(&e))?;
-    // Page identity is array position, never the `page` label — see module docs.
-    let mut texts: Vec<String> = extracted
-        .pages
-        .into_iter()
-        .map(|p| p.markdown.trim().to_string())
-        .collect();
+    let no_text_ref = &no_text_pages;
+    let cached_ref = &cached;
+    let approx_pages = detected.page_count as usize;
+    let (extracted_res, (structure_outline, (links, figures))) = std::thread::scope(|s| {
+        let positions_branch = s.spawn(move || {
+            let structure = structure_outline(cached_ref, approx_pages);
+            let pos = collect_positions(cached_ref, approx_pages);
+            (structure, pos)
+        });
+        let text_res = (|| -> Result<(Vec<String>, Vec<Option<String>>), String> {
+            let extracted = extract_pages_markdown_mem(&cached_ref.bytes, None)
+                .map_err(|e| doc_check::pdf_error(&e))?;
+            // Page identity is array position, never the `page` label — see module docs.
+            let mut texts = Vec::with_capacity(extracted.pages.len());
+            let mut reasons = Vec::with_capacity(extracted.pages.len());
+            for p in extracted.pages {
+                texts.push(p.markdown.trim().to_string());
+                reasons.push(p.ocr_reason);
+            }
+            if texts.is_empty() {
+                return Err(doc_check::coded(doc_check::PDF_DAMAGED, "no pages"));
+            }
+            let blank: Vec<usize> = texts
+                .iter()
+                .enumerate()
+                .filter(|(i, t)| t.is_empty() && !no_text_ref.contains(&((*i + 1) as u32)))
+                .map(|(i, _)| i)
+                .collect();
+            if !blank.is_empty() {
+                for (slot, text) in recover_blank_pages(&cached_ref.bytes, &blank) {
+                    texts[slot] = text.trim().to_string();
+                }
+            }
+            strip_running_lines(&mut texts);
+            for t in &mut texts {
+                *t = clean_extracted_markdown(t);
+            }
+            Ok((texts, reasons))
+        })();
+        let pos_out = positions_branch
+            .join()
+            .unwrap_or_else(|_| (Vec::new(), (Vec::new(), Vec::new())));
+        (text_res, pos_out)
+    });
 
-    if texts.is_empty() {
-        return Err(doc_check::coded(doc_check::PDF_DAMAGED, "no pages"));
-    }
-
-    let blank: Vec<usize> = texts
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| t.is_empty())
-        .map(|(i, _)| i)
-        .collect();
-    if !blank.is_empty() {
-        for (slot, text) in recover_blank_pages(&cached.bytes, &blank) {
-            texts[slot] = text.trim().to_string();
-        }
-    }
-
-    strip_running_lines(&mut texts);
-    for t in &mut texts {
-        *t = clean_extracted_markdown(t);
-    }
+    let (texts, ocr_reasons) = extracted_res?;
+    let figure_pages: std::collections::HashSet<u32> = figures.iter().map(|f| f.page).collect();
 
     let pages: Vec<Page> = texts
         .into_iter()
+        .zip(ocr_reasons)
         .enumerate()
-        .map(|(i, text)| Page {
-            page: (i + 1) as u32,
-            needs_vision: text.is_empty(),
-            has_table: has_table(&text),
-            text,
+        .map(|(i, (text, reason))| {
+            let page_num = (i + 1) as u32;
+            let has_visual_signal = detected_ocr_pages.contains(&page_num)
+                || reason.is_some()
+                || figure_pages.contains(&page_num);
+            Page {
+                page: page_num,
+                needs_vision: text.is_empty() && has_visual_signal && !no_text_pages.contains(&page_num),
+                has_table: has_table(&text),
+                text,
+            }
         })
         .collect();
 
     let outline = synthesize_outline(&pages);
-    let structure_outline = structure_outline(&cached, pages.len());
-    let (links, figures) = collect_positions(&cached, pages.len());
 
     Ok(DocumentModel {
         page_count: pages.len() as u32,
@@ -1710,7 +1761,24 @@ pub fn extract_region(path: &str, page: u32, rect: Rect) -> Result<RegionText, S
             (!cleaned.is_empty()).then_some(cleaned)
         });
 
-    Ok(RegionText { text, table })
+    let latex = if table.is_none() {
+        extract_math_latex_in_regions_mem(bytes, &regions, PositionFrame::Sheet)
+            .ok()
+            .and_then(|pages| {
+                let joined = pages
+                    .iter()
+                    .flat_map(|p| p.regions.iter())
+                    .filter(|r| r.gate == MathGate::Pass && !r.latex.trim().is_empty())
+                    .map(|r| r.latex.trim())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                (!joined.is_empty()).then_some(joined)
+            })
+    } else {
+        None
+    };
+
+    Ok(RegionText { text, table, latex })
 }
 
 #[cfg(test)]
@@ -2327,5 +2395,75 @@ mod tests {
                 .starts_with(doc_check::PDF_ENCRYPTED)
         );
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn truly_blank_separator_page_skips_vision_queue() {
+        use lopdf::{dictionary, Document, Object, Stream};
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+        });
+        let resources_id = doc.add_object(dictionary! {
+            "Font" => dictionary! { "F1" => font_id },
+        });
+        let content1 = doc.add_object(Stream::new(
+            dictionary! {},
+            b"BT /F1 12 Tf 72 700 Td (Chapter One) Tj 0 -18 Td (First line of native prose.) Tj 0 -18 Td (Second line of native prose.) Tj 0 -18 Td (Third line of native prose.) Tj ET".to_vec(),
+        ));
+        let content2 = doc.add_object(Stream::new(dictionary! {}, Vec::new()));
+        let page1 = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Resources" => resources_id,
+            "Contents" => content1,
+        });
+        let page2 = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Contents" => content2,
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page1.into(), page2.into()],
+                "Count" => 2,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+
+        let tmp = std::env::temp_dir().join(format!("pagewise-blank-sep-{}.pdf", std::process::id()));
+        doc.save(&tmp).unwrap();
+        let model = open_document(tmp.to_str().unwrap()).expect("opens");
+        assert_eq!(model.page_count, 2);
+        assert!(!model.pages[0].needs_vision);
+        assert!(model.pages[1].text.is_empty());
+        assert!(
+            !model.pages[1].needs_vision,
+            "intentionally blank page with no text or images must not be sent to OCR/vision"
+        );
+        evict_cached_pdf(&tmp);
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn prose_region_leaves_math_latex_empty() {
+        let region = extract_region(
+            &fixture("text-simple.pdf"),
+            1,
+            Rect { x: 0.0, y: 0.0, width: 612.0, height: 792.0 },
+        )
+        .expect("region");
+        assert!(region.latex.is_none(), "prose face must not pass the math gate");
     }
 }

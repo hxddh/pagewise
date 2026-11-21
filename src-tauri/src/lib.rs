@@ -125,6 +125,85 @@ fn file_identity(path: &std::path::Path) -> Result<String, String> {
     Ok(format!("fnv1a64:{hash:016x}:{len}"))
 }
 
+#[derive(serde::Serialize)]
+struct PreflightDocument {
+    kind: doc_check::DocumentKind,
+    stamp: String,
+    identity: String,
+}
+
+fn preflight_document(path: &Path) -> Result<PreflightDocument, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).map_err(|e| format!("Read failed: {e}"))?;
+    let meta = file.metadata().map_err(|e| format!("Read failed: {e}"))?;
+    if !meta.is_file() {
+        return Err(doc_check::coded(
+            doc_check::UNSUPPORTED_TYPE,
+            "not a PDF or a supported image",
+        ));
+    }
+    let len = meta.len();
+    if len > doc_check::MAX_DOCUMENT_BYTES {
+        return Err(doc_check::coded(
+            doc_check::FILE_TOO_LARGE,
+            format!("{len} bytes; max {}", doc_check::MAX_DOCUMENT_BYTES),
+        ));
+    }
+    let mtime = meta
+        .modified()
+        .map_err(|e| format!("Failed to read file metadata: {e}"))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("Failed to read file metadata: {e}"))?;
+    let stamp = format!("{}.{:09}:{len}", mtime.as_secs(), mtime.subsec_nanos());
+
+    let mut buf = vec![0u8; IDENTITY_WINDOW as usize];
+    let head = file
+        .read(&mut buf)
+        .map_err(|e| format!("Read failed: {e}"))?;
+    let kind = doc_check::sniff(&buf[..head.min(1024)]).ok_or_else(|| {
+        doc_check::coded(doc_check::UNSUPPORTED_TYPE, "not a PDF or a supported image")
+    })?;
+
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |bytes: &[u8]| {
+        for b in bytes {
+            hash ^= u64::from(*b);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    feed(&buf[..head]);
+    if len > IDENTITY_WINDOW {
+        let tail_start = len.saturating_sub(IDENTITY_WINDOW).max(IDENTITY_WINDOW);
+        file.seek(SeekFrom::Start(tail_start))
+            .map_err(|e| format!("Read failed: {e}"))?;
+        let tail = file
+            .read(&mut buf)
+            .map_err(|e| format!("Read failed: {e}"))?;
+        feed(&buf[..tail]);
+    }
+    feed(&len.to_le_bytes());
+    let identity = format!("fnv1a64:{hash:016x}:{len}");
+
+    Ok(PreflightDocument {
+        kind,
+        stamp,
+        identity,
+    })
+}
+
+/// Single-IPC preflight combining `document_kind_cmd`, `file_stamp_cmd`, and
+/// `file_identity_cmd` into one file open and ≤128 KiB read (27.0).
+#[tauri::command]
+async fn preflight_document_cmd(
+    path: String,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<PreflightDocument, String> {
+    let canon = ensure_allowed(&allowed, &path)?;
+    tauri::async_runtime::spawn_blocking(move || preflight_document(&canon))
+        .await
+        .map_err(|e| format!("Task join failed: {e}"))?
+}
+
 /// Parse a document once and hand back everything the app needs from it.
 #[tauri::command]
 async fn open_document_cmd(
@@ -481,6 +560,7 @@ pub fn run() {
             grants::check_recent_paths,
             grants::open_sample_document,
             cancel_file_read_cmd,
+            preflight_document_cmd,
             file_stamp_cmd,
             file_identity_cmd,
             open_document_cmd,

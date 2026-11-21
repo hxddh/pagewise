@@ -17,6 +17,7 @@
    * of it. The light theme moves the other way for the same reason.
    */
   --bg-canvas: #17171b;
+  --page-surface: #ffffff;
   --bg-panel: var(--bg-surface);
   --border: #232329;
   --border-subtle: #1a1a1f;
@@ -271,6 +272,7 @@
   --bg-elevated: #f4f4f5;
   --bg-hover: #ececee;
   --bg-canvas: #d8d8dd;
+  --page-surface: #ffffff;
   --bg-panel: #ffffff;
   --border: #e4e4e7;
   --border-subtle: #f0f0f2;
@@ -312,6 +314,7 @@
   --bg-elevated: #f1ece2;
   --bg-hover: #eae4d8;
   --bg-canvas: #e2dccf;
+  --page-surface: #f4efe4;
   --bg-panel: #fbf8f2;
   --border: #e0d9cb;
   --border-subtle: #ece6da;
@@ -346,6 +349,7 @@
   --bg-elevated: #171a21;
   --bg-hover: #1e222b;
   --bg-canvas: #0d0e12;
+  --page-surface: #1d1e24;
   --bg-panel: #111318;
   --border: #252934;
   --border-subtle: #1c1f28;
@@ -380,7 +384,7 @@
    pretending otherwise would fight the one palette that reader trusts. */
 @media (forced-colors: active) {
   :root {
-    --bg-base: Canvas; --bg-surface: Canvas; --bg-elevated: Canvas; --bg-hover: Highlight; --bg-canvas: Canvas; --bg-panel: Canvas;
+    --bg-base: Canvas; --bg-surface: Canvas; --bg-elevated: Canvas; --bg-hover: Highlight; --bg-canvas: Canvas; --page-surface: Canvas; --bg-panel: Canvas;
     --border: ButtonBorder; --border-subtle: ButtonBorder; --border-strong: CanvasText;
     --text: CanvasText; --text-secondary: CanvasText; --text-muted: GrayText;
     --accent: LinkText; --accent-hover: LinkText; --accent-text: LinkText; --accent-muted: Canvas;

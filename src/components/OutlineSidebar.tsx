@@ -1,18 +1,13 @@
-import { memo, useEffect, useRef, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "../i18n";
 import { activeHeadingIndex } from "../lib/outline-nav";
 import type { DocHeading } from "../lib/types";
 import { ListRow } from "./ui/ListRow";
 
-/**
- * How far a heading may be indented, in levels.
- *
- * The sidebar gives a row about 143px; each level past the first costs 12 of
- * it, and the title ellipsizes into whatever is left. Level 5 takes 56px of
- * padding and leaves about 87px of title — the point past which the indent
- * stops telling the reader more than the truncation costs them.
- */
 const MAX_OUTLINE_DEPTH = 5;
+const VIRTUALIZE_THRESHOLD = 80;
+const OUTLINE_ROW_PITCH = 30;
+const OUTLINE_OVERSCAN = 12;
 
 interface OutlineSidebarProps {
   outline: DocHeading[];
@@ -37,12 +32,50 @@ export const OutlineSidebar = memo(function OutlineSidebar({
   onPageSelect,
 }: OutlineSidebarProps) {
   const { t } = useI18n();
+  const listRef = useRef<HTMLElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
   const active = activeHeadingIndex(outline, currentPage);
+  const virtualized = outline.length > VIRTUALIZE_THRESHOLD;
+  const [windowRange, setWindowRange] = useState({
+    start: 0,
+    end: Math.min(outline.length, 40),
+  });
+
+  const updateWindow = useCallback(() => {
+    if (!virtualized) return;
+    const el = listRef.current;
+    if (!el) return;
+    const height = el.clientHeight || 600;
+    const visible = Math.ceil(height / OUTLINE_ROW_PITCH) + OUTLINE_OVERSCAN * 2;
+    const rawStart = Math.floor(el.scrollTop / OUTLINE_ROW_PITCH) - OUTLINE_OVERSCAN;
+    const start = Math.min(
+      Math.max(0, rawStart),
+      Math.max(0, outline.length - visible),
+    );
+    const end = Math.min(outline.length, start + visible);
+    setWindowRange((prev) =>
+      prev.start === start && prev.end === end ? prev : { start, end },
+    );
+  }, [virtualized, outline.length]);
+
+  useEffect(() => {
+    if (!virtualized) return;
+    updateWindow();
+  }, [virtualized, outline.length, updateWindow]);
 
   // Follow the reader: paging through the document should move the highlight
   // into view rather than leave it scrolled off.
   useEffect(() => {
+    if (virtualized && active >= 0 && listRef.current) {
+      const list = listRef.current;
+      const rowTop = active * OUTLINE_ROW_PITCH;
+      const rowBottom = rowTop + OUTLINE_ROW_PITCH;
+      if (rowTop < list.scrollTop || rowBottom > list.scrollTop + list.clientHeight) {
+        list.scrollTop = Math.max(0, rowTop - list.clientHeight / 2);
+        updateWindow();
+      }
+      return;
+    }
     const el = activeRef.current;
     const list = el?.closest(".outline-list");
     if (!el || !list) return;
@@ -51,43 +84,45 @@ export const OutlineSidebar = memo(function OutlineSidebar({
     if (elRect.top < listRect.top || elRect.bottom > listRect.bottom) {
       el.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
-  }, [active]);
+  }, [active, virtualized, updateWindow]);
+
+  const start = virtualized ? windowRange.start : 0;
+  const end = virtualized ? windowRange.end : outline.length;
+  const topPad = virtualized ? start * OUTLINE_ROW_PITCH : 0;
+  const bottomPad = virtualized ? Math.max(0, (outline.length - end) * OUTLINE_ROW_PITCH) : 0;
 
   return (
     <aside className="thumb-sidebar outline-sidebar" aria-label={t("preview.outline")}>
       <div className="thumb-sidebar-header">
         {tabs}
       </div>
-      <nav className="outline-list">
-        {outline.map((heading, i) => (
-          <ListRow
-            key={`${heading.page}-${i}-${heading.title}`}
-            ref={i === active ? activeRef : undefined}
-            className={`outline-item level-${heading.level}`}
-            active={i === active}
-            /*
-             * The indent has to come from the level itself. The stylesheet used
-             * to carry one rule, `.level-2`, so every heading at level 3 or
-             * deeper fell back to level 1's padding and sat at exactly the same
-             * x as a top-level section — measured 64px for levels 1, 3, 4 and 5
-             * alike. A three-level document's outline read as flat, which is
-             * the one thing an outline is for.
-             *
-             * Capped at MAX_OUTLINE_DEPTH: PDF outlines nest as deep as their
-             * author liked, and an uncapped indent would push the title out of
-             * a 160px sidebar entirely.
-             */
-            style={
-              {
-                "--outline-depth": Math.min(Math.max(heading.level, 1), MAX_OUTLINE_DEPTH) - 1,
-              } as CSSProperties
-            }
-            title={`${heading.title} · ${t("preview.pageHit", { page: heading.page })}`}
-            onClick={() => onPageSelect(heading.page)}
-            label={<span className="outline-title">{heading.title}</span>}
-            trailing={<span className="outline-page">{heading.page}</span>}
-          />
-        ))}
+      <nav
+        ref={listRef}
+        className="outline-list"
+        onScroll={virtualized ? updateWindow : undefined}
+      >
+        {topPad > 0 && <div style={{ height: topPad, flexShrink: 0 }} aria-hidden />}
+        {outline.slice(start, end).map((heading, offset) => {
+          const i = start + offset;
+          return (
+            <ListRow
+              key={`${heading.page}-${i}-${heading.title}`}
+              ref={i === active ? activeRef : undefined}
+              className={`outline-item level-${heading.level}`}
+              active={i === active}
+              style={
+                {
+                  "--outline-depth": Math.min(Math.max(heading.level, 1), MAX_OUTLINE_DEPTH) - 1,
+                } as CSSProperties
+              }
+              title={`${heading.title} · ${t("preview.pageHit", { page: heading.page })}`}
+              onClick={() => onPageSelect(heading.page)}
+              label={<span className="outline-title">{heading.title}</span>}
+              trailing={<span className="outline-page">{heading.page}</span>}
+            />
+          );
+        })}
+        {bottomPad > 0 && <div style={{ height: bottomPad, flexShrink: 0 }} aria-hidden />}
       </nav>
     </aside>
   );

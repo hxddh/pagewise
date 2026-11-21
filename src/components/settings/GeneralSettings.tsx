@@ -40,6 +40,7 @@ interface GeneralSettingsProps {
   onTestResult?: (message: string, ok: boolean) => void;
   onSaveError?: () => void;
   onRefreshConnection?: () => void;
+  plaintextKeysOnDisk?: boolean;
 }
 
 /**
@@ -102,6 +103,7 @@ export function GeneralSettings({
   onTestResult,
   onSaveError,
   onRefreshConnection,
+  plaintextKeysOnDisk = false,
 }: GeneralSettingsProps) {
   const { t, localeMode, setLocaleMode } = useI18n();
   const { theme, setTheme } = useTheme();
@@ -256,6 +258,7 @@ export function GeneralSettings({
         onIncludeViewingPageDefaultChange={onIncludeViewingPageDefaultChange}
         showUsageLine={showUsageLine}
         onShowUsageLineChange={(value) => void onShowUsageLine(value)}
+        plaintextKeysOnDisk={plaintextKeysOnDisk}
       />
     </div>
   );

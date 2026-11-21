@@ -30,7 +30,10 @@ export interface PagewiseChatTransportOptions<
   TOOLS extends ToolSet,
   RUNTIME_CONTEXT extends Context,
 > {
-  agent: Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>;
+  agent?: Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>;
+  getAgent?: () =>
+    | Promise<Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>>
+    | Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>;
   onError?: (error: unknown) => string;
   resolveModelLabel: () => Promise<string>;
   resolveProvider: () => Promise<ProviderId>;
@@ -44,7 +47,10 @@ export class PagewiseChatTransport<
   RUNTIME_CONTEXT extends Context = Context,
 > implements ChatTransport<PageWiseUIMessage>
 {
-  private readonly agent: Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>;
+  private agent: Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT> | undefined;
+  private readonly getAgent?: () =>
+    | Promise<Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>>
+    | Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>;
   private readonly onError: (error: unknown) => string;
   private readonly resolveModelLabel: () => Promise<string>;
   private readonly resolveProvider: () => Promise<ProviderId>;
@@ -52,16 +58,26 @@ export class PagewiseChatTransport<
 
   constructor({
     agent,
+    getAgent,
     onError = () => "An error occurred.",
     resolveModelLabel,
     resolveProvider,
     onMessagesRepaired,
   }: PagewiseChatTransportOptions<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>) {
     this.agent = agent;
+    this.getAgent = getAgent;
     this.onError = onError;
     this.resolveModelLabel = resolveModelLabel;
     this.resolveProvider = resolveProvider;
     this.onMessagesRepaired = onMessagesRepaired;
+  }
+
+  private async resolveAgent(): Promise<Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT>> {
+    if (this.agent) return this.agent;
+    if (!this.getAgent) throw new Error("Chat transport configured without an agent");
+    const loaded = await this.getAgent();
+    this.agent = loaded;
+    return loaded;
   }
 
   async sendMessages({
@@ -72,11 +88,11 @@ export class PagewiseChatTransport<
   > {
     clearAgentProgress();
 
-    const provider = await this.resolveProvider();
+    const [agent, provider] = await Promise.all([this.resolveAgent(), this.resolveProvider()]);
     const validatedMessages = await validateChatMessagesForSend({
       messages,
       provider,
-      tools: this.agent.tools as Parameters<typeof validateChatMessagesForSend>[0]["tools"],
+      tools: agent.tools as Parameters<typeof validateChatMessagesForSend>[0]["tools"],
     });
     if (messagesSignature(validatedMessages) !== messagesSignature(messages)) {
       this.onMessagesRepaired?.(validatedMessages);
@@ -88,7 +104,7 @@ export class PagewiseChatTransport<
     // What is on screen and on disk is untouched.
     const modelMessages = await convertToModelMessages(
       prepareHistoryForModel(validatedMessages),
-      { tools: this.agent.tools },
+      { tools: agent.tools },
     );
 
     const model = await this.resolveModelLabel();
@@ -108,7 +124,7 @@ export class PagewiseChatTransport<
       const viewCtx = consumePendingAgentContext();
       setWebSearchForRun(viewCtx?.webSearch === true);
       const runtimeContext = buildRuntimeContext(viewCtx);
-      result = await this.agent.stream({
+      result = await agent.stream({
         prompt: modelMessages,
         abortSignal,
         runtimeContext,
@@ -123,7 +139,7 @@ export class PagewiseChatTransport<
 
       const uiStream = toUIMessageStream({
         stream: result.stream,
-        tools: this.agent.tools,
+        tools: agent.tools,
         originalMessages: validatedMessages,
         onError: this.onError,
         messageMetadata: tracker.messageMetadata,

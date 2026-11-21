@@ -25,6 +25,8 @@ const IMAGE_PLACEHOLDER = /\[Image:[^\]]*\]/g;
 export function regionSnapshot(region: RegionText): string {
   const table = region.table?.trim();
   if (table) return truncate(table);
+  const latex = region.latex?.trim();
+  if (latex) return truncate(`$${latex}$`);
   const text = region.text.replace(IMAGE_PLACEHOLDER, " ").replace(/\s+/g, " ").trim();
   return truncate(text);
 }

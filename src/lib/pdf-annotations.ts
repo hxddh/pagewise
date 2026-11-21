@@ -156,6 +156,26 @@ function isPageWiseAnnotation(a: Record<string, unknown>): boolean {
   return false;
 }
 
+function widgetValueOf(a: Record<string, unknown>): string {
+  if (a.password || a.readOnly === true && a.buttonValue !== undefined) return "";
+  const fieldType = typeof a.fieldType === "string" ? a.fieldType : "";
+  if (fieldType !== "Tx" && fieldType !== "Ch") return "";
+  const raw = a.fieldValue;
+  let val = "";
+  if (typeof raw === "string") {
+    val = raw.replace(/\s+/g, " ").trim();
+  } else if (Array.isArray(raw)) {
+    val = raw
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.replace(/\s+/g, " ").trim())
+      .filter((v) => v && v !== "Off")
+      .join(", ");
+  }
+  if (!val || val === "Off") return "";
+  const label = strOf(a.alternativeText) || strOf(a.fieldName);
+  return (label ? `${label}: ${val}` : val).slice(0, MAX_CONTENTS);
+}
+
 export function readableAnnotations(
   raw: readonly unknown[],
   page: number,
@@ -166,8 +186,25 @@ export function readableAnnotations(
     if (!item || typeof item !== "object") continue;
     const a = item as Record<string, unknown>;
     const subtype = typeof a.subtype === "string" ? a.subtype : "";
-    if (!subtype || subtype === "Link" || subtype === "Popup" || subtype === "Widget") continue;
+    if (!subtype || subtype === "Link" || subtype === "Popup") continue;
     if (!options?.includePageWise && isPageWiseAnnotation(a)) continue;
+
+    if (subtype === "Widget") {
+      const filled = widgetValueOf(a);
+      const rect = filled ? rectOf(a.rect) : null;
+      if (filled && rect) {
+        out.push({
+          page,
+          id: typeof a.id === "string" ? a.id : `${page}:${out.length}`,
+          subtype,
+          contents: filled,
+          author: "",
+          quoted: "",
+          rect,
+        });
+      }
+      continue;
+    }
 
     const contents = strOf(a.contentsObj).slice(0, MAX_CONTENTS);
     const quoted = strOf(a.overlaidText).slice(0, MAX_OVERLAID);

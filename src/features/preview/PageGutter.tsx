@@ -154,6 +154,7 @@ function MarkNotePopoverBody({
           onChange={(e) => setNote(e.target.value)}
           onBlur={() => setMarkNote(path, mark.id, latest.current)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             if (e.key === "Escape") {
               e.stopPropagation();
               setMarkNote(path, mark.id, latest.current);

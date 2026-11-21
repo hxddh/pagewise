@@ -13,6 +13,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   SquareDashedMousePointer,
+  Undo2,
 } from "lucide-react";
 import { useI18n } from "../i18n";
 import { AnchoredMenu } from "./AnchoredMenu";
@@ -90,6 +91,9 @@ export interface WorkspaceHeaderProps {
   onZoomOut?: () => void;
   zoomDisabled?: boolean;
   onPageChange: (page: number) => void;
+  canGoBack?: boolean;
+  backPage?: number;
+  onGoBack?: () => void;
   thumbsVisible: boolean;
   onToggleThumbs: () => void;
   /** Region-marking mode. Absent on documents that cannot be marked. */
@@ -254,6 +258,9 @@ export function WorkspaceHeader({
   onZoomChange,
   zoomDisabled,
   onPageChange,
+  canGoBack = false,
+  backPage = 0,
+  onGoBack,
   thumbsVisible,
   onToggleThumbs,
   regionMode,
@@ -330,6 +337,18 @@ export function WorkspaceHeader({
             anchorRef={moreBtnRef}
             className="anchored-popover"
           >
+            {canGoBack && backPage > 0 && onGoBack && (
+              <>
+                <ListRow
+                  role="menuitem"
+                  leading={<Undo2 size={14} aria-hidden />}
+                  label={t("toast.backToPage", { page: backPage })}
+                  trailing={<kbd>Alt←</kbd>}
+                  onClick={run(onGoBack)}
+                />
+                <div className="zoom-menu-divider" role="separator" />
+              </>
+            )}
             <ListRow
               role="menuitem"
               label={t("commands.searchDoc")}
@@ -366,6 +385,15 @@ export function WorkspaceHeader({
                 active={isSameZoom(zoom, z.value)}
                 disabled={zoomDisabled}
                 label={t(z.labelKey)}
+                trailing={
+                  z.value === "fit-width" ? (
+                    <kbd>{mod + "0"}</kbd>
+                  ) : z.value === "comfortable" ? (
+                    <kbd>{mod + "8"}</kbd>
+                  ) : z.value === "fit-page" ? (
+                    <kbd>{mod + "9"}</kbd>
+                  ) : undefined
+                }
                 onClick={run(() => onZoomChange(z.value))}
               />
             ))}

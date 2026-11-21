@@ -161,6 +161,12 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, files: seedFil
       switch (cmd) {
         case "open_document_cmd":
           return doc;
+        case "preflight_document_cmd":
+          return {
+            kind: "pdf",
+            stamp: "harness-stamp",
+            identity: identity ?? "",
+          };
         case "document_kind_cmd":
           // 24.0: the shell decides PDF or image from the file's first bytes;
           // the harness only ever serves a PDF.
@@ -187,7 +193,7 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, files: seedFil
         case "file_stamp_cmd":
           return "harness-stamp";
         case "extract_region_cmd":
-          return { text: "", table: null };
+          return { text: "", table: null, latex: null };
         case "get_api_key":
           return apiKey ?? "";
         case "file_identity_cmd":

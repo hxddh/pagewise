@@ -87,30 +87,62 @@ interface Index {
   avgLength: number;
 }
 
+interface TokenizedPageEntry {
+  plain: string;
+  tf: Map<string, number>;
+  uniTf: Map<string, number>;
+  length: number;
+}
+
+const MAX_PAGE_TOKEN_CACHE = 2_000;
+const pageTokenCache = new Map<string, TokenizedPageEntry>();
+
+function tokenizePageEntry(rawMarkdown: string): TokenizedPageEntry {
+  const hit = pageTokenCache.get(rawMarkdown);
+  if (hit) {
+    pageTokenCache.delete(rawMarkdown);
+    pageTokenCache.set(rawMarkdown, hit);
+    return hit;
+  }
+  const plain = markdownToPlainText(rawMarkdown);
+  const tf = new Map<string, number>();
+  let length = 0;
+  for (const t of tokenize(plain)) {
+    tf.set(t, (tf.get(t) ?? 0) + 1);
+    length += 1;
+  }
+  const uniTf = new Map<string, number>();
+  for (const u of cjkUnigrams(plain)) {
+    uniTf.set(u, (uniTf.get(u) ?? 0) + 1);
+  }
+  const entry: TokenizedPageEntry = { plain, tf, uniTf, length };
+  pageTokenCache.set(rawMarkdown, entry);
+  while (pageTokenCache.size > MAX_PAGE_TOKEN_CACHE) {
+    const oldest = pageTokenCache.keys().next().value;
+    if (oldest === undefined) break;
+    pageTokenCache.delete(oldest);
+  }
+  return entry;
+}
+
 const indexCache = new WeakMap<PageText[], Index>();
 
 function indexOf(pages: PageText[]): Index {
   const hit = indexCache.get(pages);
   if (hit) return hit;
-  const plain = pages.map((p) => markdownToPlainText(p.text));
-  const tf = plain.map((text) => {
-    const counts = new Map<string, number>();
-    for (const t of tokenize(text)) counts.set(t, (counts.get(t) ?? 0) + 1);
-    return counts;
-  });
+  const entries = pages.map((p) => tokenizePageEntry(p.text));
+  const plain = entries.map((e) => e.plain);
+  const tf = entries.map((e) => e.tf);
   const df = new Map<string, number>();
   for (const counts of tf) for (const t of counts.keys()) df.set(t, (df.get(t) ?? 0) + 1);
 
-  const uniTf = plain.map((text) => {
-    const counts = new Map<string, number>();
-    for (const u of cjkUnigrams(text)) counts.set(u, (counts.get(u) ?? 0) + 1);
-    return counts;
-  });
+  const uniTf = entries.map((e) => e.uniTf);
   const uniDf = new Map<string, number>();
   for (const counts of uniTf) for (const u of counts.keys()) uniDf.set(u, (uniDf.get(u) ?? 0) + 1);
 
-  const lengths = tf.map((counts) => [...counts.values()].reduce((a, b) => a + b, 0));
-  const avgLength = lengths.reduce((a, b) => a + b, 0) / Math.max(1, lengths.length) || 1;
+  const lengths = entries.map((e) => e.length);
+  const totalLen = lengths.reduce((a, b) => a + b, 0);
+  const avgLength = totalLen / Math.max(1, lengths.length) || 1;
   const index = { plain, tf, df, uniTf, uniDf, lengths, avgLength };
   indexCache.set(pages, index);
   return index;

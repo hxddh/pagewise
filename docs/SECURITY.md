@@ -6,9 +6,9 @@ PageWise stores LLM API keys in the **operating system credential store**, not i
 
 | Platform | Storage |
 |----------|---------|
-| macOS | Keychain (`pagewise` service, `api-key/{provider}` account) |
-| Windows | Credential Manager |
-| Linux | Secret Service (when available) |
+| macOS | Owner-only `0600` atomic vault (`api-keys.vault` inside `app_data_dir`, unreachable from `store_read_cmd`/`store_write_cmd`; legacy Login Keychain entries `api-key/{provider}` are migrated and deleted once on first read) |
+| Windows | Credential Manager (`pagewise` service, consolidated `api-keys-v2` vault) |
+| Linux | Secret Service (`pagewise` service, consolidated `api-keys-v2` vault, when available) |
 
 Implementation: `src-tauri/src/secrets.rs`, `src/lib/api-key-store.ts`.
 

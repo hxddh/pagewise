@@ -411,6 +411,8 @@
     "recent": "Recent",
     "firstOpenHint": "Tip: type to filter commands",
     "walkConversation": "Previous / next message",
+    "jumpHistory": "Back / forward after a jump",
+    "scrollRead": "Scroll down / up smoothly",
     "export": "Export…",
     "zen": "Zen: hide the chrome"
   },

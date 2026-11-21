@@ -33,6 +33,7 @@ interface SettingsDrawerProps {
   onTestResult?: (message: string, ok: boolean) => void;
   onSaveError?: () => void;
   onRefreshConnection?: () => void;
+  plaintextKeysOnDisk?: boolean;
 }
 
 const TABS = ["general", "shortcuts", "about"] as const satisfies readonly SettingsTab[];
@@ -76,6 +77,7 @@ function SettingsDrawerInner({
   onTestResult,
   onSaveError,
   onRefreshConnection,
+  plaintextKeysOnDisk = false,
 }: SettingsDrawerProps) {
   const { t } = useI18n();
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -237,6 +239,7 @@ function SettingsDrawerInner({
                       onTestResult={onTestResult}
                       onSaveError={onSaveError}
                       onRefreshConnection={onRefreshConnection}
+                      plaintextKeysOnDisk={plaintextKeysOnDisk}
                     />
                   </div>
                 )}

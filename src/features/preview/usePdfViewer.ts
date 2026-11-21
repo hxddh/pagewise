@@ -25,9 +25,9 @@ function loadZoom(): ZoomMode {
 
 const MAX_HISTORY = 32;
 
-interface ReaderPlace {
+export interface ReaderPlace {
   page: number;
-  scrollTop: number;
+  topFraction: number;
 }
 
 interface UsePdfViewerOptions {
@@ -36,6 +36,7 @@ interface UsePdfViewerOptions {
   onPageChange: (page: number) => void;
   prefsRevision?: number;
   onToggleThumbs?: () => void;
+  onRestorePlace?: (place: ReaderPlace) => void;
 }
 
 /**
@@ -53,6 +54,7 @@ export function usePdfViewer({
   onPageChange,
   prefsRevision = 0,
   onToggleThumbs,
+  onRestorePlace,
 }: UsePdfViewerOptions) {
   const [zoom, setZoom] = useState<ZoomMode>(loadZoom);
   const [quality, setQuality] = useState<PreviewQuality>("crisp");
@@ -64,6 +66,8 @@ export function usePdfViewer({
   const forwardStackRef = useRef<ReaderPlace[]>([]);
   const onToggleThumbsRef = useRef(onToggleThumbs);
   onToggleThumbsRef.current = onToggleThumbs;
+  const onRestorePlaceRef = useRef(onRestorePlace);
+  onRestorePlaceRef.current = onRestorePlace;
   const pageRef = useRef(page);
   const totalRef = useRef(doc.kind === "pdf" ? doc.totalPages : 1);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -111,18 +115,34 @@ export function usePdfViewer({
     if (Number.isFinite(scale) && scale > 0) resolvedScaleRef.current = scale;
   }, []);
 
-  const bumpZoom = useCallback((next: ZoomMode) => {
-    setZoom((prev) => {
-      if (isSameZoom(prev, next)) return prev;
-      if (typeof next === "number") lastNumericRef.current = next;
-      try {
-        localStorage.setItem(ZOOM_KEY, typeof next === "number" ? String(next) : next);
-      } catch {
-        // Ignore storage errors in restricted contexts.
-      }
-      return next;
-    });
+  const persistZoom = useCallback((next: ZoomMode) => {
+    try {
+      localStorage.setItem(ZOOM_KEY, typeof next === "number" ? String(next) : next);
+    } catch {
+      // Ignore storage errors in restricted contexts.
+    }
   }, []);
+
+  const bumpZoom = useCallback(
+    (next: ZoomMode) => {
+      setZoom((prev) => {
+        if (isSameZoom(prev, next)) return prev;
+        if (typeof next === "number") lastNumericRef.current = next;
+        persistZoom(next);
+        return next;
+      });
+    },
+    [persistZoom],
+  );
+
+  const handlePinchZoom = useCallback(
+    (next: number, settled = false) => {
+      lastNumericRef.current = next;
+      setZoom((prev) => (isSameZoom(prev, next) ? prev : next));
+      if (settled) persistZoom(next);
+    },
+    [persistZoom],
+  );
 
   const zoomIn = useCallback(() => {
     bumpZoom(stepZoom(zoom, 1, resolvedScaleRef.current));
@@ -149,60 +169,56 @@ export function usePdfViewer({
     });
   }, []);
 
+  const readCurrentPlace = useCallback((): ReaderPlace => {
+    const curPage = pageRef.current;
+    const scroller = scrollerRef.current;
+    if (!scroller) return { page: curPage, topFraction: 0 };
+    const slot = scroller.querySelector<HTMLElement>(`.pdf-page-slot[data-page="${curPage}"]`);
+    if (!slot || slot.offsetHeight <= 0) return { page: curPage, topFraction: 0 };
+    const raw = (scroller.scrollTop - slot.offsetTop) / slot.offsetHeight;
+    const topFraction = Math.min(0.98, Math.max(0, Number.isFinite(raw) ? raw : 0));
+    return { page: curPage, topFraction };
+  }, []);
+
   const recordJumpFromCurrent = useCallback(
     (targetPage: number) => {
       const clamped = Math.min(totalRef.current, Math.max(1, targetPage));
       if (Math.abs(clamped - pageRef.current) < 2) return;
-      const cur: ReaderPlace = {
-        page: pageRef.current,
-        scrollTop: scrollerRef.current?.scrollTop ?? 0,
-      };
+      const cur = readCurrentPlace();
       const prevTop = backStackRef.current[backStackRef.current.length - 1];
       if (!prevTop || prevTop.page !== cur.page) {
         backStackRef.current.push(cur);
         if (backStackRef.current.length > MAX_HISTORY) backStackRef.current.shift();
+      } else {
+        prevTop.topFraction = cur.topFraction;
       }
       forwardStackRef.current = [];
       syncHistoryState();
     },
-    [syncHistoryState],
+    [readCurrentPlace, syncHistoryState],
   );
 
   const goBack = useCallback(() => {
     const entry = backStackRef.current.pop();
     if (!entry) return false;
-    forwardStackRef.current.push({
-      page: pageRef.current,
-      scrollTop: scrollerRef.current?.scrollTop ?? 0,
-    });
+    forwardStackRef.current.push(readCurrentPlace());
     if (forwardStackRef.current.length > MAX_HISTORY) forwardStackRef.current.shift();
     syncHistoryState();
     onPageChange(entry.page);
-    requestAnimationFrame(() => {
-      if (scrollerRef.current && entry.scrollTop > 0) {
-        scrollerRef.current.scrollTop = entry.scrollTop;
-      }
-    });
+    onRestorePlaceRef.current?.(entry);
     return true;
-  }, [onPageChange, syncHistoryState]);
+  }, [onPageChange, readCurrentPlace, syncHistoryState]);
 
   const goForward = useCallback(() => {
     const entry = forwardStackRef.current.pop();
     if (!entry) return false;
-    backStackRef.current.push({
-      page: pageRef.current,
-      scrollTop: scrollerRef.current?.scrollTop ?? 0,
-    });
+    backStackRef.current.push(readCurrentPlace());
     if (backStackRef.current.length > MAX_HISTORY) backStackRef.current.shift();
     syncHistoryState();
     onPageChange(entry.page);
-    requestAnimationFrame(() => {
-      if (scrollerRef.current && entry.scrollTop > 0) {
-        scrollerRef.current.scrollTop = entry.scrollTop;
-      }
-    });
+    onRestorePlaceRef.current?.(entry);
     return true;
-  }, [onPageChange, syncHistoryState]);
+  }, [onPageChange, readCurrentPlace, syncHistoryState]);
 
   const goToPage = useCallback(
     (next: number) => {
@@ -243,14 +259,23 @@ export function usePdfViewer({
     [goToPage],
   );
 
+  const jumpToPage = useCallback(
+    (next: number) => {
+      recordJumpFromCurrent(next);
+      goToPage(next);
+    },
+    [recordJumpFromCurrent, goToPage],
+  );
+
   useEffect(() => {
     registerPreviewActions({
       prevPage,
       nextPage,
       goToPage,
+      jumpToPage,
     });
     return () => registerPreviewActions(null);
-  }, [prevPage, nextPage, goToPage]);
+  }, [prevPage, nextPage, goToPage, jumpToPage]);
 
   useEffect(() => {
     if (doc.kind !== "pdf") return;
@@ -361,6 +386,7 @@ export function usePdfViewer({
     zoom,
     quality,
     handleZoomChange: bumpZoom,
+    handlePinchZoom,
     onScaleResolved,
     zoomIn,
     zoomOut,

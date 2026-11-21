@@ -133,7 +133,15 @@
   object-fit: contain;
   display: block;
   border-radius: var(--radius-sm);
-  background: var(--bg-base);
+  background: var(--page-surface);
+}
+
+[data-theme="paper"] .thumb-canvas {
+  filter: sepia(0.11) brightness(0.985);
+}
+
+[data-theme="night"] .thumb-canvas {
+  filter: invert(0.89) hue-rotate(180deg) brightness(0.96) contrast(0.92);
 }
 
 .thumb-label {

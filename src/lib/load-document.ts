@@ -8,6 +8,7 @@ import {
   openDocument,
   preparePdfSwitch,
 } from "./pdf";
+import { preflightDocument } from "./preflight-document";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
@@ -63,18 +64,20 @@ export async function loadDocument(
   const name = path.split(/[/\\]/).pop() ?? path;
 
   await requireGrantedPath(path);
-  // By content and after a size check, before anything reads the file whole
-  // (24.0). The extension used to decide: a TIFF on Windows opened as a blank
-  // page, and a file over the preview cap opened and then failed per page.
-  // Rejects with a coded message `open-error.ts` translates.
-  const kind = await documentKind(path);
-
-  // Stamped after authorization (the command requires it) and before extraction,
-  // so a rewrite during the parse advances the real stamp and the next open
-  // misses the cache instead of being served text from the older contents.
-  const stamp = await fileStamp(path);
-  // And what the file is, so a rename does not lose what was written on it.
-  const identity = await fileIdentity(path);
+  // Single-IPC preflight (27.0) reads kind, stamp and fingerprint in one open;
+  // unit tests that mock `documentKind`/`fileStamp` individually fall back cleanly.
+  let kind: "pdf" | "image";
+  let stamp: string;
+  let identity: string;
+  const preflight = await preflightDocument(path);
+  if (preflight) {
+    kind = preflight.kind;
+    stamp = preflight.stamp;
+    identity = preflight.identity;
+  } else {
+    kind = await documentKind(path);
+    [stamp, identity] = await Promise.all([fileStamp(path), fileIdentity(path)]);
+  }
 
   report(onProgress, { stage: "opening", message: "load.openingFile", percent: 5 });
   throwIfAborted(signal);
@@ -142,17 +145,14 @@ export async function loadDocument(
     };
   }
 
-  // Fold in page text that previously cost a vision call. Without this every
-  // scanned page is re-indexed — and re-billed — on each launch.
-  if (stamp) {
-    const cached = await loadIndexedPages(path, stamp, identity);
-    if (cached.length > 0) {
-      doc = { ...doc, pages: mergePageTextsOnReload(cached, doc.pages) };
-    }
+  // Fold in cached vision text and local OCR text in parallel (27.0).
+  const [cached, recognised] = await Promise.all([
+    stamp ? loadIndexedPages(path, stamp, identity) : Promise.resolve([]),
+    restoreOcr(path, identity),
+  ]);
+  if (cached.length > 0) {
+    doc = { ...doc, pages: mergePageTextsOnReload(cached, doc.pages) };
   }
-  // And what local OCR read on it before (14.0): free to recompute, but at
-  // seconds a page, so a reopened scan should not start from nothing.
-  const recognised = await restoreOcr(path, identity);
   if (recognised.length > 0) {
     doc = { ...doc, pages: mergePageTextsOnReload(recognised, doc.pages) };
   }

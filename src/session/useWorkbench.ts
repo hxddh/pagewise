@@ -38,7 +38,7 @@ import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
 import { createDocumentScope, type DocumentScope } from "../lib/document-scope";
-import { useDocAgent, type DocAgent } from "../hooks/useDocAgent";
+import { useDocAgent, warmDocAgentInIdle, type DocAgent } from "../hooks/useDocAgent";
 import { useConnectionStatus } from "../hooks/useConnectionStatus";
 import { useResizeWidth } from "../hooks/useResizeWidth";
 import { useTauriFileDrop } from "../hooks/useTauriFileDrop";
@@ -368,9 +368,11 @@ export function useWorkbench(): Workbench {
         const doc = commitLoadedDocument(staged);
         notifiedStampRef.current = doc.stamp ?? null;
         scopeRef.current = createDocumentScope(doc.path);
-        await loadMarks(doc.path, doc.identity);
-        const findings = await loadFindings(doc.path, doc.identity);
-        await loadReviews(doc.path, doc.stamp ?? "");
+        const [, findings] = await Promise.all([
+          loadMarks(doc.path, doc.identity),
+          loadFindings(doc.path, doc.identity),
+          loadReviews(doc.path, doc.stamp ?? ""),
+        ]);
         void prewarmPlacements(doc.path, findings);
         chatHydrateRef.current = { path: doc.path, messages };
         setChatHydrateNonce((n) => n + 1);
@@ -381,6 +383,7 @@ export function useWorkbench(): Workbench {
         const resumeAt = remembered > 1 && remembered <= doc.totalPages ? remembered : 1;
         setPreviewPage(resumeAt);
         setPhase("ready");
+        warmDocAgentInIdle();
 
         try {
           const recent = await addRecentFile({

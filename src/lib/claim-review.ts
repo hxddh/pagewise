@@ -30,14 +30,11 @@
  * asked about too, against its page's text: that is the next step for a red
  * chip, which until now could only say "not found".
  */
-import { generateObject } from "ai";
 import type { CitationCheck } from "./citation-check";
-import { z } from "zod";
 import { createAtomicStore } from "./atomic-store";
 import { createStoreRuntime } from "./json-store";
-import { resolveModel } from "./llm";
+import { assertApiKeyForAgent, resolveModel } from "./llm";
 import { loadSettings } from "./settings";
-import { assertApiKeyForAgent } from "./llm";
 import { reportStoreProblem } from "./store-health";
 import { addIndexUsage } from "./usage-tracker";
 
@@ -48,19 +45,6 @@ export interface ClaimReview {
   /** One sentence, quoting the words it turned on. */
   reason: string;
 }
-
-const verdictSchema = z.enum(["supports", "contradicts", "insufficient"]);
-
-export const claimReviewBatchSchema = z.object({
-  reviews: z.array(
-    z.object({
-      /** The citation's number in the prompt, from 1. */
-      item: z.number().int(),
-      verdict: verdictSchema,
-      reason: z.string(),
-    }),
-  ),
-});
 
 /** A paragraph is far shorter; a page longer than this is not sent at all (`MAX_PAGE_TEXT`). */
 const MAX_PASSAGE = 4000;
@@ -212,9 +196,19 @@ export async function askModel(
 ): Promise<(ClaimReview | null)[]> {
   const settings = await loadSettings();
   assertApiKeyForAgent(settings);
+  const [{ generateObject }, { z }] = await Promise.all([import("ai"), import("zod")]);
+  const schema = z.object({
+    reviews: z.array(
+      z.object({
+        item: z.number().int(),
+        verdict: z.enum(["supports", "contradicts", "insufficient"]),
+        reason: z.string(),
+      }),
+    ),
+  });
   const { object, usage } = await generateObject({
     model: resolveModel(settings),
-    schema: claimReviewBatchSchema,
+    schema,
     prompt: reviewPrompt(items),
     abortSignal: signal,
   });

@@ -58,8 +58,28 @@ export function getShortcutRows(
     },
     {
       section: "document",
+      keys: `${mod}0 / ${mod}9`,
+      description: `${t("preview.fitWidth")} / ${t("preview.fitPage")}`,
+    },
+    {
+      section: "document",
+      keys: `${mod}B`,
+      description: `${t("preview.pages")} / ${t("preview.outline")}`,
+    },
+    {
+      section: "document",
       keys: `${mod}[ / ${mod}]`,
       description: `${t("commands.prevPage")} / ${t("commands.nextPage")}`,
+    },
+    {
+      section: "document",
+      keys: "Alt\u2190 / Alt\u2192",
+      description: t("commands.jumpHistory"),
+    },
+    {
+      section: "document",
+      keys: "j / k",
+      description: t("commands.scrollRead"),
     },
     { section: "agent", keys: `${mod}\\`, description: t("commands.showAgent") },
     {

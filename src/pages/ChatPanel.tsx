@@ -1,5 +1,8 @@
 import {
   forwardRef,
+  lazy,
+  memo,
+  Suspense,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -13,8 +16,11 @@ import { PageRefContext } from "../components/Markdown";
 import { CitationContext, type CitationEnv } from "../components/CitationChip";
 import type { PdfRect } from "../lib/types";
 import { requestOpenDocSearch } from "../lib/events";
-import { RecordPanel } from "../components/RecordPanel";
 import { findingsAreStale } from "../lib/finding-store";
+
+const RecordPanel = lazy(() =>
+  import("../components/RecordPanel").then((m) => ({ default: m.RecordPanel })),
+);
 import { ChatEmptyState } from "../components/EmptyState";
 import type { LoadedDocument } from "../lib/types";
 import type { DocAgent } from "../hooks/useDocAgent";
@@ -85,7 +91,7 @@ interface QueuedQuestion {
   webSearch: boolean;
 }
 
-export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
+export const ChatPanel = memo(forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
   {
     doc,
     page,
@@ -233,19 +239,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       <CitationContext.Provider value={citationEnv}>
         <section className="chat-panel" aria-label={t("agent.title")} onKeyDown={convKeys.onKeyDown}>
           {panel.tab === "record" ? (
-            <RecordPanel
-              path={doc?.path ?? ""}
-              revision={panel.revision}
-              currentPage={page}
-              stale={doc ? findingsAreStale(doc.path, doc.stamp ?? "") : false}
-              stamp={doc?.stamp ?? ""}
-              totalPages={doc?.totalPages ?? 0}
-              onJumpToPage={(target) => reveal.onJumpToPage?.(target)}
-              onRevealFinding={reveal.onRevealFinding}
-              onSelectMark={reveal.onSelectMark}
-              onRevealMessage={record.revealMessage}
-              hasMessage={record.hasMessage}
-            />
+            <Suspense fallback={null}>
+              <RecordPanel
+                path={doc?.path ?? ""}
+                revision={panel.revision}
+                currentPage={page}
+                stale={doc ? findingsAreStale(doc.path, doc.stamp ?? "") : false}
+                stamp={doc?.stamp ?? ""}
+                totalPages={doc?.totalPages ?? 0}
+                onJumpToPage={(target) => reveal.onJumpToPage?.(target)}
+                onRevealFinding={reveal.onRevealFinding}
+                onSelectMark={reveal.onSelectMark}
+                onRevealMessage={record.revealMessage}
+                hasMessage={record.hasMessage}
+              />
+            </Suspense>
           ) : (
             <MessageList
               messages={agent.messages.list}
@@ -325,4 +333,4 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       </CitationContext.Provider>
     </PageRefContext.Provider>
   );
-});
+}));

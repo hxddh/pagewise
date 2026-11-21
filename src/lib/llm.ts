@@ -1,7 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { APICallError, StreamProviderError, generateText, tool, type LanguageModel } from "ai";
-import { z } from "zod";
 import { getAgentRunAbortSignal } from "./agent-abort";
 import { CONNECTION_TEST_TIMEOUT_MS } from "./agent-timeouts";
 import { isToolModel, isVisionModel } from "./model-capabilities";
@@ -845,6 +844,7 @@ export async function testConnection(
   assertApiKey(settings, t);
 
   try {
+    const { z } = await import("zod");
     const { text } = await generateText({
       model: resolveModel(settings),
       reasoning: resolveReasoning(settings),

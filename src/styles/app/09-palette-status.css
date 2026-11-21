@@ -189,7 +189,9 @@
 }
 
 .zoom-menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
   width: 100%;
   padding: var(--space-sm) var(--space-md);
   border: none;

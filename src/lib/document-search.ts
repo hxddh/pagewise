@@ -83,12 +83,39 @@ function foldWithMap(text: string): { folded: string; map: number[] } {
   return { folded, map };
 }
 
+interface FoldedPageEntry {
+  normText: string;
+  folded: string;
+  map: Int32Array;
+}
+
+const MAX_FOLD_CACHE = 2_000;
+const foldPageCache = new Map<string, FoldedPageEntry>();
+
+function getFoldedPage(rawMarkdown: string): FoldedPageEntry {
+  const hit = foldPageCache.get(rawMarkdown);
+  if (hit) {
+    foldPageCache.delete(rawMarkdown);
+    foldPageCache.set(rawMarkdown, hit);
+    return hit;
+  }
+  const normText = markdownToPlainText(rawMarkdown).normalize("NFC");
+  const { folded, map } = foldWithMap(normText);
+  const entry: FoldedPageEntry = { normText, folded, map: Int32Array.from(map) };
+  foldPageCache.set(rawMarkdown, entry);
+  while (foldPageCache.size > MAX_FOLD_CACHE) {
+    const oldest = foldPageCache.keys().next().value;
+    if (oldest === undefined) break;
+    foldPageCache.delete(oldest);
+  }
+  return entry;
+}
+
 export function searchDocumentPages(
   pages: PageText[],
   query: string,
   limit = 80,
 ): SearchHit[] {
-  pages = pages.map((p) => ({ ...p, text: markdownToPlainText(p.text) }));
   const rawQuery = query.trim();
   if (!rawQuery) return [];
 
@@ -99,8 +126,7 @@ export function searchDocumentPages(
   let totalHits = 0;
 
   for (const { page, text } of pages) {
-    const normText = text.normalize("NFC");
-    const { folded, map } = foldWithMap(normText);
+    const { normText, folded, map } = getFoldedPage(text);
 
     const pageHits: SearchHit[] = [];
     let from = 0;
@@ -154,12 +180,11 @@ export function searchDocumentPages(
 }
 
 export function countSearchHits(pages: PageText[], query: string): number {
-  const plain = pages.map((p) => markdownToPlainText(p.text));
   const foldedQuery = foldWithMap(query.trim().normalize("NFC")).folded.trim();
   if (!foldedQuery) return 0;
   let count = 0;
-  for (const text of plain) {
-    const { folded } = foldWithMap(text.normalize("NFC"));
+  for (const { text } of pages) {
+    const { folded } = getFoldedPage(text);
     let from = 0;
     for (;;) {
       const idx = folded.indexOf(foldedQuery, from);

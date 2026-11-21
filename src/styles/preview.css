@@ -379,7 +379,7 @@
 }
 
 .app.v3 .preview-page-frame {
-  background: #fff;
+  background: var(--page-surface);
   border-radius: 1px;
   box-shadow: var(--shadow-sm);
 }
@@ -498,7 +498,7 @@
    */
   left: 50%;
   transform: translateX(-50%);
-  background: #fff;
+  background: var(--page-surface);
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.28),
     var(--shadow-md);
@@ -520,6 +520,11 @@
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.pdf-page-slot .preview-canvas.preview-canvas-pinching {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .pdf-page-number {
@@ -938,6 +943,21 @@
   min-width: 0;
   border: none;
   background: transparent;
+}
+
+/* Lift bottom-left OCR/index status badges clear of the centered Living Margin
+   ask stack so narrow windows never overlap controls (27.0). */
+.preview-canvas-has-ask .preview-index-badge,
+.preview-canvas-has-ask .preview-index-badge-row,
+.preview-canvas-has-ask .preview-reading-line {
+  bottom: 68px;
+}
+
+.margin-ask-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+    var(--shadow-md);
 }
 
 /* focus-exception: the floating bar itself frames the input while typing;

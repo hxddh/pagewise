@@ -401,19 +401,19 @@ pub fn annotate_bytes_with_password(
     annotations: &[AnnotationIn],
     password: Option<&str>,
 ) -> Result<(Vec<u8>, usize), String> {
-    let mut doc = match password {
-        Some(pw) if !pw.is_empty() => Document::load_mem_with_options(
-            bytes,
-            lopdf::LoadOptions {
-                password: Some(pw.to_string()),
-                ..Default::default()
-            },
-        )
-        .or_else(|_| Document::load_mem(bytes))
-        .map_err(|e| format!("Failed to read PDF: {e}"))?,
-        _ => Document::load_mem(bytes).map_err(|e| format!("Failed to read PDF: {e}"))?,
-    };
+    let pw_str = password.unwrap_or("").to_string();
+    let mut doc = Document::load_mem_with_options(
+        bytes,
+        lopdf::LoadOptions {
+            password: Some(pw_str),
+            ..Default::default()
+        },
+    )
+    .or_else(|_| Document::load_mem(bytes))
+    .map_err(|e| format!("Failed to read PDF: {e}"))?;
     ensure_decrypted(&mut doc, password)?;
+    doc.trailer.remove(b"Encrypt");
+    doc.encryption_state = None;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -646,6 +646,18 @@ mod tests {
         let user_bytes = std::fs::read(fixture("encrypted.pdf")).unwrap();
         let err = annotate_bytes(&user_bytes, &[annot("enc", 1, Frame::Pdf, r, "x")]).unwrap_err();
         assert!(err.starts_with(doc_check::PDF_ENCRYPTED), "{err}");
+
+        // Session-unlocked user-encrypted PDF exports a clean, unencrypted annotated copy.
+        let (unlocked_out, unlocked_n) = annotate_bytes_with_password(
+            &user_bytes,
+            &[annot("enc-ok", 1, Frame::Pdf, r, "unlocked note")],
+            Some("secret"),
+        )
+        .expect("session password unlocks and exports");
+        assert_eq!(unlocked_n, 1);
+        let unlocked_reopened = Document::load_mem(&unlocked_out).expect("reopens without password");
+        assert!(!unlocked_reopened.is_encrypted());
+        assert_eq!(page_annots(&unlocked_reopened, 1).len(), 1);
     }
 
     #[test]

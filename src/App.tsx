@@ -35,6 +35,7 @@ import { subscribeChecks, checksRevision } from "./lib/citation-check";
 import { subscribeReviews, reviewRevision } from "./lib/claim-review";
 import { SearchScopeProvider, focusMessageRow } from "./components/SearchScope";
 import { WorkspaceChromeProvider } from "./components/WorkspaceHeader";
+import { previewJumpToPage } from "./lib/preview-actions";
 import type { RevealedCitation } from "./features/preview/CitationHighlight";
 import "./styles/tokens.css";
 import "./styles/ui.css";
@@ -197,7 +198,9 @@ function AppContent() {
     [doc, recordRevision],
   );
 
-  const chatRef = useRef<ChatPanelHandle>(null);
+  const chatRef = useRef<ChatPanelHandle | null>(null);
+  const pendingMarginQuestionRef = useRef<string | null>(null);
+  const [chatEverOpened, setChatEverOpened] = useState(() => s.assistant.open);
   const [focusComposerNonce, setFocusComposerNonce] = useState(0);
   const [marginFocusNonce, setMarginFocusNonce] = useState(0);
   const [marginAskOpen, setMarginAskOpen] = useState(false);
@@ -208,6 +211,26 @@ function AppContent() {
   // Zen (18.0): the rail, the header and the panel leave; the page and a
   // progress hairline stay. Not persisted — a posture for this sitting.
   const [zen, setZen] = useState(false);
+
+  useEffect(() => {
+    if (s.assistant.open || marginSessionActive) setChatEverOpened(true);
+  }, [s.assistant.open, marginSessionActive]);
+
+  const bindChatRef = useCallback((handle: ChatPanelHandle | null) => {
+    chatRef.current = handle;
+    if (handle && pendingMarginQuestionRef.current !== null) {
+      const pending = pendingMarginQuestionRef.current;
+      pendingMarginQuestionRef.current = null;
+      handle.submitQuestion(pending);
+    }
+  }, []);
+
+  const jumpToDocumentPage = useCallback(
+    (target: number) => {
+      if (!previewJumpToPage(target)) s.document.setPage(target);
+    },
+    [s.document],
+  );
   const askAboutSelection = useCallback(
     (text: string) => {
       const insert = text.trim();
@@ -581,6 +604,7 @@ function AppContent() {
             onTestResult={(message, ok) => showToast(message, ok ? "success" : "error")}
             onSaveError={() => showToast(t("settings.saveFailed"), "error")}
             onRefreshConnection={() => conn.refresh()}
+            plaintextKeysOnDisk={conn.plaintextKeysOnDisk}
             onSetupDone={() => {
               if (!s.document.doc) s.library.openFileDialog();
             }}
@@ -675,8 +699,13 @@ function AppContent() {
                         onDraftChange: setComposerDraft,
                         onSubmit: (text) => {
                           setMarginSessionActive(true);
+                          setChatEverOpened(true);
                           setDismissedMarginReplyId(null);
-                          chatRef.current?.submitQuestion(text);
+                          if (chatRef.current) {
+                            chatRef.current.submitQuestion(text);
+                          } else {
+                            pendingMarginQuestionRef.current = text;
+                          }
                         },
                         onStop: agent.run.stop,
                         onDismiss: zen ? () => setMarginAskOpen(false) : undefined,
@@ -706,38 +735,40 @@ function AppContent() {
                     aria-hidden={!s.assistant.open}
                   >
                     <Suspense fallback={<PanelFallback />}>
-                      <ChatPanel
-                        ref={chatRef}
-                        doc={doc}
-                        page={s.document.page}
-                        includeViewingPage={prefs.includeViewingPage}
-                        agent={agent}
-                        connection={conn}
-                        session={{ loading, chatLoading: s.document.chatLoading }}
-                        composerDraft={composerDraft}
-                        onComposerDraftChange={setComposerDraft}
-                        panel={{ tab: panelTab, setTab: setPanelTab, revision: recordRevision }}
-                        reveal={{
-                          onJumpToPage: s.document.setPage,
-                          onRevealFinding: (id, target) => {
-                            s.document.setPage(target);
-                            setRevealedFindingId(id);
-                          },
-                          onRevealCitation: (target, rects, notice) => {
-                            s.document.setPage(target);
-                            setRevealedCitation(rects ? { page: target, rects, nonce: Date.now() } : null);
-                            // Nothing lit: say why, in the chip's words (21.0).
-                            if (notice) showToast(notice);
-                          },
-                          onSelectMark: (target, id) => {
-                            s.document.setPage(target);
-                            setSelectedMarkId(id);
-                          },
-                        }}
-                        scan={{ count: unscannedPages, onScanAllPages: requestScanAll }}
-                        onConfigureApi={overlays.openSettings}
-                        settingsOpen={s.assistant.shell.settingsOpen}
-                      />
+                      {(s.assistant.open || chatEverOpened || marginSessionActive) && (
+                        <ChatPanel
+                          ref={bindChatRef}
+                          doc={doc}
+                          page={s.document.page}
+                          includeViewingPage={prefs.includeViewingPage}
+                          agent={agent}
+                          connection={conn}
+                          session={{ loading, chatLoading: s.document.chatLoading }}
+                          composerDraft={composerDraft}
+                          onComposerDraftChange={setComposerDraft}
+                          panel={{ tab: panelTab, setTab: setPanelTab, revision: recordRevision }}
+                          reveal={{
+                            onJumpToPage: jumpToDocumentPage,
+                            onRevealFinding: (id, target) => {
+                              jumpToDocumentPage(target);
+                              setRevealedFindingId(id);
+                            },
+                            onRevealCitation: (target, rects, notice) => {
+                              jumpToDocumentPage(target);
+                              setRevealedCitation(rects ? { page: target, rects, nonce: Date.now() } : null);
+                              // Nothing lit: say why, in the chip's words (21.0).
+                              if (notice) showToast(notice);
+                            },
+                            onSelectMark: (target, id) => {
+                              jumpToDocumentPage(target);
+                              setSelectedMarkId(id);
+                            },
+                          }}
+                          scan={{ count: unscannedPages, onScanAllPages: requestScanAll }}
+                          onConfigureApi={overlays.openSettings}
+                          settingsOpen={s.assistant.shell.settingsOpen}
+                        />
+                      )}
                     </Suspense>
                   </div>
 
