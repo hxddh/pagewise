@@ -74,7 +74,15 @@ function toPxBox(
       const height = (rect.height / vh) * pageHeightPx;
       return width > 0 && height > 0 ? { text, left, top, width, height } : null;
     }
-    return null;
+    // Fallback when neither `geometry` nor `view` was supplied: map against
+    // standard unrotated Letter [0, 0, 612, 792] (or the rendered box when larger).
+    const vw = Math.max(612, rect.x + rect.width);
+    const vh = Math.max(792, rect.y + rect.height);
+    const left = (rect.x / vw) * pageWidthPx;
+    const top = ((vh - (rect.y + rect.height)) / vh) * pageHeightPx;
+    const width = (rect.width / vw) * pageWidthPx;
+    const height = (rect.height / vh) * pageHeightPx;
+    return width > 0 && height > 0 ? { text, left, top, width, height } : null;
   }
 
   const { x0, y0, x1, y1 } = word.bbox;
@@ -114,6 +122,31 @@ function sortReadingOrder(boxes: PxBox[]): PxBox[][] {
   }
   for (const line of lines) line.sort((a, b) => a.left - b.left);
   return lines;
+}
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+
+function getMeasureContext(): CanvasRenderingContext2D | null {
+  if (measureCtx !== undefined) return measureCtx;
+  if (typeof document === "undefined") {
+    measureCtx = null;
+    return null;
+  }
+  try {
+    measureCtx = document.createElement("canvas").getContext("2d");
+  } catch {
+    measureCtx = null;
+  }
+  return measureCtx;
+}
+
+function measureScaleX(text: string, fontPx: number, targetWidth: number): number | null {
+  const ctx = getMeasureContext();
+  if (!ctx || !(targetWidth > 0) || !text) return null;
+  ctx.font = `${fontPx.toFixed(2)}px sans-serif`;
+  const natural = ctx.measureText(text).width;
+  if (!(natural > 0)) return null;
+  return Math.min(4, Math.max(0.25, targetWidth / natural));
 }
 
 /**
@@ -159,6 +192,7 @@ export function populateOcrTextLayer(
       span.setAttribute("role", "presentation");
       span.setAttribute("data-ocr-word", "1");
       const fontPx = Math.max(4, b.height * 0.85);
+      const scaleX = measureScaleX(b.text, fontPx, b.width);
       span.style.left = `${b.left.toFixed(2)}px`;
       span.style.top = `${b.top.toFixed(2)}px`;
       span.style.width = `${b.width.toFixed(2)}px`;
@@ -167,6 +201,10 @@ export function populateOcrTextLayer(
       span.style.lineHeight = `${b.height.toFixed(2)}px`;
       span.style.color = "transparent";
       span.style.setProperty("--font-height", `${fontPx.toFixed(2)}px`);
+      if (scaleX !== null) {
+        span.style.transformOrigin = "0% 0%";
+        span.style.transform = `scaleX(${scaleX.toFixed(4)})`;
+      }
       span.textContent = wi < line.length - 1 ? `${b.text} ` : b.text;
       frag.appendChild(span);
       count += 1;

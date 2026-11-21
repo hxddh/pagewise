@@ -139,7 +139,9 @@ function MarkNotePopoverBody({
     <>
       <div className="cite-popover-body">
         <p className="cite-popover-page">{t("marks.onPage", { page: mark.page })}</p>
-        {mark.text && <blockquote className="cite-popover-quote">{mark.text}</blockquote>}
+        {mark.text && (
+          <blockquote className="cite-popover-quote gutter-popover-quote-mark">{mark.text}</blockquote>
+        )}
         {currentStamp && mark.stamp && mark.stamp !== currentStamp && (
           <p className="mark-stale-note">{t("marks.staleMark")}</p>
         )}
@@ -247,7 +249,7 @@ export const PageGutter = memo(function PageGutter({
     placement.tops
       .map((top, i) => ({ top, anchor: placement.anchors[i], i }))
       .filter((tie): tie is { top: number; anchor: number; i: number } =>
-        tie.anchor !== undefined && tie.top - tie.anchor > COLUMN_TIE_MIN,
+        tie.anchor !== undefined && Math.abs(tie.top - tie.anchor) > COLUMN_TIE_MIN,
       )
       .sort((a, b) => a.anchor - b.anchor || a.i - b.i)
       .forEach((tie, rank) => lanes.set(tie.i, Math.min(rank, MAX_TIE_LANES - 1)));
@@ -403,12 +405,13 @@ export const PageGutter = memo(function PageGutter({
             ? { top: Math.min(anchor, top), height: displacement }
             : null;
         const tieLane = tieLanes.get(i);
+        const tieUp = anchor !== undefined && top < anchor - COLUMN_TIE_MIN;
         const ink = `gutter-note-${entry.kind}${reason ? ` gutter-note-${level}` : ""}`;
         return (
           <Fragment key={`${entry.kind}-${entry.id}-${i}`}>
             {tieSpan !== null && (
               <span
-                className={`gutter-note-leader ${ink}`}
+                className={`gutter-note-leader${tieUp ? " gutter-note-leader-up" : ""} ${ink}`}
                 aria-hidden
                 data-tie-lane={tieLane ?? 0}
                 style={{ top: `${tieSpan.top * 100}%`, height: `${tieSpan.height * 100}%` }}
@@ -448,9 +451,23 @@ export const PageGutter = memo(function PageGutter({
           role="dialog"
         >
           <div className="cite-popover-body" aria-label={t("gutter.label")}>
-            <p className="cite-popover-verdict">{expandedEntry.text}</p>
+            <p
+              className={`gutter-popover-lead gutter-popover-${
+                expandedReason ? TRUST_TEXT[expandedReason].level : "none"
+              }`}
+            >
+              {expandedEntry.text}
+            </p>
             {expandedVerdict && <p className="cite-popover-review">{expandedVerdict}</p>}
-            {expandedQuote && <blockquote className="cite-popover-quote">“{expandedQuote}”</blockquote>}
+            {expandedQuote && (
+              <blockquote
+                className={`cite-popover-quote gutter-popover-quote-${
+                  expandedReason ? TRUST_TEXT[expandedReason].level : "none"
+                }`}
+              >
+                “{expandedQuote}”
+              </blockquote>
+            )}
           </div>
           {onRevealMessage && (
             <div className="cite-popover-actions">

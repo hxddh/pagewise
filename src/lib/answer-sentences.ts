@@ -218,7 +218,15 @@ function ownerOf(markdown: string, units: readonly Unit[], index: number): numbe
 export function isFramingSentence(text: string): boolean {
   const t = text.trim();
   if (!t) return true;
-  if (/\d|[%‰‱$€£¥￥]|["“”「」『』]/.test(t) || quantities(t).length > 0) return false;
+  if (/[%‰‱$€£¥￥]|["“”「」『』]/.test(t) || quantities(t).length > 0) return false;
+  if (
+    /^(?:recorded|noted|saved(?:\s+to\s+(?:the\s+)?record)?|updated\s+(?:the\s+)?record|已记录|已记入记录|已保存至记录)\s*[:：—-]/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (/\d/.test(t)) return false;
   if (/[:：]$/.test(t)) return true;
   if (
     /^(?:below\s+(?:is|are)|the\s+following\s+(?:table|list|section|summary|comparison)|here\s+(?:is|are)\s+(?:a|the)\s+(?:summary|comparison|breakdown|overview|list|table)|in\s+(?:summary|conclusion|short|brief)\s*,|to\s+(?:summarize|sum\s+up)\s*,|overall\s*,|taken\s+together\s*,|based\s+on\s+the\s+(?:above|foregoing|cited\s+passages)\s*,)/i.test(

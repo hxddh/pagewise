@@ -325,7 +325,7 @@ fn strip_running_lines(pages: &mut [String]) {
             entry.1 |= has_page_num;
             entry.2.insert(clean_heading(first));
         }
-        if let Some(last) = lines.last().filter(|l| !is_structural_line(l)) {
+        if let Some(last) = lines.last().filter(|l| !is_structural_line(l) && !is_footnote_line(l)) {
             let (key, has_page_num) = running_key_info(last);
             let entry = last_stats.entry(key).or_insert_with(|| (0, false, Default::default()));
             entry.0 += 1;
@@ -371,7 +371,7 @@ fn strip_running_lines(pages: &mut [String]) {
             drop_first = repeats(&first_stats, lines[i]);
         }
         if let Some(&i) = content.last() {
-            drop_last = repeats(&last_stats, lines[i]);
+            drop_last = !is_footnote_line(lines[i]) && repeats(&last_stats, lines[i]);
         }
         if !drop_first && !drop_last {
             continue;
@@ -510,6 +510,145 @@ fn is_structural_line(line: &str) -> bool {
     trimmed.starts_with('#') || trimmed.starts_with('|')
 }
 
+/// Bottom-of-page footnotes (`* Unaudited`, `† Pro forma`, `注：不含税`) can
+/// legitimately repeat beneath multi-page financial or clinical tables; they
+/// carry substantive caveats and must never be stripped as running footers.
+fn is_footnote_line(line: &str) -> bool {
+    let raw = line.trim_start();
+    if raw.starts_with('*') && !raw.starts_with("**") {
+        return true;
+    }
+    let plain = clean_heading(raw);
+    let t = plain.trim_start();
+    t.starts_with('†')
+        || t.starts_with('‡')
+        || t.starts_with("注：")
+        || t.starts_with("注:")
+        || t.starts_with("Note:")
+        || t.starts_with("Notes:")
+        || t.starts_with("Footnote:")
+}
+
+/// Repair typography artifacts left by PDF extraction without altering layout
+/// spacing or two-column fields:
+/// 1. Rejoin lowercase words broken across soft hyphens (`\u{00AD}`) or explicit
+///    Unicode line-break hyphens (`\u{2010}`, `\u{2011}`) + whitespace.
+/// 2. Lift a single-cell `"Table N: ..."` / `"表 N..."` Booktabs caption row
+///    out of an empty-column Markdown table header so the real column labels on
+///    the row below become the Markdown table header.
+fn clean_extracted_markdown(md: &str) -> String {
+    if md.is_empty() {
+        return String::new();
+    }
+    let repaired = repair_booktabs_captions(md);
+    rejoin_soft_hyphen_wraps(&repaired)
+}
+
+fn rejoin_soft_hyphen_wraps(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if matches!(c, '\u{00AD}' | '\u{2010}' | '\u{2011}') {
+            let prev = out.chars().last();
+            if prev.is_some_and(|p| p.is_lowercase()) {
+                let mut j = i + 1;
+                while j < chars.len() && matches!(chars[j], ' ' | '\t' | '\r' | '\n') {
+                    j += 1;
+                }
+                let had_ws = j > i + 1;
+                if j < chars.len()
+                    && chars[j].is_lowercase()
+                    && (c == '\u{00AD}' || had_ws)
+                {
+                    i = j;
+                    continue;
+                }
+            }
+            if c == '\u{00AD}' {
+                i += 1;
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+fn split_md_row(line: &str) -> Option<Vec<&str>> {
+    let t = line.trim();
+    if !t.starts_with('|') || !t.ends_with('|') || t.len() < 3 {
+        return None;
+    }
+    Some(t[1..t.len() - 1].split('|').map(str::trim).collect())
+}
+
+fn is_md_delimiter_row(cells: &[&str]) -> bool {
+    !cells.is_empty()
+        && cells.iter().all(|c| {
+            !c.is_empty()
+                && c.contains("---")
+                && c.chars().all(|ch| matches!(ch, '-' | ':' | ' '))
+        })
+}
+
+fn looks_like_table_caption(cell: &str) -> bool {
+    let plain = clean_heading(cell);
+    let lower = plain.trim_start().to_lowercase();
+    if let Some(rest) = lower.strip_prefix("table ") {
+        return rest.chars().next().is_some_and(|c| c.is_ascii_digit());
+    }
+    if let Some(rest) = plain.trim_start().strip_prefix('表') {
+        let rest = rest.trim_start();
+        return rest
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit() || matches!(c, '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十'));
+    }
+    false
+}
+
+fn repair_booktabs_captions(md: &str) -> String {
+    let lines: Vec<&str> = md.lines().collect();
+    if lines.len() < 3 {
+        return md.to_string();
+    }
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 2);
+    let mut i = 0;
+    while i < lines.len() {
+        if i + 2 < lines.len() {
+            if let (Some(c0), Some(c1), Some(c2)) = (
+                split_md_row(lines[i]),
+                split_md_row(lines[i + 1]),
+                split_md_row(lines[i + 2]),
+            ) {
+                let non_empty_0: Vec<&&str> = c0.iter().filter(|c| !c.is_empty()).collect();
+                let non_empty_2 = c2.iter().filter(|c| !c.is_empty()).count();
+                if c0.len() >= 2
+                    && c0.len() == c1.len()
+                    && c1.len() == c2.len()
+                    && is_md_delimiter_row(&c1)
+                    && non_empty_0.len() == 1
+                    && looks_like_table_caption(non_empty_0[0])
+                    && non_empty_2 >= 2
+                {
+                    out.push((*non_empty_0[0]).to_string());
+                    out.push(String::new());
+                    out.push(lines[i + 2].to_string());
+                    out.push(lines[i + 1].to_string());
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(lines[i].to_string());
+        i += 1;
+    }
+    out.join("\n")
+}
+
 /// Strip the inline Markdown we added so a heading reads as plain text.
 fn clean_heading(raw: &str) -> String {
     raw.replace("<u>", "")
@@ -614,7 +753,7 @@ pub fn synthesize_outline(pages: &[Page]) -> Vec<Heading> {
 /// Levels are clamped to 1 and 2 to match [`Heading`], whose own doc says
 /// deeper levels are dropped as noise: an outline is for navigating, and an H4
 /// under an H3 under an H2 is a paragraph with ambitions.
-type PdfCacheKey = (PathBuf, u64, Option<SystemTime>);
+type PdfCacheKey = (PathBuf, u64, Option<SystemTime>, bool);
 
 struct LopdfMeta {
     origins: Vec<(f32, f32)>,
@@ -645,6 +784,91 @@ fn lock_unpoisoned<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     }
 }
 
+/// Decrypt a user-encrypted PDF in memory into clean unencrypted PDF bytes.
+/// Never touches disk.
+pub fn decrypt_pdf_bytes(raw: &[u8], password: &str) -> Result<Vec<u8>, String> {
+    let opts = lopdf::LoadOptions {
+        password: Some(password.to_string()),
+        ..Default::default()
+    };
+    let mut doc = lopdf::Document::load_mem_with_options(raw, opts)
+        .map_err(|_| doc_check::coded(doc_check::PDF_ENCRYPTED, "incorrect password"))?;
+    if doc.is_encrypted() {
+        doc.decrypt(password)
+            .map_err(|_| doc_check::coded(doc_check::PDF_ENCRYPTED, "incorrect password"))?;
+    }
+    if doc.is_encrypted() {
+        return Err(doc_check::coded(
+            doc_check::PDF_ENCRYPTED,
+            "incorrect password",
+        ));
+    }
+    doc.trailer.remove(b"Encrypt");
+    doc.encryption_state = None;
+    let mut out = Vec::with_capacity(raw.len());
+    doc.save_to(&mut out)
+        .map_err(|e| doc_check::coded(doc_check::PDF_DAMAGED, e))?;
+    Ok(out)
+}
+
+/// Return cached (and already-decrypted, when unlocked) PDF bytes if `path`
+/// matches the active cached PDF, avoiding a second full-file disk read in
+/// `read_file_bytes`.
+#[allow(dead_code)]
+pub fn cached_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
+    let path_str = path.to_str()?;
+    let key = pdf_key(path_str).ok()?;
+    let guard = lock_unpoisoned(&ACTIVE_PDF);
+    let existing = guard.as_ref()?;
+    (existing.key == key).then(|| existing.bytes.clone())
+}
+
+/// Evict a closed document's cached PDF buffer from Rust memory.
+#[allow(dead_code)]
+pub fn evict_cached_pdf(path: &Path) {
+    let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut guard = lock_unpoisoned(&ACTIVE_PDF);
+    if guard.as_ref().is_some_and(|c| c.key.0 == canon) {
+        *guard = None;
+    }
+}
+
+/// Unlock a password-protected PDF for the current in-memory session and warm
+/// `ACTIVE_PDF` with its decrypted bytes so `open_document` and `read_file_bytes`
+/// both succeed without writing anything to disk.
+#[allow(dead_code)]
+pub fn unlock_pdf(path: &Path, password: &str) -> Result<(), String> {
+    if password.is_empty() {
+        return Err(doc_check::coded(
+            doc_check::PDF_ENCRYPTED,
+            "password required",
+        ));
+    }
+    let path_str = path.to_str().ok_or("Invalid path encoding")?;
+    let meta = std::fs::metadata(path).map_err(map_err)?;
+    let len = meta.len();
+    if len > doc_check::MAX_DOCUMENT_BYTES {
+        return Err(doc_check::coded(
+            doc_check::FILE_TOO_LARGE,
+            format!("{len} bytes; max {}", doc_check::MAX_DOCUMENT_BYTES),
+        ));
+    }
+    let raw = std::fs::read(path).map_err(map_err)?;
+    let decrypted = decrypt_pdf_bytes(&raw, password)?;
+    detect_pdf_mem(&decrypted).map_err(|e| doc_check::pdf_error(&e))?;
+    let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    doc_check::set_session_password(&canon, password.to_string());
+    let key = pdf_key(path_str)?;
+    let cached = Arc::new(CachedPdf {
+        key,
+        bytes: decrypted,
+        lopdf_meta: OnceLock::new(),
+        positions: OnceLock::new(),
+    });
+    *lock_unpoisoned(&ACTIVE_PDF) = Some(cached);
+    Ok(())
+}
+
 fn pdf_key(path: &str) -> Result<PdfCacheKey, String> {
     let p = Path::new(path);
     let meta = std::fs::metadata(p).map_err(map_err)?;
@@ -656,7 +880,8 @@ fn pdf_key(path: &str) -> Result<PdfCacheKey, String> {
         ));
     }
     let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    Ok((canon, len, meta.modified().ok()))
+    let unlocked = doc_check::has_unlocked_session(&canon);
+    Ok((canon, len, meta.modified().ok(), unlocked))
 }
 
 fn get_or_load_pdf(path: &str) -> Result<Arc<CachedPdf>, String> {
@@ -672,13 +897,18 @@ fn get_or_load_pdf(path: &str) -> Result<Arc<CachedPdf>, String> {
             return Ok(Arc::clone(existing));
         }
     }
-    let bytes = std::fs::read(path).map_err(map_err)?;
-    if bytes.len() as u64 > doc_check::MAX_DOCUMENT_BYTES {
+    let raw = std::fs::read(path).map_err(map_err)?;
+    if raw.len() as u64 > doc_check::MAX_DOCUMENT_BYTES {
         return Err(doc_check::coded(
             doc_check::FILE_TOO_LARGE,
-            format!("{} bytes; max {}", bytes.len(), doc_check::MAX_DOCUMENT_BYTES),
+            format!("{} bytes; max {}", raw.len(), doc_check::MAX_DOCUMENT_BYTES),
         ));
     }
+    let bytes = if let Some(pw) = doc_check::session_password(&key.0) {
+        decrypt_pdf_bytes(&raw, &pw)?
+    } else {
+        raw
+    };
     let cached = Arc::new(CachedPdf {
         key,
         bytes,
@@ -1250,6 +1480,9 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
     }
 
     strip_running_lines(&mut texts);
+    for t in &mut texts {
+        *t = clean_extracted_markdown(t);
+    }
 
     let pages: Vec<Page> = texts
         .into_iter()
@@ -1346,6 +1579,42 @@ fn inherited_box(doc: &lopdf::Document, page: lopdf::ObjectId, key: &[u8]) -> Op
     None
 }
 
+/// Inherited page `/Rotate` in `{0, 90, 180, 270}` degrees clockwise.
+pub(crate) fn inherited_rotation(doc: &lopdf::Document, page: lopdf::ObjectId) -> u16 {
+    use lopdf::Object;
+    let mut id = page;
+    for _ in 0..32 {
+        let Ok(dict) = doc.get_dictionary(id) else {
+            return 0;
+        };
+        if let Ok(obj) = dict.get(b"Rotate") {
+            let resolved = match obj {
+                Object::Reference(r) => doc.get_object(*r).ok(),
+                other => Some(other),
+            };
+            if let Some(val) = resolved {
+                let deg = match val {
+                    Object::Integer(i) => Some(*i),
+                    Object::Real(r) => Some(*r as i64),
+                    _ => None,
+                };
+                if let Some(d) = deg {
+                    let norm = d.rem_euclid(360) as u16;
+                    return match norm {
+                        90 | 180 | 270 => norm,
+                        _ => 0,
+                    };
+                }
+            }
+        }
+        match dict.get(b"Parent") {
+            Ok(Object::Reference(parent)) => id = *parent,
+            _ => return 0,
+        }
+    }
+    0
+}
+
 /// The origin to add to a position on 1-based `page`; (0, 0) when unknown.
 fn origin_of(origins: &[(f32, f32)], page: u32) -> (f32, f32) {
     page.checked_sub(1)
@@ -1365,11 +1634,20 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
     let cached = get_or_load_pdf(path)?;
     let meta = cached.lopdf_meta();
     // Large (>1,000 page) documents skip full-document position caching on open;
-    // for those, extract only the requested page from disk.
+    // for those, extract only the requested page from disk (or from decrypted RAM
+    // when unlocked for the session).
     if meta.origins.len() > POSITIONS_PAGE_LIMIT {
-        let filter = std::collections::HashSet::from([page]);
-        let items = pdf_inspector::extractor::extract_text_with_positions_pages(path, Some(&filter))
-            .map_err(map_err)?;
+        let items = if doc_check::has_unlocked_session(&cached.key.0) {
+            extract_text_with_positions_mem(&cached.bytes)
+                .map_err(map_err)?
+                .into_iter()
+                .filter(|item| item.page == page)
+                .collect::<Vec<_>>()
+        } else {
+            let filter = std::collections::HashSet::from([page]);
+            pdf_inspector::extractor::extract_text_with_positions_pages(path, Some(&filter))
+                .map_err(map_err)?
+        };
         let (dx, dy) = origin_of(&meta.origins, page);
         return Ok(items
             .into_iter()
@@ -1410,14 +1688,13 @@ pub fn extract_region(path: &str, page: u32, rect: Rect) -> Result<RegionText, S
     let regions = vec![(page - 1, vec![bbox])];
 
     let results = extract_text_in_regions_mem(bytes, &regions).map_err(map_err)?;
-    let text = results
+    let raw_text = results
         .iter()
         .flat_map(|p| p.regions.iter())
         .map(|r| r.text.as_str())
         .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string();
+        .join("\n");
+    let text = clean_extracted_markdown(raw_text.trim());
 
     // A selected table is worth far more as a table than as reflowed prose.
     let table = extract_tables_in_regions_mem(bytes, &regions)
@@ -1428,10 +1705,9 @@ pub fn extract_region(path: &str, page: u32, rect: Rect) -> Result<RegionText, S
                 .flat_map(|p| p.regions.iter())
                 .map(|r| r.text.as_str())
                 .collect::<Vec<_>>()
-                .join("\n")
-                .trim()
-                .to_string();
-            (!md.is_empty()).then_some(md)
+                .join("\n");
+            let cleaned = clean_extracted_markdown(md.trim());
+            (!cleaned.is_empty()).then_some(cleaned)
         });
 
     Ok(RegionText { text, table })
@@ -1998,5 +2274,58 @@ mod tests {
         strip_running_lines(&mut pages);
         assert!(pages[0].starts_with("1. Scope of work"));
         assert!(pages.iter().all(|p| !p.contains("of 3")));
+    }
+
+    #[test]
+    fn keeps_repeated_bottom_footnotes_and_repairs_soft_hyphens_and_booktabs_captions() {
+        let mut pages = pages_of(&[
+            "Revenue summary\nrow one\n* Unaudited management figures",
+            "Expense summary\nrow two\n* Unaudited management figures",
+            "Cashflow summary\nrow three\n* Unaudited management figures",
+        ]);
+        strip_running_lines(&mut pages);
+        assert!(
+            pages.iter().all(|p| p.contains("* Unaudited management figures")),
+            "asterisk footnotes must survive bottom stripping"
+        );
+
+        let cleaned = clean_extracted_markdown(
+            "compart\u{00AD} ment and co\u{2011}\nordinated\n\n\
+             | Table 1: Quarterly Revenue |  |  |\n\
+             |---|---|---|\n\
+             | Segment | Q1 | Q2 |\n\
+             | Cloud | 120 | 145 |",
+        );
+        assert!(cleaned.contains("compartment and coordinated"), "{cleaned}");
+        assert!(
+            cleaned.contains("Table 1: Quarterly Revenue\n\n| Segment | Q1 | Q2 |\n|---|---|---|"),
+            "{cleaned}"
+        );
+    }
+
+    #[test]
+    fn unlocks_user_encrypted_pdf_in_session_memory_and_clears_on_close() {
+        let tmp = std::env::temp_dir().join(format!("pagewise-unlock-{}.pdf", std::process::id()));
+        std::fs::copy(fixture("encrypted.pdf"), &tmp).unwrap();
+        let tmp_str = tmp.to_str().unwrap();
+
+        assert!(
+            unlock_pdf(&tmp, "wrong-password")
+                .unwrap_err()
+                .starts_with(doc_check::PDF_ENCRYPTED)
+        );
+        unlock_pdf(&tmp, "secret").expect("correct password unlocks in memory");
+        let doc = open_document(tmp_str).expect("unlocked PDF opens");
+        assert!(doc.page_count >= 1);
+        assert!(cached_pdf_bytes(&tmp).is_some());
+
+        doc_check::remove_session_password(&tmp);
+        evict_cached_pdf(&tmp);
+        assert!(
+            open_document(tmp_str)
+                .unwrap_err()
+                .starts_with(doc_check::PDF_ENCRYPTED)
+        );
+        let _ = std::fs::remove_file(&tmp);
     }
 }

@@ -21,7 +21,7 @@
 import { pageRuns } from "./finding-anchors";
 import { ocrEnabled } from "./ocr/ocr-service";
 import { onOcrTextReplaced } from "./ocr/ocr-events";
-import { locateAcrossPages, locateQuote } from "./quote-locate";
+import { locateAcrossPages, locateQuote, locateQuoteAll } from "./quote-locate";
 import {
   citationKey,
   extractCitations,
@@ -30,20 +30,37 @@ import {
 import type { PdfRect } from "./types";
 import { claimBefore } from "./answer-tables";
 import { pageText, passageAround } from "./passage";
+import { polarityMismatch } from "./polarity-check";
 import { unstatedQuantities } from "./quantities";
 
 /**
  * A located check, read against the sentence it supports: `mismatch` when the
- * sentence states a number the passage around the quote does not (15.0).
- * Any other check comes back unchanged, and so does a located one whose
- * sentence has no numbers, or only numbers the passage states.
+ * sentence states a number the passage around the quote does not (15.0) or
+ * flips an explicit polarity / comparator / deadline / party pole (26.0).
+ * When a short quote appears more than once on the cited page, disambiguates
+ * across all candidate passages on that page before flagging a mismatch.
  */
 export function withClaim(check: CitationCheck | null, claim: string, quote?: string | null): CitationCheck | null {
   if (!check || check.status !== "located" || !claim) return check;
-  const context = `${check.passage ?? ""}\n${quote ?? ""}`;
-  const unstated = unstatedQuantities(claim, context);
-  if (unstated.length === 0) return check;
-  return { ...check, status: "mismatch", unstated: unstated.map((q) => q.text) };
+  const candidates =
+    check.candidates && check.candidates.length > 0
+      ? check.candidates
+      : [{ rects: check.rects ?? [], passage: check.passage ?? "" }];
+
+  let firstReasons: string[] | null = null;
+  for (const cand of candidates) {
+    const context = `${cand.passage}\n${quote ?? ""}`;
+    const unstated = unstatedQuantities(claim, context).map((q) => q.text);
+    const flipped = polarityMismatch(claim, context);
+    const reasons = [...unstated, ...flipped];
+    if (reasons.length === 0) {
+      return cand.passage === check.passage && cand.rects === check.rects
+        ? check
+        : { ...check, rects: cand.rects, passage: cand.passage };
+    }
+    if (firstReasons === null) firstReasons = reasons;
+  }
+  return { ...check, status: "mismatch", unstated: firstReasons ?? [] };
 }
 
 export type CitationStatus =
@@ -85,7 +102,9 @@ export interface CitationCheck {
   rects?: PdfRect[];
   /** The paragraph the quote was found in, as page text. Only for `located`. */
   passage?: string;
-  /** For `mismatch`: the sentence's numbers the passage does not state, as written. */
+  /** Additional occurrences of the same quote on `page`, for disambiguating repeated cells/phrases. */
+  candidates?: Array<{ rects: PdfRect[]; passage: string }>;
+  /** For `mismatch`: the sentence's numbers or polarity poles the passage contradicts, as written. */
   unstated?: string[];
   /**
    * For `unlocated` and `unconfirmed`: the first named page that has text, as
@@ -238,8 +257,19 @@ async function resolve(
     }
     const outcome = locateQuote(runs.items, c.quote);
     if (outcome.status === "located") {
-      const passage = passageAround(runs.items, outcome.rects);
-      return settled({ status: "located", page, rects: outcome.rects, passage });
+      const all = locateQuoteAll(runs.items, c.quote);
+      const candidates = all.map((m) => ({
+        rects: m.rects,
+        passage: passageAround(runs.items, m.rects),
+      }));
+      const passage = candidates[0]?.passage ?? passageAround(runs.items, outcome.rects);
+      return settled({
+        status: "located",
+        page,
+        rects: outcome.rects,
+        passage,
+        ...(candidates.length > 1 ? { candidates } : {}),
+      });
     }
     if (outcome.status === "uncheckable") return settled({ status: "tooShort" });
     if (outcome.status === "unreadable") sawUnreadable = true;

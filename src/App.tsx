@@ -4,22 +4,24 @@ import { subscribeStoreProblem, subscribeStoreUnreadable, subscribeWriteHealth }
 import { useWorkbench } from "./session/useWorkbench";
 import { useI18n } from "./i18n";
 import { DropOverlay } from "./components/DropOverlay";
-import { SettingsDrawer } from "./components/SettingsDrawer";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { ToastViewport } from "./components/ToastViewport";
 import { Button } from "./components/ui/Button";
+import { Input } from "./components/ui/Field";
+import { Modal } from "./components/ui/Modal";
 import { AppRail } from "./components/AppRail";
 import { WelcomeView } from "./components/WelcomeView";
 import { AgentDock } from "./components/AgentDock";
 import { FileErrorBanner } from "./components/FileErrorBanner";
-import { RecentFilesDrawer } from "./components/RecentFilesDrawer";
 import { ConfirmDialog } from "./components/overlays/ConfirmDialog";
 import { indexWholeDocument, pendingIndexPages } from "./document/index-queue";
 import { ocrEnabled } from "./lib/ocr/ocr-service";
 import { getVisionCallCount } from "./lib/usage-tracker";
-import { CommandPalette } from "./components/CommandPalette";
-import { ExportDialog, type ExportAvailability, type ExportChoice } from "./components/ExportDialog";
+import type { ExportAvailability, ExportChoice } from "./components/ExportDialog";
+import { extractCitations, stripCitations } from "./lib/citations";
+import { visibleText } from "./lib/conversation-search";
+import { markdownToPlainText } from "./lib/markdown-text";
 import { activeFindings, subscribeFindings } from "./lib/finding-store";
 import { useAppCommands } from "./hooks/useAppCommands";
 import { useFollowAgent } from "./hooks/useFollowAgent";
@@ -58,6 +60,18 @@ const PreviewPane = lazy(() =>
 );
 const ChatPanel = lazy(() =>
   import("./pages/ChatPanel").then((m) => ({ default: m.ChatPanel })),
+);
+const SettingsDrawer = lazy(() =>
+  import("./components/SettingsDrawer").then((m) => ({ default: m.SettingsDrawer })),
+);
+const RecentFilesDrawer = lazy(() =>
+  import("./components/RecentFilesDrawer").then((m) => ({ default: m.RecentFilesDrawer })),
+);
+const CommandPalette = lazy(() =>
+  import("./components/CommandPalette").then((m) => ({ default: m.CommandPalette })),
+);
+const ExportDialog = lazy(() =>
+  import("./components/ExportDialog").then((m) => ({ default: m.ExportDialog })),
 );
 // Type-only: the panel stays lazily loaded, but its imperative handle is what
 // "Ask about this" uses to put the caret in the composer.
@@ -116,7 +130,13 @@ function AppContent() {
     setRevealedCitation(null);
     setZen(false);
     setMarginAskOpen(false);
+    setMarginSessionActive(false);
+    setDismissedMarginReplyId(null);
   }, [doc?.path]);
+
+  useEffect(() => {
+    setPasswordDraft("");
+  }, [s.document.passwordPrompt.path]);
 
   // A store file the app could not read is the one failure the stores cannot
   // report through their return values — they answer a failed read the only way
@@ -181,6 +201,10 @@ function AppContent() {
   const [focusComposerNonce, setFocusComposerNonce] = useState(0);
   const [marginFocusNonce, setMarginFocusNonce] = useState(0);
   const [marginAskOpen, setMarginAskOpen] = useState(false);
+  const [marginSessionActive, setMarginSessionActive] = useState(false);
+  const [dismissedMarginReplyId, setDismissedMarginReplyId] = useState<string | null>(null);
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
   // Zen (18.0): the rail, the header and the panel leave; the page and a
   // progress hairline stay. Not persisted — a posture for this sitting.
   const [zen, setZen] = useState(false);
@@ -334,6 +358,36 @@ function AppContent() {
     [doc?.path, agent.messages.list, checksRev, reviewsRev],
   );
 
+  const marginReply = useMemo(() => {
+    if (!doc || s.assistant.open || !marginSessionActive) return null;
+    const list = agent.messages.list;
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const m = list[i]!;
+      if (m.role !== "assistant") continue;
+      if (m.id === dismissedMarginReplyId) return null;
+      const raw = visibleText(m);
+      if (!raw.trim()) return null;
+      const hasCardOnViewingPage =
+        marginNotes?.get(s.document.page)?.some((n) => n.messageId === m.id) ?? false;
+      if (hasCardOnViewingPage) return null;
+      const citedPages = [
+        ...new Set(extractCitations(raw).flatMap((c) => c.pages)),
+      ].filter((p) => p >= 1 && p <= doc.totalPages && p !== s.document.page);
+      const text = markdownToPlainText(stripCitations(raw)).replace(/\s+/g, " ").trim();
+      if (!text) return null;
+      return { messageId: m.id, text, citedPages };
+    }
+    return null;
+  }, [
+    doc,
+    s.assistant.open,
+    marginSessionActive,
+    agent.messages.list,
+    dismissedMarginReplyId,
+    marginNotes,
+    s.document.page,
+  ]);
+
   // The header's slot, and the chrome it draws (tabs + overflow actions).
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const workspaceChrome = useMemo(
@@ -370,18 +424,78 @@ function AppContent() {
 
   return (
     <div className={`app v3${zen && doc ? " zen" : ""}`}>
-      <CommandPalette
-        open={paletteOpen}
-        commands={commands}
-        onClose={() => setPaletteOpen(false)}
-      />
-      <ExportDialog
-        open={exportAvailable !== null}
-        available={exportAvailable ?? { report: false, pdf: false, chat: false }}
-        busy={agentBusy}
-        onExport={runExport}
-        onClose={() => setExportAvailable(null)}
-      />
+      {paletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette
+            open={paletteOpen}
+            commands={commands}
+            onClose={() => setPaletteOpen(false)}
+          />
+        </Suspense>
+      )}
+      {exportAvailable !== null && (
+        <Suspense fallback={null}>
+          <ExportDialog
+            open={exportAvailable !== null}
+            available={exportAvailable}
+            busy={agentBusy}
+            onExport={runExport}
+            onClose={() => setExportAvailable(null)}
+          />
+        </Suspense>
+      )}
+      <Modal
+        open={s.document.passwordPrompt.path !== null}
+        onClose={s.document.passwordPrompt.cancel}
+        overlayClassName="palette-root"
+        className="palette-panel export-panel"
+        tone="elevated"
+        ariaLabel={t("errors.pdfUnlockAction")}
+        initialFocus={passwordInputRef}
+      >
+        <form
+          className="password-unlock-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!passwordDraft) return;
+            void s.document.passwordPrompt.unlock(passwordDraft);
+          }}
+        >
+          <p className="password-unlock-prompt">{t("errors.pdfPasswordPrompt")}</p>
+          <Input
+            ref={passwordInputRef}
+            type="password"
+            size="md"
+            value={passwordDraft}
+            placeholder={t("errors.pdfPasswordPlaceholder")}
+            aria-label={t("errors.pdfPasswordPlaceholder")}
+            onChange={(e) => setPasswordDraft(e.target.value)}
+          />
+          {s.document.passwordPrompt.wrongPassword && (
+            <p className="password-unlock-error" role="alert">
+              {t("errors.pdfPasswordWrong")}
+            </p>
+          )}
+          <div className="confirm-bar-actions">
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              onClick={s.document.passwordPrompt.cancel}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={!passwordDraft || s.document.passwordPrompt.submitting}
+            >
+              {t("errors.pdfUnlockAction")}
+            </Button>
+          </div>
+        </form>
+      </Modal>
       <DropOverlay visible={s.document.dragging} />
       <LoadingOverlay
         visible={loading}
@@ -428,43 +542,51 @@ function AppContent() {
         onCancel={() => setScanAllPrompt(null)}
       />
 
-      <RecentFilesDrawer
-        open={overlays.libraryOpen}
-        recentFiles={openableRecents}
-        activePath={doc?.path ?? null}
-        opening={loading}
-        onClose={overlays.closeLibrary}
-        onOpenFile={() => {
-          overlays.closeLibrary();
-          s.library.openFileDialog();
-        }}
-        onOpenRecent={(path) => void s.library.openPath(path)}
-        onRemoveRecent={(path) => void s.library.removeRecent(path)}
-      />
+      {overlays.libraryOpen && (
+        <Suspense fallback={null}>
+          <RecentFilesDrawer
+            open={overlays.libraryOpen}
+            recentFiles={openableRecents}
+            activePath={doc?.path ?? null}
+            opening={loading}
+            onClose={overlays.closeLibrary}
+            onOpenFile={() => {
+              overlays.closeLibrary();
+              s.library.openFileDialog();
+            }}
+            onOpenRecent={(path) => void s.library.openPath(path)}
+            onRemoveRecent={(path) => void s.library.removeRecent(path)}
+          />
+        </Suspense>
+      )}
 
-      <SettingsDrawer
-        open={s.assistant.shell.settingsOpen}
-        onClose={overlays.closeSettings}
-        assistantConfigured={conn.hasApiKey}
-        settingsReady={conn.settingsReady}
-        onLlmSettingsSaved={() => conn.refresh()}
-        onApiReady={() => conn.refresh()}
-        onReindexDoc={s.document.reindex}
-        onPreferencesSaved={async () => {
-          await prefs.refreshPrefs();
-        }}
-        includeViewingPageDefault={prefs.includeViewingPage}
-        onIncludeViewingPageDefaultChange={(value) => void prefs.setIncludeViewingPageDefault(value)}
-        followAgentDefault={prefs.followAgent}
-        onFollowAgentDefaultChange={(value) => void prefs.setFollowAgentDefault(value)}
-        onScanAllPages={requestScanAll}
-        onTestResult={(message, ok) => showToast(message, ok ? "success" : "error")}
-        onSaveError={() => showToast(t("settings.saveFailed"), "error")}
-        onRefreshConnection={() => conn.refresh()}
-        onSetupDone={() => {
-          if (!s.document.doc) s.library.openFileDialog();
-        }}
-      />
+      {s.assistant.shell.settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsDrawer
+            open={s.assistant.shell.settingsOpen}
+            onClose={overlays.closeSettings}
+            assistantConfigured={conn.hasApiKey}
+            settingsReady={conn.settingsReady}
+            onLlmSettingsSaved={() => conn.refresh()}
+            onApiReady={() => conn.refresh()}
+            onReindexDoc={s.document.reindex}
+            onPreferencesSaved={async () => {
+              await prefs.refreshPrefs();
+            }}
+            includeViewingPageDefault={prefs.includeViewingPage}
+            onIncludeViewingPageDefaultChange={(value) => void prefs.setIncludeViewingPageDefault(value)}
+            followAgentDefault={prefs.followAgent}
+            onFollowAgentDefaultChange={(value) => void prefs.setFollowAgentDefault(value)}
+            onScanAllPages={requestScanAll}
+            onTestResult={(message, ok) => showToast(message, ok ? "success" : "error")}
+            onSaveError={() => showToast(t("settings.saveFailed"), "error")}
+            onRefreshConnection={() => conn.refresh()}
+            onSetupDone={() => {
+              if (!s.document.doc) s.library.openFileDialog();
+            }}
+          />
+        </Suspense>
+      )}
 
       {zen && doc && (
         <>
@@ -534,14 +656,27 @@ function AppContent() {
                       notes={marginNotes}
                       marginColumn={!s.assistant.open}
                       marginAsk={{
-                        visible: !zen || marginAskOpen,
+                        visible:
+                          !zen ||
+                          marginAskOpen ||
+                          agentBusy ||
+                          Boolean(agent.run.errorMessage) ||
+                          Boolean(marginReply),
                         draft: composerDraft,
                         busy: agentBusy,
+                        progress: agent.run.progress,
+                        errorMessage: agent.run.errorMessage,
+                        onDismissError: agent.run.clearError,
+                        reply: marginReply,
+                        onDismissReply: marginReply
+                          ? () => setDismissedMarginReplyId(marginReply.messageId)
+                          : undefined,
                         focusNonce: marginFocusNonce,
                         onDraftChange: setComposerDraft,
                         onSubmit: (text) => {
+                          setMarginSessionActive(true);
+                          setDismissedMarginReplyId(null);
                           chatRef.current?.submitQuestion(text);
-                          if (zen) setMarginAskOpen(false);
                         },
                         onStop: agent.run.stop,
                         onDismiss: zen ? () => setMarginAskOpen(false) : undefined,

@@ -16,10 +16,15 @@
 
 .search-highlight {
   position: absolute;
-  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
   border-radius: var(--radius-sm);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
   animation: search-highlight-in var(--transition);
+}
+
+.search-highlight-focus {
+  background: color-mix(in srgb, var(--mark-highlight) 52%, transparent);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 /* The words an answer quoted, lit on the page it cited. The assistant's ink:
@@ -145,6 +150,11 @@
 :root[data-theme="dark"] .pdf-mark-text {
   /* The page is rendered light in both themes, so the wash does not invert. */
   mix-blend-mode: multiply;
+}
+
+:root[data-theme="night"] .pdf-mark-text {
+  mix-blend-mode: screen;
+  background: color-mix(in srgb, var(--mark-highlight) 32%, transparent);
 }
 
 .mark-selection-btn {

@@ -736,6 +736,54 @@
   background: inherit;
 }
 
+/* When the bottom clamp pulls a card ABOVE its passage (`top < anchor`), flip
+   the passage end to the bottom of the leader and the card elbow to its top. */
+.gutter-note-leader-up::before {
+  top: auto;
+  bottom: -2px;
+}
+
+.gutter-note-leader-up::after {
+  bottom: auto;
+  top: -2px;
+}
+
+.gutter-popover-lead {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.gutter-popover-verified {
+  color: var(--text);
+}
+
+.gutter-popover-check {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.gutter-popover-notFound {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.gutter-popover-quote-mark {
+  border-left: 2px solid var(--mark-highlight-strong);
+}
+
+.gutter-popover-quote-verified,
+.gutter-popover-quote-none {
+  border-left: 2px solid var(--finding);
+}
+
+.gutter-popover-quote-check {
+  border-left: 2px dashed var(--warning);
+}
+
+.gutter-popover-quote-notFound {
+  border-left: 2px dashed var(--danger);
+}
+
 /* The three inks the margin already draws: the reader's highlighter, the
    assistant's conclusions, and an answer's sentence in the colour of its
    state — the same three levels as the chip in the panel. */
@@ -774,17 +822,84 @@
   margin-top: var(--space-xs);
 }
 
-/* Floating Living Margin Ask bar while the 420px chat column is closed (25.0). */
-.margin-ask-bar {
+/* Floating Living Margin Ask stack while the 420px chat column is closed (25.0–26.0). */
+.margin-ask-stack {
   position: absolute;
   left: 50%;
   bottom: var(--space-lg);
   transform: translateX(-50%);
   z-index: var(--z-toolbar);
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-xs);
+  width: min(480px, calc(100% - 120px));
+}
+
+.margin-ask-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--text-xs);
+  animation: popover-in var(--transition);
+}
+
+.margin-ask-notice-error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
+}
+
+.margin-ask-notice-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.margin-reply-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-md);
+  animation: popover-in var(--transition);
+}
+
+.margin-reply-text {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  max-height: 6em;
+  overflow: hidden;
+}
+
+.margin-reply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.margin-ask-bar {
+  display: flex;
   align-items: center;
   gap: var(--space-sm);
-  width: min(440px, calc(100% - 140px));
+  width: 100%;
   padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -793,6 +908,29 @@
   -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--shadow-md);
   animation: popover-in var(--transition);
+}
+
+.margin-ask-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  max-width: 170px;
+  padding: 0 var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.margin-ask-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: typing-bounce var(--pulse-period) ease infinite;
 }
 
 .margin-ask-input {

@@ -343,6 +343,7 @@ export function WorkspaceHeader({
                 role="menuitem"
                 leading={<LayoutGrid size={14} aria-hidden />}
                 label={thumbsVisible ? t("preview.thumbnailsHide") : t("preview.thumbnailsShow")}
+                trailing={<kbd>{mod + "B"}</kbd>}
                 onClick={run(onToggleThumbs)}
               />
             )}

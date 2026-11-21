@@ -124,12 +124,12 @@ export const RecordPanel = memo(function RecordPanel({
   const [filter, setFilter] = useState("");
   const [thisPageOnly, setThisPageOnly] = useState(false);
 
-  const { rows, total, shownMarks } = useMemo(() => {
+  const { rows, total, hasControls, shownMarks } = useMemo(() => {
     void revision;
     const allFindings = getFindings(path);
     const allMarks = getMarks(path);
-    if (allFindings.length === 0) {
-      return { rows: allFindings, total: 0, shownMarks: allMarks };
+    if (allFindings.length === 0 && allMarks.length === 0) {
+      return { rows: allFindings, total: 0, hasControls: false, shownMarks: allMarks };
     }
     let shown = allFindings;
     let marksFiltered = allMarks;
@@ -155,6 +155,7 @@ export const RecordPanel = memo(function RecordPanel({
     return {
       rows: shown,
       total: allFindings.length,
+      hasControls: allFindings.length > 0 || allMarks.length > 1,
       shownMarks: marksFiltered,
     };
   }, [path, revision, filter, thisPageOnly, currentPage]);
@@ -166,6 +167,28 @@ export const RecordPanel = memo(function RecordPanel({
 
   return (
     <div className="record-panel">
+      {hasControls && (
+        <div className="record-controls">
+          <Input
+            type="search"
+            size="sm"
+            className="record-filter"
+            value={filter}
+            placeholder={t("record.filterPlaceholder")}
+            aria-label={t("record.filterPlaceholder")}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <Button
+            variant={thisPageOnly ? "secondary" : "ghost"}
+            size="sm"
+            className="record-page-toggle"
+            aria-pressed={thisPageOnly}
+            onClick={() => setThisPageOnly((v) => !v)}
+          >
+            {t("record.thisPage", { page: currentPage })}
+          </Button>
+        </div>
+      )}
       {total === 0 ? (
         <EmptyState variant="inline" className="record-empty">
           <p>{t("record.empty")}</p>
@@ -173,26 +196,6 @@ export const RecordPanel = memo(function RecordPanel({
         </EmptyState>
       ) : (
         <>
-          <div className="record-controls">
-            <Input
-              type="search"
-              size="sm"
-              className="record-filter"
-              value={filter}
-              placeholder={t("record.filterPlaceholder")}
-              aria-label={t("record.filterPlaceholder")}
-              onChange={(e) => setFilter(e.target.value)}
-            />
-            <Button
-              variant={thisPageOnly ? "secondary" : "ghost"}
-              size="sm"
-              className="record-page-toggle"
-              aria-pressed={thisPageOnly}
-              onClick={() => setThisPageOnly((v) => !v)}
-            >
-              {t("record.thisPage", { page: currentPage })}
-            </Button>
-          </div>
           {stale && <p className="mark-stale-note">{t("record.staleFile")}</p>}
           {rows.length === 0 && shownMarks.length === 0 ? (
             <EmptyState variant="inline" className="record-none">{t("record.noMatch")}</EmptyState>

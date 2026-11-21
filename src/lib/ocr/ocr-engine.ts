@@ -16,8 +16,7 @@
  * They sit beside the worker, not in a folder of their own: the core looks
  * for its `.wasm` next to the script that loaded it, which is the worker.
  */
-import { createWorker, OEM, type Worker } from "tesseract.js";
-import { simd } from "wasm-feature-detect";
+import type { Worker } from "tesseract.js";
 import { pdfAssetUrl } from "../pdf-loader";
 import { ocrPageFrom, type OcrPage, type OcrPageIn, type PixelToPdf } from "./ocr-result";
 
@@ -26,10 +25,12 @@ export type OcrLanguages = "eng" | "chi_sim+eng";
 
 let corePath: Promise<string> | null = null;
 function resolveCorePath(): Promise<string> {
-  corePath ??= simd().then(
-    (yes) => pdfAssetUrl(`ocr/tesseract-core-${yes ? "simd-" : ""}lstm.js`),
-    () => pdfAssetUrl("ocr/tesseract-core-lstm.js"),
-  );
+  corePath ??= import("wasm-feature-detect")
+    .then(({ simd }) => simd())
+    .then(
+      (yes) => pdfAssetUrl(`ocr/tesseract-core-${yes ? "simd-" : ""}lstm.js`),
+      () => pdfAssetUrl("ocr/tesseract-core-lstm.js"),
+    );
   return corePath;
 }
 
@@ -55,15 +56,21 @@ function workerFor(langs: OcrLanguages, slot: number): Slot {
   const key = `${langs}#${slot}`;
   let w = workers.get(key);
   if (!w) {
-    const worker = resolveCorePath().then((core) =>
-      createWorker(langs, OEM.LSTM_ONLY, {
-        workerPath: pdfAssetUrl("ocr/worker.min.js"),
-        corePath: core,
-        langPath: pdfAssetUrl("ocr/lang"),
-        workerBlobURL: false,
-        gzip: true,
-        cacheMethod: "none",
-      }),
+    // Evict any other language model occupying this slot so an `eng` → `chi_sim+eng`
+    // switch never keeps two WASM heaps resident per slot.
+    const staleKeys = [...workers.keys()].filter((k) => k !== key && k.endsWith(`#${slot}`));
+    if (staleKeys.length > 0) void stopEntries(staleKeys);
+
+    const worker = Promise.all([resolveCorePath(), import("tesseract.js")]).then(
+      ([core, { createWorker, OEM }]) =>
+        createWorker(langs, OEM.LSTM_ONLY, {
+          workerPath: pdfAssetUrl("ocr/worker.min.js"),
+          corePath: core,
+          langPath: pdfAssetUrl("ocr/lang"),
+          workerBlobURL: false,
+          gzip: true,
+          cacheMethod: "none",
+        }),
     );
     let stop = () => {};
     const stopped = new Promise<never>((_, reject) => {

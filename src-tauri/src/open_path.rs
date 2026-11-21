@@ -42,7 +42,13 @@ where
         } else if os.is_empty() {
             continue;
         }
-        picked = Some(PathBuf::from(os));
+        picked = Some(
+            os.to_str()
+                .filter(|s| s.starts_with("file:"))
+                .and_then(|s| tauri::Url::parse(s).ok())
+                .and_then(|u| u.to_file_path().ok())
+                .unwrap_or_else(|| PathBuf::from(os)),
+        );
         break;
     }
     let path = picked?;
@@ -185,5 +191,15 @@ mod tests {
             PathBuf::from(got),
             Path::new("/home/reader/docs").join("paper.pdf")
         );
+    }
+
+    #[test]
+    fn decodes_a_file_uri_from_a_desktop_launcher() {
+        let cwd = Path::new("/home/reader");
+        let got = path_from_args(
+            &args(&["pagewise", "file:///home/reader/My%20Paper.pdf"]),
+            cwd,
+        );
+        assert_eq!(got.as_deref(), Some("/home/reader/My Paper.pdf"));
     }
 }

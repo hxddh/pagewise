@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 export interface SearchHit {
   page: number;
   query: string;
+  /** 0-based match ordinal on `page`, so stepping highlights and scrolls to that exact match. */
+  matchOnPage?: number;
+  nonce?: number;
 }
 
 /**

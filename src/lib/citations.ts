@@ -185,7 +185,39 @@ export function sentenceBefore(markdown: string, markerIndex: number): string {
 export function claimSpanBefore(markdown: string, markerIndex: number): string {
   const cleaned = markdown.slice(0, markerIndex).replace(citationRe(), MARKER_STOP);
   const stops = new RegExp(`${SENTENCE_END.source}|${MARKER_STOP}`, "g");
-  return tidy(cleaned.slice(startAfterLastStop(cleaned, stops)).split(MARKER_STOP).join(""));
+  const head = tidy(cleaned.slice(startAfterLastStop(cleaned, stops)).split(MARKER_STOP).join(""));
+
+  // Include trailing text in the SAME sentence only when no later citation
+  // marker appears before the sentence ends — closing the mid-sentence marker
+  // loophole (`According to §4〔p5 "..."〕, the fee is 25%.`) while keeping
+  // multi-marker sentences partitioned cleanly per marker.
+  const closeAt = markdown.indexOf(CITATION_CLOSE, markerIndex);
+  if (closeAt < 0 || markdown.slice(markerIndex, closeAt).includes("\n")) return head;
+  let afterPos = closeAt + 1;
+  for (;;) {
+    const ws = /^\s*/.exec(markdown.slice(afterPos))?.[0].length ?? 0;
+    if (markdown[afterPos + ws] !== CITATION_OPEN) break;
+    const nextClose = markdown.indexOf(CITATION_CLOSE, afterPos + ws + 1);
+    if (nextClose < 0 || markdown.slice(afterPos + ws, nextClose).includes("\n")) break;
+    if (!parseCitation(markdown.slice(afterPos + ws + 1, nextClose))) break;
+    afterPos = nextClose + 1;
+  }
+  let endPos = markdown.length;
+  const endRe = sentenceEndRe();
+  endRe.lastIndex = afterPos;
+  let em: RegExpExecArray | null;
+  while ((em = endRe.exec(markdown)) !== null) {
+    const beforeStop = markdown.slice(afterPos, em.index);
+    const lastOpen = beforeStop.lastIndexOf(CITATION_OPEN);
+    if (lastOpen >= 0 && !beforeStop.slice(lastOpen).includes(CITATION_CLOSE)) continue;
+    endPos = em.index;
+    break;
+  }
+  const tailSlice = markdown.slice(afterPos, endPos);
+  if (extractCitations(tailSlice).length > 0) return head;
+  const tail = tidy(tailSlice);
+  if (!tail) return head;
+  return head ? `${head} ${tail}` : tail;
 }
 
 /**

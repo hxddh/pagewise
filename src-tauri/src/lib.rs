@@ -246,6 +246,27 @@ fn read_file_with_cancel(
 }
 
 #[tauri::command]
+async fn unlock_pdf_cmd(
+    path: String,
+    password: String,
+    allowed: State<'_, AllowedPaths>,
+) -> Result<(), String> {
+    let canon = ensure_allowed(&allowed, &path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        run_blocking_pdf(|| inspect::unlock_pdf(&canon, &password))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
+}
+
+#[tauri::command]
+fn close_document_cmd(path: String) {
+    let canon = std::fs::canonicalize(&path).unwrap_or_else(|_| PathBuf::from(&path));
+    doc_check::remove_session_password(&canon);
+    inspect::evict_cached_pdf(&canon);
+}
+
+#[tauri::command]
 async fn read_file_bytes(
     path: String,
     allowed: State<'_, AllowedPaths>,
@@ -255,10 +276,21 @@ async fn read_file_bytes(
     doc_check::check_size(&canon)?;
     let cancel_gen = cancel.inner().0.clone();
     let gen_at_start = cancel_gen.load(Ordering::SeqCst);
+    if let Some(bytes) = inspect::cached_pdf_bytes(&canon) {
+        if cancel_gen.load(Ordering::SeqCst) != gen_at_start {
+            return Err("Read cancelled".to_string());
+        }
+        return Ok(tauri::ipc::Response::new(bytes));
+    }
     let path_for_read = canon.clone();
     let cancel_for_blocking = cancel_gen.clone();
     let bytes = tauri::async_runtime::spawn_blocking(move || {
-        read_file_with_cancel(&path_for_read, &cancel_for_blocking, gen_at_start)
+        let raw = read_file_with_cancel(&path_for_read, &cancel_for_blocking, gen_at_start)?;
+        if let Some(pw) = doc_check::session_password(&path_for_read) {
+            inspect::decrypt_pdf_bytes(&raw, &pw)
+        } else {
+            Ok(raw)
+        }
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))??;
@@ -452,6 +484,8 @@ pub fn run() {
             file_stamp_cmd,
             file_identity_cmd,
             open_document_cmd,
+            unlock_pdf_cmd,
+            close_document_cmd,
             document_kind_cmd,
             extract_region_cmd,
             page_text_items_cmd,

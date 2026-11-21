@@ -8,17 +8,19 @@ interface SearchHighlightProps {
   page: number;
   /** The query the reader jumped here for. Empty means nothing to show. */
   query: string;
+  /** 0-based index of the currently focused match on this page. */
+  focusIndex?: number;
+  /** Reports the focused match's normalized box so the scroller can bring it into view. */
+  onFocusBox?: (box: HighlightBox) => void;
 }
 
-/**
- * Mark where a search hit is on the page.
- *
- * Jumping to page 42 and leaving the reader to find the phrase is most of the
- * work still undone. Boxes cover the line a hit is on rather than the exact
- * characters: the extractor reports runs, not glyph advances. On a scan the
- * runs are OCR's words (14.0), through the same `pageRuns` citations use.
- */
-export function SearchHighlight({ path, page, query }: SearchHighlightProps) {
+export function SearchHighlight({
+  path,
+  page,
+  query,
+  focusIndex = 0,
+  onFocusBox,
+}: SearchHighlightProps) {
   const [boxes, setBoxes] = useState<HighlightBox[]>([]);
 
   useEffect(() => {
@@ -44,6 +46,14 @@ export function SearchHighlight({ path, page, query }: SearchHighlightProps) {
     };
   }, [path, page, query]);
 
+  const clampedFocus = boxes.length > 0 ? Math.min(Math.max(0, focusIndex), boxes.length - 1) : -1;
+
+  useEffect(() => {
+    if (clampedFocus >= 0 && boxes[clampedFocus]) {
+      onFocusBox?.(boxes[clampedFocus]!);
+    }
+  }, [boxes, clampedFocus, onFocusBox]);
+
   if (boxes.length === 0) return null;
 
   return (
@@ -51,7 +61,7 @@ export function SearchHighlight({ path, page, query }: SearchHighlightProps) {
       {boxes.map((box, i) => (
         <span
           key={`${box.left}-${box.top}-${i}`}
-          className="search-highlight"
+          className={`search-highlight${i === clampedFocus ? " search-highlight-focus" : ""}`}
           style={{
             left: `${box.left * 100}%`,
             top: `${box.top * 100}%`,

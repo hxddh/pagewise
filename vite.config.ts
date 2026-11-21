@@ -44,7 +44,8 @@ export default defineConfig(async () => ({
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
           if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return "vendor";
-          if (/node_modules\/(ai|@ai-sdk)\//.test(id)) return "ai";
+          if (/node_modules\/(ai|@ai-sdk|zod)\//.test(id)) return "ai";
+          if (/node_modules\/(tesseract\.js|wasm-feature-detect)\//.test(id)) return "ocr";
           if (
             /node_modules\/(react-markdown|remark-|rehype-|micromark|mdast|hast|unist|vfile|character-entities|decode-named-character-reference|property-information|space-separated-tokens|comma-separated-tokens|html-url-attributes|zwitch|longest-streak|ccount|markdown-table|escape-string-regexp|bail|trough|unified|is-plain-obj|devlop|estree|style-to-js|style-to-object|inline-style-parser)/.test(id)
           ) {

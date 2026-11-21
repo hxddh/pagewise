@@ -65,7 +65,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const cycleTheme = useCallback(async () => {
-    const order: ThemeMode[] = ["dark", "light", "system"];
+    const order: ThemeMode[] = ["dark", "night", "light", "paper", "system"];
     const current = preferences?.theme ?? "dark";
     const nextTheme = order[(order.indexOf(current) + 1) % order.length]!;
     await setTheme(nextTheme);

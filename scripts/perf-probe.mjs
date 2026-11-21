@@ -77,7 +77,9 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DIST = join(ROOT, "dist");
 const OUT_DIR = join(ROOT, ".perf");
 const WORK = join(tmpdir(), "pagewise-perf");
-const CHROME = process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined;
+const CHROME =
+  process.env.PLAYWRIGHT_CHROMIUM_PATH ||
+  (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 
 /** Budgets: the measured value with room for a slower machine. See the header. */
 const BUDGETS = {
@@ -798,14 +800,14 @@ async function main() {
   }
   mkdirSync(OUT_DIR, { recursive: true });
 
-  const appPort = 4173;
-  const modelPort = 4174;
-  const appServer = await serveDist(appPort);
+  const appServer = await serveDist(0);
+  const appPort = appServer.address().port;
   const answer = (
     "The page is a set of working notes rather than an argument, so the answer is what the record shows: " +
     "each section restates the same measurement pattern in different words, and the prose is generated filler. "
   ).repeat(12);
-  const { server: modelServer, log: modelLog } = await serveModel(modelPort, answer);
+  const { server: modelServer, log: modelLog } = await serveModel(0, answer);
+  const modelPort = modelServer.address().port;
 
   const browser = await chromium.launch({
     executablePath: CHROME,

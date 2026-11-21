@@ -9,6 +9,7 @@ import {
   pdfStandardFontUrl,
   type PDFDocumentProxy, pdfWasmUrl, pdfIccUrl } from "./pdf-loader";
 import type { PreviewQuality } from "./types";
+import type { ZoomMode } from "./zoom";
 import type { DocumentModel, PdfRect, RegionText, TextItemRect } from "./types";
 import { raceWithAbort, throwIfAborted } from "./abort-utils";
 import { ensureProviderCompatibleImage } from "./image-transcode";
@@ -245,16 +246,17 @@ export function quantizeWidth(width: number): number {
  * enter the arithmetic.
  */
 export function buildScaleKey(
-  zoom: "fit-width" | number,
+  zoom: ZoomMode,
   containerWidth: number,
   resolvedScale: number,
   reservedWidth = 0,
 ): string {
-  if (zoom !== "fit-width") return `fixed:${resolvedScale.toFixed(4)}`;
+  if (typeof zoom === "number") return `fixed:${resolvedScale.toFixed(4)}`;
   const qWidth = quantizeWidth(containerWidth);
   const qScale = quantizeWidth(resolvedScale * 1000);
   const qReserve = Math.round(reservedWidth);
-  return `fit:${qWidth}:${qScale}:${qReserve}`;
+  const tag = zoom === "fit-width" ? "fit" : zoom;
+  return `${tag}:${qWidth}:${qScale}:${qReserve}`;
 }
 
 function cacheKey(
@@ -612,8 +614,10 @@ async function loadPdfDocumentOnce(path: string, epochAtStart: number): Promise<
   if (existing) return existing;
   const pdfjs = await getPdfJs();
   const data = await loadPdfBytes(path, epochAtStart);
-  const payload = pdfBytesCache.has(path) ? data.slice() : data;
-  const doc = await pdfjs.getDocument(pdfDocumentInit(payload)).promise;
+  // Release our reference before handing `data` to pdf.js so the Worker takes
+  // ownership of the underlying ArrayBuffer directly with zero `.slice()` copy.
+  clearPdfBytesCache(path);
+  const doc = await pdfjs.getDocument(pdfDocumentInit(data)).promise;
 
   if (!shouldCommitPdfLoad(path, epochAtStart)) {
     void doc.loadingTask.destroy();
@@ -632,7 +636,6 @@ async function loadPdfDocumentOnce(path: string, epochAtStart: number): Promise<
     bumpPathEpoch(candidate);
     if (evicted) void evicted.loadingTask.destroy();
   }
-  clearPdfBytesCache(path);
   return doc;
 }
 
@@ -1161,7 +1164,20 @@ export function clearPdfCache(onlyPath?: string): void {
 }
 
 export function disposeDocumentResources(onlyPath?: string): void {
+  const closingPaths =
+    onlyPath !== undefined
+      ? [onlyPath]
+      : [...new Set([...pdfDocCache.keys(), ...(pdfActivePath ? [pdfActivePath] : [])])].filter(
+          (p) => p !== stagedPdfPath,
+        );
   clearPdfCache(onlyPath);
+  if (isTauriRuntime()) {
+    for (const p of closingPaths) {
+      if (p && p !== stagedPdfPath) {
+        void invokeCmd("close_document_cmd", { path: p }).catch(() => {});
+      }
+    }
+  }
 }
 
 export function __resetPdfForTests(): void {

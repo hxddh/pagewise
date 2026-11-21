@@ -33,6 +33,28 @@ export const OCR_SLOTS = 2;
 const PAGE_TIMEOUT_MS = 90_000;
 /** Coalesce a sweep's writes into one save every few seconds. */
 const FLUSH_DELAY_MS = 4_000;
+/** Release idle Tesseract WASM workers after a scan finishes. */
+const IDLE_TERMINATE_MS = 45_000;
+
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearIdleTimer(): void {
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+}
+
+function scheduleIdleTerminate(): void {
+  clearIdleTimer();
+  if (queue.length > 0 || freeSlots.length < OCR_SLOTS) return;
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (queue.length === 0 && freeSlots.length === OCR_SLOTS) {
+      void terminateOcr();
+    }
+  }, IDLE_TERMINATE_MS);
+}
 
 let enabled = true;
 // Until the stored preference arrives: what "auto" would pick.
@@ -274,6 +296,7 @@ function pump(): void {
       job.drop();
       continue;
     }
+    clearIdleTimer();
     job.startedAt = performance.now();
     notifyQueue();
     const slot = freeSlots.shift()!;
@@ -281,6 +304,14 @@ function pump(): void {
       freeSlots.push(slot);
       notifyQueue();
       pump();
+      if (queue.length === 0 && freeSlots.length === OCR_SLOTS) {
+        if (docs.size === 0) {
+          clearIdleTimer();
+          void terminateOcr();
+        } else {
+          scheduleIdleTerminate();
+        }
+      }
     });
   }
 }
@@ -504,10 +535,21 @@ export function forgetOcr(path: string): void {
   for (let i = queue.length - 1; i >= 0; i--) {
     if (queue[i]!.path === path) queue.splice(i, 1)[0]!.drop();
   }
+  if (queue.length === 0 && freeSlots.length === OCR_SLOTS && docs.size === 0) {
+    clearIdleTimer();
+    void terminateOcr();
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    void flushOcrService();
+  });
 }
 
 /** Test seam. */
 export function __resetOcrServiceForTests(): void {
+  clearIdleTimer();
   for (const s of docs.values()) if (s.flushTimer) clearTimeout(s.flushTimer);
   docs.clear();
   queue.length = 0;

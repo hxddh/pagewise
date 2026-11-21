@@ -335,6 +335,31 @@
   --scrim: rgba(40, 32, 20, 0.18);
 }
 
+/*
+ * Night reading theme: dark chrome paired with a glare-free inverted dark page
+ * surface (`.preview-canvas` in `03-preview-pane.css`), while keeping overlays
+ * and ink markers un-inverted.
+ */
+[data-theme="night"] {
+  --bg-base: #0b0c0f;
+  --bg-surface: #111318;
+  --bg-elevated: #171a21;
+  --bg-hover: #1e222b;
+  --bg-canvas: #0d0e12;
+  --bg-panel: #111318;
+  --border: #252934;
+  --border-subtle: #1c1f28;
+  --border-strong: #373d4d;
+  --text: #e8eaf0;
+  --text-secondary: #a3a8b8;
+  --text-muted: #767c8f;
+  --accent: #5e6ad2;
+  --accent-hover: #6d78d8;
+  --accent-text: #8d98eb;
+  --finding-text: #9d74f7;
+  --accent-muted: rgba(94, 106, 210, 0.14);
+}
+
 /* High contrast (19.0): the same three themes with their floors pushed up —
    7:1 on the text tokens where the base sets sit at the 4.5:1 AA floor, and
    borders that stay visible at 3:1. A media query over the existing sets, so a
@@ -343,6 +368,7 @@
    are measured in `scripts/css-hygiene.test.mjs`, ratios included. */
 @media (prefers-contrast: more) {
   :root { --text: #ffffff; --text-secondary: #dcdce2; --text-muted: #b8b8c2; --border: #5b5b66; --border-subtle: #45454f; --border-strong: #82828f; --accent-text: #aeb7ff; --finding-text: #c0a8ff; }
+  [data-theme="night"] { --text: #ffffff; --text-secondary: #dfe2ec; --text-muted: #bcc1d0; --border: #606678; --border-subtle: #484d5c; --border-strong: #8890a4; --accent-text: #b2bbff; --finding-text: #c4adff; }
   [data-theme="light"] { --text: #09090b; --text-secondary: #3b3b43; --text-muted: #52525b; --border: #a1a1aa; --border-subtle: #d4d4d8; --border-strong: #6b6b74; --accent-text: #2f3a9e; --finding-text: #5b21b6; }
   [data-theme="paper"] { --text: #17130d; --text-secondary: #40392a; --text-muted: #57503f; --border: #b3a993; --border-subtle: #d8cfbc; --border-strong: #7c7057; --accent-text: #2f3a9e; --finding-text: #5b21b6; }
 }

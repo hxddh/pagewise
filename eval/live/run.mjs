@@ -93,12 +93,17 @@ function dumpFor(doc) {
 function mockDocument(dump) {
   const doc = {
     page_count: dump.page_count,
-    title: null,
-    pages: dump.pages.map((p) => ({ page: p.page, text: p.text, needs_vision: p.needs_vision, has_table: /\n\|/.test(p.text) })),
-    outline: [],
-    structure_outline: [],
-    links: [],
-    figures: [],
+    title: dump.title ?? null,
+    pages: dump.pages.map((p) => ({
+      page: p.page,
+      text: p.text,
+      needs_vision: p.needs_vision,
+      has_table: p.has_table ?? /\n\|/.test(p.text),
+    })),
+    outline: dump.outline ?? [],
+    structure_outline: dump.structure_outline ?? [],
+    links: dump.links ?? [],
+    figures: dump.figures ?? [],
   };
   const runsByPage = Object.fromEntries(dump.pages.map((p) => [p.page, p.items]));
   return { doc, runsByPage };
