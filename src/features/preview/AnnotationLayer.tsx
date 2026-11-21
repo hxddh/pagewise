@@ -35,7 +35,7 @@ export function AnnotationLayer({ path, page, annotations }: AnnotationLayerProp
   const [placed, setPlaced] = useState<PlacedAnnotation[]>([]);
 
   useEffect(() => {
-    const onPage = annotations.filter((a) => a.page === page);
+    const onPage = annotations.filter((a) => a.page === page && a.subtype !== "Widget");
     if (onPage.length === 0) {
       setPlaced([]);
       return;

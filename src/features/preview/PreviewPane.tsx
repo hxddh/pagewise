@@ -11,6 +11,7 @@ import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { indexPageInBackground, OCR_TRUSTED_CONFIDENCE } from "../../document/index-queue";
 import { cachedOcrPage } from "../../lib/ocr/ocr-service";
 import { useSettled } from "../../lib/use-settled";
+import { isImeComposing } from "../../lib/ime";
 import { usePdfViewer } from "./usePdfViewer";
 import { useAskSelection } from "./useAskSelection";
 import { selectionQuote } from "./selection-quote";
@@ -147,7 +148,23 @@ function PreviewPaneInner({
   const targetNonceRef = useRef(0);
 
   const toggleThumbs = useCallback(() => setThumbsVisible((v) => !v), []);
-  const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision, onToggleThumbs: toggleThumbs });
+  const handleRestorePlace = useCallback((place: { page: number; topFraction: number }) => {
+    targetNonceRef.current += 1;
+    setScrollTarget({
+      page: place.page,
+      topFraction: place.topFraction,
+      heightFraction: 0.05,
+      nonce: targetNonceRef.current,
+    });
+  }, []);
+  const viewer = usePdfViewer({
+    doc,
+    page,
+    onPageChange,
+    prefsRevision,
+    onToggleThumbs: toggleThumbs,
+    onRestorePlace: handleRestorePlace,
+  });
 
   const jumpWithHistory = useCallback(
     (target: number) => {
@@ -281,10 +298,11 @@ function PreviewPaneInner({
           const box = askSel.pageBox;
           const selectionRect = askSel.rect;
           const selPage = askSel.page;
+          const selPages = askSel.pages;
           const run = quoteRun.current;
           clearAskSel();
           window.getSelection()?.removeAllRanges();
-          void selectionQuote(doc.path, selPage, askSel.text, selectionRect, box).then(
+          void selectionQuote(doc.path, selPage, askSel.text, selectionRect, box, selPages).then(
             (quote) => {
               // Reading the region is a round trip, and the user can turn the
               // page or open another document while it is in flight. Dropping
@@ -354,6 +372,7 @@ function PreviewPaneInner({
   useEffect(() => {
     if (!regionMode && !pendingRegion) return;
     const onKey = (e: KeyboardEvent) => {
+      if (isImeComposing(e)) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         setRegionMode(false);
@@ -630,11 +649,11 @@ function PreviewPaneInner({
         currentStamp={doc.stamp ?? ""}
         onCloseMark={() => onSelectMark?.(null)}
         onSelectMark={(target, id) => {
-          onPageChange(target);
+          jumpWithHistory(target);
           onSelectMark?.(id);
         }}
         onSelectFinding={(id, target) => {
-          onPageChange(target);
+          jumpWithHistory(target);
           onSelectFinding?.(id);
         }}
         onRevealMessage={onRevealMessage}
@@ -650,6 +669,7 @@ function PreviewPaneInner({
       totalPages,
       selectedMarkId,
       onPageChange,
+      jumpWithHistory,
       onSelectMark,
       onSelectFinding,
       onRevealMessage,
@@ -690,7 +710,7 @@ function PreviewPaneInner({
           zoom={viewer.zoom}
           quality={viewer.quality}
           onScaleResolved={viewer.onScaleResolved}
-          onPinchZoom={viewer.handleZoomChange}
+          onPinchZoom={viewer.handlePinchZoom}
           scrollTarget={scrollTarget}
           marginColumn={marginColumn}
           containerRef={bindScroller}
@@ -790,6 +810,7 @@ function PreviewPaneInner({
               aria-label={t("zen.ask")}
               onChange={(e) => marginAsk.onDraftChange(e.target.value)}
               onKeyDown={(e) => {
+                if (isImeComposing(e)) return;
                 if (e.key === "Escape" && marginAsk.onDismiss) {
                   e.stopPropagation();
                   marginAsk.onDismiss();
@@ -818,6 +839,8 @@ function PreviewPaneInner({
     </>
   );
 
+  const hasBottomAsk = Boolean(marginColumn && marginAsk?.visible);
+
   const toolbar = (
     <PreviewToolbar
       filename={doc.name}
@@ -829,7 +852,10 @@ function PreviewPaneInner({
       onZoomIn={viewer.zoomIn}
       onZoomOut={viewer.zoomOut}
       zoomDisabled={doc.kind === "image"}
-      onPageChange={onPageChange}
+      onPageChange={jumpWithHistory}
+      canGoBack={viewer.canGoBack}
+      backPage={viewer.backPage}
+      onGoBack={viewer.goBack}
       thumbsVisible={thumbsVisible}
       onToggleThumbs={toggleThumbs}
       regionMode={regionMode}
@@ -851,7 +877,10 @@ function PreviewPaneInner({
           onClearHighlight={() => setSearchHit(null)}
         />
         {toolbar}
-        <div className="preview-canvas-wrap image-wrap" onClick={viewer.focusPreview}>
+        <div
+          className={`preview-canvas-wrap image-wrap${hasBottomAsk ? " preview-canvas-has-ask" : ""}`}
+          onClick={viewer.focusPreview}
+        >
           {canvasBody}
         </div>
       </div>
@@ -911,7 +940,10 @@ function PreviewPaneInner({
 
       <div className="preview-main">
         {toolbar}
-        <div className="preview-canvas-wrap" onClick={viewer.focusPreview}>
+        <div
+          className={`preview-canvas-wrap${hasBottomAsk ? " preview-canvas-has-ask" : ""}`}
+          onClick={viewer.focusPreview}
+        >
           {canvasBody}
         </div>
       </div>

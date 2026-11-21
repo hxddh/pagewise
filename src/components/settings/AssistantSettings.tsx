@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useDebouncedSave, type SaveStatus } from "../../hooks/useDebouncedSave";
-import { useConnectionStatus } from "../../hooks/useConnectionStatus";
 import { formatLlmError, testConnection, testVisionConnection, validateModel } from "../../lib/llm";
 import {
   loadLlmStore,
@@ -49,6 +48,7 @@ interface AssistantSettingsProps {
   onIncludeViewingPageDefaultChange: (value: boolean) => void;
   showUsageLine: boolean;
   onShowUsageLineChange: (value: boolean) => void;
+  plaintextKeysOnDisk?: boolean;
 }
 
 function visionModelOf(profile: ProviderProfile | undefined, provider: ProviderId): string {
@@ -69,9 +69,9 @@ export function AssistantSettings({
   onIncludeViewingPageDefaultChange,
   showUsageLine,
   onShowUsageLineChange,
+  plaintextKeysOnDisk = false,
 }: AssistantSettingsProps) {
   const { t } = useI18n();
-  const { plaintextKeysOnDisk } = useConnectionStatus();
   const [loaded, setLoaded] = useState(false);
   const [activeProvider, setActiveProviderId] = useState<ProviderId>(DEFAULT_SETTINGS.provider);
   const [settings, setSettings] = useState<LlmSettings>(DEFAULT_SETTINGS);

@@ -2,6 +2,7 @@ export interface PreviewPageActions {
   prevPage: () => void;
   nextPage: () => void;
   goToPage: (page: number) => void;
+  jumpToPage?: (page: number) => void;
 }
 
 let actions: PreviewPageActions | null = null;
@@ -16,4 +17,10 @@ export function previewPrevPage(): void {
 
 export function previewNextPage(): void {
   actions?.nextPage();
+}
+
+export function previewJumpToPage(page: number): boolean {
+  if (!actions?.jumpToPage) return false;
+  actions.jumpToPage(page);
+  return true;
 }

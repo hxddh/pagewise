@@ -28,6 +28,8 @@ export interface PageSlotProps {
   quality: PreviewQuality;
   /** True while the reader is scrolling fast; drops to a cheaper raster. */
   hurried: boolean;
+  /** True during continuous trackpad pinch-zoom; stretches existing canvas until settled. */
+  pinching?: boolean;
   /** Container width, which is what a fit-width scale key is keyed on. */
   containerWidth: number;
   /**
@@ -64,6 +66,7 @@ export const PageSlot = memo(function PageSlot({
   scale,
   quality,
   hurried,
+  pinching = false,
   containerWidth,
   reservedWidth,
   zoom,
@@ -81,11 +84,15 @@ export const PageSlot = memo(function PageSlot({
   const textLen = getPageTextLen(path, page, doc.pages);
 
   useEffect(() => {
+    // While actively pinching an already-drawn page, CSS hardware-stretches the
+    // existing canvas to 100%×100% at 120fps; crisp HiDPI rasterization runs
+    // once the gesture settles (27.0).
+    if (pinching && drawn) return;
     let cancelled = false;
     const isStale = () => cancelled;
     // A scanned page is a photograph: rasterizing it crisply costs a lot and
     // shows nothing more. Scrolling fast is the same trade for a moment.
-    const raster = isRasterHeavyPage(textLen) || hurried;
+    const raster = isRasterHeavyPage(textLen) || hurried || pinching;
     const effective = effectiveRenderQuality(quality, raster);
     const scaleKey = buildScaleKey(zoom, containerWidth, scale, reservedWidth);
 
@@ -124,7 +131,7 @@ export const PageSlot = memo(function PageSlot({
     return () => {
       cancelled = true;
     };
-  }, [path, stamp, page, scale, quality, hurried, zoom, containerWidth, reservedWidth, textLen, t]);
+  }, [path, stamp, page, scale, quality, hurried, pinching, drawn, zoom, containerWidth, reservedWidth, textLen, t]);
 
   const [ocrEpoch, setOcrEpoch] = useState(0);
   useEffect(() => {
@@ -133,7 +140,7 @@ export const PageSlot = memo(function PageSlot({
     });
   }, [path]);
 
-  const wantTextLayer = drawn && !hurried && (textLen > 0 || (getCachedOcrWords(path, page)?.length ?? 0) > 0);
+  const wantTextLayer = drawn && !hurried && !pinching && (textLen > 0 || (getCachedOcrWords(path, page)?.length ?? 0) > 0);
 
   useEffect(() => {
     if (!wantTextLayer) {
@@ -183,7 +190,10 @@ export const PageSlot = memo(function PageSlot({
       aria-label={t("preview.pageHit", { page })}
     >
       <div className="pdf-page-clip">
-        <canvas ref={canvasRef} className="preview-canvas" />
+        <canvas
+          ref={canvasRef}
+          className={pinching ? "preview-canvas preview-canvas-pinching" : "preview-canvas"}
+        />
         <div
           ref={textLayerRef}
           className={`pdf-text-layer${textLayerActive ? " pdf-text-layer-active" : ""}`}

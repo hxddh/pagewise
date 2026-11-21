@@ -244,6 +244,8 @@ button.pages-read-chip:hover
 .thumb-item
 .thumb-item:hover
 .thumb-canvas
+[data-theme="paper"] .thumb-canvas
+[data-theme="night"] .thumb-canvas
 .thumb-label
 .doc-search-input
 .doc-search-step-count

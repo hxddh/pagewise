@@ -1,8 +1,28 @@
 import { useEffect, useRef } from "react";
-import { getToolName, isToolUIPart, type UIMessage } from "ai";
+import type { UIMessage } from "ai";
 import { getLastAgentMessageContext } from "../lib/agent-view-context";
 import { getLastMessage } from "../lib/messages-utils";
 import { shouldFollowAgentToPage } from "../lib/page-intent";
+
+interface ToolLikePart {
+  type: string;
+  toolName?: string;
+  state?: string;
+  input?: unknown;
+}
+
+function asToolPart(part: unknown): ToolLikePart | null {
+  if (!part || typeof part !== "object" || !("type" in part)) return null;
+  const p = part as ToolLikePart;
+  if (typeof p.type !== "string") return null;
+  if (p.type === "dynamic-tool" && typeof p.toolName === "string") return p;
+  if (p.type.startsWith("tool-") && p.type.length > 5) return p;
+  return null;
+}
+
+function toolNameOf(part: ToolLikePart): string {
+  return part.type === "dynamic-tool" ? (part.toolName ?? "") : part.type.slice(5);
+}
 
 /** Jump preview to pages the agent reads when follow-agent is enabled. */
 export function useFollowAgent(
@@ -34,11 +54,11 @@ export function useFollowAgent(
       : null;
 
     for (let i = assistant.parts.length - 1; i >= 0; i--) {
-      const part = assistant.parts[i];
-      if (!isToolUIPart(part)) continue;
+      const part = asToolPart(assistant.parts[i]);
+      if (!part) continue;
       if (part.state !== "input-available" && part.state !== "output-available") continue;
 
-      const name = getToolName(part);
+      const name = toolNameOf(part);
       const input =
         part.input && typeof part.input === "object"
           ? (part.input as Record<string, unknown>)

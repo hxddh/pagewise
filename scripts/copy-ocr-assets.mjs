@@ -19,6 +19,8 @@ const dest = join(root, "public", "ocr");
 
 const FILES = [
   ["tesseract.js/dist/worker.min.js", "worker.min.js"],
+  ["tesseract.js-core/tesseract-core-relaxedsimd-lstm.js", "tesseract-core-relaxedsimd-lstm.js"],
+  ["tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm", "tesseract-core-relaxedsimd-lstm.wasm"],
   ["tesseract.js-core/tesseract-core-simd-lstm.js", "tesseract-core-simd-lstm.js"],
   ["tesseract.js-core/tesseract-core-simd-lstm.wasm", "tesseract-core-simd-lstm.wasm"],
   ["tesseract.js-core/tesseract-core-lstm.js", "tesseract-core-lstm.js"],

@@ -27,6 +27,12 @@ describe("regionSnapshot", () => {
     expect(regionSnapshot({ text: "Year Revenue 2024 16", table })).toBe(table);
   });
 
+  it("wraps reconstructed math regions in inline LaTeX delimiters", () => {
+    expect(regionSnapshot({ text: "x 2 + y 2 = r 2", table: null, latex: "x^{2} + y^{2} = r^{2}" })).toBe(
+      "$x^{2} + y^{2} = r^{2}$",
+    );
+  });
+
   it("treats a region with nothing readable as empty rather than inventing text", () => {
     expect(regionSnapshot({ text: "   ", table: null })).toBe("");
     expect(regionSnapshot({ text: "", table: "  " })).toBe("");

@@ -26,11 +26,16 @@ export type OcrLanguages = "eng" | "chi_sim+eng";
 let corePath: Promise<string> | null = null;
 function resolveCorePath(): Promise<string> {
   corePath ??= import("wasm-feature-detect")
-    .then(({ simd }) => simd())
-    .then(
-      (yes) => pdfAssetUrl(`ocr/tesseract-core-${yes ? "simd-" : ""}lstm.js`),
-      () => pdfAssetUrl("ocr/tesseract-core-lstm.js"),
-    );
+    .then(async ({ relaxedSimd, simd }) => {
+      if (await relaxedSimd().catch(() => false)) {
+        return pdfAssetUrl("ocr/tesseract-core-relaxedsimd-lstm.js");
+      }
+      if (await simd().catch(() => false)) {
+        return pdfAssetUrl("ocr/tesseract-core-simd-lstm.js");
+      }
+      return pdfAssetUrl("ocr/tesseract-core-lstm.js");
+    })
+    .catch(() => pdfAssetUrl("ocr/tesseract-core-lstm.js"));
   return corePath;
 }
 

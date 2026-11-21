@@ -1,6 +1,6 @@
 [package]
 name = "pagewise"
-version = "26.0.0"
+version = "27.0.0"
 description = "Local desktop PDF agent — page-wise AI analysis"
 authors = ["hxddh"]
 edition = "2021"
@@ -16,32 +16,32 @@ name = "pagewise_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7.6", features = [] }
 
 [dependencies]
 # `macos-private-api` is what `app.macOSPrivateApi: true` in tauri.conf.json
 # requires (a transparent window with a material behind it needs it on macOS);
 # tauri-build refuses to compile when the config and the feature list disagree,
 # which is how 18.0.0's first CI run failed.
-tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
-tauri-plugin-opener = "2"
+tauri = { version = "2.12.7", features = ["protocol-asset", "macos-private-api"] }
+tauri-plugin-opener = "2.7.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-pdf-inspector = "1.25"
+pdf-inspector = "1.27"
 # Read directly for one thing only: each page's visible box. pdf-inspector
 # after 1.17 reports positions relative to it (CropBox ∩ MediaBox); PageWise's
 # frontend and the pdf.js annotations it draws beside them work in absolute
 # user space, so inspect.rs adds the origin back. Same version pdf-inspector
 # already builds, so it adds nothing to the dependency tree.
 lopdf = "0.45"
-tauri-plugin-dialog = "2.7.1"
+tauri-plugin-dialog = "2.8.4"
 # Remembering the window, and being one app rather than several.
 #
 # Both are desktop table stakes and neither existed: every launch reset the
 # window to 1200x800 wherever the OS put it, and opening a second PDF from the
 # file manager started a second copy of PageWise with its own empty state.
-tauri-plugin-window-state = "2"
-tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2.5.0"
+tauri-plugin-single-instance = "2.5.5"
 # `tauri-plugin-store` is deliberately absent since 20.0: its `save()` was a
 # plain `fs::write` (a torn write read back as an empty store, which the next
 # save wrote over the reader's work), it swallowed the load error so the app
@@ -65,7 +65,7 @@ tauri-plugin-single-instance = "2"
 # blocking backend; the shim uses the zbus one. Both talk to the same Secret
 # Service, and these calls already run inside `spawn_blocking`, so nothing about
 # this code's threading changes.
-keyring = { version = "4.1.6", default-features = false, features = ["v1"] }
+keyring = { version = "4.2.0", default-features = false, features = ["v1"] }
 
 [profile.release]
 lto = true

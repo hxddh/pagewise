@@ -1,5 +1,6 @@
 import { extractRegion, getPageGeometry, type PageGeometry } from "../../lib/pdf";
 import type { PdfRect } from "../../lib/types";
+import type { PageSelectionSlice } from "./useAskSelection";
 
 /** Cap a quote so a large selection cannot flood the composer. */
 export const MAX_QUOTE = 500;
@@ -66,13 +67,57 @@ function truncate(text: string): string {
  * Falls back to the DOM text on any failure: this path is an improvement to an
  * interaction that already works, and must never be the reason it stops.
  */
+function sliceEnvelope(rects: readonly ClientRect[]): ClientRect | null {
+  if (rects.length === 0) return null;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const r of rects) {
+    left = Math.min(left, r.left);
+    top = Math.min(top, r.top);
+    right = Math.max(right, r.left + r.width);
+    bottom = Math.max(bottom, r.top + r.height);
+  }
+  const width = right - left;
+  const height = bottom - top;
+  return width > 0 && height > 0 ? { left, top, width, height } : null;
+}
+
 export async function selectionQuote(
   path: string,
   page: number,
   domText: string,
   selection: ClientRect,
   pageBox: ClientRect | null,
+  pages?: PageSelectionSlice[],
 ): Promise<string> {
+  if (pages && pages.length > 1) {
+    try {
+      const parts = await Promise.all(
+        pages.map(async (slice) => {
+          const env = sliceEnvelope(slice.rects);
+          if (!env || slice.pageBox.width <= 0) return "";
+          const geometry = await getPageGeometry(path, slice.page);
+          const rect = clientRectToPageRect(env, slice.pageBox, geometry);
+          if (rect.width <= 0 || rect.height <= 0) return "";
+          const region = await extractRegion(path, slice.page, rect);
+          if (region.table?.trim()) return region.table.trim();
+          if (region.latex?.trim()) return `$${region.latex.trim()}$`;
+          return region.text.trim();
+        }),
+      );
+      const hasStructured = parts.some((p) => p.includes("|---") || p.startsWith("$"));
+      if (hasStructured) {
+        const joined = parts.filter(Boolean).join("\n\n").trim();
+        if (joined) return truncate(joined);
+      }
+      return truncate(domText);
+    } catch {
+      return truncate(domText);
+    }
+  }
+
   if (!pageBox || pageBox.width <= 0) return truncate(domText);
   try {
     const geometry = await getPageGeometry(path, page);
@@ -80,9 +125,10 @@ export async function selectionQuote(
     if (rect.width <= 0 || rect.height <= 0) return truncate(domText);
 
     const region = await extractRegion(path, page, rect);
-    // A table is worth quoting verbatim; prose is not obviously better than
-    // what the user visibly selected, so leave that alone.
+    // A table or reconstructed LaTeX formula is worth quoting verbatim; plain
+    // prose is not obviously better than what the user visibly selected.
     if (region.table?.trim()) return truncate(region.table.trim());
+    if (region.latex?.trim()) return truncate(`$${region.latex.trim()}$`);
     return truncate(domText);
   } catch {
     return truncate(domText);

@@ -176,6 +176,7 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => setResultsCollapsed(false)}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "Enter" && hits.length > 0) {
             e.preventDefault();
             if (e.shiftKey) stepHit(-1);

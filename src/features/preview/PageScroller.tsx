@@ -73,7 +73,7 @@ interface PageScrollerProps {
   /** Report the effective numeric scale so keyboard zoom steps stay monotonic. */
   onScaleResolved?: (scale: number) => void;
   /** Trackpad pinch-to-zoom handler (`wheel` with `ctrlKey`/`metaKey`). */
-  onPinchZoom?: (nextScale: number) => void;
+  onPinchZoom?: (nextScale: number, settled?: boolean) => void;
   /** Sub-page target box to scroll smoothly into the comfortable reading band. */
   scrollTarget?: SubPageScrollTarget | null;
   /**
@@ -132,6 +132,7 @@ export function PageScroller({
   // mid-animation is the one the fit has to use.
   const [padRight, setPadRight] = useState(DOT_PADDING);
   const [hurried, setHurried] = useState(false);
+  const [pinching, setPinching] = useState(false);
 
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const pageRef = useRef(page);
@@ -141,6 +142,7 @@ export function PageScroller({
   const selfScrollRef = useRef(false);
   const lastScrollRef = useRef(0);
   const hurryTimerRef = useRef<number | undefined>(undefined);
+  const pinchTimerRef = useRef<number | undefined>(undefined);
   const rafRef = useRef<number | undefined>(undefined);
   // Pages asked for, and pages whose answer came back. A window abandoned
   // mid-flight has to leave its unanswered pages askable again, or scrolling
@@ -278,7 +280,13 @@ export function PageScroller({
           MAX_ZOOM,
           Math.max(MIN_ZOOM, Math.round(scaleRef.current * factor * 1000) / 1000),
         );
-        onPinchZoomRef.current(next);
+        setPinching(true);
+        onPinchZoomRef.current(next, false);
+        window.clearTimeout(pinchTimerRef.current);
+        pinchTimerRef.current = window.setTimeout(() => {
+          setPinching(false);
+          onPinchZoomRef.current?.(scaleRef.current, true);
+        }, 120);
       };
       node.addEventListener("wheel", onWheel, { passive: false });
       // React 19 calls this cleanup instead of re-invoking the ref with null,
@@ -429,6 +437,7 @@ export function PageScroller({
   useEffect(
     () => () => {
       window.clearTimeout(hurryTimerRef.current);
+      window.clearTimeout(pinchTimerRef.current);
       if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current);
     },
     [],
@@ -449,6 +458,7 @@ export function PageScroller({
         scale={scale}
         quality={quality}
         hurried={hurried}
+        pinching={pinching}
         containerWidth={containerWidth}
         reservedWidth={padRight}
         zoom={zoom}

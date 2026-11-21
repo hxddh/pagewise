@@ -45,6 +45,7 @@ interface LegacyPayload {
   apiKeysMigratedFromKeychain?: boolean;
   /** v3. */
   keys?: Partial<Record<ProviderId, string | null>>;
+  keyStored?: Partial<Record<ProviderId, boolean>>;
 }
 
 type StoredPayload = LegacyPayload;
@@ -68,8 +69,9 @@ const runtime = createStoreRuntime<StoreHandle>(() => getStore());
  */
 let keychainBlockedThisSession = false;
 export function resetKeychainBlockedFlag(): void {
+  const wasBlocked = keychainBlockedThisSession;
   keychainBlockedThisSession = false;
-  forgetSessionKey();
+  if (wasBlocked) forgetSessionKey();
 }
 
 /**
@@ -83,9 +85,15 @@ export function resetKeychainBlockedFlag(): void {
  * which is the only way it changes from inside the app.
  */
 const sessionKeys = new Map<ProviderId, string>();
+const inFlightKeyLoads = new Map<ProviderId, Promise<string>>();
 function forgetSessionKey(provider?: ProviderId): void {
-  if (provider === undefined) sessionKeys.clear();
-  else sessionKeys.delete(provider);
+  if (provider === undefined) {
+    sessionKeys.clear();
+    inFlightKeyLoads.clear();
+  } else {
+    sessionKeys.delete(provider);
+    inFlightKeyLoads.delete(provider);
+  }
 }
 
 /** In-memory store + injectable keychain for unit tests. */
@@ -286,8 +294,12 @@ async function migrateToV3(raw: StoredPayload | null): Promise<LlmStoreV3> {
   const legacyKey = raw?.apiKey?.trim();
   if (legacyKey && keys[activeProvider] === undefined) keys[activeProvider] = legacyKey;
 
-  // Mirrors → keychain, then off the disk.
+  // Mirrors → keychain, then off the disk. Never probe providers that have no
+  // plaintext mirror on disk: keys already in the credential vault are loaded
+  // lazily on demand when the assistant or Settings actually needs them (27.0).
+  const keyStored: Partial<Record<ProviderId, boolean>> = { ...(raw?.keyStored ?? {}) };
   for (const provider of ALL_PROVIDER_IDS) {
+    if (keys[provider] === null) keyStored[provider] = false;
     const mirror = keys[provider];
     if (typeof mirror !== "string" || !mirror.trim()) continue;
     try {
@@ -295,23 +307,10 @@ async function migrateToV3(raw: StoredPayload | null): Promise<LlmStoreV3> {
       if (existing && existing !== mirror) continue; // a different key: leave the mirror alone
       if (!existing) {
         await keychainSet(provider, mirror);
-        if ((await keychainGet(provider)).trim() !== mirror) continue;
       }
       delete keys[provider];
+      keyStored[provider] = true;
       sessionKeys.set(provider, mirror);
-    } catch {
-      keychainBlockedThisSession = true;
-      break;
-    }
-  }
-
-  // Providers with no answer yet: ask the keychain once, cache in memory only.
-  for (const provider of ALL_PROVIDER_IDS) {
-    if (provider === "ollama" || keys[provider] !== undefined || sessionKeys.has(provider)) continue;
-    if (keychainBlockedThisSession) break;
-    try {
-      const found = (await keychainGet(provider)).trim();
-      if (found) sessionKeys.set(provider, found);
     } catch {
       keychainBlockedThisSession = true;
       break;
@@ -323,6 +322,7 @@ async function migrateToV3(raw: StoredPayload | null): Promise<LlmStoreV3> {
     ([, value]) => value === null || (typeof value === "string" && value.trim().length > 0),
   );
   if (entries.length > 0) next.keys = Object.fromEntries(entries);
+  if (Object.keys(keyStored).length > 0) next.keyStored = keyStored;
   await writePayload(next);
   return next;
 }
@@ -352,16 +352,29 @@ async function writePayload(
       ...(prior?.keys ?? {}),
       ...(storeData.keys ?? {}),
     };
+    const keyStored: Partial<Record<ProviderId, boolean>> = {
+      ...(prior?.keyStored ?? {}),
+      ...(storeData.keyStored ?? {}),
+    };
 
     if (keyUpdate) {
       if (keyUpdate.apiKey.trim()) {
-        if (keyUpdate.keychainOk === false) keys[keyUpdate.provider] = keyUpdate.apiKey.trim();
-        else delete keys[keyUpdate.provider];
+        if (keyUpdate.keychainOk === false) {
+          keys[keyUpdate.provider] = keyUpdate.apiKey.trim();
+          delete keyStored[keyUpdate.provider];
+        } else {
+          delete keys[keyUpdate.provider];
+          keyStored[keyUpdate.provider] = true;
+        }
       } else {
         keys[keyUpdate.provider] = null;
+        keyStored[keyUpdate.provider] = false;
       }
     }
-    for (const provider of movedToKeychain) delete keys[provider];
+    for (const provider of movedToKeychain) {
+      delete keys[provider];
+      keyStored[provider] = true;
+    }
 
     const payload: LlmStoreV3 = {
       version: 3,
@@ -372,6 +385,8 @@ async function writePayload(
       ([, value]) => value === null || (typeof value === "string" && value.trim().length > 0),
     );
     if (entries.length > 0) payload.keys = Object.fromEntries(entries);
+    const storedEntries = Object.entries(keyStored).filter(([, value]) => typeof value === "boolean");
+    if (storedEntries.length > 0) payload.keyStored = Object.fromEntries(storedEntries);
 
     await s.set(SETTINGS_KEY, payload);
     await s.save();
@@ -383,16 +398,6 @@ async function readPayload(): Promise<LlmStoreV3> {
   const raw = await s.get<StoredPayload>(SETTINGS_KEY);
   if (isLlmStoreV3(raw)) return raw;
   return migrateToV3(raw ?? null);
-}
-
-/** Keys that live in plaintext on disk (keychain unavailable). */
-async function plaintextMirrors(): Promise<Partial<Record<ProviderId, string>>> {
-  const payload = await readPayload();
-  const out: Partial<Record<ProviderId, string>> = {};
-  for (const [provider, value] of Object.entries(payload.keys ?? {})) {
-    if (typeof value === "string" && value.trim()) out[provider as ProviderId] = value.trim();
-  }
-  return out;
 }
 
 /**
@@ -415,7 +420,6 @@ async function moveMirrorToKeychain(provider: ProviderId, mirror: string): Promi
     if (existing && existing !== mirror) return false;
     if (!existing) {
       await keychainSet(provider, mirror);
-      if ((await keychainGet(provider)).trim() !== mirror) return false;
     }
     sessionKeys.set(provider, mirror);
     return true;
@@ -452,9 +456,11 @@ export async function reofferPlaintextMirrors(): Promise<number> {
 }
 
 async function persistApiKey(provider: ProviderId, apiKey: string): Promise<boolean> {
+  const trimmed = apiKey.trim();
   forgetSessionKey(provider);
   try {
-    await keychainSet(provider, apiKey);
+    await keychainSet(provider, trimmed);
+    sessionKeys.set(provider, trimmed);
     return true;
   } catch {
     return false;
@@ -463,41 +469,92 @@ async function persistApiKey(provider: ProviderId, apiKey: string): Promise<bool
 
 /**
  * Load API key for a provider: session cache, then the disk mirror, then the
- * keychain (once per key per session).
+ * keychain (coalesced in-flight and cached once per session, including empty).
  */
 async function loadApiKey(provider: ProviderId): Promise<string> {
+  if (provider === "ollama") return "ollama";
   const cached = sessionKeys.get(provider);
   if (cached !== undefined) return cached;
-  const payload = await readPayload();
-  if (provider === "ollama") return "ollama";
-  const mirror = payload.keys?.[provider];
-  if (typeof mirror === "string" && mirror.trim()) {
-    sessionKeys.set(provider, mirror.trim());
-    return mirror.trim();
-  }
-  if (mirror === null) return ""; // explicitly cleared — the keychain is not asked
-  if (keychainBlockedThisSession) return "";
-  try {
-    const fromKeychain = (await keychainGet(provider)).trim();
-    if (fromKeychain) {
-      sessionKeys.set(provider, fromKeychain);
-      return fromKeychain;
+  const inflight = inFlightKeyLoads.get(provider);
+  if (inflight) return inflight;
+
+  const task = (async () => {
+    const payload = await readPayload();
+    const afterMigrate = sessionKeys.get(provider);
+    if (afterMigrate !== undefined) return afterMigrate;
+    const mirror = payload.keys?.[provider];
+    if (typeof mirror === "string" && mirror.trim()) {
+      const trimmed = mirror.trim();
+      sessionKeys.set(provider, trimmed);
+      return trimmed;
     }
-  } catch {
-    keychainBlockedThisSession = true;
+    if (mirror === null || payload.keyStored?.[provider] === false) {
+      sessionKeys.set(provider, "");
+      return "";
+    }
+    if (keychainBlockedThisSession) return "";
+    try {
+      const fromKeychain = (await keychainGet(provider)).trim();
+      sessionKeys.set(provider, fromKeychain);
+      const hasKey = fromKeychain.length > 0;
+      if (payload.keyStored?.[provider] !== hasKey) {
+        void writePayload({
+          ...payload,
+          keyStored: { ...(payload.keyStored ?? {}), [provider]: hasKey },
+        }).catch(() => {});
+      }
+      return fromKeychain;
+    } catch {
+      keychainBlockedThisSession = true;
+      return "";
+    }
+  })();
+
+  inFlightKeyLoads.set(provider, task);
+  try {
+    return await task;
+  } finally {
+    if (inFlightKeyLoads.get(provider) === task) inFlightKeyLoads.delete(provider);
   }
-  return "";
 }
 
-async function hasStoredApiKey(provider: ProviderId): Promise<boolean> {
+function hasStoredKeyFromPayload(
+  payload: LlmStoreV3,
+  provider: ProviderId,
+  profile: ProviderProfile,
+): boolean | "unknown" {
   if (provider === "ollama") return true;
   const cached = sessionKeys.get(provider);
   if (cached !== undefined) return cached.trim().length > 0;
-  const payload = await readPayload();
   const mirror = payload.keys?.[provider];
   if (typeof mirror === "string") return mirror.trim().length > 0;
   if (mirror === null) return false;
-  return (await loadApiKey(provider)).trim().length > 0;
+  const recorded = payload.keyStored?.[provider];
+  if (typeof recorded === "boolean") return recorded;
+  // Pre-27.0 v3 stores: `connectionVerified: true` confirms a key was tested;
+  // when `connectionVerified` is false and `keyStored` is absent, key presence
+  // is genuinely unknown until checked once (and recorded into `keyStored`).
+  if (profile.connectionVerified) return true;
+  return "unknown";
+}
+
+function resolveVisionModel(payload: LlmStoreV3, provider: ProviderId): string {
+  const profile = profileFor(payload, provider);
+  let model =
+    profile.visionModel?.trim() ||
+    (provider !== "custom"
+      ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
+      : "");
+  const userScan = profile.visionModel?.trim();
+  if (
+    provider !== "custom" &&
+    model &&
+    isKnownNonVisionModel(model) &&
+    (!userScan || userScan === profile.model)
+  ) {
+    model = defaultVisionModel(provider as Exclude<ProviderId, "custom">) || profile.model;
+  }
+  return provider === "custom" ? model : model || profile.model;
 }
 
 function profileToSettings(
@@ -553,7 +610,12 @@ export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
     (provider !== "custom"
       ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
       : "");
-  const mirrors = await plaintextMirrors();
+  const mirrors = Object.values(payload.keys ?? {}).some(
+    (v) => typeof v === "string" && v.trim().length > 0,
+  );
+  const knownKey = hasStoredKeyFromPayload(payload, provider, profile);
+  const hasStoredKey =
+    knownKey === "unknown" ? (await loadApiKey(provider)).trim().length > 0 : knownKey;
   return {
     provider,
     model: profile.model,
@@ -561,8 +623,8 @@ export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
     thinkingEnabled: profile.thinkingEnabled,
     connectionVerified: profile.connectionVerified,
     visionModel,
-    hasStoredKey: await hasStoredApiKey(provider),
-    plaintextKeysOnDisk: Object.keys(mirrors).length > 0,
+    hasStoredKey,
+    plaintextKeysOnDisk: mirrors,
   };
 }
 
@@ -575,10 +637,10 @@ export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
  * (a custom endpoint) is given the benefit of the doubt.
  */
 export async function visionModelAvailable(): Promise<boolean> {
-  // Settings that cannot be read are not a "no": the call that follows reports
-  // its own error, as it did before this check existed.
+  // Pure model-metadata check: never touches the OS keychain (27.0).
   try {
-    return canSeeWith((await loadVisionSettings()).model);
+    const payload = await readPayload();
+    return canSeeWith(resolveVisionModel(payload, payload.activeProvider));
   } catch {
     return true;
   }
@@ -589,25 +651,9 @@ export async function loadVisionSettings(): Promise<LlmSettings> {
   const provider = payload.activeProvider;
   const profile = profileFor(payload, provider);
   const apiKey = await loadApiKey(provider);
-  let model =
-    profile.visionModel?.trim() ||
-    (provider !== "custom"
-      ? defaultVisionModel(provider as Exclude<ProviderId, "custom">)
-      : "");
-  // Replace only when the stored id is a known non-vision model and matches the
-  // agent model (the legacy shared slot). An explicit scan model is preserved.
-  const userScan = profile.visionModel?.trim();
-  if (
-    provider !== "custom" &&
-    model &&
-    isKnownNonVisionModel(model) &&
-    (!userScan || userScan === profile.model)
-  ) {
-    model = defaultVisionModel(provider as Exclude<ProviderId, "custom">) || profile.model;
-  }
   return profileToSettings(
     provider,
-    { ...profile, model: provider === "custom" ? model : model || profile.model },
+    { ...profile, model: resolveVisionModel(payload, provider) },
     apiKey,
   );
 }

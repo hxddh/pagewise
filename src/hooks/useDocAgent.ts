@@ -3,7 +3,7 @@ import { useChat } from "@ai-sdk/react";
 import type { ChatStatus } from "ai";
 import { beginAgentMessage, rollbackAgentMessage, type AgentMessageContext } from "../lib/agent-view-context";
 import { sendWithImageFallback } from "../lib/agent-send";
-import { createDocAgent } from "../lib/agent";
+import type { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
 import { formatAgentError, validateModel, assertApiKeyForAgent } from "../lib/llm";
 import { isAgentMultimodalModel } from "../lib/model-capabilities";
@@ -78,13 +78,40 @@ export interface DocAgent {
   };
 }
 
+type DocAgentInstance = ReturnType<typeof createDocAgent>;
+
+let sharedAgentPromise: Promise<DocAgentInstance> | null = null;
+
+function loadDocAgent(): Promise<DocAgentInstance> {
+  sharedAgentPromise ??= import("../lib/agent")
+    .then(({ createDocAgent: build }) => build())
+    .catch((err) => {
+      sharedAgentPromise = null;
+      throw err;
+    });
+  return sharedAgentPromise;
+}
+
+/** Silently warm the 600 KB AI/Zod runtime during browser idle after a document opens. */
+export function warmDocAgentInIdle(): void {
+  if (sharedAgentPromise || typeof window === "undefined") return;
+  const run = () => {
+    void loadDocAgent().catch(() => {});
+  };
+  if ("requestIdleCallback" in window && typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(run, { timeout: 2500 });
+  } else {
+    setTimeout(run, 1200);
+  }
+}
+
 function createTransport(
-  agent: ReturnType<typeof createDocAgent>,
+  getAgent: () => Promise<DocAgentInstance>,
   onError: (error: unknown) => string,
   onMessagesRepaired?: (messages: PageWiseUIMessage[]) => void,
 ) {
   return new PagewiseChatTransport({
-    agent,
+    getAgent,
     onError,
     onMessagesRepaired,
     resolveModelLabel: async () => {
@@ -97,11 +124,6 @@ function createTransport(
 
 export function useDocAgent(chatId: string | null = null) {
   const { t } = useI18n();
-
-  const agentRef = useRef<ReturnType<typeof createDocAgent> | null>(null);
-  if (agentRef.current === null) {
-    agentRef.current = createDocAgent();
-  }
 
   const formatErrorRef = useRef<(error: unknown) => string>((error) =>
     formatAgentError(error),
@@ -117,7 +139,7 @@ export function useDocAgent(chatId: string | null = null) {
   const streamAgentGenRef = useRef(0);
   if (transportRef.current === null) {
     transportRef.current = createTransport(
-      agentRef.current,
+      loadDocAgent,
       (error) => formatErrorRef.current(error),
       (repaired) => {
         if (streamAgentGenRef.current !== agentGenRef.current) return;

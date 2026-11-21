@@ -14,6 +14,7 @@ import {
   saveProviderProfile,
   saveSettings,
   setActiveProvider,
+  visionModelAvailable,
 } from "./settings";
 import { settingsPersistSnapshot } from "./redact-settings";
 import {
@@ -792,5 +793,102 @@ describe("session key cache", () => {
     const store = await loadLlmStore();
     expect(store.profiles.deepseek?.model).toBe("deepseek-v3.2");
     expect(store.profiles.deepseek?.connectionVerified).toBe(true);
+  });
+
+  it("loadSettingsMeta and visionModelAvailable perform zero keychain reads on cold startup", async () => {
+    let keychainReads = 0;
+    const keychain = {
+      get: async () => {
+        keychainReads += 1;
+        return "sk-secret";
+      },
+      set: async () => {},
+    };
+    __resetSettingsStoreForTests({
+      store: { version: 3, activeProvider: "openai", profiles: {} },
+      keychain,
+    });
+    await saveProviderProfile("openai", { model: "gpt-4o-mini", connectionVerified: true }, "sk-secret");
+
+    // Simulate cold launch with persisted v3 store (`keyStored.openai === true`, no plaintext key).
+    const persisted = __peekSettingsStoreForTests();
+    keychainReads = 0;
+    __resetSettingsStoreForTests({ store: persisted, keychain });
+
+    const meta = await loadSettingsMeta();
+    expect(meta.hasStoredKey).toBe(true);
+    expect(meta.plaintextKeysOnDisk).toBe(false);
+    expect(await visionModelAvailable()).toBe(true);
+    expect(keychainReads).toBe(0);
+  });
+
+  it("preserves key availability for unverified pre-27 v3 profiles and records keyStored", async () => {
+    let keychainReads = 0;
+    const keychain = {
+      get: async () => {
+        keychainReads += 1;
+        return "sk-unverified-v26";
+      },
+      set: async () => {},
+    };
+    // Pre-27 v3 store: no `keyStored`, `connectionVerified: false`, key in keychain.
+    __resetSettingsStoreForTests({
+      store: {
+        version: 3,
+        activeProvider: "openai",
+        profiles: {
+          openai: { model: "gpt-4o-mini", thinkingEnabled: false, connectionVerified: false },
+        },
+      },
+      keychain,
+    });
+
+    const firstMeta = await loadSettingsMeta();
+    expect(firstMeta.hasStoredKey).toBe(true);
+    expect(keychainReads).toBe(1);
+    // Flush background `keyStored` write, then simulate next cold launch: 0 keychain reads!
+    await new Promise((r) => setTimeout(r, 10));
+    const persisted = __peekSettingsStoreForTests();
+    expect(persisted?.keyStored?.openai).toBe(true);
+
+    keychainReads = 0;
+    __resetSettingsStoreForTests({ store: persisted, keychain });
+    const nextBootMeta = await loadSettingsMeta();
+    expect(nextBootMeta.hasStoredKey).toBe(true);
+    expect(keychainReads).toBe(0);
+  });
+
+  it("coalesces concurrent loadApiKey calls into one keychain read and keeps unlocked cache on Settings open", async () => {
+    let keychainReads = 0;
+    __resetSettingsStoreForTests({
+      store: {
+        version: 3,
+        activeProvider: "openai",
+        profiles: { openai: defaultProviderProfile("openai") },
+      },
+      keychain: {
+        get: async () => {
+          keychainReads += 1;
+          await new Promise((r) => setTimeout(r, 15));
+          return "sk-once";
+        },
+        set: async () => {},
+      },
+    });
+
+    const [a, b, c] = await Promise.all([
+      loadApiKeyForProvider("openai"),
+      loadProviderSettings("openai"),
+      loadVisionSettings(),
+    ]);
+    expect(a).toBe("sk-once");
+    expect(b.apiKey).toBe("sk-once");
+    expect(c.apiKey).toBe("sk-once");
+    expect(keychainReads).toBe(1);
+
+    // Opening Settings when keychain was NOT blocked preserves the unlocked session cache.
+    resetKeychainBlockedFlag();
+    expect(await loadApiKeyForProvider("openai")).toBe("sk-once");
+    expect(keychainReads).toBe(1);
   });
 });

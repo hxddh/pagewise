@@ -6,6 +6,7 @@ import {
   popOverlayLayer,
   pushOverlayLayer,
 } from "../../lib/overlay-state";
+import { isImeComposing } from "../../lib/ime";
 import { Panel, type PanelTone } from "./Panel";
 
 /**
@@ -90,6 +91,9 @@ export function Modal({
             asChild
             aria-label={ariaLabel}
             aria-labelledby={ariaLabelledBy}
+            onEscapeKeyDown={(event) => {
+              if (isImeComposing(event)) event.preventDefault();
+            }}
             onInteractOutside={(event) => {
               if (!modal) event.preventDefault();
             }}

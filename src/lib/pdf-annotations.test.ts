@@ -84,15 +84,33 @@ describe("readableAnnotations", () => {
     expect(readableAnnotations([BARE_SQUARE], 1)).toEqual([]);
   });
 
-  it("drops links, popups and form fields", () => {
+  it("drops links, popups and empty form fields while keeping filled text/choice widgets", () => {
     // A Link is already handled as a link; a Popup is the container an existing
-    // note is shown in, not a note. Carrying either double-counts.
+    // note is shown in, not a note. Empty or password widgets say nothing.
     const noisy = [
       { subtype: "Link", contentsObj: { str: "x" }, rect: [0, 0, 10, 10] },
       { subtype: "Popup", contentsObj: { str: "x" }, rect: [0, 0, 10, 10] },
       { subtype: "Widget", contentsObj: { str: "x" }, rect: [0, 0, 10, 10] },
+      { subtype: "Widget", fieldType: "Tx", fieldValue: "   ", rect: [0, 0, 10, 10] },
+      { subtype: "Widget", fieldType: "Tx", password: true, fieldValue: "s3cret", rect: [0, 0, 10, 10] },
     ];
     expect(readableAnnotations(noisy, 1)).toEqual([]);
+
+    const filled = readableAnnotations(
+      [
+        {
+          subtype: "Widget",
+          id: "21R",
+          fieldType: "Tx",
+          fieldName: "ApplicantName",
+          fieldValue: "衡远医疗设备有限公司",
+          rect: [72, 640, 280, 660],
+        },
+      ],
+      2,
+    );
+    expect(filled).toHaveLength(1);
+    expect(filled[0]!.contents).toBe("ApplicantName: 衡远医疗设备有限公司");
   });
 
   it("survives a rect that is degenerate or missing", () => {

@@ -33,6 +33,12 @@ export interface LlmStoreV3 {
    * once per session".
    */
   keys?: Partial<Record<ProviderId, string | null>>;
+  /**
+   * Non-sensitive boolean marker recording whether a non-empty key was stored in
+   * the credential vault for each provider (27.0). Lets `loadSettingsMeta()`
+   * report connection readiness at cold startup with zero OS keychain reads.
+   */
+  keyStored?: Partial<Record<ProviderId, boolean>>;
 }
 
 export type PreviewQuality = "auto" | "crisp" | "performance";
@@ -111,6 +117,7 @@ export interface TextItemRect {
 export interface RegionText {
   text: string;
   table: string | null;
+  latex?: string | null;
 }
 
 export interface LoadedDocument {

@@ -18,34 +18,32 @@ export default defineConfig(async () => ({
     // i.e. Safari 15), NOT Chrome. Targeting chrome110 emits syntax WKWebView
     // can't parse and white-screens on the minimum supported OS.
     target: "safari15",
+    // Keep heavy deferred feature chunks (`ai-*`, `zod-*`, `ocr-*`, `markdown-*`, `motion-*`)
+    // out of `index.html`'s cold-boot `<link rel="modulepreload">` list (27.0).
+    modulePreload: {
+      resolveDependencies(_filename, deps) {
+        return deps.filter((d) => !/(?:^|\/)(?:ai|zod|ocr|markdown|motion)-/.test(d));
+      },
+    },
     // `rolldownOptions`: Vite 8's bundler is Rolldown, and `rollupOptions` is
     // its deprecated alias.
     rolldownOptions: {
       output: {
-        // Console stripping, stated to the minifier that actually runs.
-        //
-        // This used to be `minify: "esbuild"` plus a top-level `esbuild: {
-        // drop: [...] }`, and that pair really did strip them — `vite build`
-        // sets NODE_ENV, so the array was populated, and esbuild's minifier
-        // honoured it. Vite 8.2.2 with @vitejs/plugin-react 6.1.0 can no
-        // longer load esbuild at all: it is not bundled any more and
-        // `transformWithEsbuild` is deprecated, so `minify: "esbuild"` fails
-        // the build outright. The minifier is oxc now, it has its own switch,
-        // and it does not drop console by default — five console.error calls
-        // reached the vendor chunk the moment the old pair stopped working,
-        // and `scripts/check-bundle.mjs` is what caught them.
         minify: { compress: { dropConsole: true, dropDebugger: true } },
-        // Rolldown (Vite 8) takes only the function form. The object form used
-        // to say "these packages and whatever they exclusively pull in"; a
-        // function sees one module id at a time, so the transitive tail has to
-        // be named. react-markdown's tail is the awkward one — micromark,
-        // mdast, hast, unist, vfile and friends are all its dependencies and
-        // belong with it rather than in the catch-all.
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
-          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return "vendor";
-          if (/node_modules\/(ai|@ai-sdk|zod)\//.test(id)) return "ai";
+          // `tslib` and `@ai-sdk/react`'s hook glue share CJS/React runtime helpers
+          // with `react-dom`; keeping them in `vendor` prevents entry chunks from
+          // acquiring a reverse static import on `ai-*` or `zod-*`.
+          if (
+            /node_modules\/(react|react-dom|scheduler|tslib|@ai-sdk\/react|swr|use-sync-external-store)\//.test(id)
+          ) {
+            return "vendor";
+          }
+          if (/node_modules\/zod\//.test(id)) return "zod";
+          if (/node_modules\/(ai|@ai-sdk)\//.test(id)) return "ai";
           if (/node_modules\/(tesseract\.js|wasm-feature-detect)\//.test(id)) return "ocr";
+          if (/node_modules\/(motion|framer-motion|motion-dom|motion-utils)\//.test(id)) return "motion";
           if (
             /node_modules\/(react-markdown|remark-|rehype-|micromark|mdast|hast|unist|vfile|character-entities|decode-named-character-reference|property-information|space-separated-tokens|comma-separated-tokens|html-url-attributes|zwitch|longest-streak|ccount|markdown-table|escape-string-regexp|bail|trough|unified|is-plain-obj|devlop|estree|style-to-js|style-to-object|inline-style-parser)/.test(id)
           ) {
