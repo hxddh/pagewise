@@ -127,11 +127,90 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-/** Boxes for every run on this page that contains the query. */
+export interface HighlightOccurrence {
+  box: HighlightBox;
+  /** 0-based match ordinal on the page, matching `DocumentSearch` hit order. */
+  occurrence: number;
+}
+
+function subRectForSlice(
+  rect: { x: number; y: number; width: number; height: number },
+  start: number,
+  end: number,
+  total: number,
+): { x: number; y: number; width: number; height: number } {
+  if (total <= 0 || (start <= 0 && end >= total)) return rect;
+  const f0 = Math.max(0, Math.min(1, start / total));
+  const f1 = Math.max(f0, Math.min(1, end / total));
+  if (rect.height > rect.width * 1.5) {
+    const span = Math.max(rect.width * 0.4, (f1 - f0) * rect.height);
+    return {
+      x: rect.x,
+      y: rect.y + (1 - f1) * rect.height,
+      width: rect.width,
+      height: Math.min(rect.height, span),
+    };
+  }
+  const span = Math.max(rect.height * 0.35, (f1 - f0) * rect.width);
+  const x = rect.x + f0 * rect.width;
+  return {
+    x,
+    y: rect.y,
+    width: Math.min(rect.x + rect.width - x, span),
+    height: rect.height,
+  };
+}
+
+/**
+ * Occurrence-level highlight boxes for `query` on one page: a text run containing
+ * two matches produces two distinct boxes (`occurrence: 0` and `occurrence: 1`)
+ * so `Enter` / `⇧Enter` / `⌘G` steps accurately within multi-match runs instead
+ * of jumping ahead to a later run.
+ */
+export function highlightOccurrences(
+  items: TextItemRect[],
+  query: string,
+  geometry: PageGeometry,
+): HighlightOccurrence[] {
+  const needle = query.trim().normalize("NFKC").toLowerCase();
+  if (!needle) return [];
+
+  const out: HighlightOccurrence[] = [];
+  let occ = 0;
+  for (const item of items) {
+    const norm = item.text.normalize("NFKC").toLowerCase();
+    let from = 0;
+    while (from <= norm.length - needle.length) {
+      const at = norm.indexOf(needle, from);
+      if (at < 0) break;
+      const sub = subRectForSlice(item.rect, at, at + needle.length, norm.length);
+      out.push({ box: pdfRectToBox(sub, geometry), occurrence: occ });
+      occ += 1;
+      if (out.length >= MAX_BOXES) return out;
+      from = at + Math.max(1, needle.length);
+    }
+  }
+
+  if (out.length === 0) {
+    const located = locateQuote(items, query);
+    if (located.status === "located" && located.items.length >= 2) {
+      const firstY = located.items[0]!.rect.y;
+      const spansLines = located.items.some((it) => Math.abs(it.rect.y - firstY) > 2);
+      if (spansLines) {
+        for (const it of located.items.slice(0, MAX_BOXES)) {
+          out.push({ box: pdfRectToBox(it.rect, geometry), occurrence: 0 });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Boxes for every occurrence on this page that matches `query`. */
 export function highlightBoxes(
   items: TextItemRect[],
   query: string,
   geometry: PageGeometry,
 ): HighlightBox[] {
-  return matchingItems(items, query).map((item) => pdfRectToBox(item.rect, geometry));
+  return highlightOccurrences(items, query, geometry).map((o) => o.box);
 }

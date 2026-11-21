@@ -7,6 +7,7 @@ import { searchDocumentPages } from "./document-search";
 import { __resetMarkStoreForTests, addMark } from "./mark-store";
 import { polarityMismatch } from "./polarity-check";
 import { quantities, unstatedQuantities } from "./quantities";
+import { locateQuote } from "./quote-locate";
 import { rankPages } from "./ranked-search";
 
 describe("v26 verification, search & document map upgrades", () => {
@@ -63,6 +64,16 @@ describe("v26 verification, search & document map upgrades", () => {
     ).toEqual(["2025-04-18"]);
     // Standalone pronoun `one` is never misread as quantity 1.
     expect(quantities("If one party breaches, notify the other party.")).toEqual([]);
+  });
+
+  it("rejects line transitions in locateQuote that skip unmatched words on the same line", () => {
+    const items = [
+      { text: "Revenue did", rect: { x: 72, y: 680, width: 68, height: 12 } },
+      { text: "not", rect: { x: 144, y: 680, width: 20, height: 12 } },
+      { text: "double.", rect: { x: 72, y: 664, width: 42, height: 12 } },
+    ];
+    expect(locateQuote(items, "Revenue did double.").status).toBe("absent");
+    expect(locateQuote(items, "Revenue did not double.").status).toBe("located");
   });
 
   it("detects high-precision polarity flips without false alarms on conditionals or converse verbs", () => {

@@ -1163,17 +1163,21 @@ export function clearPdfCache(onlyPath?: string): void {
   stagedPdfPath = null;
 }
 
-export function disposeDocumentResources(onlyPath?: string): void {
+export function disposeDocumentResources(onlyPath?: string, scopePath?: string): void {
   const closingPaths =
     onlyPath !== undefined
-      ? [onlyPath]
-      : [...new Set([...pdfDocCache.keys(), ...(pdfActivePath ? [pdfActivePath] : [])])].filter(
-          (p) => p !== stagedPdfPath,
-        );
+      ? [onlyPath].filter((p) => p !== stagedPdfPath)
+      : [
+          ...new Set([
+            ...pdfDocCache.keys(),
+            ...(pdfActivePath ? [pdfActivePath] : []),
+            ...(scopePath ? [scopePath] : []),
+          ]),
+        ].filter((p) => p !== stagedPdfPath);
   clearPdfCache(onlyPath);
   if (isTauriRuntime()) {
     for (const p of closingPaths) {
-      if (p && p !== stagedPdfPath) {
+      if (p) {
         void invokeCmd("close_document_cmd", { path: p }).catch(() => {});
       }
     }

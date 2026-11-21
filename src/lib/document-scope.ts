@@ -25,7 +25,7 @@ import { flushFindingStore, forgetFindings } from "./finding-store";
 import { clearDocumentIndexState } from "./index-events";
 import { flushMarkStore, forgetMarks } from "./mark-store";
 import { forgetIndexIdentity } from "./index-store";
-import { clearPdfCache, setActivePdfPath } from "./pdf";
+import { disposeDocumentResources, setActivePdfPath } from "./pdf";
 import { forgetOcr } from "./ocr/ocr-service";
 import { forgetDocumentUsage } from "./usage-tracker";
 import { cancelIndex } from "../document/index-queue";
@@ -79,7 +79,7 @@ const REGISTRATIONS: DocumentState[] = [
   {
     name: "pdf-render",
     create: (path) => setActivePdfPath(path),
-    dispose: () => clearPdfCache(),
+    dispose: (path) => disposeDocumentResources(undefined, path),
   },
 ];
 

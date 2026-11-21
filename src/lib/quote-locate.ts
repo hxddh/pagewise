@@ -313,7 +313,9 @@ function layoutOf(items: readonly TextItemRect[], parts: readonly string[]): Lay
           best = j;
           bestGap = g;
         }
-        if (g < 260 && g < rowBestGap) {
+        // Table-cell horizontal adjacency (`gap <= g < 260`) only between compact
+        // cells (`< 180pt`) so two full-width prose columns never bridge mid-page.
+        if (g >= gap && g < 260 && Math.min(a.width, b.width) < 180 && g < rowBestGap) {
           rowBest = j;
           rowBestGap = g;
         }
@@ -388,7 +390,9 @@ function chainLocateAll(
 
   const successors = (from: number, rest: string, used: ReadonlySet<number>): number[] => {
     const r = layout.right[from]!;
-    if (r >= 0 && !used.has(r) && continues(r, rest)) return [r];
+    // An immediate word/run on the same line (`g < 1.5 * height`) cannot be
+    // skipped over onto the next line without omitting words from the quote.
+    if (r >= 0) return !used.has(r) && continues(r, rest) ? [r] : [];
     const found: Array<{ j: number; score: number }> = [];
     for (let j = 0; j < parts.length; j += 1) {
       if (used.has(j) || !continues(j, rest)) continue;

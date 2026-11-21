@@ -27,7 +27,7 @@ import {
 import { checkRecentPaths, openSampleDocument, pickDocument } from "../lib/allowed-paths";
 import { classifyOpenError, openErrorMessage } from "../lib/open-error";
 import { invokeCmd } from "../lib/invoke-cmd";
-import { disposeDocumentResources } from "../lib/pdf";
+import { clearPdfCache } from "../lib/pdf";
 import { reindexDocument } from "../document/index-queue";
 import {
   evidenceAnnotations,
@@ -451,7 +451,7 @@ export function useWorkbench(): Workbench {
       const targetPath = passwordTarget.path;
       setPasswordTarget({ path: targetPath, wrongPassword: false, submitting: true });
       try {
-        disposeDocumentResources(targetPath);
+        clearPdfCache(targetPath);
         await invokeCmd<void>("unlock_pdf_cmd", { path: targetPath, password });
         setPasswordTarget(null);
         await switchDocument(targetPath, { forceReload: true });
