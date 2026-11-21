@@ -496,10 +496,11 @@ async function loadApiKey(provider: ProviderId): Promise<string> {
     try {
       const fromKeychain = (await keychainGet(provider)).trim();
       sessionKeys.set(provider, fromKeychain);
-      if (fromKeychain && payload.keyStored?.[provider] !== true) {
+      const hasKey = fromKeychain.length > 0;
+      if (payload.keyStored?.[provider] !== hasKey) {
         void writePayload({
           ...payload,
-          keyStored: { ...(payload.keyStored ?? {}), [provider]: true },
+          keyStored: { ...(payload.keyStored ?? {}), [provider]: hasKey },
         }).catch(() => {});
       }
       return fromKeychain;
@@ -521,7 +522,7 @@ function hasStoredKeyFromPayload(
   payload: LlmStoreV3,
   provider: ProviderId,
   profile: ProviderProfile,
-): boolean {
+): boolean | "unknown" {
   if (provider === "ollama") return true;
   const cached = sessionKeys.get(provider);
   if (cached !== undefined) return cached.trim().length > 0;
@@ -530,9 +531,11 @@ function hasStoredKeyFromPayload(
   if (mirror === null) return false;
   const recorded = payload.keyStored?.[provider];
   if (typeof recorded === "boolean") return recorded;
-  // Pre-27.0 v3 stores before the first AI call: `connectionVerified` is true
-  // whenever SetupAssistant or Test Connection completed.
-  return Boolean(profile.connectionVerified);
+  // Pre-27.0 v3 stores: `connectionVerified: true` confirms a key was tested;
+  // when `connectionVerified` is false and `keyStored` is absent, key presence
+  // is genuinely unknown until checked once (and recorded into `keyStored`).
+  if (profile.connectionVerified) return true;
+  return "unknown";
 }
 
 function resolveVisionModel(payload: LlmStoreV3, provider: ProviderId): string {
@@ -610,6 +613,9 @@ export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
   const mirrors = Object.values(payload.keys ?? {}).some(
     (v) => typeof v === "string" && v.trim().length > 0,
   );
+  const knownKey = hasStoredKeyFromPayload(payload, provider, profile);
+  const hasStoredKey =
+    knownKey === "unknown" ? (await loadApiKey(provider)).trim().length > 0 : knownKey;
   return {
     provider,
     model: profile.model,
@@ -617,7 +623,7 @@ export async function loadSettingsMeta(): Promise<LlmSettingsMeta> {
     thinkingEnabled: profile.thinkingEnabled,
     connectionVerified: profile.connectionVerified,
     visionModel,
-    hasStoredKey: hasStoredKeyFromPayload(payload, provider, profile),
+    hasStoredKey,
     plaintextKeysOnDisk: mirrors,
   };
 }

@@ -822,6 +822,42 @@ describe("session key cache", () => {
     expect(keychainReads).toBe(0);
   });
 
+  it("preserves key availability for unverified pre-27 v3 profiles and records keyStored", async () => {
+    let keychainReads = 0;
+    const keychain = {
+      get: async () => {
+        keychainReads += 1;
+        return "sk-unverified-v26";
+      },
+      set: async () => {},
+    };
+    // Pre-27 v3 store: no `keyStored`, `connectionVerified: false`, key in keychain.
+    __resetSettingsStoreForTests({
+      store: {
+        version: 3,
+        activeProvider: "openai",
+        profiles: {
+          openai: { model: "gpt-4o-mini", thinkingEnabled: false, connectionVerified: false },
+        },
+      },
+      keychain,
+    });
+
+    const firstMeta = await loadSettingsMeta();
+    expect(firstMeta.hasStoredKey).toBe(true);
+    expect(keychainReads).toBe(1);
+    // Flush background `keyStored` write, then simulate next cold launch: 0 keychain reads!
+    await new Promise((r) => setTimeout(r, 10));
+    const persisted = __peekSettingsStoreForTests();
+    expect(persisted?.keyStored?.openai).toBe(true);
+
+    keychainReads = 0;
+    __resetSettingsStoreForTests({ store: persisted, keychain });
+    const nextBootMeta = await loadSettingsMeta();
+    expect(nextBootMeta.hasStoredKey).toBe(true);
+    expect(keychainReads).toBe(0);
+  });
+
   it("coalesces concurrent loadApiKey calls into one keychain read and keeps unlocked cache on Settings open", async () => {
     let keychainReads = 0;
     __resetSettingsStoreForTests({

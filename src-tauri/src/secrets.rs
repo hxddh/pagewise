@@ -138,9 +138,15 @@ fn set_file_vault_key(dir: &Path, provider: &str, key: &str) -> Result<(), Strin
 }
 
 #[cfg(any(target_os = "macos", test))]
-fn get_file_vault_key<F>(dir: &Path, provider: &str, legacy_lookup: F) -> Result<String, String>
+fn get_file_vault_key<L, D>(
+    dir: &Path,
+    provider: &str,
+    legacy_lookup: L,
+    legacy_delete: D,
+) -> Result<String, String>
 where
-    F: FnOnce(&str) -> Result<Option<String>, String>,
+    L: FnOnce(&str) -> Result<Option<String>, String>,
+    D: FnOnce(&str),
 {
     validate_provider(provider)?;
     let _guard = lock_vault();
@@ -158,7 +164,11 @@ where
                 vault.keys.insert(provider.to_string(), found.clone());
             }
             vault.migrated.insert(provider.to_string());
+            // Persist the migrated key to `api-keys.vault` BEFORE deleting the
+            // legacy Keychain item so a failed disk write never destroys the
+            // only stored copy of the credential.
             write_vault_file(&path, &vault)?;
+            legacy_delete(provider);
             Ok(found)
         }
         None => {
@@ -189,15 +199,19 @@ where
 }
 
 #[cfg(target_os = "macos")]
-fn legacy_keychain_lookup_and_clean(provider: &str) -> Result<Option<String>, String> {
+fn legacy_keychain_lookup(provider: &str) -> Result<Option<String>, String> {
     let entry = legacy_entry(provider)?;
     match entry.get_password() {
-        Ok(key) => {
-            let _ = entry.delete_credential();
-            Ok(Some(key))
-        }
+        Ok(key) => Ok(Some(key)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn legacy_keychain_delete(provider: &str) {
+    if let Ok(entry) = legacy_entry(provider) {
+        let _ = entry.delete_credential();
     }
 }
 
@@ -321,7 +335,7 @@ pub async fn get_api_key(app: AppHandle, provider: String) -> Result<String, Str
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "macos")]
         {
-            get_file_vault_key(&dir, &provider, legacy_keychain_lookup_and_clean)
+            get_file_vault_key(&dir, &provider, legacy_keychain_lookup, legacy_keychain_delete)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -342,11 +356,7 @@ pub async fn delete_api_key(app: AppHandle, provider: String) -> Result<(), Stri
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "macos")]
         {
-            delete_file_vault_key(&dir, &provider, |p| {
-                if let Ok(entry) = legacy_entry(p) {
-                    let _ = entry.delete_credential();
-                }
-            })
+            delete_file_vault_key(&dir, &provider, legacy_keychain_delete)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -372,35 +382,74 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         let legacy_calls = AtomicUsize::new(0);
-        // First read imports from legacy once and persists to `api-keys.vault`.
-        let imported = get_file_vault_key(&dir, "deepseek", |_| {
-            legacy_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(Some("sk-migrated".to_string()))
-        })
+        let legacy_deletes = AtomicUsize::new(0);
+        // First read imports from legacy once, persists to `api-keys.vault`, then deletes legacy.
+        let imported = get_file_vault_key(
+            &dir,
+            "deepseek",
+            |_| {
+                legacy_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Some("sk-migrated".to_string()))
+            },
+            |_| {
+                legacy_deletes.fetch_add(1, Ordering::SeqCst);
+            },
+        )
         .expect("import");
         assert_eq!(imported, "sk-migrated");
         assert_eq!(legacy_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(legacy_deletes.load(Ordering::SeqCst), 1);
+
+        // If persisting the vault fails (e.g. `dir` is a regular file), legacy_delete MUST NOT run.
+        let unwritable = dir.join("not-a-directory");
+        std::fs::write(&unwritable, b"file").unwrap();
+        let failed_deletes = AtomicUsize::new(0);
+        let write_err = get_file_vault_key(
+            &unwritable,
+            "openrouter",
+            |_| Ok(Some("sk-preserve".to_string())),
+            |_| {
+                failed_deletes.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        assert!(write_err.is_err());
+        assert_eq!(failed_deletes.load(Ordering::SeqCst), 0);
 
         // Subsequent reads hit `api-keys.vault` directly without touching legacy keychain.
-        let cached = get_file_vault_key(&dir, "deepseek", |_| {
-            legacy_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(Some("sk-should-not-run".to_string()))
-        })
+        let cached = get_file_vault_key(
+            &dir,
+            "deepseek",
+            |_| {
+                legacy_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Some("sk-should-not-run".to_string()))
+            },
+            |_| unreachable!(),
+        )
         .expect("cached");
         assert_eq!(cached, "sk-migrated");
         assert_eq!(legacy_calls.load(Ordering::SeqCst), 1);
 
         // Missing legacy key is also recorded as migrated so it is never asked twice.
-        let missing = get_file_vault_key(&dir, "openai", |_| {
-            legacy_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(None)
-        })
+        let missing = get_file_vault_key(
+            &dir,
+            "openai",
+            |_| {
+                legacy_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(None)
+            },
+            |_| unreachable!(),
+        )
         .expect("missing");
         assert_eq!(missing, "");
-        let missing_again = get_file_vault_key(&dir, "openai", |_| {
-            legacy_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(Some("sk-never".to_string()))
-        })
+        let missing_again = get_file_vault_key(
+            &dir,
+            "openai",
+            |_| {
+                legacy_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Some("sk-never".to_string()))
+            },
+            |_| unreachable!(),
+        )
         .expect("missing again");
         assert_eq!(missing_again, "");
         assert_eq!(legacy_calls.load(Ordering::SeqCst), 2);
@@ -408,7 +457,7 @@ mod tests {
         // Write + overwrite + delete keep strict 0600 permissions on Unix.
         set_file_vault_key(&dir, "openai", "sk-fresh").expect("set");
         assert_eq!(
-            get_file_vault_key(&dir, "openai", |_| unreachable!()).unwrap(),
+            get_file_vault_key(&dir, "openai", |_| unreachable!(), |_| unreachable!()).unwrap(),
             "sk-fresh"
         );
         #[cfg(unix)]
@@ -425,7 +474,7 @@ mod tests {
         delete_file_vault_key(&dir, "openai", |_| unreachable!("already migrated"))
             .expect("delete");
         assert_eq!(
-            get_file_vault_key(&dir, "openai", |_| unreachable!()).unwrap(),
+            get_file_vault_key(&dir, "openai", |_| unreachable!(), |_| unreachable!()).unwrap(),
             ""
         );
 
