@@ -143,7 +143,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
     // A file already at the name is not ours: refused, and left where it is.
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-    if let Err(e) = file.write_all(bytes) {
+    if let Err(e) = file.write_all(bytes).and_then(|()| file.sync_all()) {
         drop(file);
         // Ours from here: never left behind for the next write to trip over.
         let _ = std::fs::remove_file(&tmp);
@@ -153,14 +153,26 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     commit_temp(&tmp, path)
 }
 
-/// Make a fully written temp file the file at `path`: fsync it, rename it over
-/// `path`, then fsync the directory (best-effort — Windows cannot open a
-/// directory as a file). The temp file is removed if any step fails.
+/// Make a fully written and fsynced temp file the file at `path`: rename it
+/// over `path` (retrying transient Windows sharing/AV locks), then fsync the
+/// directory (best-effort — Windows cannot open a directory as a file). The
+/// temp file is removed if rename fails.
 fn commit_temp(tmp: &Path, path: &Path) -> std::io::Result<()> {
-    let result = (|| -> std::io::Result<()> {
-        std::fs::OpenOptions::new().write(true).open(tmp)?.sync_all()?;
-        std::fs::rename(tmp, path)
-    })();
+    let mut attempt = 0u32;
+    let result = loop {
+        match std::fs::rename(tmp, path) {
+            Ok(()) => break Ok(()),
+            Err(e)
+                if cfg!(windows)
+                    && e.kind() == std::io::ErrorKind::PermissionDenied
+                    && attempt < 4 =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(5 << attempt));
+                attempt += 1;
+            }
+            Err(e) => break Err(e),
+        }
+    };
     if let Err(e) = result {
         let _ = std::fs::remove_file(tmp);
         return Err(e);

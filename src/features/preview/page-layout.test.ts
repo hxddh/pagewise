@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  COMFORTABLE_MAX_PAGE_WIDTH,
+  fitComfortableScale,
+  fitPageScale,
   fitWidthScale,
   layoutPages,
   offsetForPage,
+  offsetForPageRect,
   pageAtScroll,
   PAGE_GAP,
   scrollShiftForRelayout,
@@ -329,5 +333,35 @@ describe("scrollShiftForScale", () => {
   it("holds its peace when the two layouts are not comparable", () => {
     expect(scrollShiftForScale(before, layoutPages(sizes, 4, 1.2, PAGE_GAP), 900)).toBe(0);
     expect(scrollShiftForScale(before, before, 900)).toBe(0);
+  });
+});
+
+describe("fitComfortableScale, fitPageScale, and offsetForPageRect", () => {
+  it("caps comfortable width on wide screens while fitting narrow viewports", () => {
+    const sizes = [A4];
+    expect(fitComfortableScale(sizes, 1600, { left: 24, right: 24 })).toBeCloseTo(
+      COMFORTABLE_MAX_PAGE_WIDTH / A4.width,
+      4,
+    );
+    expect(fitComfortableScale(sizes, 700, { left: 24, right: 24 })).toBeCloseTo(
+      fitWidthScale(sizes, 700, { left: 24, right: 24 }),
+      4,
+    );
+  });
+
+  it("fits the whole page within both width and height", () => {
+    const sizes = [A4];
+    const scale = fitPageScale(sizes, 1400, 640, { left: 24, right: 24 }, 1, 16);
+    expect(scale).toBeCloseTo((640 - 32) / A4.height, 4);
+  });
+
+  it("scrolls to off-screen sub-page rects and leaves comfortable ones put", () => {
+    const l = layoutPages([A4, A4], 2, 2, 16); // each page is 1600px tall
+    // Already inside comfort band on page 1: returns null.
+    expect(offsetForPageRect(l, 1, 0.2, 0.04, 800, 100)).toBeNull();
+    // Bottom of page 1 (y ~ 1456) while scrollTop = 0: scrolls down to reveal it.
+    const scrolled = offsetForPageRect(l, 1, 0.9, 0.04, 800, 0);
+    expect(scrolled).not.toBeNull();
+    expect(scrolled!).toBeGreaterThan(800);
   });
 });

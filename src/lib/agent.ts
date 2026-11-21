@@ -13,6 +13,7 @@ import {
 } from "./agent-runtime-context";
 import {
   appendContextToLastUserMessage,
+  buildDocumentMapInstructions,
   buildViewContextInstructions,
   buildWholeDocumentInstructions,
 } from "./agent-view-context";
@@ -303,6 +304,7 @@ export function createDocAgent() {
       if (viewCtx && hasWholeDocumentIntent(viewCtx.userText)) {
         viewHint += buildWholeDocumentInstructions(viewCtx);
       }
+      viewHint += buildDocumentMapInstructions(runtime.activeDocPath, viewCtx?.viewingPage ?? 0);
       viewHint += buildRecordInstructions(runtime.activeDocPath);
       viewHint += buildCitationFeedback(
         runtime.activeDocPath,

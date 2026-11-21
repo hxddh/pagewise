@@ -18,7 +18,7 @@
  *
  * See scripts/ui-harness/tauri-mock.mjs for what is faked and what that costs.
  */
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -33,7 +33,9 @@ const FIXTURE = join(ROOT, "src-tauri/tests/fixtures/text-pages.pdf");
 
 // The container ships a browser and tells Playwright not to fetch one; honour
 // an explicit path when it is set and fall back to Playwright's own lookup.
-const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined;
+const executablePath =
+  process.env.PLAYWRIGHT_CHROMIUM_PATH ||
+  (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 
 /** One SSE chunk in the shape the OpenAI-compatible providers stream. */
 const chunk = (delta, finish = null) =>

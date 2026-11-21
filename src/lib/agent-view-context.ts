@@ -1,4 +1,6 @@
+import { docCache } from "./doc-cache";
 import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
+import { marksOnPage } from "./mark-store";
 
 export interface AgentMessageContext {
   path: string;
@@ -141,4 +143,87 @@ export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string
   const name = sanitizeForPrompt(ctx.docName);
   const pages = ctx.totalPages > 0 ? `${ctx.totalPages} pages` : "unknown length";
   return `\n\nThis is a whole-document request ("${name}", ${pages}): use ${DOCUMENT_OUTLINE_TOOL} to plan, read the full document with read_pdf_range in chunks (continue while truncated=true) until every page is covered, then answer from all of it — not a single page. If a result reports budgetExceeded=true, stop reading and answer from the pages read, noting which pages you covered.`;
+}
+
+const MAX_DOC_MAP_CHARS = 1_200;
+
+function formatCompactRanges(pages: readonly number[]): string {
+  const sorted = [...new Set(pages.filter((p) => Number.isInteger(p) && p >= 1))].sort((a, b) => a - b);
+  if (sorted.length === 0) return "";
+  const parts: string[] = [];
+  let start = sorted[0]!;
+  let prev = start;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const cur = sorted[i]!;
+    if (cur === prev + 1) {
+      prev = cur;
+      continue;
+    }
+    parts.push(start === prev ? `${start}` : `${start}–${prev}`);
+    start = cur;
+    prev = cur;
+  }
+  parts.push(start === prev ? `${start}` : `${start}–${prev}`);
+  return parts.join(", ");
+}
+
+/**
+ * Compact, cache-safe Turn-1 Document Map (<= 1,200 chars) riding on the user
+ * message hint so the model immediately knows the top-20 section map, table and
+ * figure pages, unindexed scan pages, and any marks on the viewed page without
+ * burning a round-trip on `document_outline` or busting the system prompt cache.
+ */
+export function buildDocumentMapInstructions(docPath: string | null, viewingPage = 0): string {
+  if (!docPath) return "";
+  const doc = docCache.get(docPath);
+  if (!doc || doc.kind !== "pdf") return "";
+
+  const lines: string[] = [];
+  if (doc.outline && doc.outline.length > 0) {
+    const items = doc.outline.slice(0, 20).map((h) => {
+      const prefix = h.level > 1 ? "  " : "";
+      return `${prefix}p${h.page} ${sanitizeForPrompt(h.title, 56)}`;
+    });
+    const more = doc.outline.length > 20 ? ` (+${doc.outline.length - 20} more via ${DOCUMENT_OUTLINE_TOOL})` : "";
+    lines.push(`Outline: ${items.join(" | ")}${more}`);
+  }
+
+  if (doc.tablePages && doc.tablePages.length > 0) {
+    lines.push(`Tables on pp. ${formatCompactRanges(doc.tablePages)}`);
+  }
+
+  if (doc.figures && doc.figures.length > 0) {
+    const figPages = doc.figures.map((f) => f.page);
+    lines.push(`Figures on pp. ${formatCompactRanges(figPages)}`);
+  }
+
+  if (doc.totalPages > 0) {
+    const hasText = new Set(doc.pages.filter((p) => p.text.trim().length > 0).map((p) => p.page));
+    const blank: number[] = [];
+    for (let p = 1; p <= doc.totalPages && blank.length <= 60; p += 1) {
+      if (!hasText.has(p)) blank.push(p);
+    }
+    if (blank.length > 0) {
+      lines.push(`Unindexed/scan pp. ${formatCompactRanges(blank)}`);
+    }
+  }
+
+  if (viewingPage > 0) {
+    const marks = marksOnPage(docPath, viewingPage).slice(0, 3);
+    if (marks.length > 0) {
+      const formatted = marks.map((m) => {
+        const quote = sanitizeForPrompt(m.text, 80);
+        const note = m.note ? ` (note: ${sanitizeForPrompt(m.note, 60)})` : "";
+        return `'${quote}'${note}`;
+      });
+      lines.push(`Reader marks on p${viewingPage}: ${formatted.join("; ")}`);
+    }
+  }
+
+  if (lines.length === 0) return "";
+  let block = `\n\nDocument map:\n${lines.map((l) => `- ${l}`).join("\n")}`;
+  if (block.length > MAX_DOC_MAP_CHARS) {
+    block = `${block.slice(0, MAX_DOC_MAP_CHARS - 1)}…`;
+  }
+  return block;
 }

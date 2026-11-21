@@ -1,5 +1,11 @@
 import { useEffect, useState, type RefObject } from "react";
 
+export interface PageSelectionSlice {
+  page: number;
+  pageBox: { left: number; top: number; width: number; height: number };
+  rects: { left: number; top: number; width: number; height: number }[];
+}
+
 export interface AskSelection {
   text: string;
   /** Viewport px: horizontal center and top of the selection rect. */
@@ -13,6 +19,8 @@ export interface AskSelection {
   page: number;
   /** That page's box in viewport px, which every rect is measured against. */
   pageBox: { left: number; top: number; width: number; height: number };
+  /** Per-page slices when a selection spans multiple pages. */
+  pages?: PageSelectionSlice[];
 }
 
 const MAX_QUOTE = 500;
@@ -91,19 +99,50 @@ export function useAskSelection<T extends HTMLElement>(
       const range = s.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return setSel(null);
+      const allRects = lineRects(range, rect);
+      const mountedSlots = Array.from(
+        container.querySelectorAll<HTMLElement>(".pdf-page-slot[data-page]"),
+      );
+      const byPage = new Map<number, PageSelectionSlice>();
+      for (const r of allRects) {
+        const cy = r.top + r.height / 2;
+        const owner =
+          mountedSlots.find((el) => {
+            const b = el.getBoundingClientRect();
+            return cy >= b.top - 2 && cy <= b.bottom + 2;
+          }) ?? slot;
+        const p = Number(owner.dataset.page);
+        if (!Number.isInteger(p) || p < 1) continue;
+        let entry = byPage.get(p);
+        if (!entry) {
+          const b = owner.getBoundingClientRect();
+          entry = {
+            page: p,
+            pageBox: { left: b.left, top: b.top, width: b.width, height: b.height },
+            rects: [],
+          };
+          byPage.set(p, entry);
+        }
+        entry.rects.push(r);
+      }
+      const pages = [...byPage.values()].sort((a, b) => a.page - b.page);
+      const primary = pages.find((p) => p.page === pageAttr) ?? pages[0];
       setSel({
         text: text.length > MAX_QUOTE ? `${text.slice(0, MAX_QUOTE)}…` : text,
         x: rect.left + rect.width / 2,
         y: rect.top,
         rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-        rects: lineRects(range, rect),
-        page: pageAttr,
-        pageBox: {
-          left: slotBox.left,
-          top: slotBox.top,
-          width: slotBox.width,
-          height: slotBox.height,
-        },
+        rects: primary ? primary.rects : allRects,
+        page: primary ? primary.page : pageAttr,
+        pageBox: primary
+          ? primary.pageBox
+          : {
+              left: slotBox.left,
+              top: slotBox.top,
+              width: slotBox.width,
+              height: slotBox.height,
+            },
+        pages: pages.length > 0 ? pages : undefined,
       });
     };
     // selectionchange fires rapidly during a drag; coalesce to one rAF.

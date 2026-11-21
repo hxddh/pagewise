@@ -25,12 +25,79 @@ function overlapsX(a: PdfRect, left: number, right: number): boolean {
   return a.x < right && a.x + a.width > left;
 }
 
+function sameRowBand(a: PdfRect, b: PdfRect): boolean {
+  const tol = 0.65 * Math.max(a.height, b.height, 1);
+  return Math.abs(a.y - b.y) <= tol;
+}
+
+function rowCellsAt(items: readonly TextItemRect[], ref: PdfRect): PdfRect[] {
+  const row = items
+    .map((it) => it.rect)
+    .filter((r) => sameRowBand(r, ref))
+    .sort((a, b) => a.x - b.x);
+  if (row.length < 3) return [];
+  const merged: PdfRect[] = [{ ...row[0]! }];
+  for (let i = 1; i < row.length; i += 1) {
+    const r = row[i]!;
+    const prev = merged[merged.length - 1]!;
+    if (r.x - (prev.x + prev.width) > 10) {
+      merged.push({ ...r });
+    } else {
+      const right = Math.max(prev.x + prev.width, r.x + r.width);
+      prev.x = Math.min(prev.x, r.x);
+      prev.width = right - prev.x;
+    }
+  }
+  return merged.length >= 3 && merged.every((c) => c.width < 180) ? merged : [];
+}
+
+/**
+ * True only when `seedIndices` sit on a single row of a structured >=3-column
+ * data table whose column x-starts align vertically with at least one adjacent
+ * row — preventing cross-row figure bleed without truncating prose or metadata.
+ */
+function isSingleTableRowSeed(items: readonly TextItemRect[], seedIndices: ReadonlySet<number>): boolean {
+  const seedRects = [...seedIndices].map((i) => items[i]!.rect);
+  if (seedRects.length === 0) return false;
+  const first = seedRects[0]!;
+  if (!seedRects.every((r) => sameRowBand(r, first))) return false;
+  const seedCols = rowCellsAt(items, first);
+  if (seedCols.length < 3) return false;
+
+  const h = Math.max(1, ...seedRects.map((r) => r.height));
+  const neighborSeeds: PdfRect[] = [];
+  for (const it of items) {
+    if (sameRowBand(it.rect, first)) continue;
+    if (Math.abs(it.rect.y - first.y) > h * 4.5) continue;
+    if (neighborSeeds.some((n) => sameRowBand(n, it.rect))) continue;
+    neighborSeeds.push(it.rect);
+  }
+  return neighborSeeds.some((n) => {
+    const otherCols = rowCellsAt(items, n);
+    if (otherCols.length !== seedCols.length) return false;
+    return seedCols.every((c, idx) => Math.abs(c.x - otherCols[idx]!.x) <= 24);
+  });
+}
+
 export function passageAround(items: readonly TextItemRect[], rects: readonly PdfRect[]): string {
   const inBlock = new Set<number>();
   items.forEach((it, i) => {
     if (rects.some((r) => intersects(it.rect, r))) inBlock.add(i);
   });
   if (inBlock.size === 0) return "";
+
+  if (isSingleTableRowSeed(items, inBlock)) {
+    const seedRect = items[[...inBlock][0]!]!.rect;
+    items.forEach((it, i) => {
+      if (inBlock.size >= MAX_RUNS) return;
+      if (sameRowBand(it.rect, seedRect)) inBlock.add(i);
+    });
+    return [...inBlock]
+      .map((i) => items[i]!)
+      .sort((a, b) => b.rect.y - a.rect.y || a.rect.x - b.rect.x)
+      .map((it) => it.text)
+      .join(" ");
+  }
 
   let grew = true;
   while (grew && inBlock.size < MAX_RUNS) {

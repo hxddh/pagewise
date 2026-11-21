@@ -32,6 +32,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 import {
   __resetPdfForTests,
   clearPdfCache,
+  disposeDocumentResources,
   getPdfAnnotations,
   getPdfOutline,
   getPdfPageLabels,
@@ -134,5 +135,28 @@ describe("pdf document lifecycle across A → B switches (B-01)", () => {
     expect(destroyA).toHaveBeenCalledTimes(1);
     expect(destroyB).not.toHaveBeenCalled();
     expect(callsForB).toBe(1);
+  });
+
+  it("invokes close_document_cmd for A while preserving staged B on document-scope teardown", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "read_file_bytes") return new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+      return null;
+    });
+    getDocumentMock.mockImplementation(() => ({
+      promise: Promise.resolve(
+        fakeDoc({ title: "Doc", labels: ["1"], note: "", destroySpy: () => {} }),
+      ),
+    }));
+
+    setActivePdfPath("/docs/unlocked-a.pdf");
+    await loadPdfDocument("/docs/unlocked-a.pdf");
+
+    // Stage B, then run scope teardown for A (`disposeDocumentResources(undefined, "/docs/unlocked-a.pdf")`).
+    preparePdfSwitch("/docs/b.pdf");
+    await loadPdfDocument("/docs/b.pdf");
+    disposeDocumentResources(undefined, "/docs/unlocked-a.pdf");
+
+    const closeCalls = invokeMock.mock.calls.filter(([cmd]) => cmd === "close_document_cmd");
+    expect(closeCalls).toEqual([["close_document_cmd", { path: "/docs/unlocked-a.pdf" }]]);
   });
 });

@@ -11,11 +11,58 @@
 //! turns into a translated message with a next step (`src/lib/open-error.ts`).
 //! The code leads the message, `"<code>: <detail>"`, so logs keep the detail.
 
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 use serde::Serialize;
+
+/// Session-only passwords for user-encrypted PDFs unlocked by the reader (26.0).
+/// Kept strictly in process memory — never written to disk or the OS keychain —
+/// and cleared as soon as the document closes.
+static SESSION_PASSWORDS: LazyLock<Mutex<HashMap<PathBuf, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn canon_key(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[allow(dead_code)]
+pub fn set_session_password(path: &Path, password: String) {
+    if let Ok(mut map) = SESSION_PASSWORDS.lock() {
+        map.insert(canon_key(path), password);
+    }
+}
+
+pub fn session_password(path: &Path) -> Option<String> {
+    SESSION_PASSWORDS
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&canon_key(path)).cloned())
+}
+
+pub fn has_unlocked_session(path: &Path) -> bool {
+    SESSION_PASSWORDS
+        .lock()
+        .ok()
+        .is_some_and(|map| map.contains_key(&canon_key(path)))
+}
+
+#[allow(dead_code)]
+pub fn remove_session_password(path: &Path) {
+    if let Ok(mut map) = SESSION_PASSWORDS.lock() {
+        map.remove(&canon_key(path));
+    }
+}
+
+#[allow(dead_code)]
+pub fn clear_session_passwords() {
+    if let Ok(mut map) = SESSION_PASSWORDS.lock() {
+        map.clear();
+    }
+}
 
 /// The largest file PageWise opens. The page previews read the whole file
 /// through `read_file_bytes`, so a larger one would open and then fail on

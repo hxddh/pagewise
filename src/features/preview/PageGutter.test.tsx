@@ -211,4 +211,27 @@ describe("PageGutter", () => {
     expect(state?.textContent).toBe("level.verified");
     expect(state?.textContent).not.toBe("trust.located.short");
   });
+
+  it("marks upward-pulled bottom ties with gutter-note-leader-up and distinct lanes", async () => {
+    const bottomMarks: Mark[] = [
+      { id: "b1", page: 2, rects: [{ x: 100, y: 760, width: 50, height: 10 }], text: "bottom 1", note: "", createdAt: 1, stamp: "s" },
+      { id: "b2", page: 2, rects: [{ x: 100, y: 770, width: 50, height: 10 }], text: "bottom 2", note: "", createdAt: 2, stamp: "s" },
+    ];
+    marks.splice(0, marks.length, ...bottomMarks);
+    const savedFindings = findings.splice(0, findings.length);
+    try {
+      const { container } = renderGutter({ column: true, citations: new Map() });
+      await waitFor(() =>
+        expect(container.querySelectorAll(".gutter-note-leader-up").length).toBeGreaterThanOrEqual(1),
+      );
+    } finally {
+      marks.splice(
+        0,
+        marks.length,
+        { id: "m1", page: 2, rects: [{ x: 100, y: 100, width: 50, height: 10 }], text: "the passage", note: "", createdAt: 1, stamp: "s" },
+        { id: "m2", page: 2, rects: [{ x: 100, y: 100, width: 50, height: 10 }], text: "", note: "the figure", createdAt: 2, stamp: "s", kind: "region" },
+      );
+      findings.push(...savedFindings);
+    }
+  });
 });

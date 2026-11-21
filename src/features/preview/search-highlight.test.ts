@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { highlightBoxes, matchingItems, pdfRectToBox, topLeftRectToBox } from "./search-highlight";
+import {
+  highlightBoxes,
+  highlightOccurrences,
+  matchingItems,
+  pdfRectToBox,
+  topLeftRectToBox,
+} from "./search-highlight";
 import type { PageGeometry } from "../../lib/pdf";
 import type { TextItemRect } from "../../lib/types";
 
@@ -110,9 +116,21 @@ describe("pdfRectToBox", () => {
 });
 
 describe("highlightBoxes", () => {
-  it("returns one box per matching run", () => {
+  it("returns one box per matching occurrence, including multiple matches inside one run", () => {
     expect(highlightBoxes(items, "营业收入", upright)).toHaveLength(1);
     expect(highlightBoxes(items, "nothing here", upright)).toHaveLength(0);
+
+    const repeated: TextItemRect[] = [
+      { text: "risk assessment and risk mitigation", rect: { x: 60, y: 680, width: 280, height: 12 } },
+      { text: "residual risk clause", rect: { x: 60, y: 660, width: 160, height: 12 } },
+    ];
+    const occs = highlightOccurrences(repeated, "risk", upright);
+    expect(occs.map((o) => o.occurrence)).toEqual([0, 1, 2]);
+    // Occurrence 0 and 1 sit on the first line (`top` equal), with occurrence 1 further right.
+    expect(occs[0]!.box.top).toBeCloseTo(occs[1]!.box.top, 5);
+    expect(occs[1]!.box.left).toBeGreaterThan(occs[0]!.box.left);
+    // Occurrence 2 sits on the second line below.
+    expect(occs[2]!.box.top).toBeGreaterThan(occs[1]!.box.top);
   });
 });
 

@@ -175,6 +175,7 @@ export function GeneralSettings({
           value={theme}
           options={[
             { id: "dark", label: t("settings.themeDark") },
+            { id: "night", label: t("settings.themeNight") },
             { id: "light", label: t("settings.themeLight") },
             { id: "paper", label: t("settings.themePaper") },
             { id: "system", label: t("settings.themeSystem") },

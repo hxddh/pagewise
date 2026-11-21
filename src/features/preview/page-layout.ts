@@ -298,6 +298,9 @@ export function scrollShiftForScale(
  * way — the column takes its width out of the right, so toggling the column
  * moves nothing the reader is looking at.
  */
+/** Comfortable reading measure ceiling for single-column prose on wide screens. */
+export const COMFORTABLE_MAX_PAGE_WIDTH = 920;
+
 export function fitWidthScale(
   sizes: ReadonlyArray<PageSize | undefined>,
   containerWidth: number,
@@ -310,4 +313,80 @@ export function fitWidthScale(
   }
   if (widest <= 0) return 1;
   return usable / widest;
+}
+
+/**
+ * Like `fitWidthScale`, capped at `COMFORTABLE_MAX_PAGE_WIDTH` so wide desktop
+ * windows keep a comfortable book-like measure instead of poster-sized 10pt type.
+ */
+export function fitComfortableScale(
+  sizes: ReadonlyArray<PageSize | undefined>,
+  containerWidth: number,
+  padding: { left: number; right: number },
+): number {
+  const usable = Math.min(
+    COMFORTABLE_MAX_PAGE_WIDTH,
+    Math.max(1, containerWidth - padding.left - padding.right),
+  );
+  let widest = 0;
+  for (const size of sizes) {
+    if (size && size.width > widest) widest = size.width;
+  }
+  if (widest <= 0) return 1;
+  return usable / widest;
+}
+
+/**
+ * Scale that fits the whole current page (both width and height) inside the viewport.
+ */
+export function fitPageScale(
+  sizes: ReadonlyArray<PageSize | undefined>,
+  containerWidth: number,
+  viewportHeight: number,
+  padding: { left: number; right: number },
+  currentPage = 1,
+  gap: number = PAGE_GAP,
+): number {
+  const usableW = Math.max(1, containerWidth - padding.left - padding.right);
+  const usableH = Math.max(1, viewportHeight - gap * 2);
+  const target =
+    sizes[Math.max(0, currentPage - 1)] ??
+    sizes.find((s): s is PageSize => !!s) ?? { width: 612, height: 792 };
+  if (target.width <= 0 || target.height <= 0) return 1;
+  return Math.min(usableW / target.width, usableH / target.height);
+}
+
+/**
+ * Scroll offset that brings a normalized `[topFraction, topFraction + heightFraction]`
+ * box on `page` into the comfortable reading band of the viewport, or `null` when
+ * the box is already comfortably in view.
+ */
+export function offsetForPageRect(
+  layout: PageLayout,
+  page: number,
+  topFraction: number,
+  heightFraction: number,
+  viewportHeight: number,
+  currentScrollTop: number,
+): number | null {
+  const i = Math.min(layout.tops.length - 1, Math.max(0, page - 1));
+  if (i < 0) return null;
+  const pageTop = layout.tops[i] ?? 0;
+  const pageHeight = layout.heights[i] ?? 0;
+  if (pageHeight <= 0 || viewportHeight <= 0) return offsetForPage(layout, page);
+
+  const clampedTop = Math.min(1, Math.max(0, topFraction));
+  const clampedH = Math.min(1 - clampedTop, Math.max(0, heightFraction));
+  const boxTop = pageTop + clampedTop * pageHeight;
+  const boxBottom = boxTop + Math.max(18, clampedH * pageHeight);
+
+  const comfortTop = currentScrollTop + viewportHeight * 0.12;
+  const comfortBottom = currentScrollTop + viewportHeight * 0.84;
+  if (boxTop >= comfortTop && boxBottom <= comfortBottom) {
+    return null;
+  }
+
+  const maxScroll = Math.max(0, layout.total - viewportHeight);
+  const desired = Math.round(boxTop - viewportHeight * 0.3);
+  return Math.min(maxScroll, Math.max(0, desired));
 }

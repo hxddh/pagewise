@@ -11,6 +11,7 @@ import type { ResolvedTheme } from "./preferences";
  */
 const WINDOW_BACKGROUND: Record<ResolvedTheme, string> = {
   dark: "#09090b",
+  night: "#0b0c0f",
   light: "#fafafa",
   paper: "#f6f2ea",
 };

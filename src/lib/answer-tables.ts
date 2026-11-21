@@ -201,11 +201,77 @@ export function hasAnswerTable(markdown: string): boolean {
  * is decided, so the chip, the tally, the record and the model feedback all
  * check the same words (15.0).
  */
+interface CellSpan {
+  raw: string;
+  start: number;
+  end: number;
+  col: number;
+}
+
+function splitCellSpans(line: string, lineStart: number): CellSpan[] {
+  const spans: Array<{ raw: string; start: number; end: number }> = [];
+  let cur = "";
+  let cellStart = 0;
+  let inMarker = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i]!;
+    if (ch === "〔") inMarker = true;
+    if (ch === "〕") inMarker = false;
+    if (ch === "\\" && line[i + 1] === "|") {
+      cur += "\\|";
+      i += 1;
+      continue;
+    }
+    if (ch === "|" && !inMarker) {
+      spans.push({ raw: cur, start: lineStart + cellStart, end: lineStart + i });
+      cur = "";
+      cellStart = i + 1;
+      continue;
+    }
+    cur += ch;
+  }
+  spans.push({ raw: cur, start: lineStart + cellStart, end: lineStart + line.length });
+  if (spans.length > 1 && spans[0]!.raw.trim() === "") spans.shift();
+  if (spans.length > 1 && spans[spans.length - 1]!.raw.trim() === "") spans.pop();
+  return spans.map((s, col) => ({ ...s, col }));
+}
+
+const INDEX_HEADER_RE = /^(?:#|no\.?|row|index|序号|编号)$/i;
+
+/**
+ * What a citation at `index` is evidence for:
+ * - inside a table cell with its own text (before or after the marker): that
+ *   cell's text (partitioned via `claimSpanBefore` if the cell holds multiple
+ *   markers);
+ * - inside a dedicated citation-only `Sources` cell (`plain(cell) === ""`):
+ *   the uncited value cells of that row so numbers in sibling columns cannot
+ *   bypass verification;
+ * - outside a table: `claimSpanBefore`.
+ */
 export function claimBefore(markdown: string, index: number): string {
   const inRow = rowAt(markdown, index);
   if (!inRow) return claimSpanBefore(markdown, index);
-  // Earlier markers in the row go first, so a pipe inside one of their quotes
-  // cannot be mistaken for the cell's start.
-  const line = markdown.slice(inRow.row.start, index).replace(citationRe(), "");
-  return plain(line.slice(line.lastIndexOf("|") + 1));
+  const rowText = markdown.slice(inRow.row.start, inRow.row.end);
+  const spans = splitCellSpans(rowText, inRow.row.start);
+  const cell = spans.find((s) => index >= s.start && index <= s.end);
+  if (!cell) {
+    const line = markdown.slice(inRow.row.start, index).replace(citationRe(), "");
+    return plain(line.slice(line.lastIndexOf("|") + 1));
+  }
+  const cellCites = extractCitations(cell.raw);
+  if (cellCites.length > 1) {
+    return claimSpanBefore(cell.raw, index - cell.start);
+  }
+  const cellText = plain(cell.raw.replace(/\\\|/g, "|"));
+  if (cellText && cellText !== "—" && cellText !== "-") {
+    return cellText;
+  }
+  // Pure citation cell (e.g. `| Late fee | 25% | 〔p3 "Section 4"〕 |`):
+  // verify the uncited value cells of the row against this citation.
+  return spans
+    .filter((s) => s.col !== cell.col && extractCitations(s.raw).length === 0)
+    .filter((s) => !(s.col === 0 && INDEX_HEADER_RE.test((inRow.table.headers[0] ?? "").trim())))
+    .map((s) => plain(s.raw.replace(/\\\|/g, "|")))
+    .filter((v) => v && v !== "—" && v !== "-")
+    .join(" · ");
 }

@@ -19,11 +19,11 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, StringFormat};
+use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use serde::Deserialize;
 
 use crate::doc_check;
-use crate::inspect::{visible_box, Rect};
+use crate::inspect::{inherited_rotation, visible_box, Rect};
 
 /// Prefix of the `/NM` of every annotation PageWise writes.
 const NM_PREFIX: &str = "pagewise-";
@@ -165,6 +165,116 @@ fn set_annots(doc: &mut Document, page: ObjectId, annots: Vec<Object>) -> Result
     Ok(())
 }
 
+/// QuadPoints ordered `[UL, UR, LL, LR]` along the page's displayed orientation
+/// (ISO 32000-1 §12.5.6.10) so rotated pages draw natural highlight caps while
+/// preserving the exact `[x0, y0, x1, y1]` axis-aligned envelope.
+fn quad_for_rect(r: [f32; 4], rotation: u16) -> [f32; 8] {
+    match rotation % 360 {
+        90 => [r[0], r[1], r[0], r[3], r[2], r[1], r[2], r[3]],
+        180 => [r[2], r[1], r[0], r[1], r[2], r[3], r[0], r[3]],
+        270 => [r[2], r[3], r[2], r[1], r[0], r[3], r[0], r[1]],
+        _ => [r[0], r[3], r[2], r[3], r[0], r[1], r[2], r[1]],
+    }
+}
+
+/// Build an explicit `/AP << /N <Form XObject> >>` stream so PDF viewers that
+/// do not synthesize annotation appearances (QuickLook, lightweight Linux
+/// viewers, print pipelines) still render crisp multiply-blended highlights and
+/// stroked region boxes.
+fn build_appearance_stream(
+    doc: &mut Document,
+    kind: Kind,
+    bounds: [f32; 4],
+    rects: &[[f32; 4]],
+    rgb: [f32; 3],
+) -> ObjectId {
+    let w = (bounds[2] - bounds[0]).max(0.01);
+    let h = (bounds[3] - bounds[1]).max(0.01);
+    let [cr, cg, cb] = [
+        rgb[0].clamp(0.0, 1.0),
+        rgb[1].clamp(0.0, 1.0),
+        rgb[2].clamp(0.0, 1.0),
+    ];
+    let mut ops = String::new();
+    let resources = match kind {
+        Kind::Highlight => {
+            ops.push_str(&format!("q /GS0 gs {cr:.4} {cg:.4} {cb:.4} rg "));
+            for r in rects {
+                let x = r[0] - bounds[0];
+                let y = r[1] - bounds[1];
+                let rw = (r[2] - r[0]).max(0.01);
+                let rh = (r[3] - r[1]).max(0.01);
+                ops.push_str(&format!("{x:.3} {y:.3} {rw:.3} {rh:.3} re f "));
+            }
+            ops.push('Q');
+            let gs = dictionary! {
+                "Type" => "ExtGState",
+                "BM" => "Multiply",
+                "ca" => Object::Real(0.45),
+                "CA" => Object::Real(0.45),
+            };
+            dictionary! {
+                "ExtGState" => dictionary! { "GS0" => gs },
+            }
+        }
+        Kind::Square => {
+            ops.push_str(&format!("q 1.5 w {cr:.4} {cg:.4} {cb:.4} RG "));
+            for r in rects {
+                let x = (r[0] - bounds[0]) + 0.75;
+                let y = (r[1] - bounds[1]) + 0.75;
+                let rw = (r[2] - r[0] - 1.5).max(0.01);
+                let rh = (r[3] - r[1] - 1.5).max(0.01);
+                ops.push_str(&format!("{x:.3} {y:.3} {rw:.3} {rh:.3} re S "));
+            }
+            ops.push('Q');
+            dictionary! {}
+        }
+    };
+    let form_dict = dictionary! {
+        "Type" => "XObject",
+        "Subtype" => "Form",
+        "FormType" => 1,
+        "BBox" => vec![
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(w),
+            Object::Real(h),
+        ],
+        "Resources" => resources,
+    };
+    doc.add_object(Stream::new(form_dict, ops.into_bytes()))
+}
+
+fn delete_annot_tree(doc: &mut Document, annot: &Object) {
+    let Object::Reference(annot_id) = annot else {
+        return;
+    };
+    let mut ap_refs = Vec::new();
+    if let Ok(dict) = doc.get_dictionary(*annot_id) {
+        if let Ok(ap_obj) = dict.get(b"AP") {
+            let ap_dict = match ap_obj {
+                Object::Reference(id) => {
+                    ap_refs.push(*id);
+                    doc.get_dictionary(*id).ok()
+                }
+                Object::Dictionary(d) => Some(d),
+                _ => None,
+            };
+            if let Some(d) = ap_dict {
+                for (_, v) in d.iter() {
+                    if let Object::Reference(stream_id) = v {
+                        ap_refs.push(*stream_id);
+                    }
+                }
+            }
+        }
+    }
+    for id in ap_refs {
+        doc.delete_object(id);
+    }
+    doc.delete_object(*annot_id);
+}
+
 /// Annotate `doc` in memory; returns how many annotations were written.
 pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: u64) -> Result<usize, String> {
     if annotations.len() > MAX_ANNOTATIONS {
@@ -173,19 +283,27 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
     let pages: BTreeMap<u32, ObjectId> = doc.get_pages();
     let date = pdf_date(now);
 
-    // What PageWise wrote last time goes first, on every page.
+    // What PageWise wrote last time goes first, on every page — including its
+    // indirect annotation and `/AP` stream objects so re-exports never bloat.
     for &page in pages.values() {
         let before = annots_of(doc, page);
         if before.is_empty() {
             continue;
         }
-        let kept: Vec<Object> = before
-            .iter()
-            .filter(|a| !name_of(doc, a).is_some_and(|n| n.starts_with(NM_PREFIX.as_bytes())))
-            .cloned()
-            .collect();
-        if kept.len() != before.len() {
+        let mut kept = Vec::with_capacity(before.len());
+        let mut removed = Vec::new();
+        for a in before {
+            if name_of(doc, &a).is_some_and(|n| n.starts_with(NM_PREFIX.as_bytes())) {
+                removed.push(a);
+            } else {
+                kept.push(a);
+            }
+        }
+        if !removed.is_empty() {
             set_annots(doc, page, kept)?;
+            for old in &removed {
+                delete_annot_tree(doc, old);
+            }
         }
     }
 
@@ -194,6 +312,7 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
     for a in annotations {
         let Some(&page) = pages.get(&a.page) else { continue };
         let view = visible_box(doc, page);
+        let rotation = inherited_rotation(doc, page);
         let rects: Vec<[f32; 4]> = a
             .rects
             .iter()
@@ -206,13 +325,12 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
         let bounds = rects.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, r| {
             [b[0].min(r[0]), b[1].min(r[1]), b[2].max(r[2]), b[3].max(r[3])]
         });
-        // Upper-left, upper-right, lower-left, lower-right: the order Acrobat
-        // writes and every reader draws correctly.
         let quads: Vec<Object> = rects
             .iter()
-            .flat_map(|r| [r[0], r[3], r[2], r[3], r[0], r[1], r[2], r[1]])
+            .flat_map(|r| quad_for_rect(*r, rotation))
             .map(Object::Real)
             .collect();
+        let ap_stream = build_appearance_stream(doc, a.kind, bounds, &rects, a.color);
         let color: Vec<Object> = a.color.iter().map(|c| Object::Real(c.clamp(0.0, 1.0))).collect();
         let contents: String = a.contents.chars().take(MAX_CONTENTS).collect();
         let id: String = a.id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect();
@@ -222,6 +340,7 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
             "C" => color,
             "F" => 4,
             "P" => page,
+            "AP" => dictionary! { "N" => ap_stream },
             "NM" => text_string(&format!("{NM_PREFIX}{id}")),
             "T" => text_string(&a.author),
             "Subj" => text_string(&a.subject),
@@ -253,9 +372,14 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
     Ok(written)
 }
 
-fn ensure_decrypted(doc: &mut Document) -> Result<(), String> {
+fn ensure_decrypted(doc: &mut Document, password: Option<&str>) -> Result<(), String> {
     if doc.is_encrypted() {
         let _ = doc.decrypt("");
+    }
+    if doc.is_encrypted() {
+        if let Some(pw) = password {
+            let _ = doc.decrypt(pw);
+        }
     }
     if doc.is_encrypted() {
         return Err(doc_check::coded(
@@ -267,9 +391,29 @@ fn ensure_decrypted(doc: &mut Document) -> Result<(), String> {
 }
 
 /// Annotate a PDF byte buffer in memory, returning `(pdf_bytes, count_written)`.
+#[allow(dead_code)]
 pub fn annotate_bytes(bytes: &[u8], annotations: &[AnnotationIn]) -> Result<(Vec<u8>, usize), String> {
-    let mut doc = Document::load_mem(bytes).map_err(|e| format!("Failed to read PDF: {e}"))?;
-    ensure_decrypted(&mut doc)?;
+    annotate_bytes_with_password(bytes, annotations, None)
+}
+
+pub fn annotate_bytes_with_password(
+    bytes: &[u8],
+    annotations: &[AnnotationIn],
+    password: Option<&str>,
+) -> Result<(Vec<u8>, usize), String> {
+    let mut doc = match password {
+        Some(pw) if !pw.is_empty() => Document::load_mem_with_options(
+            bytes,
+            lopdf::LoadOptions {
+                password: Some(pw.to_string()),
+                ..Default::default()
+            },
+        )
+        .or_else(|_| Document::load_mem(bytes))
+        .map_err(|e| format!("Failed to read PDF: {e}"))?,
+        _ => Document::load_mem(bytes).map_err(|e| format!("Failed to read PDF: {e}"))?,
+    };
+    ensure_decrypted(&mut doc, password)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -285,7 +429,8 @@ pub fn annotate_bytes(bytes: &[u8], annotations: &[AnnotationIn]) -> Result<(Vec
 pub fn annotate_file(src: &Path, out: &Path, annotations: &[AnnotationIn]) -> Result<usize, String> {
     use std::io::Write;
     let src_bytes = std::fs::read(src).map_err(|e| format!("Failed to read PDF: {e}"))?;
-    let (pdf_bytes, written) = annotate_bytes(&src_bytes, annotations)?;
+    let pw = doc_check::session_password(src);
+    let (pdf_bytes, written) = annotate_bytes_with_password(&src_bytes, annotations, pw.as_deref())?;
     // Written beside the target and renamed over it, so a failure midway never
     // leaves half a PDF where the reader asked for one. The temp is created
     // exclusively under a name of ours (21.1.2): it was `<file>.pdf.partial`
@@ -508,5 +653,23 @@ mod tests {
         let view = [100.0, 100.0, 512.0, 692.0];
         let r = Rect { x: 10.0, y: 20.0, width: 50.0, height: 12.0 };
         assert_eq!(absolute(&r, Frame::View, view), Some([110.0, 660.0, 160.0, 672.0]));
+    }
+
+    #[test]
+    fn writes_ap_appearance_and_deletes_orphan_objects_on_re_export() {
+        let mut doc = Document::load(fixture("text-pages.pdf")).unwrap();
+        let r = Rect { x: 72.0, y: 640.0, width: 120.0, height: 12.0 };
+        annotate_document(&mut doc, &[annot("ap1", 1, Frame::Pdf, r, "first")], 0).unwrap();
+        let count_after_first = doc.objects.len();
+        let first_annot = &page_annots(&doc, 1)[0];
+        let ap = first_annot.get(b"AP").unwrap().as_dict().unwrap();
+        let ap_ref = ap.get(b"N").unwrap().as_reference().unwrap();
+        assert!(doc.get_object(ap_ref).is_ok());
+
+        // Re-exporting 1 annotation replaces both the Annot dict and its /AP stream
+        // without accumulating dead objects in `doc.objects`.
+        annotate_document(&mut doc, &[annot("ap1", 1, Frame::Pdf, r, "second")], 0).unwrap();
+        assert!(doc.get_object(ap_ref).is_err(), "old /AP stream should be deleted");
+        assert_eq!(doc.objects.len(), count_after_first, "object count should stay flat on re-export");
     }
 }

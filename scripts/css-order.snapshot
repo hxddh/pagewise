@@ -26,6 +26,8 @@ body
 .preview-canvas-wrap.image-wrap
 .preview-canvas, .preview-image
 .preview-canvas
+[data-theme="paper"] .preview-canvas
+[data-theme="night"] .preview-canvas
 .preview-page-frame
 .pdf-text-layer:not(.pdf-text-layer-active)
 .pdf-text-layer
@@ -299,6 +301,9 @@ button.pages-read-chip:hover
 .export-option-name
 .export-option-desc
 .export-option-extra
+.password-unlock-form
+.password-unlock-prompt
+.password-unlock-error
 # 10-agent-activity.css
 .agent-generating-line
 .agent-generating-line .typing-dots span
@@ -317,6 +322,7 @@ button.pages-read-chip:hover
 # 11-pdf-layers.css
 .search-highlight-layer
 .search-highlight
+.search-highlight-focus
 .citation-highlight-layer
 .citation-highlight
 @keyframes citation-decay
@@ -337,6 +343,7 @@ button.pages-read-chip:hover
 .pdf-mark-text:hover, .pdf-mark-text:focus-visible, .pdf-mark-text.pdf-mark-selected
 .pdf-mark-region:hover, .pdf-mark-region:focus-visible, .pdf-mark-region.pdf-mark-selected
 :root[data-theme="dark"] .pdf-mark-text
+:root[data-theme="night"] .pdf-mark-text
 .mark-selection-btn
 .mark-selection-btn:hover
 .mark-stale-note

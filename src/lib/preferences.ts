@@ -8,8 +8,8 @@ import { createStoreRuntime } from "./json-store";
  * in a document wants the page to look like paper, and both of the other two
  * themes are built around the app's own greys.
  */
-export type ThemeMode = "dark" | "light" | "paper" | "system";
-export type ResolvedTheme = "dark" | "light" | "paper";
+export type ThemeMode = "dark" | "night" | "light" | "paper" | "system";
+export type ResolvedTheme = "dark" | "night" | "light" | "paper";
 export type LocaleMode = "en" | "zh-CN" | "system";
 /** 18.0: the AI provider tab is gone — one settings surface, three groups. */
 export type SettingsTab = "general" | "shortcuts" | "about";
@@ -124,7 +124,7 @@ export function subscribePreferences(listener: (prefs: AppPreferences) => void):
   };
 }
 
-const THEME_MODES: ThemeMode[] = ["dark", "light", "paper", "system"];
+const THEME_MODES: ThemeMode[] = ["dark", "night", "light", "paper", "system"];
 const LOCALE_MODES: LocaleMode[] = ["en", "zh-CN", "system"];
 const SETTINGS_TABS: SettingsTab[] = ["general", "shortcuts", "about"];
 const PREVIEW_QUALITIES: PreviewQuality[] = ["auto", "crisp", "performance"];

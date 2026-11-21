@@ -25,7 +25,9 @@ import {
   type RecentFile,
 } from "../lib/recent-files";
 import { checkRecentPaths, openSampleDocument, pickDocument } from "../lib/allowed-paths";
-import { openErrorMessage } from "../lib/open-error";
+import { classifyOpenError, openErrorMessage } from "../lib/open-error";
+import { invokeCmd } from "../lib/invoke-cmd";
+import { clearPdfCache } from "../lib/pdf";
 import { reindexDocument } from "../document/index-queue";
 import {
   evidenceAnnotations,
@@ -65,6 +67,13 @@ export interface Workbench {
     reindex: () => void;
     reload: () => void;
     fileError: { message: string | null; clear: () => void };
+    passwordPrompt: {
+      path: string | null;
+      wrongPassword: boolean;
+      submitting: boolean;
+      unlock: (password: string) => Promise<void>;
+      cancel: () => void;
+    };
     dragging: boolean;
   };
   library: {
@@ -101,6 +110,11 @@ export function useWorkbench(): Workbench {
   const [document, setDocument] = useState<LoadedDocument | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [passwordTarget, setPasswordTarget] = useState<{
+    path: string;
+    wrongPassword: boolean;
+    submitting: boolean;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatHydrateNonce, setChatHydrateNonce] = useState(0);
@@ -217,12 +231,16 @@ export function useWorkbench(): Workbench {
       const fn = await win.onCloseRequested(async (event) => {
         event.preventDefault();
         try {
-          await Promise.allSettled([
-            flushChatNowRef.current(),
-            flushFindings(),
-            flushMarks(),
-            flushIndexStore(),
-            flushOcrService(),
+          agent.run.stop();
+          await Promise.race([
+            Promise.allSettled([
+              flushChatNowRef.current(),
+              flushFindings(),
+              flushMarks(),
+              flushIndexStore(),
+              flushOcrService(),
+            ]),
+            new Promise((resolve) => setTimeout(resolve, 750)),
           ]);
         } catch (e) {
           if (import.meta.env.DEV) console.warn("[session] flush on close failed", e);
@@ -384,6 +402,14 @@ export function useWorkbench(): Workbench {
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
         if (e instanceof Error && e.name === "AbortError") return;
+        if (classifyOpenError(e)?.kind === "encrypted") {
+          setPasswordTarget({ path, wrongPassword: false, submitting: false });
+          setPhase(prev ? "ready" : "empty");
+          setChatLoading(false);
+          chatHydrateRef.current = null;
+          if (!prev) setDocument(null);
+          return;
+        }
         const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
         const msg =
           openErrorMessage(e, t) ?? (raw.startsWith("errors.") ? t(raw) : raw || t("load.failed"));
@@ -418,6 +444,27 @@ export function useWorkbench(): Workbench {
     if (!cur || loadingRef.current) return;
     void switchDocument(cur.path, { forceReload: true });
   }, [switchDocument]);
+
+  const unlockEncryptedPdf = useCallback(
+    async (password: string) => {
+      if (!passwordTarget || passwordTarget.submitting) return;
+      const targetPath = passwordTarget.path;
+      setPasswordTarget({ path: targetPath, wrongPassword: false, submitting: true });
+      try {
+        clearPdfCache(targetPath);
+        await invokeCmd<void>("unlock_pdf_cmd", { path: targetPath, password });
+        setPasswordTarget(null);
+        await switchDocument(targetPath, { forceReload: true });
+      } catch {
+        setPasswordTarget({ path: targetPath, wrongPassword: true, submitting: false });
+      }
+    },
+    [passwordTarget, switchDocument],
+  );
+
+  const cancelPasswordPrompt = useCallback(() => {
+    setPasswordTarget(null);
+  }, []);
 
   // Detect external modifications on window focus and offer a 1-click reload.
   useEffect(() => {
@@ -634,6 +681,13 @@ export function useWorkbench(): Workbench {
       reindex,
       reload,
       fileError: { message: fileError, clear: () => setFileError(null) },
+      passwordPrompt: {
+        path: passwordTarget?.path ?? null,
+        wrongPassword: passwordTarget?.wrongPassword ?? false,
+        submitting: passwordTarget?.submitting ?? false,
+        unlock: unlockEncryptedPdf,
+        cancel: cancelPasswordPrompt,
+      },
       dragging: isDragging,
     },
     library: {

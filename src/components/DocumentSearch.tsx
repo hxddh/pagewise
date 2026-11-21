@@ -20,7 +20,7 @@ import { EmptyState } from "./EmptyState";
 
 interface DocumentSearchProps {
   doc: LoadedDocument;
-  onJumpToPage: (page: number, query?: string) => void;
+  onJumpToPage: (page: number, query?: string, matchOnPage?: number) => void;
   onClearHighlight?: () => void;
   containerRef?: RefObject<HTMLElement | null>;
 }
@@ -88,15 +88,36 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
     [query, scope],
   );
 
+  const ordinalOnPage = useCallback(
+    (idx: number) => {
+      const target = hits[idx];
+      if (!target) return 0;
+      let ord = 0;
+      for (let i = 0; i < idx; i += 1) {
+        if (hits[i]?.page === target.page) ord += 1;
+      }
+      return ord;
+    },
+    [hits],
+  );
+
+  const jumpToMatch = useCallback(
+    (page: number, term: string, ord: number) => {
+      if (ord > 0) onJumpToPage(page, term, ord);
+      else onJumpToPage(page, term);
+    },
+    [onJumpToPage],
+  );
+
   const stepHit = useCallback(
     (delta: 1 | -1) => {
       if (hits.length === 0) return;
       const next = (activeIndex + delta + hits.length) % hits.length;
       setActiveIndex(next);
       const hit = hits[next]!;
-      onJumpToPage(hit.page, query);
+      jumpToMatch(hit.page, query, ordinalOnPage(next));
     },
-    [activeIndex, hits, onJumpToPage, query],
+    [activeIndex, hits, jumpToMatch, ordinalOnPage, query],
   );
 
   useEffect(() => {
@@ -159,9 +180,10 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
             e.preventDefault();
             if (e.shiftKey) stepHit(-1);
             else {
-              const target = hits[activeIndex] ?? hits[0]!;
-              onJumpToPage(target.page, query);
-              setActiveIndex((prev) => (prev + 1) % hits.length);
+              const idx = hits[activeIndex] ? activeIndex : 0;
+              const target = hits[idx]!;
+              jumpToMatch(target.page, query, ordinalOnPage(idx));
+              setActiveIndex((idx + 1) % hits.length);
             }
           }
         }}
@@ -262,7 +284,7 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
                           className={`doc-search-hit${i === activeIndex ? " active" : ""}`}
                           onClick={() => {
                             setActiveIndex(i);
-                            onJumpToPage(hit.page, query);
+                            jumpToMatch(hit.page, query, ordinalOnPage(i));
                             setResultsCollapsed(true);
                           }}
                           label={<span className="hit-page">{t("preview.pageHit", { page: hit.page })}</span>}

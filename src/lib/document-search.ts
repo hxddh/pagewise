@@ -17,19 +17,22 @@ function snippetAround(text: string, index: number, matchLen: number, radius = 8
   return start > 0 ? `…${chunk}` : chunk;
 }
 
-const LINE_WRAP_HYPHEN = /^[-‐‑]\r?\n\s*/;
+const LINE_WRAP_HYPHEN = /^(?:[\u2010\u2011]\s+|-\r?\n\s*)/;
+const CJK_CHAR = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
 
 /**
  * NFKC + lowercase fold with exact source UTF-16 index mapping:
  * - expands ligatures (`ﬁ` -> `fi`, `ﬂ` -> `fl`, `ﬀ` -> `ff`) and fullwidth ASCII,
- * - drops soft hyphens (`\u00AD`) and joins hyphenated line wraps (`im-\nprove`),
- * - collapses runs of whitespace (including line breaks) into a single `" "`.
+ * - drops soft hyphens (`\u00AD`) and joins hyphenated line wraps (`im-\nprove`, `co‐ ordinated`),
+ * - omits whitespace between adjacent CJK characters so wrapped CJK phrases match seamlessly,
+ * - collapses other runs of whitespace (including line breaks) into a single `" "`.
  */
 function foldWithMap(text: string): { folded: string; map: number[] } {
   let folded = "";
   const map: number[] = [];
   let i = 0;
   let prevWasSpace = false;
+  let lastNonSpaceChar = "";
 
   while (i < text.length) {
     const cp = text.codePointAt(i)!;
@@ -57,6 +60,13 @@ function foldWithMap(text: string): { folded: string; map: number[] } {
     for (const unit of norm) {
       if (/\s/.test(unit)) {
         if (!prevWasSpace) {
+          // Peek ahead past whitespace to see if both sides are CJK characters.
+          let nextIdx = i + width;
+          while (nextIdx < text.length && /\s|\u00ad/.test(text[nextIdx]!)) nextIdx += 1;
+          const nextCh = nextIdx < text.length ? String.fromCodePoint(text.codePointAt(nextIdx)!).normalize("NFKC") : "";
+          if (CJK_CHAR.test(lastNonSpaceChar) && CJK_CHAR.test(nextCh)) {
+            continue;
+          }
           folded += " ";
           map.push(i);
           prevWasSpace = true;
@@ -65,6 +75,7 @@ function foldWithMap(text: string): { folded: string; map: number[] } {
         folded += unit;
         map.push(i);
         prevWasSpace = false;
+        lastNonSpaceChar = unit;
       }
     }
     i += width;

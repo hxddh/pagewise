@@ -620,6 +620,12 @@ export function forgetFindings(path: string): void {
   findings.forget(path);
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    void flushFindingStore();
+  });
+}
+
 /** Reset module state between tests. */
 export function __resetFindingStoreForTests(): void {
   findings.reset();

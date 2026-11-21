@@ -98,6 +98,47 @@ export function locateQuote(items: readonly TextItemRect[], quote: string): Loca
   return locateElided(items, quote, page) ?? { status: "absent" };
 }
 
+/**
+ * Return up to `maxMatches` distinct occurrences of `quote` on the page so
+ * repeated short quotes (e.g. `"$5,000"` in two clauses or table rows) can be
+ * disambiguated against the claim sentence's surrounding numbers and polarity.
+ */
+export function locateQuoteAll(
+  items: readonly TextItemRect[],
+  quote: string,
+  maxMatches = 6,
+): Array<{ items: TextItemRect[]; rects: PdfRect[] }> {
+  const { folded: needle } = fold((quote ?? "").normalize("NFC"));
+  if (needle.length < MIN_QUOTE_CHARS || items.length === 0) return [];
+
+  const page = foldItems(items);
+  const matches: Array<{ items: TextItemRect[]; rects: PdfRect[] }> = [];
+  let from = 0;
+  while (matches.length < maxMatches) {
+    const at = page.folded.indexOf(needle, from);
+    if (at < 0) break;
+    const first = page.itemAt[at]!;
+    const last = page.itemAt[at + needle.length - 1]!;
+    const span = items.slice(first, Math.min(last + 1, first + MAX_QUOTE_ITEMS));
+    matches.push({ items: span, rects: span.map((it) => it.rect) });
+    from = at + Math.max(1, needle.length);
+  }
+  if (matches.length > 0) return matches;
+
+  const chains = chainLocateAll(items, needle, 0, maxMatches);
+  for (const ch of chains) {
+    const span = ch.map((i) => items[i]!);
+    matches.push({ items: span, rects: span.map((it) => it.rect) });
+  }
+  if (matches.length > 0) return matches;
+
+  const elided = locateElided(items, quote, page);
+  if (elided?.status === "located") {
+    matches.push({ items: elided.items, rects: elided.rects });
+  }
+  return matches;
+}
+
 const ELISION_DETECT = /\[?\s*(?:…|\.{3,}|⋯|(?:\.\s+){2,}\.)\s*\]?/;
 const ELISION_SPLIT = /\s*(?:\[\s*(?:…|\.{3,}|⋯|(?:\.\s+){2,}\.)\s*\]|…|\.{3,}|⋯|(?:\.\s+){2,}\.)\s*/;
 const ELISION_MAX_GAP = 600;
@@ -231,10 +272,11 @@ export function locateAcrossPages(
 }
 
 const CHAIN_VISIT_BUDGET = 20_000;
-const CHAIN_MAX_ITEMS = 2_500;
+const CHAIN_MAX_ITEMS = 6_000;
 
 interface Layout {
   right: number[];
+  adjRowRight: number[];
   lineStart: boolean[];
   segLeft: number[];
   hasLineBelow: boolean[];
@@ -246,28 +288,41 @@ function sameLine(a: PdfRect, b: PdfRect): boolean {
   return Math.abs(a.y - b.y) < Math.max(a.height, b.height) * 0.6;
 }
 
-function layoutOf(items: readonly TextItemRect[]): Layout {
+function layoutOf(items: readonly TextItemRect[], parts: readonly string[]): Layout {
   const cached = layoutCache.get(items);
   if (cached) return cached;
   const n = items.length;
   const right = new Array<number>(n).fill(-1);
+  const adjRowRight = new Array<number>(n).fill(-1);
   const left = new Array<number>(n).fill(-1);
   for (let i = 0; i < n; i += 1) {
+    if ((parts[i]?.length ?? 0) === 0) continue;
     const a = items[i]!.rect;
     const gap = Math.max(a.height, 1) * 1.5;
     let best = -1;
     let bestGap = Infinity;
+    let rowBest = -1;
+    let rowBestGap = Infinity;
     for (let j = 0; j < n; j += 1) {
-      if (j === i) continue;
+      if (j === i || (parts[j]?.length ?? 0) === 0) continue;
       const b = items[j]!.rect;
       if (!sameLine(a, b)) continue;
       const g = b.x - (a.x + a.width);
-      if (g > -a.height * 0.5 && g < gap && b.x > a.x && g < bestGap) {
-        best = j;
-        bestGap = g;
+      if (g > -a.height * 0.5 && b.x > a.x) {
+        if (g < gap && g < bestGap) {
+          best = j;
+          bestGap = g;
+        }
+        // Table-cell horizontal adjacency (`gap <= g < 260`) only between compact
+        // cells (`< 180pt`) so two full-width prose columns never bridge mid-page.
+        if (g >= gap && g < 260 && Math.min(a.width, b.width) < 180 && g < rowBestGap) {
+          rowBest = j;
+          rowBestGap = g;
+        }
       }
     }
     right[i] = best;
+    adjRowRight[i] = rowBest;
     if (best >= 0 && left[best] < 0) left[best] = i;
   }
   const segLeft = items.map((item, i) => {
@@ -275,7 +330,13 @@ function layoutOf(items: readonly TextItemRect[]): Layout {
     for (let guard = 0; left[k]! >= 0 && guard < n; guard += 1) k = left[k]!;
     return k === i ? item.rect.x : items[k]!.rect.x;
   });
-  const layout: Layout = { right, lineStart: left.map((l) => l < 0), segLeft, hasLineBelow: [] };
+  const layout: Layout = {
+    right,
+    adjRowRight,
+    lineStart: left.map((l) => l < 0),
+    segLeft,
+    hasLineBelow: [],
+  };
   layout.hasLineBelow = items.map((_, i) =>
     items.some((__, j) => j !== i && isLineBelow(items, layout, i, j)),
   );
@@ -284,12 +345,12 @@ function layoutOf(items: readonly TextItemRect[]): Layout {
 }
 
 function nextScore(items: readonly TextItemRect[], layout: Layout, a: number, b: number): number | null {
-  const r = layout.right[a]!;
-  if (r >= 0) return r === b ? 0 : null;
+  if (layout.right[a] === b) return 0;
+  if (layout.adjRowRight[a] === b) return 2;
   if (!layout.lineStart[b]) return null;
   const ra = items[a]!.rect;
   const rb = items[b]!.rect;
-  if (isLineBelow(items, layout, a, b)) return ra.y - rb.y;
+  if (isLineBelow(items, layout, a, b)) return 10 + (ra.y - rb.y);
   if (rb.x >= ra.x + ra.width && rb.y > ra.y && !sameLine(ra, rb) && !layout.hasLineBelow[a]) {
     return 10_000 - rb.y;
   }
@@ -319,7 +380,7 @@ function chainLocateAll(
   if (items.length > CHAIN_MAX_ITEMS) return [];
   const page = foldItems(items);
   const parts = page.parts;
-  const layout = layoutOf(items);
+  const layout = layoutOf(items, parts);
   let visits = 0;
 
   const continues = (j: number, rest: string) => {
@@ -329,6 +390,8 @@ function chainLocateAll(
 
   const successors = (from: number, rest: string, used: ReadonlySet<number>): number[] => {
     const r = layout.right[from]!;
+    // An immediate word/run on the same line (`g < 1.5 * height`) cannot be
+    // skipped over onto the next line without omitting words from the quote.
     if (r >= 0) return !used.has(r) && continues(r, rest) ? [r] : [];
     const found: Array<{ j: number; score: number }> = [];
     for (let j = 0; j < parts.length; j += 1) {

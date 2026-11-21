@@ -1,29 +1,31 @@
 import { useEffect, useState } from "react";
 import { getPageGeometry } from "../../lib/pdf";
 import { pageRuns } from "../../lib/finding-anchors";
-import { highlightBoxes, type HighlightBox } from "./search-highlight";
+import { highlightOccurrences, type HighlightBox, type HighlightOccurrence } from "./search-highlight";
 
 interface SearchHighlightProps {
   path: string;
   page: number;
   /** The query the reader jumped here for. Empty means nothing to show. */
   query: string;
+  /** 0-based index of the currently focused match on this page. */
+  focusIndex?: number;
+  /** Reports the focused match's normalized box so the scroller can bring it into view. */
+  onFocusBox?: (box: HighlightBox) => void;
 }
 
-/**
- * Mark where a search hit is on the page.
- *
- * Jumping to page 42 and leaving the reader to find the phrase is most of the
- * work still undone. Boxes cover the line a hit is on rather than the exact
- * characters: the extractor reports runs, not glyph advances. On a scan the
- * runs are OCR's words (14.0), through the same `pageRuns` citations use.
- */
-export function SearchHighlight({ path, page, query }: SearchHighlightProps) {
-  const [boxes, setBoxes] = useState<HighlightBox[]>([]);
+export function SearchHighlight({
+  path,
+  page,
+  query,
+  focusIndex = 0,
+  onFocusBox,
+}: SearchHighlightProps) {
+  const [items, setItems] = useState<HighlightOccurrence[]>([]);
 
   useEffect(() => {
     if (!query) {
-      setBoxes([]);
+      setItems([]);
       return;
     }
     let cancelled = false;
@@ -31,12 +33,11 @@ export function SearchHighlight({ path, page, query }: SearchHighlightProps) {
       try {
         const [runs, geometry] = await Promise.all([pageRuns(path, page), getPageGeometry(path, page)]);
         if (cancelled) return;
-        const items = runs.items;
-        setBoxes(highlightBoxes(items, query, geometry));
+        setItems(highlightOccurrences(runs.items, query, geometry));
       } catch {
         // Highlighting is an aid, not the navigation itself — the jump already
         // happened, so a failure here leaves the page as it was.
-        if (!cancelled) setBoxes([]);
+        if (!cancelled) setItems([]);
       }
     })();
     return () => {
@@ -44,14 +45,24 @@ export function SearchHighlight({ path, page, query }: SearchHighlightProps) {
     };
   }, [path, page, query]);
 
-  if (boxes.length === 0) return null;
+  const maxOccurrence = items.length > 0 ? items[items.length - 1]!.occurrence : -1;
+  const clampedFocus = maxOccurrence >= 0 ? Math.min(Math.max(0, focusIndex), maxOccurrence) : -1;
+  const focusedItem = clampedFocus >= 0 ? items.find((it) => it.occurrence === clampedFocus) : undefined;
+
+  useEffect(() => {
+    if (focusedItem) {
+      onFocusBox?.(focusedItem.box);
+    }
+  }, [focusedItem, onFocusBox]);
+
+  if (items.length === 0) return null;
 
   return (
     <div className="search-highlight-layer" aria-hidden>
-      {boxes.map((box, i) => (
+      {items.map(({ box, occurrence }, i) => (
         <span
           key={`${box.left}-${box.top}-${i}`}
-          className="search-highlight"
+          className={`search-highlight${occurrence === clampedFocus ? " search-highlight-focus" : ""}`}
           style={{
             left: `${box.left * 100}%`,
             top: `${box.top * 100}%`,

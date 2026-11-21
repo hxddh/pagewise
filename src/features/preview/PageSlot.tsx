@@ -3,6 +3,7 @@ import { useI18n } from "../../i18n";
 import {
   buildScaleKey,
   effectiveRenderQuality,
+  getPageGeometry,
   isRasterHeavyPage,
   renderPageToCanvas,
   renderTextLayer,
@@ -35,7 +36,7 @@ export interface PageSlotProps {
    */
   reservedWidth: number;
   /** The zoom mode, for the same reason. */
-  zoom: "fit-width" | number;
+  zoom: import("../../lib/zoom").ZoomMode;
   /**
    * Overlays for this page — highlights, marks, links, region select.
    *
@@ -150,7 +151,15 @@ export const PageSlot = memo(function PageSlot({
         if (!hasNativeTextSpans(container)) {
           const ocrWords = getCachedOcrWords(path, page);
           if (ocrWords && ocrWords.length > 0 && !cancelled) {
-            populateOcrTextLayer(container, ocrWords, width, height);
+            let geometry: Awaited<ReturnType<typeof getPageGeometry>> | undefined;
+            try {
+              geometry = await getPageGeometry(path, page);
+            } catch {
+              // Fallback to coordinate inference if geometry cannot be fetched.
+            }
+            if (!cancelled) {
+              populateOcrTextLayer(container, ocrWords, width, height, { geometry });
+            }
           }
         }
         if (!cancelled) setTextLayerActive(true);

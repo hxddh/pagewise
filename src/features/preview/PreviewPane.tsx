@@ -20,15 +20,18 @@ import { AnnotationLayer } from "./AnnotationLayer";
 import { MarkLayer } from "./MarkLayer";
 import { FindingLayer } from "./FindingLayer";
 import { RegionSelectLayer } from "./RegionSelectLayer";
-import { PageScroller } from "./PageScroller";
+import { PageScroller, type SubPageScrollTarget } from "./PageScroller";
 import { PageGutter, type PageMarginBox } from "./PageGutter";
 import { ReadingLine } from "./ReadingLine";
 import { regionSnapshot } from "./region-snapshot";
 import { useMarkRevision } from "./useMarks";
 import { useRevealedCitation, useSearchHit } from "./useSearchHit";
 import { CitationHighlight, type RevealedCitation } from "./CitationHighlight";
+import { pdfRectToBox, topLeftRectToBox, type HighlightBox } from "./search-highlight";
 import { sidebarTabState } from "./sidebar-tabs";
-import { addMark } from "../../lib/mark-store";
+import { addMark, getMarks } from "../../lib/mark-store";
+import { getFindings } from "../../lib/finding-store";
+import { placeFinding } from "../../lib/finding-anchors";
 import { extractRegion, getPageGeometry } from "../../lib/pdf";
 import { pageRuns } from "../../lib/finding-anchors";
 import { wordsInRegion } from "../../lib/ocr/ocr-region";
@@ -80,6 +83,15 @@ interface PreviewPaneProps {
     visible: boolean;
     draft: string;
     busy: boolean;
+    progress?: string | null;
+    errorMessage?: string | null;
+    onDismissError?: () => void;
+    reply?: {
+      messageId: string;
+      text: string;
+      citedPages: number[];
+    } | null;
+    onDismissReply?: () => void;
     focusNonce: number;
     onDraftChange: (value: string) => void;
     onSubmit: (text: string) => void;
@@ -131,8 +143,109 @@ function PreviewPaneInner({
   // A link the reader clicked, held until they confirm. Document URLs are
   // untrusted input, so nothing opens the browser on its own.
   const [pendingLink, setPendingLink] = useState<string | null>(null);
+  const [scrollTarget, setScrollTarget] = useState<SubPageScrollTarget | null>(null);
+  const targetNonceRef = useRef(0);
 
-  const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision });
+  const toggleThumbs = useCallback(() => setThumbsVisible((v) => !v), []);
+  const viewer = usePdfViewer({ doc, page, onPageChange, prefsRevision, onToggleThumbs: toggleThumbs });
+
+  const jumpWithHistory = useCallback(
+    (target: number) => {
+      viewer.recordJumpFromCurrent(target);
+      onPageChange(target);
+    },
+    [viewer, onPageChange],
+  );
+
+  const handleSearchFocusBox = useCallback(
+    (box: HighlightBox) => {
+      if (!searchHit) return;
+      targetNonceRef.current += 1;
+      setScrollTarget({
+        page: searchHit.page,
+        topFraction: box.top,
+        heightFraction: box.height,
+        nonce: targetNonceRef.current,
+      });
+    },
+    [searchHit],
+  );
+
+  useEffect(() => {
+    if (!revealedCitation?.rects?.length || doc.kind !== "pdf") return;
+    let cancelled = false;
+    void getPageGeometry(doc.path, revealedCitation.page)
+      .then((geometry) => {
+        if (cancelled) return;
+        const boxes = revealedCitation.rects.map((r) => pdfRectToBox(r, geometry));
+        const top = Math.min(...boxes.map((b) => b.top));
+        const bottom = Math.max(...boxes.map((b) => b.top + b.height));
+        targetNonceRef.current += 1;
+        setScrollTarget({
+          page: revealedCitation.page,
+          topFraction: top,
+          heightFraction: Math.max(0.02, bottom - top),
+          nonce: targetNonceRef.current,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.path, doc.kind, revealedCitation?.nonce, revealedCitation?.page, revealedCitation?.rects]);
+
+  useEffect(() => {
+    if (!selectedFindingId || doc.kind !== "pdf") return;
+    const finding = getFindings(doc.path).find((f) => f.id === selectedFindingId);
+    if (!finding) return;
+    let cancelled = false;
+    void Promise.all([placeFinding(doc.path, finding), getPageGeometry(doc.path, page)])
+      .then(([placement, geometry]) => {
+        if (cancelled) return;
+        if (
+          (placement.status === "located" || placement.status === "mismatch") &&
+          placement.anchor.page === page
+        ) {
+          const box = pdfRectToBox(placement.anchor.bounds, geometry);
+          targetNonceRef.current += 1;
+          setScrollTarget({
+            page,
+            topFraction: box.top,
+            heightFraction: box.height,
+            nonce: targetNonceRef.current,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.path, doc.kind, page, selectedFindingId]);
+
+  useEffect(() => {
+    if (!selectedMarkId || doc.kind !== "pdf") return;
+    const mark = getMarks(doc.path).find((m) => m.id === selectedMarkId);
+    if (!mark || mark.page !== page || mark.rects.length === 0) return;
+    let cancelled = false;
+    void getPageGeometry(doc.path, mark.page)
+      .then((geometry) => {
+        if (cancelled) return;
+        const boxes = mark.rects.map((r) => topLeftRectToBox(r, geometry));
+        const top = Math.min(...boxes.map((b) => b.top));
+        const bottom = Math.max(...boxes.map((b) => b.top + b.height));
+        targetNonceRef.current += 1;
+        setScrollTarget({
+          page: mark.page,
+          topFraction: top,
+          heightFraction: Math.max(0.02, bottom - top),
+          nonce: targetNonceRef.current,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.path, doc.kind, page, selectedMarkId]);
 
   // Bumped whenever the view changes or this pane goes away, so an in-flight
   // selection read can tell that its answer no longer belongs anywhere.
@@ -199,30 +312,33 @@ function PreviewPaneInner({
         // Keep the selection alive through the click.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          const box = askSel.pageBox;
-          const rects = askSel.rects;
-          const selPage = askSel.page;
+          const slices =
+            askSel.pages && askSel.pages.length > 0
+              ? askSel.pages
+              : [{ page: askSel.page, pageBox: askSel.pageBox, rects: askSel.rects }];
           const text = askSel.text;
           const run = quoteRun.current;
           clearAskSel();
           window.getSelection()?.removeAllRanges();
-          if (!box) return;
           void (async () => {
             try {
-              const geometry = await getPageGeometry(doc.path, selPage);
-              // The page a selection belongs to came out of the selection
-              // itself, so scrolling on cannot move the mark.
-              if (quoteRun.current !== run) return;
-              const mark = addMark(doc.path, {
-                page: selPage,
-                rects: rects.map((r) => clientRectToPageRect(r, box, geometry)),
-                // The words are a snapshot for the reader, never an anchor —
-                // the rectangles locate the mark.
-                text,
-                stamp: doc.stamp ?? "",
-              });
-              if (mark) onSelectMark?.(mark.id);
-              else showToast(t("marks.capReached"), "error");
+              let firstCreatedId: string | null = null;
+              for (const slice of slices) {
+                const geometry = await getPageGeometry(doc.path, slice.page);
+                if (quoteRun.current !== run) return;
+                const mark = addMark(doc.path, {
+                  page: slice.page,
+                  rects: slice.rects.map((r) => clientRectToPageRect(r, slice.pageBox, geometry)),
+                  text,
+                  stamp: doc.stamp ?? "",
+                });
+                if (!mark) {
+                  showToast(t("marks.capReached"), "error");
+                  break;
+                }
+                if (!firstCreatedId) firstCreatedId = mark.id;
+              }
+              if (firstCreatedId) onSelectMark?.(firstCreatedId);
             } catch {
               // Nothing to place the mark against; leaving the page unmarked is
               // better than marking it in the wrong spot.
@@ -268,18 +384,20 @@ function PreviewPaneInner({
       if (gotoTarget !== null) {
         const clamped = Math.max(1, Math.min(doc.kind === "pdf" ? doc.totalPages : 1, gotoTarget));
         const previousPage = page;
-        onPageChange(clamped);
+        jumpWithHistory(clamped);
         if (clamped !== previousPage) {
           showToast(t("toast.jumpedToPage", { page: clamped }), "default", {
             label: t("toast.backToPage", { page: previousPage }),
-            onClick: () => onPageChange(previousPage),
+            onClick: () => {
+              if (!viewer.goBack()) onPageChange(previousPage);
+            },
           });
         }
         return;
       }
       setPendingLink(url);
     },
-    [doc, page, onPageChange, showToast, t],
+    [doc, page, jumpWithHistory, viewer, onPageChange, showToast, t],
   );
 
   // The page below indexes itself when it has no text of its own, and indexing
@@ -390,7 +508,13 @@ function PreviewPaneInner({
     (slotPage: number) => (
       <>
         {searchHit?.page === slotPage && (
-          <SearchHighlight path={doc.path} page={slotPage} query={searchHit.query} />
+          <SearchHighlight
+            path={doc.path}
+            page={slotPage}
+            query={searchHit.query}
+            focusIndex={searchHit.matchOnPage ?? 0}
+            onFocusBox={handleSearchFocusBox}
+          />
         )}
         {citation?.page === slotPage && (
           <CitationHighlight path={doc.path} page={slotPage} rects={citation.rects} />
@@ -415,7 +539,9 @@ function PreviewPaneInner({
                 }
                 if (!text.trim()) {
                   const runs = await pageRuns(doc.path, slotPage);
-                  if (runs.source === "ocr") text = wordsInRegion(runs.items, pdfRect, geometry.view);
+                  if (runs.source === "ocr") {
+                    text = wordsInRegion(runs.items, pdfRect, geometry.view, geometry);
+                  }
                 }
                 if (quoteRun.current !== run) return;
                 if (onAskAboutSelection) {
@@ -479,6 +605,7 @@ function PreviewPaneInner({
       onSelectMark,
       onAskAboutSelection,
       handleLinkActivate,
+      handleSearchFocusBox,
       showToast,
       t,
     ],
@@ -562,6 +689,9 @@ function PreviewPaneInner({
           onPageChange={onPageChange}
           zoom={viewer.zoom}
           quality={viewer.quality}
+          onScaleResolved={viewer.onScaleResolved}
+          onPinchZoom={viewer.handleZoomChange}
+          scrollTarget={scrollTarget}
           marginColumn={marginColumn}
           containerRef={bindScroller}
           renderOverlays={renderOverlays}
@@ -577,41 +707,113 @@ function PreviewPaneInner({
           it outlives any one page being scrolled past. */}
       <ReadingLine path={doc.path} onReadRest={onReadRest} />
       {marginColumn && marginAsk?.visible && (
-        <form
-          className="margin-ask-bar"
-          onClick={(e) => e.stopPropagation()}
-          onSubmit={(e) => {
-            e.preventDefault();
-            const text = marginAsk.draft.trim();
-            if (!text || marginAsk.busy) return;
-            marginAsk.onSubmit(text);
-          }}
-        >
-          <Input
-            ref={marginInputRef}
-            size="sm"
-            className="margin-ask-input"
-            value={marginAsk.draft}
-            placeholder={t("zen.ask")}
-            aria-label={t("zen.ask")}
-            onChange={(e) => marginAsk.onDraftChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && marginAsk.onDismiss) {
-                e.stopPropagation();
-                marginAsk.onDismiss();
-              }
-            }}
-          />
-          {marginAsk.busy ? (
-            <Button type="button" variant="ghost" size="sm" onClick={marginAsk.onStop}>
-              {t("agent.stop")}
-            </Button>
-          ) : (
-            <Button type="submit" variant="primary" size="sm" disabled={!marginAsk.draft.trim()}>
-              {t("agent.send")}
-            </Button>
+        <div className="margin-ask-stack" onClick={(e) => e.stopPropagation()}>
+          {marginAsk.errorMessage && (
+            <div className="margin-ask-notice margin-ask-notice-error" role="alert">
+              <span className="margin-ask-notice-text">{marginAsk.errorMessage}</span>
+              {onOpenAiSettings && (
+                <Button variant="ghost" size="sm" onClick={onOpenAiSettings}>
+                  {t("settings.title")}
+                </Button>
+              )}
+              {marginAsk.onDismissError && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  aria-label={t("agent.dismissError")}
+                  onClick={marginAsk.onDismissError}
+                >
+                  ×
+                </Button>
+              )}
+            </div>
           )}
-        </form>
+          {!marginAsk.busy && marginAsk.reply && (
+            <div className="margin-reply-card" role="status" aria-live="polite">
+              <p className="margin-reply-text">{marginAsk.reply.text}</p>
+              <div className="margin-reply-actions">
+                {marginAsk.reply.citedPages.slice(0, 4).map((pNum) => (
+                  <Button
+                    key={pNum}
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => jumpWithHistory(pNum)}
+                  >
+                    {t("preview.pageHit", { page: pNum })}
+                  </Button>
+                ))}
+                {onRevealMessage && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onRevealMessage(marginAsk.reply!.messageId)}
+                  >
+                    {t("gutter.openInChat")}
+                  </Button>
+                )}
+                {marginAsk.onDismissReply && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon
+                    aria-label={t("common.dismiss")}
+                    onClick={marginAsk.onDismissReply}
+                  >
+                    ×
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          <form
+            className="margin-ask-bar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const text = marginAsk.draft.trim();
+              if (!text) return;
+              marginAsk.onSubmit(text);
+            }}
+          >
+            {marginAsk.busy && (
+              <span className="margin-ask-status" aria-live="polite">
+                <span className="margin-ask-dot" aria-hidden />
+                {marginAsk.progress || t("agent.thinking")}
+              </span>
+            )}
+            <Input
+              ref={marginInputRef}
+              size="sm"
+              className="margin-ask-input"
+              value={marginAsk.draft}
+              placeholder={marginAsk.busy ? t("agent.placeholderSteer") : t("zen.ask")}
+              aria-label={t("zen.ask")}
+              onChange={(e) => marginAsk.onDraftChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && marginAsk.onDismiss) {
+                  e.stopPropagation();
+                  marginAsk.onDismiss();
+                }
+              }}
+            />
+            {marginAsk.busy ? (
+              <>
+                {marginAsk.draft.trim() && (
+                  <Button type="submit" variant="secondary" size="sm">
+                    {t("agent.steer")}
+                  </Button>
+                )}
+                <Button type="button" variant="ghost" size="sm" onClick={marginAsk.onStop}>
+                  {t("agent.stop")}
+                </Button>
+              </>
+            ) : (
+              <Button type="submit" variant="primary" size="sm" disabled={!marginAsk.draft.trim()}>
+                {t("agent.send")}
+              </Button>
+            )}
+          </form>
+        </div>
       )}
     </>
   );
@@ -629,7 +831,7 @@ function PreviewPaneInner({
       zoomDisabled={doc.kind === "image"}
       onPageChange={onPageChange}
       thumbsVisible={thumbsVisible}
-      onToggleThumbs={() => setThumbsVisible((v) => !v)}
+      onToggleThumbs={toggleThumbs}
       regionMode={regionMode}
       onToggleRegionMode={
         doc.kind === "pdf" ? () => setRegionMode((v) => !v) : undefined
@@ -680,9 +882,11 @@ function PreviewPaneInner({
       <DocumentSearch
         doc={doc}
         containerRef={panelRef}
-        onJumpToPage={(target, query) => {
-          onPageChange(target);
-          setSearchHit(query ? { page: target, query } : null);
+        onJumpToPage={(target, query, matchOnPage) => {
+          jumpWithHistory(target);
+          setSearchHit(
+            query ? { page: target, query, matchOnPage: matchOnPage ?? 0, nonce: Date.now() } : null,
+          );
         }}
         onClearHighlight={() => setSearchHit(null)}
       />
@@ -693,7 +897,7 @@ function PreviewPaneInner({
             outline={outline}
             currentPage={page}
             tabs={sidebarTabs}
-            onPageSelect={onPageChange}
+            onPageSelect={jumpWithHistory}
           />
         ) : (
           <ThumbnailSidebar
@@ -701,7 +905,7 @@ function PreviewPaneInner({
             totalPages={doc.totalPages}
             currentPage={page}
             tabs={sidebarTabs}
-            onPageSelect={onPageChange}
+            onPageSelect={jumpWithHistory}
           />
         ))}
 

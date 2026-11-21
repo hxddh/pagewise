@@ -3,7 +3,8 @@ import type { PageText } from "./types";
 
 const CJK = /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/;
 const WORD = /[\p{L}\p{N}]+/gu;
-const LINE_WRAP_JOIN = /([\p{L}])[-‐‑\u00AD]\s+([\p{L}])/gu;
+const LINE_WRAP_JOIN = /([\p{L}])(?:\u00AD\s*|[-‐‑]\s+)([\p{L}])/gu;
+const CJK_SPACE_JOIN = /([㐀-䶿一-鿿豈-﫿぀-ヿ가-힯])\s+([㐀-䶿一-鿿豈-﫿぀-ヿ가-힯])/gu;
 
 const STOP = new Set(
   (
@@ -38,7 +39,12 @@ function stem(word: string): string {
 
 export function tokenize(text: string): string[] {
   const out: string[] = [];
-  const joined = text.replace(LINE_WRAP_JOIN, "$1$2");
+  let joined = text.replace(LINE_WRAP_JOIN, "$1$2");
+  for (;;) {
+    const next = joined.replace(CJK_SPACE_JOIN, "$1$2");
+    if (next === joined) break;
+    joined = next;
+  }
   for (const m of joined.normalize("NFKC").toLowerCase().matchAll(WORD)) {
     const word = m[0];
     if (!CJK.test(word)) {
@@ -201,19 +207,39 @@ export function rankPages(pages: PageText[], query: string, limit = 12): RankedH
   return top;
 }
 
+function findSurfaceMatch(text: string, term: string): { at: number; len: number } | null {
+  const lower = text.toLowerCase();
+  const direct = lower.indexOf(term);
+  if (direct >= 0) return { at: direct, len: term.length };
+
+  // Match surface word forms whose stem equals `term` (e.g. `indemnities` -> `indemnity`,
+  // `used` -> `use`) so the snippet centers on the actual hit instead of offset 0.
+  for (const m of text.matchAll(WORD)) {
+    const norm = m[0].normalize("NFKC").toLowerCase();
+    if (norm === term || stem(norm) === term || norm.startsWith(term)) {
+      return { at: m.index!, len: m[0].length };
+    }
+  }
+  if (CJK.test(term) && term.length >= 2) {
+    const first = lower.indexOf(term[0]!);
+    if (first >= 0) return { at: first, len: term.length };
+  }
+  return null;
+}
+
 function snippetFor(text: string, terms: string[], index: Index, radius = 80): string {
   const rarest = [...terms].sort(
     (a, b) =>
       (index.df.get(a) ?? index.uniDf.get(`\0${a}`) ?? 0) -
       (index.df.get(b) ?? index.uniDf.get(`\0${b}`) ?? 0),
   );
-  const lower = text.toLowerCase();
   let at = -1;
   let len = 0;
   for (const term of rarest) {
-    at = lower.indexOf(term);
-    if (at >= 0) {
-      len = term.length;
+    const hit = findSurfaceMatch(text, term);
+    if (hit) {
+      at = hit.at;
+      len = hit.len;
       break;
     }
   }

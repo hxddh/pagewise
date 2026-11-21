@@ -17,10 +17,17 @@ function loadZoom(): ZoomMode {
   } catch {
     // Storage refused (private mode): the default.
   }
-  if (raw === "fit-width") return "fit-width";
+  if (raw === "fit-width" || raw === "fit-page" || raw === "comfortable") return raw;
   const n = raw ? parseFloat(raw) : NaN;
   if (!Number.isFinite(n)) return "fit-width";
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, n));
+}
+
+const MAX_HISTORY = 32;
+
+interface ReaderPlace {
+  page: number;
+  scrollTop: number;
 }
 
 interface UsePdfViewerOptions {
@@ -28,6 +35,7 @@ interface UsePdfViewerOptions {
   page: number;
   onPageChange: (page: number) => void;
   prefsRevision?: number;
+  onToggleThumbs?: () => void;
 }
 
 /**
@@ -44,11 +52,18 @@ export function usePdfViewer({
   page,
   onPageChange,
   prefsRevision = 0,
+  onToggleThumbs,
 }: UsePdfViewerOptions) {
   const [zoom, setZoom] = useState<ZoomMode>(loadZoom);
   const [quality, setQuality] = useState<PreviewQuality>("crisp");
+  const [historyState, setHistoryState] = useState({ back: 0, forward: 0, backPage: 0 });
 
   const lastNumericRef = useRef(1);
+  const resolvedScaleRef = useRef(1);
+  const backStackRef = useRef<ReaderPlace[]>([]);
+  const forwardStackRef = useRef<ReaderPlace[]>([]);
+  const onToggleThumbsRef = useRef(onToggleThumbs);
+  onToggleThumbsRef.current = onToggleThumbs;
   const pageRef = useRef(page);
   const totalRef = useRef(doc.kind === "pdf" ? doc.totalPages : 1);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -67,6 +82,9 @@ export function usePdfViewer({
   useEffect(() => {
     if (zoomPathRef.current === doc.path) return;
     zoomPathRef.current = doc.path;
+    backStackRef.current = [];
+    forwardStackRef.current = [];
+    setHistoryState({ back: 0, forward: 0, backPage: 0 });
     setZoom(loadZoom());
   }, [doc.path]);
 
@@ -89,26 +107,102 @@ export function usePdfViewer({
     scrollerRef.current?.focus({ preventScroll: true });
   }, []);
 
+  const onScaleResolved = useCallback((scale: number) => {
+    if (Number.isFinite(scale) && scale > 0) resolvedScaleRef.current = scale;
+  }, []);
+
   const bumpZoom = useCallback((next: ZoomMode) => {
     setZoom((prev) => {
       if (isSameZoom(prev, next)) return prev;
       if (typeof next === "number") lastNumericRef.current = next;
-      localStorage.setItem(ZOOM_KEY, typeof next === "number" ? String(next) : next);
+      try {
+        localStorage.setItem(ZOOM_KEY, typeof next === "number" ? String(next) : next);
+      } catch {
+        // Ignore storage errors in restricted contexts.
+      }
       return next;
     });
   }, []);
 
   const zoomIn = useCallback(() => {
-    bumpZoom(stepZoom(zoom, 1));
+    bumpZoom(stepZoom(zoom, 1, resolvedScaleRef.current));
   }, [bumpZoom, zoom]);
 
   const zoomOut = useCallback(() => {
-    bumpZoom(stepZoom(zoom, -1));
+    bumpZoom(stepZoom(zoom, -1, resolvedScaleRef.current));
   }, [bumpZoom, zoom]);
 
   const toggleFitWidth = useCallback(() => {
     bumpZoom(zoom === "fit-width" ? lastNumericRef.current : "fit-width");
   }, [bumpZoom, zoom]);
+
+  const toggleFitPage = useCallback(() => {
+    bumpZoom(zoom === "fit-page" ? "fit-width" : "fit-page");
+  }, [bumpZoom, zoom]);
+
+  const syncHistoryState = useCallback(() => {
+    const back = backStackRef.current;
+    setHistoryState({
+      back: back.length,
+      forward: forwardStackRef.current.length,
+      backPage: back.length > 0 ? back[back.length - 1]!.page : 0,
+    });
+  }, []);
+
+  const recordJumpFromCurrent = useCallback(
+    (targetPage: number) => {
+      const clamped = Math.min(totalRef.current, Math.max(1, targetPage));
+      if (Math.abs(clamped - pageRef.current) < 2) return;
+      const cur: ReaderPlace = {
+        page: pageRef.current,
+        scrollTop: scrollerRef.current?.scrollTop ?? 0,
+      };
+      const prevTop = backStackRef.current[backStackRef.current.length - 1];
+      if (!prevTop || prevTop.page !== cur.page) {
+        backStackRef.current.push(cur);
+        if (backStackRef.current.length > MAX_HISTORY) backStackRef.current.shift();
+      }
+      forwardStackRef.current = [];
+      syncHistoryState();
+    },
+    [syncHistoryState],
+  );
+
+  const goBack = useCallback(() => {
+    const entry = backStackRef.current.pop();
+    if (!entry) return false;
+    forwardStackRef.current.push({
+      page: pageRef.current,
+      scrollTop: scrollerRef.current?.scrollTop ?? 0,
+    });
+    if (forwardStackRef.current.length > MAX_HISTORY) forwardStackRef.current.shift();
+    syncHistoryState();
+    onPageChange(entry.page);
+    requestAnimationFrame(() => {
+      if (scrollerRef.current && entry.scrollTop > 0) {
+        scrollerRef.current.scrollTop = entry.scrollTop;
+      }
+    });
+    return true;
+  }, [onPageChange, syncHistoryState]);
+
+  const goForward = useCallback(() => {
+    const entry = forwardStackRef.current.pop();
+    if (!entry) return false;
+    backStackRef.current.push({
+      page: pageRef.current,
+      scrollTop: scrollerRef.current?.scrollTop ?? 0,
+    });
+    if (backStackRef.current.length > MAX_HISTORY) backStackRef.current.shift();
+    syncHistoryState();
+    onPageChange(entry.page);
+    requestAnimationFrame(() => {
+      if (scrollerRef.current && entry.scrollTop > 0) {
+        scrollerRef.current.scrollTop = entry.scrollTop;
+      }
+    });
+    return true;
+  }, [onPageChange, syncHistoryState]);
 
   const goToPage = useCallback(
     (next: number) => {
@@ -190,9 +284,26 @@ export function usePdfViewer({
           e.preventDefault();
           return;
         }
+        if (e.key === "9") {
+          toggleFitPage();
+          e.preventDefault();
+          return;
+        }
+        if (!e.shiftKey && e.key.toLowerCase() === "b" && totalRef.current > 1 && onToggleThumbsRef.current) {
+          onToggleThumbsRef.current();
+          e.preventDefault();
+          return;
+        }
         return;
       }
-      if (e.altKey) return;
+      if (e.altKey) {
+        if (!e.shiftKey && e.key === "ArrowLeft") {
+          if (goBack()) e.preventDefault();
+        } else if (!e.shiftKey && e.key === "ArrowRight") {
+          if (goForward()) e.preventDefault();
+        }
+        return;
+      }
       switch (e.key) {
         case "PageDown":
           if (scrollByViewport(1)) e.preventDefault();
@@ -232,18 +343,38 @@ export function usePdfViewer({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doc.kind, nextPage, prevPage, scrollByViewport, scrollToEnd, zoomIn, zoomOut, toggleFitWidth]);
+  }, [
+    doc.kind,
+    nextPage,
+    prevPage,
+    scrollByViewport,
+    scrollToEnd,
+    zoomIn,
+    zoomOut,
+    toggleFitWidth,
+    toggleFitPage,
+    goBack,
+    goForward,
+  ]);
 
   return {
     zoom,
     quality,
     handleZoomChange: bumpZoom,
+    onScaleResolved,
     zoomIn,
     zoomOut,
     toggleFitWidth,
+    toggleFitPage,
     bindScroller,
     focusPreview,
     prevPage,
     nextPage,
+    recordJumpFromCurrent,
+    canGoBack: historyState.back > 0,
+    canGoForward: historyState.forward > 0,
+    backPage: historyState.backPage,
+    goBack,
+    goForward,
   };
 }

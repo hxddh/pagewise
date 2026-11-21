@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { measurePages } from "../../lib/pdf";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
+import type { ZoomMode } from "../../lib/zoom";
 import { PageSlot } from "./PageSlot";
 import type { PageMarginBox } from "./PageGutter";
 import {
+  fitComfortableScale,
+  fitPageScale,
   fitWidthScale,
   layoutPages,
   offsetForPage,
+  offsetForPageRect,
   pageAtScroll,
   PAGE_GAP,
   scrollShiftForRelayout,
@@ -52,13 +56,26 @@ const HURRY_IDLE_MS = 160;
 /** Pages measured either side of the mounted window, so the layout runs ahead. */
 const MEASURE_MARGIN = 8;
 
+export interface SubPageScrollTarget {
+  page: number;
+  topFraction: number;
+  heightFraction: number;
+  nonce: number;
+}
+
 interface PageScrollerProps {
   doc: LoadedDocument;
   /** 1-based page the rest of the app believes is current. */
   page: number;
   onPageChange: (page: number) => void;
-  zoom: "fit-width" | number;
+  zoom: ZoomMode;
   quality: PreviewQuality;
+  /** Report the effective numeric scale so keyboard zoom steps stay monotonic. */
+  onScaleResolved?: (scale: number) => void;
+  /** Trackpad pinch-to-zoom handler (`wheel` with `ctrlKey`/`metaKey`). */
+  onPinchZoom?: (nextScale: number) => void;
+  /** Sub-page target box to scroll smoothly into the comfortable reading band. */
+  scrollTarget?: SubPageScrollTarget | null;
   /**
    * True while the panel is closed and the margin column is showing.
    *
@@ -97,6 +114,9 @@ export function PageScroller({
   onPageChange,
   zoom,
   quality,
+  onScaleResolved,
+  onPinchZoom,
+  scrollTarget = null,
   marginColumn = false,
   renderOverlays,
   renderGutter,
@@ -143,10 +163,32 @@ export function PageScroller({
   // it as its own padding, so the page is laid out in what is left between the
   // two reserves and keeps its left edge whether the column is there or not.
   const scale = useMemo(() => {
-    if (zoom !== "fit-width") return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+    if (typeof zoom === "number") return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
     if (containerWidth <= 0) return 1;
+    if (zoom === "comfortable") {
+      return fitComfortableScale(sizes, containerWidth, { left: PAD_LEFT, right: padRight });
+    }
+    if (zoom === "fit-page") {
+      return fitPageScale(
+        sizes,
+        containerWidth,
+        viewportHeight,
+        { left: PAD_LEFT, right: padRight },
+        page,
+      );
+    }
     return fitWidthScale(sizes, containerWidth, { left: PAD_LEFT, right: padRight });
-  }, [zoom, sizes, containerWidth, padRight]);
+  }, [zoom, sizes, containerWidth, viewportHeight, padRight, page]);
+
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  const pinchAnchorYRef = useRef<number | null>(null);
+  const onPinchZoomRef = useRef(onPinchZoom);
+  onPinchZoomRef.current = onPinchZoom;
+
+  useEffect(() => {
+    onScaleResolved?.(scale);
+  }, [scale, onScaleResolved]);
 
   const layout = useMemo(
     () => layoutPages(sizes, pageCount, scale, PAGE_GAP),
@@ -226,10 +268,24 @@ export function PageScroller({
       readLayout();
       const ro = new ResizeObserver(readLayout);
       ro.observe(node);
+      const onWheel = (e: WheelEvent) => {
+        if (!(e.ctrlKey || e.metaKey) || !onPinchZoomRef.current) return;
+        e.preventDefault();
+        const rect = node.getBoundingClientRect();
+        pinchAnchorYRef.current = Math.max(0, Math.min(node.clientHeight, e.clientY - rect.top));
+        const factor = Math.exp(-e.deltaY * 0.0045);
+        const next = Math.min(
+          MAX_ZOOM,
+          Math.max(MIN_ZOOM, Math.round(scaleRef.current * factor * 1000) / 1000),
+        );
+        onPinchZoomRef.current(next);
+      };
+      node.addEventListener("wheel", onWheel, { passive: false });
       // React 19 calls this cleanup instead of re-invoking the ref with null,
       // so anything holding the node has to be told here or it keeps pointing
       // at a node that has left the document.
       return () => {
+        node.removeEventListener("wheel", onWheel);
         ro.disconnect();
         nodeRef.current = null;
         containerRef?.(null);
@@ -265,10 +321,13 @@ export function PageScroller({
     relayoutRef.current = { layout, scale };
     if (!node) return;
     if (prev.scale !== scale) {
-      const shift = scrollShiftForScale(prev.layout, layout, node.scrollTop);
+      const pointerY = pinchAnchorYRef.current;
+      pinchAnchorYRef.current = null;
+      const anchorScrollTop = pointerY !== null ? node.scrollTop + pointerY : node.scrollTop;
+      const shift = scrollShiftForScale(prev.layout, layout, anchorScrollTop);
       if (shift !== 0) {
         selfScrollRef.current = true;
-        node.scrollTop += shift;
+        node.scrollTop = Math.max(0, node.scrollTop + shift);
         setScrollTop(node.scrollTop);
         requestAnimationFrame(() => {
           selfScrollRef.current = false;
@@ -316,6 +375,30 @@ export function PageScroller({
       selfScrollRef.current = false;
     });
   }, [page, layout]);
+
+  const handledTargetNonceRef = useRef<number>(0);
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    if (!node || !scrollTarget || layout.tops.length === 0) return;
+    if (handledTargetNonceRef.current === scrollTarget.nonce) return;
+    if (scrollTarget.page < 1 || scrollTarget.page > layout.tops.length) return;
+    handledTargetNonceRef.current = scrollTarget.nonce;
+    const desired = offsetForPageRect(
+      layout,
+      scrollTarget.page,
+      scrollTarget.topFraction,
+      scrollTarget.heightFraction,
+      node.clientHeight,
+      node.scrollTop,
+    );
+    if (desired === null) return;
+    selfScrollRef.current = true;
+    node.scrollTop = desired;
+    setScrollTop(desired);
+    requestAnimationFrame(() => {
+      selfScrollRef.current = false;
+    });
+  }, [scrollTarget, layout]);
 
   const onScroll = useCallback(() => {
     const node = nodeRef.current;
