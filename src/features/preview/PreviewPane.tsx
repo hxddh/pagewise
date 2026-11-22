@@ -150,7 +150,16 @@ function PreviewPaneInner({
   const [thumbsVisible, setThumbsVisible] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
   const [regionMode, setRegionMode] = useState(false);
+  const [altKeyHeld, setAltKeyHeld] = useState(false);
   const [altRegionActive, setAltRegionActive] = useState(false);
+  const [altDragSeed, setAltDragSeed] = useState<{
+    page: number;
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    nonce: number;
+  } | null>(null);
+  const altSeedNonceRef = useRef(0);
   const [jumpPillVisible, setJumpPillVisible] = useState(false);
   const [selOffscreen, setSelOffscreen] = useState(false);
   const hovered = useSyncExternalStore(subscribeHoveredHighlight, getHoveredHighlight);
@@ -213,8 +222,35 @@ function PreviewPaneInner({
   }, [viewer.canGoBack, viewer.canGoForward, viewer.backPage, viewer.forwardPage, page]);
 
   useEffect(() => {
+    if (doc.kind !== "pdf") {
+      setAltKeyHeld(false);
+      return;
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Alt" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        setAltKeyHeld(true);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Alt" || !e.altKey) setAltKeyHeld(false);
+    };
+    const onBlur = () => setAltKeyHeld(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [doc.kind]);
+
+  useEffect(() => {
     if (!altRegionActive) return;
-    const end = () => setAltRegionActive(false);
+    const end = () => {
+      setAltRegionActive(false);
+      setAltDragSeed(null);
+    };
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
     window.addEventListener("blur", end);
@@ -710,10 +746,12 @@ function PreviewPaneInner({
             <CitationHighlight path={doc.path} page={slotPage} rects={citationRects} />
           )}
           <RegionSelectLayer
-            active={regionMode || altRegionActive}
+            active={regionMode || altKeyHeld || altRegionActive}
+            seed={altDragSeed?.page === slotPage ? altDragSeed : null}
             onRegion={(rect, pageBox) => {
               setRegionMode(false);
               setAltRegionActive(false);
+              setAltDragSeed(null);
             const anchorX = rect.left + rect.width / 2;
             const anchorY = Math.max(48, rect.top);
             const run = quoteRun.current;
@@ -791,7 +829,9 @@ function PreviewPaneInner({
       citation,
       hovered,
       regionMode,
+      altKeyHeld,
       altRegionActive,
+      altDragSeed,
       markRevision,
       selectedMarkId,
       selectedFindingId,
@@ -1159,6 +1199,20 @@ function PreviewPaneInner({
           onPointerDownCapture={(e) => {
             if (doc.kind === "pdf" && e.altKey && e.button === 0 && !regionMode) {
               setAltRegionActive(true);
+              if (!altKeyHeld) {
+                const slotEl = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-page]");
+                const slotPage = slotEl ? Number(slotEl.dataset.page) : NaN;
+                if (Number.isInteger(slotPage) && slotPage >= 1) {
+                  e.preventDefault();
+                  setAltDragSeed({
+                    page: slotPage,
+                    pointerId: e.pointerId,
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    nonce: ++altSeedNonceRef.current,
+                  });
+                }
+              }
             }
           }}
         >

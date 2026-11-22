@@ -349,4 +349,46 @@ describe("v29.0 regressions", () => {
     expect(verified).toHaveLength(2);
     expect(verified.map((v) => v.page)).toEqual([2, 5]);
   });
+
+  it("reports per-page truncation and resume offsets in batch read_pdf_page calls", async () => {
+    const longA = "A".repeat(1200);
+    const longB = "B".repeat(900);
+    docCache.set({
+      path: DOC_PATH,
+      name: "v29.pdf",
+      kind: "pdf",
+      page_count: 3,
+      totalPages: 3,
+      stamp: "s1",
+      pages: [
+        { page: 1, text: longA, needs_vision: false, has_table: false },
+        { page: 2, text: "short middle page with more than twenty characters.", needs_vision: false, has_table: false },
+        { page: 3, text: longB, needs_vision: false, has_table: false },
+      ],
+      outline: [],
+      links: [],
+      figures: [],
+    } as never);
+
+    const t = createDocumentTools(newReadBudget()) as unknown as ToolMap;
+    const batch = (await t.read_pdf_page!.execute(
+      { pages: [1, 3], maxChars: 600 },
+      toolCtx,
+    )) as {
+      truncated: boolean;
+      nextStart: number | null;
+      nextOffset: number | null;
+      truncatedPages?: Array<{ page: number; nextOffset: number }>;
+      text: string;
+    };
+    expect(batch.truncated).toBe(true);
+    expect(batch.nextStart).toBe(1);
+    expect(batch.nextOffset).toBe(600);
+    expect(batch.truncatedPages).toEqual([
+      { page: 1, nextOffset: 600 },
+      { page: 3, nextOffset: 600 },
+    ]);
+    expect(batch.text).toContain("page 1 truncated at offset 600 of 1200");
+    expect(batch.text).toContain("page 3 truncated at offset 600 of 900");
+  });
 });

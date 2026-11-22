@@ -326,6 +326,8 @@ export function useWorkbench(): Workbench {
 
       const myEpoch = ++epochRef.current;
       const prevPath = prev?.path ?? null;
+      const prevPage = previewPageRef.current;
+      const prevStamp = notifiedStampRef.current;
       const wasReload = Boolean(options?.forceReload || prevPath === path);
 
       loadAbortRef.current?.abort();
@@ -344,14 +346,36 @@ export function useWorkbench(): Workbench {
       agent.run.stop();
       agent.run.reset();
 
+      let fastShellMounted = false;
+
       const restorePreviousSession = () => {
+        if (fastShellMounted) {
+          fastShellMounted = false;
+          scopeRef.current?.dispose();
+          scopeRef.current = null;
+          docCache.remove?.(path);
+        }
         if (prev) {
+          if (!scopeRef.current) {
+            scopeRef.current = createDocumentScope(prev.path);
+          }
+          if (!docCache.get(prev.path)) {
+            docCache.set?.(prev);
+          }
+          notifiedStampRef.current = prevStamp;
+          setPreviewPage(prevPage);
+          setDocument(prev);
+          documentRef.current = prev;
           chatHydrateRef.current = { path: prev.path, messages: messagesToSave };
           setChatHydrateNonce((n) => n + 1);
           agentSetMessagesRef.current(messagesToSave);
           messagesRef.current = messagesToSave;
           setPhase("ready");
         } else {
+          notifiedStampRef.current = null;
+          setPreviewPage(1);
+          setDocument(null);
+          documentRef.current = null;
           chatHydrateRef.current = null;
           setPhase("empty");
         }
@@ -387,7 +411,6 @@ export function useWorkbench(): Workbench {
         findings: Awaited<ReturnType<typeof loadFindings>> | null;
       };
       let earlyStoresPromise: Promise<PreflightStores> | null = null;
-      let fastShellMounted = false;
 
       try {
         if (controller.signal.aborted) {
@@ -422,7 +445,12 @@ export function useWorkbench(): Workbench {
               ]).then(([messages, , findings]) => ({ messages, findings }));
             },
             onFastShell: (fastDoc) => {
-              if (epochRef.current !== myEpoch || controller.signal.aborted || wasReload) return;
+              // Only mount an early fast-shell from the empty state (`!prev`):
+              // while switching from an open document A to B, preserve A's scope,
+              // caches, and document state intact until B finishes staging (29.0).
+              if (prev || epochRef.current !== myEpoch || controller.signal.aborted || wasReload) {
+                return;
+              }
               fastShellMounted = true;
               scopeRef.current?.dispose();
               scopeRef.current = createDocumentScope(fastDoc.path);
