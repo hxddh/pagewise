@@ -2873,6 +2873,7 @@ dependencies = [
  "keyring",
  "lopdf",
  "pdf-inspector",
+ "rayon",
  "serde",
  "serde_json",
  "tauri",
