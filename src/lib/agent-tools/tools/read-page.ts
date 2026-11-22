@@ -11,18 +11,21 @@ export function createReadPdfPageTool(
 ) {
   return tool({
       description:
-        "Read text from one page of the active document (1-based page number). " +
-        "If the reader cited a number printed on the page rather than a position you " +
-        "worked out, pass it as `label` — some documents number their front " +
-        "matter separately. " +
-        "Output is capped at maxChars; when truncated=true, call again " +
-        "with offset=nextOffset to continue the page.",
+        "Read text from one page (`page`) or up to 8 non-contiguous pages (`pages`, e.g. search hits) " +
+        "of the active document (1-based). Pass `label` if citing a printed page label (e.g. \"iv\"). " +
+        "Capped at maxChars; when truncated=true, resume with offset=nextOffset.",
       inputSchema: z.object({
-        page: z.number().int().min(1),
+        page: z.number().int().min(1).optional(),
+        pages: z
+          .array(z.number().int().min(1))
+          .min(1)
+          .max(8)
+          .optional()
+          .describe("Up to 8 non-contiguous pages to read in one call"),
         label: z
           .string()
           .optional()
-          .describe("A page number as PRINTED on the page (e.g. \"iv\", \"A-3\"); overrides page"),
+          .describe("Printed page label (e.g. \"iv\", \"A-3\"); overrides page"),
         offset: z
           .number()
           .int()
@@ -40,31 +43,183 @@ export function createReadPdfPageTool(
       contextSchema: R.docToolContextSchema,
       execute: R.bindToolExecute(
         (input) => {
-          const page = (input as { page?: unknown } | undefined)?.page;
-          return typeof page === "number"
+          const inp = input as { page?: unknown; pages?: unknown } | undefined;
+          const page = inp?.page;
+          if (Array.isArray(inp?.pages) && inp.pages.length > 1) {
+            return { message: `Reading ${inp.pages.length} pages…`, key: "agent.activityReadRange" };
+          }
+          const single =
+            typeof page === "number"
+              ? page
+              : Array.isArray(inp?.pages) && typeof inp.pages[0] === "number"
+                ? inp.pages[0]
+                : undefined;
+          return typeof single === "number"
             ? {
-                message: `Reading page ${page}…`,
+                message: `Reading page ${single}…`,
                 key: "agent.activityReadPage",
-                params: { page },
+                params: { page: single },
               }
             : { message: "Reading page…", key: "agent.activityReadRange" };
         },
         "read",
         () => budget.gen,
         async (
-          { page: askedPage, label, offset = 0, maxChars = R.DEFAULT_PAGE_MAX_CHARS },
+          { page: rawPage, pages: rawPages, label, offset = 0, maxChars = R.DEFAULT_PAGE_MAX_CHARS },
           options,
           runGen,
         ): Promise<R.ReadResultLike> => {
           const path = R.activeDocPath(options);
           const doc = R.requireLoadedDoc(path);
-          // A printed number wins when the document prints it exactly once.
-          // Resolution is arithmetic the model should not be doing: it has the
-          // table nowhere, and a document may restart its numbering per
-          // chapter. Unresolvable falls back to the position rather than
-          // failing — the model may have passed a label for a document that
-          // has none, and reading the page it asked for is the better answer.
-          const page = label ? (pageForLabel(doc.pageLabels ?? null, label) ?? askedPage) : askedPage;
+
+          // Multi-page batch read (`pages: [3, 11, 19]`): read non-contiguous pages in parallel in 1 step!
+          const distinctPages = rawPages
+            ? [...new Set(rawPages.filter((p) => Number.isInteger(p) && p >= 1))].slice(0, 8)
+            : [];
+          if (distinctPages.length > 1) {
+            for (const p of distinctPages) R.assertPageInBounds(doc, p);
+            if (budget.used >= budget.max) {
+              return {
+                page: distinctPages[0],
+                text: "",
+                truncated: false,
+                nextOffset: null,
+                charCount: 0,
+                budgetExceeded: true,
+                note: R.BUDGET_NOTE,
+              };
+            }
+            const blocks: string[] = [];
+            const deliveredNow: number[] = [];
+            const truncatedPages: Array<{ page: number; nextOffset: number }> = [];
+            const omittedPages: number[] = [];
+            const failedPages: number[] = [];
+            const failureReasons: string[] = [];
+            const unscannedPages: number[] = [];
+            let totalChars = 0;
+            let hitBudget = false;
+            let scanLimitReached = false;
+            const totalCap = Math.min(50_000, Math.max(maxChars, distinctPages.length * R.DEFAULT_PAGE_MAX_CHARS));
+
+            for (let idx = 0; idx < distinctPages.length; idx += 1) {
+              const p = distinctPages[idx]!;
+              const pLabel = R.printedLabel(doc, p);
+              const hdr = pLabel
+                ? `--- Page ${p} (printed ${pLabel}) ---`
+                : `--- Page ${p} ---`;
+              if (R.alreadyDelivered(budget, path, p)) {
+                blocks.push(`${hdr}\n${R.ALREADY_READ_NOTE}`);
+                continue;
+              }
+              const free = R.isFreeReread(budget, path, p);
+              const remainingCap = Math.max(0, totalCap - totalChars);
+              if ((!free && budget.used >= budget.max) || remainingCap === 0) {
+                if (!free && budget.used >= budget.max) hitBudget = true;
+                omittedPages.push(
+                  ...distinctPages.slice(idx).filter((rest) => !R.alreadyDelivered(budget, path, rest)),
+                );
+                break;
+              }
+
+              const item = await R.readPageText(path, p, budget, runGen);
+              if (item.scanLimit) {
+                scanLimitReached = true;
+                unscannedPages.push(p);
+                blocks.push(`${hdr}\n${R.SCAN_LIMIT_NOTE}`);
+                continue;
+              }
+              if (!item.text && item.indexFailure) {
+                failedPages.push(p);
+                if (!failureReasons.includes(item.indexFailure)) {
+                  failureReasons.push(item.indexFailure);
+                }
+                blocks.push(`${hdr}\n${R.INDEX_FAILED_MARK}`);
+                continue;
+              }
+              if (item.text.length === 0) {
+                R.markDelivered(budget, path, p, runGen);
+                deliveredNow.push(p);
+                blocks.push(`${hdr}\n${R.EMPTY_PAGE_NOTE}`);
+                continue;
+              }
+
+              const budgetRoom = free ? remainingCap : R.affordableChars(item.text, budget);
+              const room = Math.min(maxChars, remainingCap, budgetRoom);
+              if (room <= 0) {
+                if (!free) hitBudget = true;
+                omittedPages.push(
+                  ...distinctPages.slice(idx).filter((rest) => !R.alreadyDelivered(budget, path, rest)),
+                );
+                break;
+              }
+              const slice = item.text.slice(0, room);
+              if (!free) chargeBudget(runGen, R.estimateTokens(slice));
+              totalChars += slice.length;
+              deliveredNow.push(p);
+
+              if (slice.length < item.text.length) {
+                truncatedPages.push({ page: p, nextOffset: slice.length });
+                if (!free && budgetRoom < Math.min(maxChars, remainingCap)) hitBudget = true;
+                blocks.push(
+                  `${hdr}\n${slice}\n[… page ${p} truncated at offset ${slice.length} of ${item.text.length}; resume with read_pdf_page({ page: ${p}, offset: ${slice.length} })]`,
+                );
+              } else {
+                R.markDelivered(budget, path, p, runGen);
+                blocks.push(`${hdr}\n${slice}`);
+              }
+            }
+
+            const batchTruncated =
+              hitBudget || truncatedPages.length > 0 || omittedPages.length > 0;
+            const firstTruncated = truncatedPages[0];
+            const nextStart = firstTruncated?.page ?? omittedPages[0] ?? null;
+            const nextOffset = firstTruncated
+              ? firstTruncated.nextOffset
+              : omittedPages.length > 0
+                ? 0
+                : null;
+            const notes: string[] = [];
+            if (hitBudget) notes.push(R.BUDGET_NOTE);
+            if (scanLimitReached) notes.push(R.SCAN_LIMIT_NOTE);
+            if (failedPages.length > 0) {
+              notes.push(
+                `Pages ${R.compressPageRanges(failedPages)} could not be indexed (${failureReasons.join("; ")}) — do not treat them as empty pages.`,
+              );
+            }
+
+            return {
+              page: distinctPages[0],
+              pages: deliveredNow.length > 0 ? deliveredNow : distinctPages,
+              text: blocks.join("\n\n"),
+              truncated: batchTruncated,
+              nextStart,
+              nextOffset,
+              charCount: totalChars,
+              ...(truncatedPages.length > 0 ? { truncatedPages } : {}),
+              ...(omittedPages.length > 0 ? { omittedPages } : {}),
+              ...(hitBudget ? { budgetExceeded: budget.used >= budget.max } : {}),
+              ...(scanLimitReached
+                ? {
+                    scanLimitReached: true,
+                    unscannedPages: R.compressPageRanges(unscannedPages),
+                  }
+                : {}),
+              ...(failedPages.length > 0
+                ? {
+                    indexingFailed: true,
+                    indexingFailedPages: R.compressPageRanges(failedPages),
+                    indexingFailedReasons: failureReasons,
+                  }
+                : {}),
+              ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
+              ...R.chargedAttachments(doc, path, deliveredNow, runGen, chargeBudget),
+            };
+          }
+
+          const askedPage = rawPage ?? distinctPages[0] ?? 1;
+          const resolvedFromLabel = label ? pageForLabel(doc.pageLabels ?? null, label) : null;
+          const page = resolvedFromLabel ?? askedPage;
+          const labelUnmatched = Boolean(label && resolvedFromLabel === null);
           R.assertPageInBounds(doc, page);
 
           if (offset === 0 && R.alreadyDelivered(budget, path, page)) {
@@ -159,7 +314,9 @@ export function createReadPdfPageTool(
                 ? { note: R.EMPTY_PAGE_NOTE }
                 : source === "ocr"
                   ? { note: R.OCR_TEXT_NOTE }
-                  : {}),
+                  : labelUnmatched
+                    ? { note: `Label "${label}" was not found; showing sheet page ${page}.` }
+                    : {}),
             ...R.chargedAttachments(doc, path, [page], runGen, chargeBudget),
           };
         },

@@ -109,6 +109,12 @@
   cursor: default;
 }
 
+.library-drawer-root[data-state="closed"] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
 /* In from the rail it opens beside, out the same way — see `.palette-panel`. */
 .library-drawer[data-state="open"] {
   animation: drawer-in var(--transition);
@@ -423,8 +429,24 @@
   color: var(--text-muted);
 }
 
+.welcome-recent-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
 .welcome-recent-name {
   font-size: var(--text-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-recent-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -17,7 +17,7 @@ function snippetAround(text: string, index: number, matchLen: number, radius = 8
   return start > 0 ? `…${chunk}` : chunk;
 }
 
-const LINE_WRAP_HYPHEN = /^(?:[\u2010\u2011]\s+|-\r?\n\s*|-\s+(?=\p{Ll}))/u;
+const LINE_WRAP_HYPHEN_STICKY = /(?:[\u2010\u2011]\s+|-\r?\n\s*|-\s+(?=\p{Ll}))/uy;
 const CJK_CHAR = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
 
 /**
@@ -27,14 +27,69 @@ const CJK_CHAR = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\u
  * - omits whitespace between adjacent CJK characters so wrapped CJK phrases match seamlessly,
  * - collapses other runs of whitespace (including line breaks) into a single `" "`.
  */
-function foldWithMap(text: string): { folded: string; map: number[] } {
-  let folded = "";
-  const map: number[] = [];
+function foldWithMap(text: string): { folded: string; map: Int32Array } {
+  const len = text.length;
+  if (len === 0) return { folded: "", map: new Int32Array(0) };
+
+  const chunks: string[] = [];
+  let curChunk = "";
+  let mapBuf = new Int32Array(Math.max(16, len));
+  let outLen = 0;
+  const pushUnit = (unit: string, srcIdx: number) => {
+    curChunk += unit;
+    if (curChunk.length >= 4096) {
+      chunks.push(curChunk);
+      curChunk = "";
+    }
+    if (outLen >= mapBuf.length) {
+      const grown = new Int32Array(mapBuf.length * 2);
+      grown.set(mapBuf);
+      mapBuf = grown;
+    }
+    mapBuf[outLen++] = srcIdx;
+  };
+
   let i = 0;
   let prevWasSpace = false;
   let lastNonSpaceChar = "";
 
-  while (i < text.length) {
+  while (i < len) {
+    const cu = text.charCodeAt(i);
+
+    // Fast-path printable non-hyphen, non-space ASCII (`0x21..0x7E` minus `-`):
+    // skips ICU `normalize("NFKC")` + regex per character across 500+ page books (29.0).
+    if (cu > 0x20 && cu < 0x7f && cu !== 0x2d) {
+      const lower = cu >= 0x41 && cu <= 0x5a ? String.fromCharCode(cu + 32) : text[i]!;
+      pushUnit(lower, i);
+      prevWasSpace = false;
+      lastNonSpaceChar = lower;
+      i += 1;
+      continue;
+    }
+
+    // Fast-path ASCII whitespace (` `, `\t`, `\n`, `\r`) when previous non-space wasn't CJK.
+    if (cu === 0x20 || cu === 0x09 || cu === 0x0a || cu === 0x0d) {
+      if (!prevWasSpace) {
+        if (lastNonSpaceChar.charCodeAt(0) < 0x80 || !CJK_CHAR.test(lastNonSpaceChar)) {
+          pushUnit(" ", i);
+          prevWasSpace = true;
+        } else {
+          let nextIdx = i + 1;
+          while (nextIdx < len && /\s|\u00ad/.test(text[nextIdx]!)) nextIdx += 1;
+          const nextCh =
+            nextIdx < len
+              ? String.fromCodePoint(text.codePointAt(nextIdx)!).normalize("NFKC")
+              : "";
+          if (!CJK_CHAR.test(nextCh)) {
+            pushUnit(" ", i);
+            prevWasSpace = true;
+          }
+        }
+      }
+      i += 1;
+      continue;
+    }
+
     const cp = text.codePointAt(i)!;
     const ch = String.fromCodePoint(cp);
     const width = ch.length;
@@ -49,8 +104,9 @@ function foldWithMap(text: string): { folded: string; map: number[] } {
       i > 0 &&
       /\p{L}/u.test(text[i - 1]!)
     ) {
-      const m = LINE_WRAP_HYPHEN.exec(text.slice(i));
-      if (m && i + m[0].length < text.length && /\p{L}/u.test(text[i + m[0].length]!)) {
+      LINE_WRAP_HYPHEN_STICKY.lastIndex = i;
+      const m = LINE_WRAP_HYPHEN_STICKY.exec(text);
+      if (m && i + m[0].length < len && /\p{L}/u.test(text[i + m[0].length]!)) {
         i += m[0].length;
         continue;
       }
@@ -60,27 +116,32 @@ function foldWithMap(text: string): { folded: string; map: number[] } {
     for (const unit of norm) {
       if (/\s/.test(unit)) {
         if (!prevWasSpace) {
-          // Peek ahead past whitespace to see if both sides are CJK characters.
           let nextIdx = i + width;
-          while (nextIdx < text.length && /\s|\u00ad/.test(text[nextIdx]!)) nextIdx += 1;
-          const nextCh = nextIdx < text.length ? String.fromCodePoint(text.codePointAt(nextIdx)!).normalize("NFKC") : "";
+          while (nextIdx < len && /\s|\u00ad/.test(text[nextIdx]!)) nextIdx += 1;
+          const nextCh =
+            nextIdx < len
+              ? String.fromCodePoint(text.codePointAt(nextIdx)!).normalize("NFKC")
+              : "";
           if (CJK_CHAR.test(lastNonSpaceChar) && CJK_CHAR.test(nextCh)) {
             continue;
           }
-          folded += " ";
-          map.push(i);
+          pushUnit(" ", i);
           prevWasSpace = true;
         }
       } else {
-        folded += unit;
-        map.push(i);
+        pushUnit(unit, i);
         prevWasSpace = false;
         lastNonSpaceChar = unit;
       }
     }
     i += width;
   }
-  return { folded, map };
+
+  if (curChunk) chunks.push(curChunk);
+  return {
+    folded: chunks.length === 1 ? chunks[0]! : chunks.join(""),
+    map: mapBuf.subarray(0, outLen),
+  };
 }
 
 interface FoldedPageEntry {
@@ -92,6 +153,10 @@ interface FoldedPageEntry {
 const MAX_FOLD_CACHE = 2_000;
 const foldPageCache = new Map<string, FoldedPageEntry>();
 
+export function clearSearchFoldCache(): void {
+  foldPageCache.clear();
+}
+
 function getFoldedPage(rawMarkdown: string): FoldedPageEntry {
   const hit = foldPageCache.get(rawMarkdown);
   if (hit) {
@@ -101,7 +166,7 @@ function getFoldedPage(rawMarkdown: string): FoldedPageEntry {
   }
   const normText = markdownToPlainText(rawMarkdown).normalize("NFC");
   const { folded, map } = foldWithMap(normText);
-  const entry: FoldedPageEntry = { normText, folded, map: Int32Array.from(map) };
+  const entry: FoldedPageEntry = { normText, folded, map };
   foldPageCache.set(rawMarkdown, entry);
   while (foldPageCache.size > MAX_FOLD_CACHE) {
     const oldest = foldPageCache.keys().next().value;

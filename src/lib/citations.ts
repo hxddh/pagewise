@@ -55,7 +55,9 @@ export const CITATION_CLOSE = "〕";
  * that froze the app the first time an answer had a verified citation.
  */
 export function citationRe(): RegExp {
-  return /〔([^〔〕\n]{1,700})〕/g;
+  // Allow balanced inner `〔...〕` (such as Chinese statutory doc numbers `财税〔2024〕3号`)
+  // inside quoted citation strings without breaking marker extraction (29.0).
+  return /〔((?:[^〔〕\n]|〔[^〔〕\n]{1,40}〕){1,700})〕/g;
 }
 
 const PAGES_RE =
@@ -124,11 +126,30 @@ export function citationKey(c: Pick<Citation, "pages" | "quote">): string {
  * drops it until the closing bracket arrives.
  */
 export function hideOpenCitation(text: string): string {
-  const open = text.lastIndexOf(CITATION_OPEN);
-  if (open < 0 || text.indexOf(CITATION_CLOSE, open) >= 0) return text;
-  // A newline means the bracket was never a marker.
-  if (text.slice(open).includes("\n")) return text;
-  return text.slice(0, open);
+  const lineStart = text.lastIndexOf("\n") + 1;
+  const line = text.slice(lineStart);
+  if (!line.includes(CITATION_OPEN)) return text;
+
+  // Walk the trailing line tracking bracket depth so nested statutory brackets
+  // inside an open quote (`〔p3 "财税〔2024〕3`) still hide from the outer `〔p3`,
+  // while balanced prose brackets (`财税〔2024〕3号`) stay visible (29.0).
+  const stack: number[] = [];
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === CITATION_OPEN) {
+      stack.push(lineStart + i);
+    } else if (ch === CITATION_CLOSE && stack.length > 0) {
+      stack.pop();
+    }
+  }
+  if (stack.length === 0) return text;
+  const outerUnclosed = stack[0]!;
+  // Only hide if the unclosed `〔` looks like the start of a citation marker (`p`, `P`, `d`, or empty so far).
+  const after = text.slice(outerUnclosed + 1).trimStart();
+  if (after.length > 0 && !/^(?:d\d*\s*)?[pP\d]?/.test(after) && !/^[dpDP]/.test(after)) {
+    return text;
+  }
+  return text.slice(0, outerUnclosed);
 }
 
 /** Sentence ends. A full stop between two digits is a decimal point, not an end (16.0). */
@@ -213,6 +234,20 @@ export function sentenceBefore(markdown: string, markerIndex: number): string {
  * deposit — checking 30% against it would flag a correct sentence. Markers
  * side by side stand behind the same words.
  */
+function findCitationClose(markdown: string, openPos: number): number {
+  let depth = 0;
+  for (let i = openPos; i < markdown.length; i += 1) {
+    const ch = markdown[i];
+    if (ch === "\n") return -1;
+    if (ch === CITATION_OPEN) depth += 1;
+    else if (ch === CITATION_CLOSE) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
 export function claimSpanBefore(markdown: string, markerIndex: number): string {
   const cleaned = markdown.slice(0, markerIndex).replace(citationRe(), MARKER_STOP);
   const stops = new RegExp(`${SENTENCE_END.source}|${MARKER_STOP}`, "g");
@@ -222,14 +257,14 @@ export function claimSpanBefore(markdown: string, markerIndex: number): string {
   // marker appears before the sentence ends — closing the mid-sentence marker
   // loophole (`According to §4〔p5 "..."〕, the fee is 25%.`) while keeping
   // multi-marker sentences partitioned cleanly per marker.
-  const closeAt = markdown.indexOf(CITATION_CLOSE, markerIndex);
-  if (closeAt < 0 || markdown.slice(markerIndex, closeAt).includes("\n")) return head;
+  const closeAt = findCitationClose(markdown, markerIndex);
+  if (closeAt < 0) return head;
   let afterPos = closeAt + 1;
   for (;;) {
     const ws = /^\s*/.exec(markdown.slice(afterPos))?.[0].length ?? 0;
     if (markdown[afterPos + ws] !== CITATION_OPEN) break;
-    const nextClose = markdown.indexOf(CITATION_CLOSE, afterPos + ws + 1);
-    if (nextClose < 0 || markdown.slice(afterPos + ws, nextClose).includes("\n")) break;
+    const nextClose = findCitationClose(markdown, afterPos + ws);
+    if (nextClose < 0) break;
     if (!parseCitation(markdown.slice(afterPos + ws + 1, nextClose))) break;
     afterPos = nextClose + 1;
   }

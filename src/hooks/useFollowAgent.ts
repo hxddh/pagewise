@@ -64,15 +64,30 @@ export function useFollowAgent(
           ? (part.input as Record<string, unknown>)
           : {};
 
+      const output =
+        part.state === "output-available" &&
+        "output" in part &&
+        part.output &&
+        typeof part.output === "object"
+          ? (part.output as Record<string, unknown>)
+          : null;
+
       let page: number | undefined;
-      if (name === "read_pdf_page" && typeof input.page === "number") {
-        page = input.page;
+      if (name === "read_pdf_page") {
+        if (typeof output?.page === "number") page = output.page;
+        else if (Array.isArray(input.pages) && typeof input.pages[0] === "number") page = input.pages[0];
+        else if (typeof input.page === "number") page = input.page;
       } else if (name === "read_pdf_range" && typeof input.start === "number") {
         page = input.start;
+      } else if (name === "read_section") {
+        if (typeof output?.startPage === "number") page = output.startPage;
+      } else if (name === "read_figure" && typeof input.page === "number") {
+        page = input.page;
       } else {
         continue;
       }
 
+      if (page === undefined) continue;
       const key = `${assistant.id}:${i}:${page}`;
       if (lastKeyRef.current === key) return;
       if (!shouldFollowAgentToPage(page, followCtx)) return;

@@ -29,6 +29,12 @@
  * dimming can — and where `backdrop-filter` is unsupported the scrim alone
  * still does its job, only less well.
  */
+.drawer-root[data-state="closed"] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
 .drawer-panel {
   position: relative;
   width: min(400px, 92vw);
@@ -40,9 +46,18 @@
   animation: slideIn var(--transition);
 }
 
+.drawer-panel[data-state="closed"] {
+  animation: slideOut var(--transition);
+}
+
 @keyframes slideIn {
   from { transform: translateX(16px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOut {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(16px); opacity: 0; }
 }
 
 .drawer-header {

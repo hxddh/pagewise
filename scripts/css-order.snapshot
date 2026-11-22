@@ -7,6 +7,7 @@ body
 .app
 .chat-column
 .resize-handle
+.resize-handle::before
 .resize-handle:hover
 .agent-dock
 .agent-dock:hover
@@ -46,6 +47,8 @@ body
 .header-actions
 .messages
 .message
+.messages-jump-bottom
+.messages-jump-bottom[data-visible="true"]
 .message:focus-visible
 .message.user
 .message-edit-form
@@ -133,6 +136,12 @@ button.pages-read-chip:hover
 .cite-popover-quote
 .cite-popover-page
 .cite-popover-actions
+.cite-hover-card
+.cite-hover-card[data-above="true"]
+.cite-hover-verdict
+.cite-hover-card[data-level="check"] .cite-hover-verdict
+.cite-hover-card[data-level="verified"] .cite-popover-quote
+.cite-hover-card[data-level="check"] .cite-popover-quote
 .cite-inert
 .citation-tally
 .citation-tally-verified
@@ -222,8 +231,13 @@ button.pages-read-chip:hover
 .composer-hint
 # 06-drawer-overlay.css
 .drawer-root
+.drawer-root[data-state="closed"]
 .drawer-panel
+.drawer-panel[data-state="closed"]
 @keyframes slideIn
+  from
+  to
+@keyframes slideOut
   from
   to
 .drawer-header
@@ -271,6 +285,7 @@ button.pages-read-chip:hover
 .toast-viewport
 # 09-palette-status.css
 .palette-root
+.palette-root[data-state="closed"]
 .palette-panel[data-state="open"]
 .palette-panel[data-state="closed"]
 .palette-panel
@@ -328,6 +343,7 @@ button.pages-read-chip:hover
 :root[data-theme="night"] .search-highlight-focus
 .citation-highlight-layer
 .citation-highlight
+:root[data-theme="night"] .citation-highlight
 @keyframes citation-decay
   from
   to
@@ -343,16 +359,20 @@ button.pages-read-chip:hover
 .pdf-mark-region
 .pdf-mark-text.pdf-mark-noted
 .pdf-mark-region.pdf-mark-noted
-.pdf-mark-text:hover, .pdf-mark-text:focus-visible, .pdf-mark-text.pdf-mark-selected
-.pdf-mark-region:hover, .pdf-mark-region:focus-visible, .pdf-mark-region.pdf-mark-selected
+.pdf-mark-text:hover, .pdf-mark-text:focus-visible, .pdf-mark-text.pdf-mark-selected, .pdf-mark-text.pdf-mark-hovered
+.pdf-mark-region:hover, .pdf-mark-region:focus-visible, .pdf-mark-region.pdf-mark-selected, .pdf-mark-region.pdf-mark-hovered
 :root[data-theme="dark"] .pdf-mark-text
 :root[data-theme="night"] .pdf-mark-text
-:root[data-theme="night"] .pdf-mark-text:hover, :root[data-theme="night"] .pdf-mark-text:focus-visible, :root[data-theme="night"] .pdf-mark-text.pdf-mark-selected
+:root[data-theme="night"] .pdf-mark-region
+:root[data-theme="night"] .pdf-mark-text:hover, :root[data-theme="night"] .pdf-mark-text:focus-visible, :root[data-theme="night"] .pdf-mark-text.pdf-mark-selected, :root[data-theme="night"] .pdf-mark-text.pdf-mark-hovered
 .mark-selection-btn
 .mark-selection-btn:hover
 .mark-stale-note
 .pdf-region-layer
 .pdf-region-band
+.preview-jump-pill, .region-mode-pill
+.preview-jump-pill
+.region-mode-pill
 @media (prefers-reduced-motion: reduce)
   *, *::before, *::after
 .pdf-annotation-layer
@@ -364,11 +384,11 @@ button.pages-read-chip:hover
 .pdf-finding::after
 .pdf-finding:hover
 .pdf-finding-doubted::after
-.pdf-finding-selected
-.pdf-finding-selected::after
+.pdf-finding-selected, .pdf-finding-hovered
+.pdf-finding-selected::after, .pdf-finding-hovered::after
 .pdf-finding-margin
 .pdf-finding-tab
-.pdf-finding-tab-selected
+.pdf-finding-tab-selected, .pdf-finding-tab-hovered
 # 12-shell-rail.css
 .app.v3
 .app-rail
@@ -383,6 +403,7 @@ button.pages-read-chip:hover
 .rail-btn-bottom
 .rail-btn-bottom svg:last-child
 .library-drawer-root
+.library-drawer-root[data-state="closed"]
 .library-drawer[data-state="open"]
 .library-drawer[data-state="closed"]
 @keyframes drawer-in
@@ -431,7 +452,9 @@ button.pages-read-chip:hover
 .welcome-recent-card
 .welcome-recent-card:hover
 .welcome-recent-icon
+.welcome-recent-body
 .welcome-recent-name
+.welcome-recent-meta
 .app.v3 .message.user
 .app.v3 .message.assistant
 .app.v3 .messages

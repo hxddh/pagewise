@@ -41,6 +41,7 @@ vi.mock("../../lib/pdf", () => ({
   buildScaleKey: () => "k",
   effectiveRenderQuality: () => "high",
   isRasterHeavyPage: () => false,
+  prerenderPageInIdle: () => {},
 }));
 
 vi.mock("../../lib/doc-text", () => ({ getPageTextLen: () => 0 }));

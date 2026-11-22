@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useI18n } from "../../i18n";
+import { getHoveredHighlight, subscribeHoveredHighlight } from "../../lib/hover-highlight";
 import { getPageGeometry } from "../../lib/pdf";
 import { findingsOnPage, isSuperseded, getFindings, type Finding } from "../../lib/finding-store";
 import { placeFinding, type FindingAnchor } from "../../lib/finding-anchors";
+import { unionRect } from "../../lib/quote-locate";
 import { pdfRectToBox, type HighlightBox } from "./search-highlight";
 
 interface FindingLayerProps {
@@ -55,6 +57,9 @@ const MAX_MARGIN_NOTES = 12;
 export function FindingLayer({ path, page, revision, selectedId, onSelect }: FindingLayerProps) {
   const { t } = useI18n();
   const [placed, setPlaced] = useState<PlacedFinding[]>([]);
+  const hovered = useSyncExternalStore(subscribeHoveredHighlight, getHoveredHighlight);
+  const hoveredFindingId =
+    hovered?.kind === "finding" && hovered.path === path ? hovered.id : null;
 
   useEffect(() => {
     const all = getFindings(path);
@@ -82,10 +87,18 @@ export function FindingLayer({ path, page, revision, selectedId, onSelect }: Fin
           // Located on one of the finding's pages — but not necessarily this
           // one, when a claim cites several. Only the page carrying the words
           // draws them.
-          if (anchor.page !== page) continue;
-          const boxes = anchor.rects.map((rect) => pdfRectToBox(rect, geometry));
-          const bounds = pdfRectToBox(anchor.bounds, geometry);
-          out.push({ finding, boxes, noteTop: bounds.top, doubted: placement.status === "mismatch" });
+          if (anchor.page === page) {
+            const boxes = anchor.rects.map((rect) => pdfRectToBox(rect, geometry));
+            const bounds = pdfRectToBox(anchor.bounds, geometry);
+            out.push({ finding, boxes, noteTop: bounds.top, doubted: placement.status === "mismatch" });
+          } else if (anchor.secondPage?.page === page && anchor.secondPage.rects.length > 0) {
+            const secondBounds = unionRect(anchor.secondPage.rects);
+            if (secondBounds) {
+              const boxes = anchor.secondPage.rects.map((rect) => pdfRectToBox(rect, geometry));
+              const bounds = pdfRectToBox(secondBounds, geometry);
+              out.push({ finding, boxes, noteTop: bounds.top, doubted: placement.status === "mismatch" });
+            }
+          }
         }
         if (!cancelled) setPlaced(out);
       } catch {
@@ -109,7 +122,7 @@ export function FindingLayer({ path, page, revision, selectedId, onSelect }: Fin
           <button
             key={`${finding.id}-${i}`}
             type="button"
-            className={`pdf-finding${doubted ? " pdf-finding-doubted" : ""}${finding.id === selectedId ? " pdf-finding-selected" : ""}`}
+            className={`pdf-finding${doubted ? " pdf-finding-doubted" : ""}${finding.id === selectedId ? " pdf-finding-selected" : ""}${finding.id === hoveredFindingId ? " pdf-finding-hovered" : ""}`}
             title={finding.claim}
             aria-label={t("record.onPage", { claim: finding.claim })}
             style={{
@@ -131,7 +144,7 @@ export function FindingLayer({ path, page, revision, selectedId, onSelect }: Fin
             key={finding.id}
             className={`pdf-finding-tab${
               finding.id === selectedId ? " pdf-finding-tab-selected" : ""
-            }`}
+            }${finding.id === hoveredFindingId ? " pdf-finding-tab-hovered" : ""}`}
             style={{ top: `${noteTop * 100}%` }}
           />
         ))}

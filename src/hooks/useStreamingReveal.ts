@@ -15,10 +15,17 @@ function resolveSegmenter(): WordSegmenter | undefined {
   return undefined;
 }
 
+let sharedSegmenter: WordSegmenter | null | undefined;
+function getSegmenter(): WordSegmenter | null {
+  if (sharedSegmenter !== undefined) return sharedSegmenter;
+  sharedSegmenter = resolveSegmenter() ?? null;
+  return sharedSegmenter;
+}
+
 /** Split text into reveal units (locale-aware for CJK). */
 export function splitStreamSegments(text: string): string[] {
   if (!text) return [];
-  const segmenter = resolveSegmenter();
+  const segmenter = getSegmenter();
   if (segmenter) {
     return [...segmenter.segment(text)].map((part) => part.segment);
   }
@@ -27,10 +34,30 @@ export function splitStreamSegments(text: string): string[] {
 
 /**
  * Progressively reveal streamed text on the client.
- * Providers often batch the final answer into one delta; this keeps UI motion smooth.
+ * Providers often batch the final answer into one delta; this keeps UI motion smooth
+ * while segmenting incrementally in O(delta) instead of O(N²) (29.0).
  */
 export function useStreamingReveal(text: string, live: boolean): string {
-  const segments = useMemo(() => splitStreamSegments(text), [text]);
+  const cacheRef = useRef<{ raw: string; segments: string[] }>({ raw: "", segments: [] });
+  const segments = useMemo(() => {
+    if (!live) {
+      cacheRef.current = { raw: "", segments: [] };
+      return text ? [text] : [];
+    }
+    const prev = cacheRef.current;
+    // Incremental append: keep all segments except the last boundary word and only segment the new tail!
+    if (prev.raw.length > 0 && text.startsWith(prev.raw) && prev.segments.length >= 2) {
+      const stableSegs = prev.segments.slice(0, -1);
+      const stableCharLen = prev.raw.length - prev.segments[prev.segments.length - 1]!.length;
+      const tailSegs = splitStreamSegments(text.slice(stableCharLen));
+      const next = [...stableSegs, ...tailSegs];
+      cacheRef.current = { raw: text, segments: next };
+      return next;
+    }
+    const fresh = splitStreamSegments(text);
+    cacheRef.current = { raw: text, segments: fresh };
+    return fresh;
+  }, [text, live]);
   const [visibleCount, setVisibleCount] = useState(() =>
     live ? 0 : segments.length,
   );
@@ -73,10 +100,10 @@ export function useStreamingReveal(text: string, live: boolean): string {
           return current;
         }
         const backlog = total - current;
-        const step = backlog > 48 ? 6 : backlog > 16 ? 3 : 1;
+        const step = backlog > 32 ? 8 : backlog > 10 ? 4 : 2;
         return Math.min(total, current + step);
       });
-    }, 12);
+    }, 24);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, segments.length, visibleCount]);
 

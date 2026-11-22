@@ -91,16 +91,16 @@ function loadDocAgent(): Promise<DocAgentInstance> {
   return sharedAgentPromise;
 }
 
-/** Silently warm the 600 KB AI/Zod runtime during browser idle after a document opens. */
+/** Silently warm the 600 KB AI/Zod runtime when the user focuses the composer. */
 export function warmDocAgentInIdle(): void {
   if (sharedAgentPromise || typeof window === "undefined") return;
   const run = () => {
     void loadDocAgent().catch(() => {});
   };
   if ("requestIdleCallback" in window && typeof window.requestIdleCallback === "function") {
-    window.requestIdleCallback(run, { timeout: 2500 });
+    window.requestIdleCallback(run, { timeout: 120 });
   } else {
-    setTimeout(run, 1200);
+    setTimeout(run, 16);
   }
 }
 
@@ -187,7 +187,7 @@ export function useDocAgent(chatId: string | null = null) {
     onFinish: ({ message, isAbort, isError }) => {
       if (streamAgentGenRef.current !== agentGenRef.current) return;
 
-      setStreamProgress(null);
+      setStreamProgress((prev) => (prev === null ? prev : null));
       if (!isError) pendingSendErrorRef.current = undefined;
 
       // Reclaim any mid-run steer notes typed during the final synthesis step
@@ -308,10 +308,12 @@ export function useDocAgent(chatId: string | null = null) {
     prevStatusRef.current = chat.status;
 
     if (wasBusy && (chat.status === "ready" || chat.status === "error")) {
-      setStreamProgress(null);
-    }
-
-    if (wasBusy && (chat.status === "ready" || chat.status === "error")) {
+      setStreamProgress((prev) => (prev === null ? prev : null));
+      const prunedPreview = pruneToolOutputsForHistory(messagesRef.current);
+      if (prunedPreview === messagesRef.current) {
+        setHistorySettling((prev) => (prev ? false : prev));
+        return;
+      }
       setHistorySettling(true);
       const pruneForChatId = resolvedChatId;
       if (pruneTimeoutRef.current != null) {

@@ -103,6 +103,18 @@ export const OutlineSidebar = memo(function OutlineSidebar({
         ref={listRef}
         className="outline-list"
         onScroll={virtualized ? updateWindow : undefined}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+          const nav = listRef.current;
+          if (!nav) return;
+          const buttons = Array.from(nav.querySelectorAll<HTMLButtonElement>("button.outline-item"));
+          if (buttons.length === 0) return;
+          e.preventDefault();
+          const cur = document.activeElement instanceof HTMLButtonElement ? buttons.indexOf(document.activeElement) : -1;
+          const delta = e.key === "ArrowDown" ? 1 : -1;
+          const next = cur < 0 ? 0 : (cur + delta + buttons.length) % buttons.length;
+          buttons[next]?.focus();
+        }}
       >
         {topPad > 0 && <div style={{ height: topPad, flexShrink: 0 }} aria-hidden />}
         {outline.slice(start, end).map((heading, offset) => {

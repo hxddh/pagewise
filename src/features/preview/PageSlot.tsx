@@ -30,6 +30,8 @@ export interface PageSlotProps {
   hurried: boolean;
   /** True during continuous trackpad pinch-zoom; stretches existing canvas until settled. */
   pinching?: boolean;
+  /** True when the slot intersects the visible viewport (vs off-screen overscan). */
+  isVisible?: boolean;
   /** Container width, which is what a fit-width scale key is keyed on. */
   containerWidth: number;
   /**
@@ -67,6 +69,7 @@ export const PageSlot = memo(function PageSlot({
   quality,
   hurried,
   pinching = false,
+  isVisible = true,
   containerWidth,
   reservedWidth,
   zoom,
@@ -113,7 +116,7 @@ export const PageSlot = memo(function PageSlot({
             page,
             canvas,
             scale,
-            "high",
+            isVisible ? "high" : "low",
             effective,
             scaleKey,
             isStale,
@@ -131,7 +134,7 @@ export const PageSlot = memo(function PageSlot({
     return () => {
       cancelled = true;
     };
-  }, [path, stamp, page, scale, quality, hurried, pinching, drawn, zoom, containerWidth, reservedWidth, textLen, t]);
+  }, [path, stamp, page, scale, quality, hurried, pinching, isVisible, drawn, zoom, containerWidth, reservedWidth, textLen, t]);
 
   const [ocrEpoch, setOcrEpoch] = useState(0);
   useEffect(() => {

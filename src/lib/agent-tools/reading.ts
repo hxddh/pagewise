@@ -16,6 +16,8 @@ import {
 } from "./../agent-runtime-context";
 import { emitAgentProgress } from "./../agent-progress";
 import { docCache } from "./../doc-cache";
+import { pageRuns } from "./../finding-anchors";
+import { waitForDocumentExtraction } from "./../load-document";
 import {
   consumeIndexFailure,
   DEFAULT_AGENT_SCAN_PAGES,
@@ -295,10 +297,14 @@ export function assertPageInBounds(doc: LoadedDocument, page: number): void {
 export async function readPageText(path: string, page: number, budget?: ReadBudget, runGen?: number) {
   const signal = getAgentRunAbortSignal();
   throwIfAborted(signal);
+  await waitForDocumentExtraction(path);
+  throwIfAborted(signal);
 
   const cached = docCache.getPages(path).find((p) => p.page === page);
   const settled = cached && cached.text.trim().length >= MIN_INDEX_CHARS;
   if (settled && !(cached.source === "ocr" && isPoorlyRecognised(path, page))) {
+    // Prewarm quote-location text runs in background so streamed citations verify in 0ms (29.0).
+    void pageRuns(path, page).catch(() => {});
     return { page, text: cached.text, source: cached.source === "ocr" ? ("ocr" as const) : ("cache" as const) };
   }
 
@@ -345,6 +351,9 @@ export async function readPageText(path: string, page: number, budget?: ReadBudg
   // up-to-60s vision call).
   const indexFailure =
     text.trim().length < MIN_INDEX_CHARS ? consumeIndexFailure(path, page) : null;
+  if (text.trim().length > 0) {
+    void pageRuns(path, page).catch(() => {});
+  }
   return { page, text, source, indexFailure };
 }
 

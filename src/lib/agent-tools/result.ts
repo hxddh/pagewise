@@ -25,6 +25,15 @@ export interface MarkAttachment {
   note?: string;
 }
 
+/** External PDF annotation / sticky note / form value on a delivered page (29.0). */
+export interface AnnotationAttachment {
+  page: number;
+  subtype: string;
+  author?: string;
+  quoted?: string;
+  contents?: string;
+}
+
 /**
  * Things found beside the text, which the text itself does not contain.
  *
@@ -35,6 +44,8 @@ export interface ReadAttachments {
   links?: PageLink[];
   /** Passages the reader marked, with their notes. Read-only. */
   marks?: MarkAttachment[];
+  /** Third-party PDF highlights, redlines, sticky notes, or filled form fields on the page. */
+  annotations?: AnnotationAttachment[];
 }
 
 /** The common shape of every tool that returns document text. */
@@ -42,6 +53,12 @@ export interface ReadResult extends ReadAttachments {
   text: string;
   /** Set by the single-page reader; ranges report `nextStart` instead. */
   page?: number;
+  /** Distinct pages covered in a multi-page `read_pdf_page({ pages })` batch (29.0). */
+  pages?: number[];
+  /** Per-page resume points when individual pages in a batch exceeded `maxChars` or budget (29.0). */
+  truncatedPages?: Array<{ page: number; nextOffset: number }>;
+  /** Requested batch pages omitted because the turn budget or batch cap ran out (29.0). */
+  omittedPages?: number[];
   /** Where the text came from — extracted, or a billed vision pass. */
   source?: "cache" | "vision" | "ocr";
   /** True when the caller must ask again to see the rest. */

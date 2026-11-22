@@ -91,6 +91,8 @@ export interface WorkspaceHeaderProps {
   onZoomOut?: () => void;
   zoomDisabled?: boolean;
   onPageChange: (page: number) => void;
+  /** Single-page step (< / >), so stepping one sheet does not push jump history. */
+  onStepPage?: (page: number) => void;
   canGoBack?: boolean;
   backPage?: number;
   onGoBack?: () => void;
@@ -106,11 +108,13 @@ function PageNav({
   totalPages,
   pageLabels,
   onPageChange,
+  onStepPage,
 }: {
   page: number;
   totalPages: number;
   pageLabels?: string[];
   onPageChange: (page: number) => void;
+  onStepPage?: (page: number) => void;
 }) {
   const { t } = useI18n();
   // What is printed on this page, when it is not simply the page's position.
@@ -162,7 +166,7 @@ function PageNav({
         size="md"
         className="toolbar-btn"
         disabled={page <= 1}
-        onClick={() => onPageChange(page - 1)}
+        onClick={() => (onStepPage ?? onPageChange)(page - 1)}
         title={t("preview.previousPageHint")}
         aria-label={t("preview.previousPage")}
       >
@@ -218,7 +222,7 @@ function PageNav({
         size="md"
         className="toolbar-btn"
         disabled={page >= totalPages}
-        onClick={() => onPageChange(page + 1)}
+        onClick={() => (onStepPage ?? onPageChange)(page + 1)}
         title={t("preview.nextPageHint")}
         aria-label={t("preview.nextPage")}
       >
@@ -258,6 +262,7 @@ export function WorkspaceHeader({
   onZoomChange,
   zoomDisabled,
   onPageChange,
+  onStepPage,
   canGoBack = false,
   backPage = 0,
   onGoBack,
@@ -297,6 +302,7 @@ export function WorkspaceHeader({
           totalPages={totalPages}
           pageLabels={pageLabels}
           onPageChange={onPageChange}
+          onStepPage={onStepPage}
         />
       </div>
 

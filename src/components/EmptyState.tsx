@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
+import { buildSmartStarters } from "../lib/smart-starters";
+import type { LoadedDocument } from "../lib/types";
 import { Button } from "./ui/Button";
 import { ListRow } from "./ui/ListRow";
 
@@ -63,11 +65,12 @@ interface ChatEmptyStateProps {
   agentToolsSupported?: boolean;
   settingsReady: boolean;
   hasDocument: boolean;
+  doc?: LoadedDocument | null;
   totalPages?: number;
   /** The page the reader is on, so the first suggestion can be about it. */
   previewPage?: number;
   onConfigureApi: () => void;
-  onExamplePrompt?: (text: string) => void;
+  onExamplePrompt?: (text: string, options?: { editOnly?: boolean }) => void;
   /**
    * The reader asked something before any provider was connected, and it is
    * waiting in the composer to go out once one is (24.0).
@@ -85,6 +88,7 @@ export function ChatEmptyState({
   agentToolsSupported = true,
   settingsReady,
   hasDocument,
+  doc,
   totalPages,
   previewPage,
   onConfigureApi,
@@ -156,15 +160,8 @@ export function ChatEmptyState({
   // page 9 and opened the panel is asking about page 9, and the most useful
   // first chip is that question spelled out, not a generic one about the whole
   // document. It falls back to the document-level suggestion without a page.
-  const examples = [
-    previewPage && previewPage > 0
-      ? t("empty.exampleThisPage", { page: previewPage })
-      : totalPages && totalPages > 1
-        ? t("empty.exampleWholeDoc", { count: totalPages })
-        : t("empty.example1"),
-    t("empty.example3"),
-    t("empty.example2"),
-  ];
+  const examples = buildSmartStarters(doc, previewPage, totalPages, t);
+  const starterHint = t("empty.starterHint");
   return (
     <EmptyState variant="minimal">
       {onExamplePrompt && (
@@ -174,7 +171,8 @@ export function ChatEmptyState({
               key={example}
               className="empty-example-chip"
               label={example}
-              onClick={() => onExamplePrompt(example)}
+              title={starterHint}
+              onClick={(e) => onExamplePrompt(example, { editOnly: e.shiftKey })}
             />
           ))}
         </div>

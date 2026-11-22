@@ -230,11 +230,28 @@ export function compactToolOutput(
   const inp =
     input && typeof input === "object" ? (input as Record<string, unknown>) : {};
 
-  if (name === READ_PDF_PAGE_TOOL && typeof inp.page === "number") {
-    const chars = textLength(output);
-    const digest = extractPageDigest(extractRawText(output));
-    const digestPart = digest ? `: ${digest}` : "";
-    return `[Read page ${inp.page}, ${chars} chars${digestPart} — re-read page ${inp.page} to quote verbatim]`;
+  if (name === READ_PDF_PAGE_TOOL) {
+    const outObj =
+      output && typeof output === "object"
+        ? (output as { page?: unknown; pages?: unknown })
+        : null;
+    if (outObj && Array.isArray(outObj.pages) && outObj.pages.length > 1) {
+      const chars = textLength(output);
+      const list = outObj.pages.filter((p): p is number => typeof p === "number").join(", ");
+      return `[Read pages ${list}, ${chars} chars — re-read with read_pdf_page to quote verbatim]`;
+    }
+    const resolvedPage =
+      outObj && typeof outObj.page === "number"
+        ? outObj.page
+        : typeof inp.page === "number"
+          ? inp.page
+          : undefined;
+    if (resolvedPage !== undefined) {
+      const chars = textLength(output);
+      const digest = extractPageDigest(extractRawText(output));
+      const digestPart = digest ? `: ${digest}` : "";
+      return `[Read page ${resolvedPage}, ${chars} chars${digestPart} — re-read page ${resolvedPage} to quote verbatim]`;
+    }
   }
 
   if (name === READ_PDF_RANGE_TOOL) {

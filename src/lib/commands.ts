@@ -58,8 +58,8 @@ export function getShortcutRows(
     },
     {
       section: "document",
-      keys: `${mod}0 / ${mod}9`,
-      description: `${t("preview.fitWidth")} / ${t("preview.fitPage")}`,
+      keys: `${mod}0 / ${mod}8 / ${mod}9`,
+      description: `${t("preview.fitWidth")} / ${t("preview.fitComfortable")} / ${t("preview.fitPage")}`,
     },
     {
       section: "document",
@@ -81,7 +81,13 @@ export function getShortcutRows(
       keys: "j / k",
       description: t("commands.scrollRead"),
     },
+    {
+      section: "document",
+      keys: `${mod}\u21e7C`,
+      description: t("commands.copyCitation"),
+    },
     { section: "agent", keys: `${mod}\\`, description: t("commands.showAgent") },
+    { section: "agent", keys: `${mod}L / /`, description: t("commands.focusComposer") },
     {
       section: "agent",
       keys: "Alt\u2191 / Alt\u2193",

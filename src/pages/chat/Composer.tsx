@@ -138,6 +138,11 @@ export function Composer({
         ref={textareaRef}
         value={draft}
         onChange={(e) => onDraftChange(e.target.value)}
+        onFocus={() => {
+          void import("../../hooks/useDocAgent")
+            .then((m) => m.warmDocAgentInIdle())
+            .catch(() => {});
+        }}
         onKeyDown={handleKeyDown}
         placeholder={
           busy

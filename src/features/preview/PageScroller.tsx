@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { measurePages } from "../../lib/pdf";
+import { buildScaleKey, measurePages, prerenderPageInIdle } from "../../lib/pdf";
 import type { LoadedDocument, PreviewQuality } from "../../lib/types";
 import type { ZoomMode } from "../../lib/zoom";
 import { PageSlot } from "./PageSlot";
@@ -108,6 +108,26 @@ interface PageScrollerProps {
  * virtualized — only those on screen and their neighbours are mounted — because
  * a thousand-page document cannot hold a thousand canvases.
  */
+function seedInitialSizes(
+  doc: LoadedDocument,
+  pageCount: number,
+): { sizes: Array<PageSize | undefined>; seeded: number[] } {
+  const sizes: Array<PageSize | undefined> = [];
+  const seeded: number[] = [];
+  for (const entry of doc.initialPageSizes ?? []) {
+    if (
+      entry.page >= 1 &&
+      entry.page <= pageCount &&
+      entry.size.width > 0 &&
+      entry.size.height > 0
+    ) {
+      sizes[entry.page - 1] = entry.size;
+      seeded.push(entry.page);
+    }
+  }
+  return { sizes, seeded };
+}
+
 export function PageScroller({
   doc,
   page,
@@ -123,7 +143,9 @@ export function PageScroller({
   containerRef,
 }: PageScrollerProps) {
   const pageCount = doc.kind === "pdf" ? Math.max(1, doc.totalPages) : 1;
-  const [sizes, setSizes] = useState<Array<PageSize | undefined>>([]);
+  const [sizes, setSizes] = useState<Array<PageSize | undefined>>(
+    () => seedInitialSizes(doc, pageCount).sizes,
+  );
   const [containerWidth, setContainerWidth] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -133,6 +155,7 @@ export function PageScroller({
   const [padRight, setPadRight] = useState(DOT_PADDING);
   const [hurried, setHurried] = useState(false);
   const [pinching, setPinching] = useState(false);
+  const [columnTransitioning, setColumnTransitioning] = useState(false);
   const [selectionPage, setSelectionPage] = useState<number | null>(null);
 
   const nodeRef = useRef<HTMLDivElement | null>(null);
@@ -142,20 +165,37 @@ export function PageScroller({
   // causes is not read back as the reader having navigated.
   const selfScrollRef = useRef(false);
   const lastScrollRef = useRef(0);
+  const scrollDirRef = useRef<1 | -1>(1);
+  const hurriedRef = useRef(false);
+  hurriedRef.current = hurried;
+  const prevMarginColumnRef = useRef(marginColumn);
+  const columnTimerRef = useRef<number | undefined>(undefined);
   const hurryTimerRef = useRef<number | undefined>(undefined);
   const pinchTimerRef = useRef<number | undefined>(undefined);
   const rafRef = useRef<number | undefined>(undefined);
   // Pages asked for, and pages whose answer came back. A window abandoned
   // mid-flight has to leave its unanswered pages askable again, or scrolling
   // quickly past them would strand them at the fallback size forever.
-  const requestedRef = useRef<Set<number>>(new Set());
-  const measuredRef = useRef<Set<number>>(new Set());
+  const initialSeed = seedInitialSizes(doc, pageCount).seeded;
+  const requestedRef = useRef<Set<number>>(new Set(initialSeed));
+  const measuredRef = useRef<Set<number>>(new Set(initialSeed));
 
   useEffect(() => {
-    requestedRef.current = new Set();
-    measuredRef.current = new Set();
-    setSizes([]);
+    const { sizes: seededSizes, seeded } = seedInitialSizes(doc, pageCount);
+    requestedRef.current = new Set(seeded);
+    measuredRef.current = new Set(seeded);
+    setSizes(seededSizes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.path, pageCount]);
+
+  useEffect(() => {
+    if (prevMarginColumnRef.current === marginColumn) return;
+    prevMarginColumnRef.current = marginColumn;
+    setColumnTransitioning(true);
+    window.clearTimeout(columnTimerRef.current);
+    columnTimerRef.current = window.setTimeout(() => setColumnTransitioning(false), 200);
+    return () => window.clearTimeout(columnTimerRef.current);
+  }, [marginColumn]);
 
   // Fit-width fits the widest page measured so far, so arriving at a landscape
   // page mid-document narrows the column once. Measuring every page up front to
@@ -207,7 +247,52 @@ export function PageScroller({
   // widest page or the half of that page hanging off centre is unreachable.
   const widest = layout.widths.length > 0 ? Math.max(...layout.widths) : 0;
 
+  const { first: visFirst, last: visLast } = visibleRange(layout, scrollTop, viewportHeight, 0);
   const { first, last } = visibleRange(layout, scrollTop, viewportHeight, 1);
+
+  // Speculative directional pre-rasterization after steady user scrolling so
+  // reading scroll hits warm ImageBitmaps without competing with open/resize/chat (29.0).
+  useEffect(() => {
+    if (
+      doc.kind !== "pdf" ||
+      scrollTop <= 0 ||
+      hurried ||
+      pinching ||
+      columnTransitioning ||
+      containerWidth <= 0 ||
+      pageCount <= 1
+    ) {
+      return;
+    }
+    const nextTarget = scrollDirRef.current >= 0 ? last + 1 : first - 1;
+    if (nextTarget < 1 || nextTarget > pageCount) return;
+    let cancelled = false;
+    let idleId = 0;
+    const scaleKey = buildScaleKey(zoom, containerWidth, scale, PAD_LEFT + padRight);
+    const run = () => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.querySelector(".markdown-stream-caret")) return;
+      prerenderPageInIdle(doc.path, nextTarget, scale, quality, scaleKey, () => cancelled);
+    };
+    const settleTimer = setTimeout(() => {
+      if (cancelled) return;
+      if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+        idleId = window.requestIdleCallback(run);
+      } else {
+        run();
+      }
+    }, 650);
+    return () => {
+      cancelled = true;
+      clearTimeout(settleTimer);
+      if (idleId && typeof window !== "undefined" && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleId);
+      }
+    };
+    // Only re-arm when the visible page window moves during reading scroll,
+    // never on panel resize (`containerWidth` / `padRight`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.kind, doc.path, pageCount, first, last, hurried, pinching, columnTransitioning]);
 
   // Measure the window the reader is in, and a margin either side. Measuring
   // the whole document on open is a background chain with no ceiling; the
@@ -473,11 +558,18 @@ export function PageScroller({
       });
     }
 
-    const jump = Math.abs(top - lastScrollRef.current);
+    const delta = top - lastScrollRef.current;
+    if (delta !== 0) scrollDirRef.current = delta > 0 ? 1 : -1;
+    const jump = Math.abs(delta);
     lastScrollRef.current = top;
-    if (jump > HURRY_PX_PER_TICK) setHurried(true);
-    window.clearTimeout(hurryTimerRef.current);
-    hurryTimerRef.current = window.setTimeout(() => setHurried(false), HURRY_IDLE_MS);
+    if (jump > HURRY_PX_PER_TICK) {
+      setHurried(true);
+      window.clearTimeout(hurryTimerRef.current);
+      hurryTimerRef.current = window.setTimeout(() => setHurried(false), HURRY_IDLE_MS);
+    } else if (hurriedRef.current && jump > 24) {
+      window.clearTimeout(hurryTimerRef.current);
+      hurryTimerRef.current = window.setTimeout(() => setHurried(false), HURRY_IDLE_MS);
+    }
 
     if (selfScrollRef.current) return;
     const next = pageAtScroll(layout, top, node.clientHeight);
@@ -517,7 +609,8 @@ export function PageScroller({
         scale={scale}
         quality={quality}
         hurried={hurried}
-        pinching={pinching}
+        pinching={pinching || columnTransitioning}
+        isVisible={p >= visFirst && p <= visLast}
         containerWidth={containerWidth}
         reservedWidth={padRight}
         zoom={zoom}

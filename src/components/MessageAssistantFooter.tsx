@@ -112,12 +112,22 @@ function extractCopyableText(message: UIMessage, markers: (text: string) => stri
  * the metadata fields it reads), used to skip re-renders driven by the parent
  * re-rendering on every streamed chunk.
  */
-function footerSignature(message: PageWiseUIMessage): string {
+function footerSignature(message: PageWiseUIMessage, live = false): string {
   const parts = Array.isArray(message.parts) ? message.parts : [];
   let partsSig = `${parts.length}`;
   for (const p of parts) {
     if (p.type === "text" || p.type === "reasoning") {
-      partsSig += `:${p.type}${p.text?.length ?? 0}`;
+      if (live) {
+        const txt = p.text ?? "";
+        const hasText = txt.trim().length > 0 ? 1 : 0;
+        let closedCites = 0;
+        for (let i = txt.indexOf("〕"); i !== -1; i = txt.indexOf("〕", i + 1)) {
+          closedCites += 1;
+        }
+        partsSig += `:${p.type}${hasText}:${closedCites}`;
+      } else {
+        partsSig += `:${p.type}${p.text?.length ?? 0}`;
+      }
     } else {
       partsSig += `:${p.type}`;
     }
@@ -170,10 +180,11 @@ function MessageAssistantFooterInner({
   }, []);
 
   useEffect(() => {
-    if (!live || metadata?.finishedAt != null) return;
+    if (!statsOpen || !live || metadata?.finishedAt != null) return;
+    setNowMs(Date.now());
     const id = window.setInterval(() => setNowMs(Date.now()), 250);
     return () => window.clearInterval(id);
-  }, [live, metadata?.finishedAt]);
+  }, [statsOpen, live, metadata?.finishedAt]);
 
   useEffect(
     () => () => {
@@ -203,8 +214,15 @@ function MessageAssistantFooterInner({
   }, [message, onCopy, showToast, t]);
 
   // Hooks must run unconditionally — keep this above the early return below.
-  const hasCopyable = useMemo(() => extractCopyableText(message).length > 0, [message]);
-  const claimText = useMemo(() => extractCopyableText(message, stripCitations), [message]);
+  const hasCopyable = useMemo(
+    () =>
+      message.parts.some(
+        (p) =>
+          (p.type === "text" && Boolean(stripDsmlToolMarkup(p.text ?? "").trim())) ||
+          (p.type === "reasoning" && Boolean(p.text?.trim())),
+      ),
+    [message.parts],
+  );
   // The answer as written — markdown intact — for the record to keep whole.
   const markdownText = useMemo(
     () =>
@@ -237,29 +255,73 @@ function MessageAssistantFooterInner({
   // Checks forgotten — the page's words were read again (21.1.2): the counts,
   // and the passages a review would send, are worked out again with them.
   const checksEpochNow = useSyncExternalStore(subscribeChecks, checksEpoch);
+  // Throttle full-answer citation entailment checks during live streaming to ~160ms
+  // instead of running 40 full quantity/polarity/strikethrough passes per second (29.0).
+  const [throttledMarkdown, setThrottledMarkdown] = useState(markdownText);
+  const throttleTimerRef = useRef<number | undefined>(undefined);
+  const lastThrottleAtRef = useRef(0);
+  const latestMarkdownRef = useRef(markdownText);
+  latestMarkdownRef.current = markdownText;
+
   useEffect(() => {
-    if (!citationEnv || !markdownText) {
+    if (!live) {
+      if (throttleTimerRef.current !== undefined) {
+        window.clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = undefined;
+      }
+      return;
+    }
+    // Only re-check during streaming when a closed citation bracket `〕` is present.
+    if (!markdownText.includes("〕")) return;
+    const elapsed = Date.now() - lastThrottleAtRef.current;
+    if (elapsed >= 220) {
+      lastThrottleAtRef.current = Date.now();
+      setThrottledMarkdown(markdownText);
+      return;
+    }
+    if (throttleTimerRef.current !== undefined) return;
+    throttleTimerRef.current = window.setTimeout(() => {
+      throttleTimerRef.current = undefined;
+      lastThrottleAtRef.current = Date.now();
+      setThrottledMarkdown(latestMarkdownRef.current);
+    }, 220 - elapsed);
+  }, [live, markdownText]);
+
+  useEffect(
+    () => () => {
+      if (throttleTimerRef.current !== undefined) {
+        window.clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = undefined;
+      }
+    },
+    [],
+  );
+
+  const effectiveCheckText = live ? throttledMarkdown : markdownText;
+
+  useEffect(() => {
+    if (!citationEnv || !effectiveCheckText) {
       setTally(null);
       return;
     }
     let alive = true;
-    setTally(tallyCitations(citationEnv.path, markdownText));
-    void checkAnswer(citationEnv.path, citationEnv.totalPages, markdownText).then(
+    setTally(tallyCitations(citationEnv.path, effectiveCheckText));
+    void checkAnswer(citationEnv.path, citationEnv.totalPages, effectiveCheckText).then(
       (t) => alive && setTally(t),
       () => undefined,
     );
     return () => {
       alive = false;
     };
-  }, [citationEnv, markdownText, checksEpochNow]);
+  }, [citationEnv, effectiveCheckText, checksEpochNow]);
   // Changes whenever a review lands, so a sentence a model contradicted stops
   // reading as verified.
   const reviewRev = useSyncExternalStore(subscribeReviews, reviewRevision);
   const sentences = useMemo(
-    () => (citationEnv ? sentenceStates(citationEnv.path, markdownText) : null),
+    () => (citationEnv ? sentenceStates(citationEnv.path, effectiveCheckText) : null),
     // `tally` and `reviewRev` are what change when a check or a review lands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [citationEnv, tally, reviewRev, markdownText],
+    [citationEnv, tally, reviewRev, effectiveCheckText],
   );
   const counts = useMemo(() => (sentences ? sentenceTally(sentences) : null), [sentences]);
   // Keep stays what it was: the verified sentences of a settled answer. A
@@ -401,7 +463,11 @@ function MessageAssistantFooterInner({
 
   const keepWhole = () => {
     if (!onKeep) return;
-    onKeep(claimFromAnswer(claimText), keepPages, { body: markdownText, messageId: message.id });
+    onKeep(
+      claimFromAnswer(extractCopyableText(message, stripCitations)),
+      keepPages,
+      { body: markdownText, messageId: message.id },
+    );
   };
   const keepAction =
     onKeepVerified && verified.length > 0
@@ -691,6 +757,6 @@ export const MessageAssistantFooter = memo(
     if (prev.live !== next.live) return false;
     if (prev.canRegenerate !== next.canRegenerate) return false;
     if (prev.message === next.message) return true;
-    return footerSignature(prev.message) === footerSignature(next.message);
+    return footerSignature(prev.message, next.live) === footerSignature(next.message, next.live);
   },
 );

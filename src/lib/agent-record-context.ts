@@ -57,39 +57,34 @@ export const RECORD_CHAR_BUDGET = 2_000;
  * from it. See `FINDING_HANDLE_LEN` for why the handle is short rather than a
  * full uuid — it is paid on every question, for every claim.
  */
-function renderFinding(finding: Finding): string {
+function renderFinding(finding: Finding, noteSuffix = ""): string {
   return `- [${findingHandle(finding.id)}] p${finding.pages.join(",")}: ${sanitizeForPrompt(
     finding.claim,
     300,
-  )}`;
+  )}${noteSuffix}`;
 }
 
-/**
- * Select what fits, newest first.
- *
- * Newest rather than oldest because a revision is newer than the claim it
- * corrects by construction: dropping from the recent end would be most likely
- * to drop exactly the corrections, and re-tell the agent something it had
- * already worked out was wrong.
- *
- * The kept lines are then put back into the order they were written, because
- * a record reads as a history.
- */
 export function selectFindingsForPrompt(
   findings: readonly Finding[],
   budget = RECORD_CHAR_BUDGET,
+  suffixFor?: (finding: Finding) => string,
 ): { lines: string[]; omitted: number; used: number } {
   const kept: Finding[] = [];
   let used = 0;
   for (let i = findings.length - 1; i >= 0; i -= 1) {
     const finding = findings[i]!;
-    const cost = renderFinding(finding).length + 1;
+    const suffix = suffixFor ? suffixFor(finding) : "";
+    const cost = renderFinding(finding, suffix).length + 1;
     if (used + cost > budget) break;
     used += cost;
     kept.push(finding);
   }
   kept.reverse();
-  return { lines: kept.map(renderFinding), omitted: findings.length - kept.length, used };
+  return {
+    lines: kept.map((f) => renderFinding(f, suffixFor ? suffixFor(f) : "")),
+    omitted: findings.length - kept.length,
+    used,
+  };
 }
 
 /** The trust of every active finding, from what the app knows right now. */
@@ -146,7 +141,17 @@ export function buildRecordInstructions(path: string | null): string {
   }
 
   if (doubtful.length > 0) {
-    const { lines, omitted } = selectFindingsForPrompt(doubtful, Math.max(budget, 0));
+    const { lines, omitted } = selectFindingsForPrompt(
+      doubtful,
+      Math.max(budget, 0),
+      (f) => {
+        const p = cachedPlacement(path, f.id);
+        if (p?.status === "mismatch" && p.unstated.length > 0) {
+          return ` (unstated in quote: ${sanitizeForPrompt(p.unstated.join(", "), 60)})`;
+        }
+        return "";
+      },
+    );
     if (lines.length > 0) {
       out +=
         `\n\nEarlier entries that need re-checking before you rely on them — the file ` +

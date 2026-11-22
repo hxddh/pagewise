@@ -39,6 +39,12 @@
  * the panel mounted for the length of the exit animation — which is why the
  * departure can be a stylesheet rule rather than a timer in the component.
  */
+.palette-root[data-state="closed"] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
 .palette-panel[data-state="open"] {
   animation: popover-in var(--transition);
 }

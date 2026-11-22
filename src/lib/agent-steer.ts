@@ -192,6 +192,15 @@ export function hasSynthesisMaterial(steps: ReadonlyArray<StepLike>): boolean {
   const last = steps[steps.length - 1]!;
   const calls = last.toolCalls ?? [];
   const results = last.toolResults ?? [];
+  // Keep `"low"` reasoning while the latest step was purely a locate/survey call
+  // (`search_in_document`, `document_outline`) so navigation steps after reading
+  // page 1 do not burn full CoT tokens before synthesis begins (29.0).
+  if (
+    calls.length > 0 &&
+    calls.every((c) => !CONTENT_READ_TOOLS.has(c.toolName ?? ""))
+  ) {
+    return false;
+  }
   if (
     calls.length > 0 &&
     calls.every((c) => c.toolName === "read_pdf_range" || c.toolName === "read_section") &&

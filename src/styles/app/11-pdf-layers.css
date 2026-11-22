@@ -56,6 +56,11 @@
   animation: citation-decay var(--transition-slow);
 }
 
+:root[data-theme="night"] .citation-highlight {
+  mix-blend-mode: screen;
+  background: color-mix(in srgb, var(--finding) 36%, transparent);
+}
+
 @keyframes citation-decay {
   from {
     background: color-mix(in srgb, var(--finding) 58%, transparent);
@@ -141,13 +146,15 @@
 
 .pdf-mark-text:hover,
 .pdf-mark-text:focus-visible,
-.pdf-mark-text.pdf-mark-selected {
+.pdf-mark-text.pdf-mark-selected,
+.pdf-mark-text.pdf-mark-hovered {
   background: color-mix(in srgb, var(--mark-highlight) 78%, transparent);
 }
 
 .pdf-mark-region:hover,
 .pdf-mark-region:focus-visible,
-.pdf-mark-region.pdf-mark-selected {
+.pdf-mark-region.pdf-mark-selected,
+.pdf-mark-region.pdf-mark-hovered {
   border-width: 3px;
   border-color: var(--accent);
 }
@@ -162,9 +169,14 @@
   background: color-mix(in srgb, var(--mark-highlight) 32%, transparent);
 }
 
+:root[data-theme="night"] .pdf-mark-region {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-strong) 80%, transparent);
+}
+
 :root[data-theme="night"] .pdf-mark-text:hover,
 :root[data-theme="night"] .pdf-mark-text:focus-visible,
-:root[data-theme="night"] .pdf-mark-text.pdf-mark-selected {
+:root[data-theme="night"] .pdf-mark-text.pdf-mark-selected,
+:root[data-theme="night"] .pdf-mark-text.pdf-mark-hovered {
   background: color-mix(in srgb, var(--mark-highlight) 52%, transparent);
 }
 
@@ -199,6 +211,36 @@
   position: absolute;
   border: 2px dashed var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+}
+
+.preview-jump-pill,
+.region-mode-pill {
+  position: absolute;
+  z-index: var(--z-page-badge);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  backdrop-filter: blur(2px);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  animation: search-highlight-in var(--transition-fast);
+}
+
+.preview-jump-pill {
+  top: var(--space-md);
+  left: var(--space-lg);
+}
+
+.region-mode-pill {
+  top: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
   pointer-events: none;
 }
 
@@ -316,11 +358,13 @@
   );
 }
 
-.pdf-finding-selected {
+.pdf-finding-selected,
+.pdf-finding-hovered {
   background: color-mix(in srgb, var(--finding) 18%, transparent);
 }
 
-.pdf-finding-selected::after {
+.pdf-finding-selected::after,
+.pdf-finding-hovered::after {
   background: var(--finding);
 }
 
@@ -348,7 +392,8 @@
 /* Selected: the tab grows rather than gaining a halo. A drop shadow here would
    be a fourth elevation nothing else uses, and the scale exists so that does not
    happen — see `--shadow-sm` and what twelve hand-written shadows cost. */
-.pdf-finding-tab-selected {
+.pdf-finding-tab-selected,
+.pdf-finding-tab-hovered {
   width: 5px;
   height: 20px;
   background: var(--finding);

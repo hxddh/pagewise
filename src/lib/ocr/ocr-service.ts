@@ -227,6 +227,8 @@ interface Job {
 
 const queue: Job[] = [];
 const freeSlots: number[] = Array.from({ length: OCR_SLOTS }, (_, i) => i);
+let activeBackground = 0;
+let activeForeground = 0;
 
 /**
  * Who is watching the queue.
@@ -291,6 +293,13 @@ export function cancelQueuedOcr(path: string): number {
 function pump(): void {
   while (freeSlots.length > 0 && queue.length > 0) {
     const waiting = queue.findIndex((j) => !j.background);
+    if (waiting < 0) {
+      // Reserve at least one OCR worker slot free for instant foreground page
+      // jumps / agent reads, and avoid dual-worker cold-boot CPU contention
+      // while a foreground job is running (29.0).
+      const maxBackground = Math.max(1, OCR_SLOTS - 1);
+      if (activeBackground >= maxBackground || activeForeground > 0) break;
+    }
     const job = queue.splice(waiting >= 0 ? waiting : 0, 1)[0]!;
     if (job.signal?.aborted || !docs.has(job.path)) {
       job.drop();
@@ -298,9 +307,14 @@ function pump(): void {
     }
     clearIdleTimer();
     job.startedAt = performance.now();
+    const isBg = job.background;
+    if (isBg) activeBackground += 1;
+    else activeForeground += 1;
     notifyQueue();
     const slot = freeSlots.shift()!;
     void job.run(slot).finally(() => {
+      if (isBg) activeBackground = Math.max(0, activeBackground - 1);
+      else activeForeground = Math.max(0, activeForeground - 1);
       freeSlots.push(slot);
       notifyQueue();
       pump();
@@ -411,9 +425,10 @@ async function recognizeWith(
       bitmap.close();
     }
   }
-  const { canvas, toPdf } = await renderPageForOcr(path, page, signal, ocrDpiFor(langs));
+  const dpi = ocrDpiFor(langs);
+  const { canvas, toPdf } = await renderPageForOcr(path, page, signal, dpi);
   try {
-    const read = await recognizeCanvas(canvas, toPdf, langs, slot);
+    const read = await recognizeCanvas(canvas, toPdf, langs, slot, dpi);
     return { ...read, page, ms: performance.now() - started };
   } finally {
     // Always release the 35 MB RGBA backing buffer, including on timeout/abort.
@@ -562,6 +577,8 @@ export function __resetOcrServiceForTests(): void {
   for (const s of docs.values()) if (s.flushTimer) clearTimeout(s.flushTimer);
   docs.clear();
   queue.length = 0;
+  activeBackground = 0;
+  activeForeground = 0;
   freeSlots.length = 0;
   for (let i = 0; i < OCR_SLOTS; i++) freeSlots.push(i);
   enabled = true;

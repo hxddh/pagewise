@@ -1,3 +1,4 @@
+import { getActiveReaderSelection } from "./active-selection";
 import { docCache } from "./doc-cache";
 import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
 import { marksOnPage } from "./mark-store";
@@ -131,12 +132,23 @@ export function buildViewContextInstructions(ctx: AgentMessageContext): string {
   const name = sanitizeForPrompt(ctx.docName);
   const path = sanitizeForPrompt(ctx.path, 400);
   const base = `\n\nActive document: "${name}" (${ctx.totalPages} pages, file: "${path}").`;
-  // The page NUMBER is always shared — it is cheap text and is what makes
-  // "this page" / "本页" requests resolve to the page the user is actually on.
-  // The optional page *screenshot* is a separate, opt-in concern handled in the
-  // send path (`includeViewingPage`), not here.
-  if (ctx.viewingPage <= 0) return base;
-  return `${base} The user is viewing page ${ctx.viewingPage}; read that page first for "this page"/"本页"/"当前页" requests or when the question likely refers to what they are looking at — otherwise search or read whichever pages answer the question.`;
+  let out =
+    ctx.viewingPage <= 0
+      ? base
+      : `${base} The user is viewing page ${ctx.viewingPage}; read that page first for "this page"/"本页"/"当前页" requests or when the question likely refers to what they are looking at — otherwise search or read whichever pages answer the question.`;
+
+  const activeSel = getActiveReaderSelection(ctx.path);
+  if (activeSel) {
+    const snippet = sanitizeForPrompt(activeSel.text, 900);
+    if (activeSel.kind === "region") {
+      out += snippet
+        ? `\nThe user currently has a boxed region selected on page ${activeSel.page} containing: "${snippet}" (use read_figure on page ${activeSel.page} if visual chart/diagram details are needed).`
+        : `\nThe user currently has a boxed visual region selected on page ${activeSel.page} (use read_figure on page ${activeSel.page} with fullPage=true to inspect it).`;
+    } else if (snippet) {
+      out += `\nThe user currently has this passage highlighted on page ${activeSel.page}: "${snippet}".`;
+    }
+  }
+  return out;
 }
 
 export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string {
@@ -237,6 +249,18 @@ export function buildDocumentMapInstructions(docPath: string | null, viewingPage
       });
       lines.push(`Reader marks on p${viewingPage}: ${formatted.join("; ")}`);
     }
+    const pageAnnots = (doc.annotations ?? []).filter((a) => a.page === viewingPage).slice(0, 3);
+    if (pageAnnots.length > 0) {
+      const formatted = pageAnnots.map((a) => {
+        const quoted = a.quoted ? `'${sanitizeForPrompt(a.quoted, 60)}'` : a.subtype;
+        const said = a.contents ? `: ${sanitizeForPrompt(a.contents, 60)}` : "";
+        return `[${a.subtype}] ${quoted}${said}`;
+      });
+      lines.push(`PDF annotations on p${viewingPage}: ${formatted.join("; ")}`);
+    }
+  }
+  if (doc.annotations && doc.annotations.length > 0) {
+    lines.push(`Annotated pp. ${formatCompactRanges(doc.annotations.map((a) => a.page))}`);
   }
 
   if (lines.length === 0) return "";

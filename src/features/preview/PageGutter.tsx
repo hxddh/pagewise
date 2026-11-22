@@ -7,6 +7,7 @@ import { getMarks, MAX_NOTE_TEXT, removeMark, setMarkNote, undoMarkChange, type 
 import { getFindings } from "../../lib/finding-store";
 import { placeFinding } from "../../lib/finding-anchors";
 import { cachedCitationCheck, checkCitation } from "../../lib/citation-check";
+import { setHoveredHighlight } from "../../lib/hover-highlight";
 import { getPageGeometry, type PageGeometry } from "../../lib/pdf";
 import { citationLabel } from "../../lib/remark-citations";
 import { TRUST_TEXT, longKey, stateKey, type TrustReason } from "../../lib/trust-text";
@@ -268,9 +269,39 @@ export const PageGutter = memo(function PageGutter({
   if (entries.length === 0 && !selectedMark) return null;
 
   if (selectedMark) {
+    const pageMarkEl =
+      typeof document !== "undefined"
+        ? document.querySelector<HTMLElement>(
+            `.pdf-page-slot[data-page="${page}"] .pdf-mark[data-mark-id="${CSS.escape(selectedMark.id)}"]`,
+          )
+        : null;
     activeAnchorRef.current =
-      entryRefs.current.get(`mark-${selectedMark.id}`) ?? gutterRef.current;
+      entryRefs.current.get(`mark-${selectedMark.id}`) ?? pageMarkEl ?? gutterRef.current;
   }
+
+  const hoverEntry = (entry: GutterEntry) => {
+    if (entry.kind === "mark") {
+      setHoveredHighlight({ kind: "mark", path, id: entry.id });
+      return;
+    }
+    if (entry.kind === "finding") {
+      setHoveredHighlight({ kind: "finding", path, id: entry.id });
+      return;
+    }
+    for (const c of entry.citations ?? []) {
+      const check = cachedCitationCheck(path, c);
+      if (check?.rects?.length && check.page) {
+        setHoveredHighlight({
+          kind: "citation",
+          path,
+          page: check.page,
+          rects: check.rects,
+          secondPage: check.secondPage,
+        });
+        return;
+      }
+    }
+  };
 
   const expandedEntry =
     expandedAnswerIdx !== null && entries[expandedAnswerIdx]?.kind === "answer"
@@ -363,6 +394,8 @@ export const PageGutter = memo(function PageGutter({
             data-gutter-kind={entry.kind}
             title={note(entry)}
             aria-label={label(entry)}
+            onMouseEnter={() => hoverEntry(entry)}
+            onMouseLeave={() => setHoveredHighlight(null)}
             onClick={(e) => activate(entry, i, e.currentTarget)}
           />
         ))}
@@ -439,6 +472,8 @@ export const PageGutter = memo(function PageGutter({
               style={{ top: `${top * 100}%` }}
               title={title}
               aria-label={entry.kind === "answer" ? title : label(entry)}
+              onMouseEnter={() => hoverEntry(entry)}
+              onMouseLeave={() => setHoveredHighlight(null)}
               onClick={(e) => activate(entry, i, e.currentTarget)}
             >
               <span className="gutter-note-text">{cardExcerpt(entry.text)}</span>

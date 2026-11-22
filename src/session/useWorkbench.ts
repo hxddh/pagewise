@@ -29,7 +29,7 @@ import { checkRecentPaths, openSampleDocument, pickDocument } from "../lib/allow
 import { classifyOpenError, openErrorMessage } from "../lib/open-error";
 import { invokeCmd } from "../lib/invoke-cmd";
 import { clearPdfCache } from "../lib/pdf";
-import { reindexDocument } from "../document/index-queue";
+import { reindexDocument, scheduleIndex } from "../document/index-queue";
 import {
   evidenceAnnotations,
   saveAnnotatedPdfWithPath,
@@ -180,9 +180,12 @@ export function useWorkbench(): Workbench {
     });
   }, []);
 
+  const hydratedMessagesRef = useRef<unknown>(null);
+
   useEffect(() => {
     const pending = chatHydrateRef.current;
     if (!pending || document?.path !== pending.path || chatId !== pending.path) return;
+    hydratedMessagesRef.current = pending.messages;
     agentSetMessagesRef.current(pending.messages);
     chatHydrateRef.current = null;
     setChatLoading(false);
@@ -213,6 +216,7 @@ export function useWorkbench(): Workbench {
 
   useEffect(() => {
     if (!document?.path || agent.messages.list.length === 0) return;
+    if (agent.messages.list === hydratedMessagesRef.current) return;
     if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
       const path = documentRef.current?.path;
@@ -322,6 +326,8 @@ export function useWorkbench(): Workbench {
 
       const myEpoch = ++epochRef.current;
       const prevPath = prev?.path ?? null;
+      const prevPage = previewPageRef.current;
+      const prevStamp = notifiedStampRef.current;
       const wasReload = Boolean(options?.forceReload || prevPath === path);
 
       loadAbortRef.current?.abort();
@@ -340,28 +346,54 @@ export function useWorkbench(): Workbench {
       agent.run.stop();
       agent.run.reset();
 
+      let fastShellMounted = false;
+
       const restorePreviousSession = () => {
+        if (fastShellMounted) {
+          fastShellMounted = false;
+          scopeRef.current?.dispose();
+          scopeRef.current = null;
+          docCache.remove?.(path);
+        }
         if (prev) {
+          if (!scopeRef.current) {
+            scopeRef.current = createDocumentScope(prev.path);
+          }
+          if (!docCache.get(prev.path)) {
+            docCache.set?.(prev);
+          }
+          notifiedStampRef.current = prevStamp;
+          setPreviewPage(prevPage);
+          setDocument(prev);
+          documentRef.current = prev;
           chatHydrateRef.current = { path: prev.path, messages: messagesToSave };
           setChatHydrateNonce((n) => n + 1);
           agentSetMessagesRef.current(messagesToSave);
           messagesRef.current = messagesToSave;
           setPhase("ready");
         } else {
+          notifiedStampRef.current = null;
+          setPreviewPage(1);
+          setDocument(null);
+          documentRef.current = null;
           chatHydrateRef.current = null;
           setPhase("empty");
         }
         setChatLoading(false);
       };
 
+      let savePrevPromise: Promise<void> = Promise.resolve();
       if (prevPath) {
         void recordProgress(prevPath, previewPageRef.current, prev?.totalPages ?? 0);
-        try {
-          await saveChat(prevPath, messagesToSave, prev?.identity);
-        } catch (e) {
+        savePrevPromise = saveChat(prevPath, messagesToSave, prev?.identity).catch((e) => {
           if (import.meta.env.DEV) console.warn("[session] save chat on switch failed", e);
-        }
+        });
+        if (prevPath === path) await savePrevPromise;
       }
+
+      // Start warming the PreviewPane chunk in parallel with preflight/open so
+      // first document open pays zero lazy-chunk waterfall after `loadDocument` (29.0).
+      void import("../features/preview/PreviewPane").catch(() => {});
 
       // Evict cached PDF proxy and runs BEFORE in-place reload so `getPdfOutline`,
       // `getPdfPageLabels`, and `getPdfAnnotations` never read pre-edit state (28.0).
@@ -369,6 +401,16 @@ export function useWorkbench(): Workbench {
         clearPdfCache(path);
         clearFindingAnchors(path);
       }
+
+      const rememberedPage = options?.forceReload
+        ? previewPageRef.current
+        : (recentFilesRef.current.find((f) => f.path === path)?.lastPage ?? 1);
+
+      type PreflightStores = {
+        messages: PageWiseUIMessage[];
+        findings: Awaited<ReturnType<typeof loadFindings>> | null;
+      };
+      let earlyStoresPromise: Promise<PreflightStores> | null = null;
 
       try {
         if (controller.signal.aborted) {
@@ -382,16 +424,63 @@ export function useWorkbench(): Workbench {
             if (epochRef.current === myEpoch) setProgress(p);
           },
           controller.signal,
-          { deferCache: true, isReload: wasReload },
+          {
+            deferCache: true,
+            isReload: wasReload,
+            initialPage: Math.max(1, rememberedPage),
+            deferAnnotations: true,
+            deferScheduleIndex: true,
+            onPreflight: ({ stamp, identity }) => {
+              if (wasReload) return;
+              earlyStoresPromise = Promise.all([
+                loadChat(path, identity)
+                  .then((m) => m as PageWiseUIMessage[])
+                  .catch((e) => {
+                    if (import.meta.env.DEV) console.warn("[session] chat history load failed", e);
+                    return [] as PageWiseUIMessage[];
+                  }),
+                loadMarks(path, identity).catch(() => []),
+                loadFindings(path, identity).catch(() => []),
+                loadReviews(path, stamp).catch(() => undefined),
+              ]).then(([messages, , findings]) => ({ messages, findings }));
+            },
+            onFastShell: (fastDoc) => {
+              // Only mount an early fast-shell from the empty state (`!prev`):
+              // while switching from an open document A to B, preserve A's scope,
+              // caches, and document state intact until B finishes staging (29.0).
+              if (prev || epochRef.current !== myEpoch || controller.signal.aborted || wasReload) {
+                return;
+              }
+              fastShellMounted = true;
+              scopeRef.current?.dispose();
+              scopeRef.current = createDocumentScope(fastDoc.path);
+              const committedFast = commitLoadedDocument(fastDoc, { deferScheduleIndex: true });
+              notifiedStampRef.current = committedFast.stamp ?? null;
+              const resumeFast =
+                rememberedPage > 1 && rememberedPage <= committedFast.totalPages
+                  ? rememberedPage
+                  : 1;
+              setPreviewPage(resumeFast);
+              setDocument(committedFast);
+              setPhase("ready");
+            },
+          },
         );
 
         if (epochRef.current !== myEpoch) return;
 
         let messages: PageWiseUIMessage[] = [];
-        try {
-          messages = (await loadChat(path, staged.identity)) as PageWiseUIMessage[];
-        } catch (e) {
-          if (import.meta.env.DEV) console.warn("[session] chat history load failed", e);
+        let preloadedFindings: Awaited<ReturnType<typeof loadFindings>> | null = null;
+        if (earlyStoresPromise) {
+          const resolved = await (earlyStoresPromise as Promise<PreflightStores>);
+          messages = resolved.messages;
+          preloadedFindings = resolved.findings;
+        } else {
+          try {
+            messages = (await loadChat(path, staged.identity)) as PageWiseUIMessage[];
+          } catch (e) {
+            if (import.meta.env.DEV) console.warn("[session] chat history load failed", e);
+          }
         }
 
         if (controller.signal.aborted) {
@@ -401,30 +490,47 @@ export function useWorkbench(): Workbench {
         }
         if (epochRef.current !== myEpoch) return;
 
-        scopeRef.current?.dispose();
-        scopeRef.current = null;
+        if (!fastShellMounted) {
+          scopeRef.current?.dispose();
+          scopeRef.current = null;
+        }
 
-        const doc = commitLoadedDocument(staged);
+        const doc = commitLoadedDocument(staged, { deferScheduleIndex: true });
         notifiedStampRef.current = doc.stamp ?? null;
-        scopeRef.current = createDocumentScope(doc.path);
-        const [, findings] = await Promise.all([
-          loadMarks(doc.path, doc.identity),
-          loadFindings(doc.path, doc.identity),
-          loadReviews(doc.path, doc.stamp ?? ""),
-        ]);
+        if (!fastShellMounted) {
+          scopeRef.current = createDocumentScope(doc.path);
+        }
+        const findings =
+          preloadedFindings ??
+          (
+            await Promise.all([
+              loadMarks(doc.path, doc.identity),
+              loadFindings(doc.path, doc.identity),
+              loadReviews(doc.path, doc.stamp ?? ""),
+            ])
+          )[1];
         void prewarmPlacements(doc.path, findings);
         chatHydrateRef.current = { path: doc.path, messages };
         setChatHydrateNonce((n) => n + 1);
         setDocument(docCache.get(doc.path) ?? doc);
-        const remembered = options?.forceReload
-          ? previewPageRef.current
-          : (recentFilesRef.current.find((f) => f.path === doc.path)?.lastPage ?? 1);
-        const resumeAt = remembered > 1 && remembered <= doc.totalPages ? remembered : 1;
+        const resumeAt = rememberedPage > 1 && rememberedPage <= doc.totalPages ? rememberedPage : 1;
         setPreviewPage(resumeAt);
         setPhase("ready");
-        void import("../hooks/useDocAgent")
-          .then((m) => m.warmDocAgentInIdle())
-          .catch(() => {});
+
+        // Start background OCR/vision sweep after first paint settles so Page 1
+        // canvas + text layer never compete with background worker startup (29.0).
+        const startSweep = () => {
+          if (epochRef.current !== myEpoch) return;
+          const liveDoc = docCache.get(doc.path) ?? doc;
+          scheduleIndex(liveDoc, { startPage: resumeAt });
+        };
+        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(() => {
+            window.setTimeout(startSweep, 48);
+          });
+        } else {
+          startSweep();
+        }
 
         try {
           const recent = await addRecentFile({

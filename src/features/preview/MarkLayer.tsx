@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useI18n } from "../../i18n";
+import { getHoveredHighlight, subscribeHoveredHighlight } from "../../lib/hover-highlight";
 import { getPageGeometry } from "../../lib/pdf";
 import { marksOnPage, type Mark } from "../../lib/mark-store";
 import { topLeftRectToBox, type HighlightBox } from "./search-highlight";
@@ -32,6 +33,8 @@ interface PlacedMark {
 export function MarkLayer({ path, page, revision, selectedId, onSelect }: MarkLayerProps) {
   const { t } = useI18n();
   const [placed, setPlaced] = useState<PlacedMark[]>([]);
+  const hovered = useSyncExternalStore(subscribeHoveredHighlight, getHoveredHighlight);
+  const hoveredMarkId = hovered?.kind === "mark" && hovered.path === path ? hovered.id : null;
 
   useEffect(() => {
     const onPage = marksOnPage(path, page);
@@ -70,11 +73,14 @@ export function MarkLayer({ path, page, revision, selectedId, onSelect }: MarkLa
           <button
             key={`${mark.id}-${i}`}
             type="button"
+            data-mark-id={i === 0 ? mark.id : undefined}
             // A region mark is an outline, not a wash: filling it would hide
             // the figure the reader boxed in order to see it.
             className={`pdf-mark pdf-mark-${mark.kind ?? "text"}${
               mark.note ? " pdf-mark-noted" : ""
-            }${mark.id === selectedId ? " pdf-mark-selected" : ""}`}
+            }${mark.id === selectedId ? " pdf-mark-selected" : ""}${
+              mark.id === hoveredMarkId ? " pdf-mark-hovered" : ""
+            }`}
             title={mark.note || mark.text}
             aria-label={
               mark.note

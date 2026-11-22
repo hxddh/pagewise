@@ -40,11 +40,21 @@
 }
 
 .resize-handle {
+  position: relative;
   width: 5px;
   flex-shrink: 0;
   cursor: col-resize;
   background: transparent;
   transition: background var(--transition-fast);
+}
+
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
 }
 
 .resize-handle:hover {

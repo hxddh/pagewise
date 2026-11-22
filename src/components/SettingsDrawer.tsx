@@ -142,8 +142,6 @@ function SettingsDrawerInner({
     tabRefs.current[next]?.focus();
   }
 
-  if (!open) return null;
-
   const needsSetup = settingsReady && !assistantConfigured && !setupSkipped;
 
   const tabLabels: Record<DrawerTab, string> = {

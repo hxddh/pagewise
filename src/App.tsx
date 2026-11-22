@@ -37,6 +37,7 @@ import { subscribeReclaimedSteer } from "./lib/agent-steer";
 import { SearchScopeProvider, focusMessageRow } from "./components/SearchScope";
 import { WorkspaceChromeProvider } from "./components/WorkspaceHeader";
 import { previewJumpToPage } from "./lib/preview-actions";
+import { isOverlayOpen, isTypingTarget } from "./lib/shortcut-guards";
 import type { RevealedCitation } from "./features/preview/CitationHighlight";
 import "./styles/tokens.css";
 import "./styles/ui.css";
@@ -88,6 +89,9 @@ function PanelFallback() {
     </div>
   );
 }
+
+const noopSubscribe = () => () => {};
+const zeroSnapshot = () => 0;
 
 function AppContent() {
   const { t } = useI18n();
@@ -210,6 +214,9 @@ function AppContent() {
   const chatRef = useRef<ChatPanelHandle | null>(null);
   const pendingMarginQuestionRef = useRef<string | null>(null);
   const [chatEverOpened, setChatEverOpened] = useState(() => s.assistant.open);
+  const [paletteEverOpened, setPaletteEverOpened] = useState(false);
+  const [libraryEverOpened, setLibraryEverOpened] = useState(false);
+  const [settingsEverOpened, setSettingsEverOpened] = useState(false);
   const [focusComposerNonce, setFocusComposerNonce] = useState(0);
   const [marginFocusNonce, setMarginFocusNonce] = useState(0);
   const [marginAskOpen, setMarginAskOpen] = useState(false);
@@ -224,6 +231,14 @@ function AppContent() {
   useEffect(() => {
     if (s.assistant.open || marginSessionActive) setChatEverOpened(true);
   }, [s.assistant.open, marginSessionActive]);
+
+  useEffect(() => {
+    if (overlays.libraryOpen) setLibraryEverOpened(true);
+  }, [overlays.libraryOpen]);
+
+  useEffect(() => {
+    if (s.assistant.shell.settingsOpen) setSettingsEverOpened(true);
+  }, [s.assistant.shell.settingsOpen]);
 
   const bindChatRef = useCallback((handle: ChatPanelHandle | null) => {
     chatRef.current = handle;
@@ -302,15 +317,18 @@ function AppContent() {
   // One way out for everything the app writes (16.0): what can be written is
   // read when the dialog opens, since findings and marks change silently.
   const [exportAvailable, setExportAvailable] = useState<ExportAvailability | null>(null);
+  const [lastExportAvailable, setLastExportAvailable] = useState<ExportAvailability | null>(null);
   const openExport = useCallback(() => {
     if (!doc) return;
     const findings = activeFindings(doc.path);
     const marks = getMarks(doc.path);
-    setExportAvailable({
+    const next: ExportAvailability = {
       report: findings.length > 0 || marks.length > 0,
       pdf: doc.kind === "pdf" && (findings.some((f) => f.pages.length > 0) || marks.length > 0),
       chat: agent.messages.list.length > 0,
-    });
+    };
+    setExportAvailable(next);
+    setLastExportAvailable(next);
   }, [doc, agent.messages.list.length]);
   const runExport = useCallback(
     (choice: ExportChoice, options: { includeText: boolean }) => {
@@ -338,7 +356,40 @@ function AppContent() {
     onOpenExport: openExport,
   });
 
-  useFollowAgent(prefs.followAgent, agent.messages.list, s.document.setPage);
+  useEffect(() => {
+    if (paletteOpen) setPaletteEverOpened(true);
+  }, [paletteOpen]);
+
+  useFollowAgent(prefs.followAgent, agent.messages.list, jumpToDocumentPage);
+
+  // Global composer focus shortcuts (29.0): ⌘L / Ctrl+L anywhere, or `/` when
+  // reading with no text input focused and no modal open.
+  useEffect(() => {
+    if (!doc) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isOverlayOpen()) return;
+      const isModL =
+        (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "l";
+      const isSlash =
+        !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === "/" && !isTypingTarget(e.target);
+      if (!isModL && !isSlash) return;
+      e.preventDefault();
+      if (zen) {
+        setMarginAskOpen(true);
+        setMarginFocusNonce((n) => n + 1);
+        return;
+      }
+      if (!s.assistant.open) {
+        s.assistant.setOpen(true);
+      }
+      if (panelTab === "record") {
+        setPanelTab("chat");
+      }
+      setFocusComposerNonce((n) => n + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doc, zen, s.assistant, panelTab]);
 
   // True while the reader is dragging the divider: the width transition is
   // for opening and closing, and interpolating every pointer move would make
@@ -370,26 +421,42 @@ function AppContent() {
     },
     [s.assistant.setOpen],
   );
+  // Stabilize messages fed to the PDF column (`SearchScope` and `citationsByPage`)
+  // while a stream is actively emitting tokens every few milliseconds, so
+  // `PreviewPane`, `PageGutter`, and `DocumentSearch` never re-render per token.
+  const settledMessagesRef = useRef(agent.messages.list);
+  if (!agentBusy) {
+    settledMessagesRef.current = agent.messages.list;
+  }
+  const settledMessages = settledMessagesRef.current;
+
   const searchScope = useMemo(
-    () => ({ messages: agent.messages.list, gotoMessage }),
-    [agent.messages.list, gotoMessage],
+    () => ({ messages: settledMessages, gotoMessage }),
+    [settledMessages, gotoMessage],
   );
 
   // Which answers cite which page, for the page margin's indigo dots (19.0).
-  const citedPages = useMemo(() => citationsByPage(agent.messages.list), [agent.messages.list]);
+  const citedPages = useMemo(() => citationsByPage(settledMessages), [settledMessages]);
 
   // The margin column's entries (20.0): every sentence of every answer that
   // cites a page, with the state its evidence put it in. Recomputed when a
   // check lands — the column has no chip of its own to re-render it — and when
   // a model review lands, since a review can lower a sentence's state.
-  const checksRev = useSyncExternalStore(subscribeChecks, checksRevision);
-  const reviewsRev = useSyncExternalStore(subscribeReviews, reviewRevision);
+  const marginColumnActive = Boolean(doc && (!s.assistant.open || zen));
+  const checksRev = useSyncExternalStore(
+    marginColumnActive ? subscribeChecks : noopSubscribe,
+    marginColumnActive ? checksRevision : zeroSnapshot,
+  );
+  const reviewsRev = useSyncExternalStore(
+    marginColumnActive ? subscribeReviews : noopSubscribe,
+    marginColumnActive ? reviewRevision : zeroSnapshot,
+  );
   const marginNotes = useMemo(
-    () => (doc ? answerNotesByPage(doc.path, agent.messages.list) : null),
+    () => (marginColumnActive && doc ? answerNotesByPage(doc.path, agent.messages.list) : null),
     // `checksRev` and `reviewsRev` are the subscription: they change exactly
     // when a check or a review lands and a state could have moved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [doc?.path, agent.messages.list, checksRev, reviewsRev],
+    [doc?.path, marginColumnActive, agent.messages.list, checksRev, reviewsRev],
   );
 
   const marginReply = useMemo(() => {
@@ -458,7 +525,7 @@ function AppContent() {
 
   return (
     <div className={`app v3${zen && doc ? " zen" : ""}`}>
-      {paletteOpen && (
+      {(paletteOpen || paletteEverOpened) && (
         <Suspense fallback={null}>
           <CommandPalette
             open={paletteOpen}
@@ -467,11 +534,11 @@ function AppContent() {
           />
         </Suspense>
       )}
-      {exportAvailable !== null && (
+      {lastExportAvailable !== null && (
         <Suspense fallback={null}>
           <ExportDialog
             open={exportAvailable !== null}
-            available={exportAvailable}
+            available={exportAvailable ?? lastExportAvailable}
             busy={agentBusy}
             onExport={runExport}
             onClose={() => setExportAvailable(null)}
@@ -576,7 +643,7 @@ function AppContent() {
         onCancel={() => setScanAllPrompt(null)}
       />
 
-      {overlays.libraryOpen && (
+      {(overlays.libraryOpen || libraryEverOpened) && (
         <Suspense fallback={null}>
           <RecentFilesDrawer
             open={overlays.libraryOpen}
@@ -594,7 +661,7 @@ function AppContent() {
         </Suspense>
       )}
 
-      {s.assistant.shell.settingsOpen && (
+      {(s.assistant.shell.settingsOpen || settingsEverOpened) && (
         <Suspense fallback={null}>
           <SettingsDrawer
             open={s.assistant.shell.settingsOpen}
@@ -738,6 +805,7 @@ function AppContent() {
                         s.assistant.shell.resize.onPointerDown(e);
                       }}
                       onNudge={s.assistant.shell.resize.nudgeWidth}
+                      onReset={s.assistant.shell.resize.resetWidth}
                       value={s.assistant.shell.resize.width}
                       min={s.assistant.shell.resize.min}
                       max={s.assistant.shell.resize.max}
@@ -769,9 +837,13 @@ function AppContent() {
                               jumpToDocumentPage(target);
                               setRevealedFindingId(id);
                             },
-                            onRevealCitation: (target, rects, notice) => {
+                            onRevealCitation: (target, rects, notice, secondPage) => {
                               jumpToDocumentPage(target);
-                              setRevealedCitation(rects ? { page: target, rects, nonce: Date.now() } : null);
+                              setRevealedCitation(
+                                rects
+                                  ? { page: target, rects, secondPage, nonce: Date.now() }
+                                  : null,
+                              );
                               // Nothing lit: say why, in the chip's words (21.0).
                               if (notice) showToast(notice);
                             },

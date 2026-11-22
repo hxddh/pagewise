@@ -136,6 +136,9 @@
     "staleFile": "The file changed since some of these were made — they may sit in the wrong place now.",
     "staleMark": "Made against an earlier version of this file, so it may sit in the wrong place now.",
     "regionMode": "Mark a region (drag a box; Esc to exit)",
+    "noteSelection": "Note",
+    "citeSelection": "Cite",
+    "regionPill": "Drag a box on the page · Esc to exit",
     "strike": "Strike out",
     "unstrike": "Restore",
     "struck": "Struck out",
@@ -261,7 +264,8 @@
     "timedOut": "The model stopped responding, so the run was ended. Try again — or switch provider if it keeps happening.",
     "export": "Export…",
     "moreActions": "More for this answer",
-    "placeholderNoKey": "Ask about this document — it is sent once AI is connected…"
+    "placeholderNoKey": "Ask about this document — it is sent once AI is connected…",
+    "scrollToBottom": "Jump to latest reply"
   },
   "empty": {
     "agentLead": "Set up AI to analyze documents",
@@ -273,6 +277,13 @@
     "example3": "What are the key terms?",
     "exampleWholeDoc": "Summarize all {{count}} pages",
     "exampleThisPage": "What is on page {{page}}?",
+    "starterSection": "Summarize “{{title}}” on page {{page}}",
+    "starterAnnotations": "Review the {{count}} annotations in this PDF",
+    "starterTables": "Extract key numbers from the table on page {{page}}",
+    "starterOutline": "Compare “{{first}}” and “{{second}}”",
+    "starterMarks": "Synthesize my {{count}} highlights so far",
+    "starterFigures": "Explain the chart or figure on page {{page}}",
+    "starterHint": "Click to ask · Shift+click to edit",
     "connectLead": "Connect AI to ask about this document",
     "worksWithoutAi": "Reading, search and OCR already work, on this computer, without it.",
     "connectAi": "Connect AI",
@@ -413,10 +424,13 @@
     "walkConversation": "Previous / next message",
     "jumpHistory": "Back / forward after a jump",
     "scrollRead": "Scroll down / up smoothly",
+    "focusComposer": "Focus assistant input",
+    "copyCitation": "Copy selected quote with citation",
     "export": "Export…",
     "zen": "Zen: hide the chrome"
   },
   "toast": {
+    "citationCopied": "Copied quote with page citation",
     "chatExported": "Chat exported",
     "noMessages": "No messages to export",
     "exportFailed": "Export failed",

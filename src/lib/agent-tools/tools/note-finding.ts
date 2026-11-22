@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as R from "../reading";
+import { placeFinding } from "../../finding-anchors";
 import {
   addFinding,
   duplicateFinding,
@@ -72,11 +73,36 @@ export function createNoteFindingTool() {
           // the run, it just means this one was not kept.
           return { recorded: false, reason: "not recorded (document at its limit, or empty claim)" };
         }
-        // The handle, not the uuid: it is the one form the agent ever sees,
-        // here and in the record note it is given on later questions, and two
-        // spellings of the same identifier is an invitation to quote the wrong
-        // one back. `resolveFindingId` accepts either.
-        return { recorded: true, id: findingHandle(finding.id), pages: finding.pages };
+        // Run placement check immediately when `evidence` is supplied so the
+        // placement cache is populated in-turn and the agent sees any quote/number
+        // mismatch right away (29.0).
+        const placement = finding.evidence
+          ? await placeFinding(path, finding).catch(() => null)
+          : null;
+        const verification =
+          placement?.status === "located"
+            ? ("located" as const)
+            : placement?.status === "absent"
+              ? ("unlocated" as const)
+              : placement?.status === "mismatch"
+                ? ("mismatch" as const)
+                : undefined;
+        return {
+          recorded: true,
+          id: findingHandle(finding.id),
+          pages: finding.pages,
+          ...(verification ? { verification } : {}),
+          ...(placement?.status === "mismatch" && placement.unstated.length > 0
+            ? {
+                unstated: placement.unstated,
+                note: `Recorded, but "${placement.unstated.join(", ")}" in claim was not found in the quoted passage — call revise_finding if inaccurate.`,
+              }
+            : placement?.status === "absent"
+              ? {
+                  note: "Recorded, but `evidence` was not found verbatim on the cited page(s) — verify exact wording.",
+                }
+              : {}),
+        };
       },
     ),
   });

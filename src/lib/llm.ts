@@ -170,12 +170,11 @@ function transformProviderRequestBody(settings: LlmSettings, rawBody: string): s
     }
 
     if (isAnthropicRoute && Array.isArray(parsed.messages)) {
-      for (const m of parsed.messages as Array<Record<string, unknown>>) {
-        if (!m || m.role !== "system") continue;
+      const msgs = parsed.messages as Array<Record<string, unknown>>;
+      const markCacheEphemeral = (m: Record<string, unknown> | undefined) => {
+        if (!m) return;
         if (typeof m.content === "string") {
-          m.content = [
-            { type: "text", text: m.content, cache_control: { type: "ephemeral" } },
-          ];
+          m.content = [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }];
           mutated = true;
         } else if (Array.isArray(m.content) && m.content.length > 0) {
           const last = m.content[m.content.length - 1] as Record<string, unknown>;
@@ -184,6 +183,16 @@ function transformProviderRequestBody(settings: LlmSettings, rawBody: string): s
             mutated = true;
           }
         }
+      };
+      for (const m of msgs) {
+        if (m && m.role === "system") markCacheEphemeral(m);
+      }
+      // Place a second ephemeral cache breakpoint on the message immediately
+      // preceding the newest message so multi-turn history and multi-step tool
+      // loops on Claude hit Anthropic's prompt cache (29.0).
+      if (msgs.length >= 3) {
+        const prior = msgs[msgs.length - 2];
+        if (prior && prior.role !== "system") markCacheEphemeral(prior);
       }
     }
 

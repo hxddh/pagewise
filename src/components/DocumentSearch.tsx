@@ -32,10 +32,12 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [relatedHits, setRelatedHits] = useState<RankedHit[]>([]);
+  const [messageMatches, setMessageMatches] = useState<ReturnType<typeof searchMessages>>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [resultsCollapsed, setResultsCollapsed] = useState(false);
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
   const searchGenRef = useRef(0);
   const hasJumpedRef = useRef(false);
 
@@ -63,6 +65,7 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
     if (!query.trim()) {
       setHits([]);
       setRelatedHits([]);
+      setMessageMatches([]);
       setActiveIndex(0);
       hasJumpedRef.current = false;
       setSearching(false);
@@ -75,9 +78,11 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
       const pages = docCache.getPages(doc.path);
       const results = searchDocumentPages(pages, query, MAX_SEARCH_HITS);
       const related = results.length === 0 && query.trim().length >= 2 ? rankPages(pages, query, 5) : [];
+      const convHits = scope ? searchMessages(scope.messages, query) : [];
       if (gen !== searchGenRef.current) return;
       setHits(results);
       setRelatedHits(related);
+      setMessageMatches(convHits);
       setActiveIndex(0);
       hasJumpedRef.current = false;
       setSearching(false);
@@ -85,12 +90,17 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
     return () => {
       window.clearTimeout(id);
     };
-  }, [query, doc.path, cacheRevision]);
+  }, [query, doc.path, cacheRevision, scope]);
 
-  const messageMatches = useMemo(
-    () => (query.trim() && scope ? searchMessages(scope.messages, query) : []),
-    [query, scope],
+  const totalNavItems = useMemo(
+    () => hits.length + (scope && scope.messages.length > 0 ? messageMatches.length : 0),
+    [hits.length, messageMatches.length, scope],
   );
+
+  useEffect(() => {
+    const activeRow = resultsRef.current?.querySelector<HTMLElement>(".doc-search-hit.active");
+    activeRow?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
 
   const ordinalOnPage = useCallback(
     (idx: number) => {
@@ -182,18 +192,42 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
         onFocus={() => setResultsCollapsed(false)}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-          if (e.key === "Enter" && hits.length > 0) {
+          if ((e.key === "ArrowDown" || e.key === "ArrowUp") && totalNavItems > 0) {
             e.preventDefault();
-            if (e.shiftKey) {
-              stepHit(-1);
-            } else if (!hasJumpedRef.current) {
-              const idx = hits[activeIndex] ? activeIndex : 0;
-              const target = hits[idx]!;
+            setResultsCollapsed(false);
+            const delta = e.key === "ArrowDown" ? 1 : -1;
+            const next = (activeIndex + delta + totalNavItems) % totalNavItems;
+            setActiveIndex(next);
+            if (next < hits.length) {
+              const target = hits[next]!;
               hasJumpedRef.current = true;
-              setActiveIndex(idx);
-              jumpToMatch(target.page, query, ordinalOnPage(idx));
-            } else {
-              stepHit(1);
+              jumpToMatch(target.page, query, ordinalOnPage(next));
+            }
+            return;
+          }
+          if (e.key === "Enter") {
+            if (activeIndex >= hits.length && conversation) {
+              const msgMatch = messageMatches[activeIndex - hits.length];
+              if (msgMatch) {
+                e.preventDefault();
+                conversation.gotoMessage(msgMatch.id);
+                setResultsCollapsed(true);
+                return;
+              }
+            }
+            if (hits.length > 0) {
+              e.preventDefault();
+              if (e.shiftKey) {
+                stepHit(-1);
+              } else if (!hasJumpedRef.current) {
+                const idx = hits[activeIndex] ? activeIndex : 0;
+                const target = hits[idx]!;
+                hasJumpedRef.current = true;
+                setActiveIndex(idx);
+                jumpToMatch(target.page, query, ordinalOnPage(idx));
+              } else {
+                stepHit(1);
+              }
             }
           }
         }}
@@ -241,7 +275,7 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
         ×
       </Button>
       {query.trim() && !resultsCollapsed && (
-        <Panel tone="elevated" className="doc-search-results">
+        <Panel ref={resultsRef} tone="elevated" className="doc-search-results">
           {searching ? (
             <EmptyState variant="inline" className="doc-search-empty" live="polite">
               {t("preview.searching")}
@@ -322,18 +356,23 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
                     </EmptyState>
                   ) : (
                     <ul>
-                      {messageMatches.map((match) => (
-                        <li key={match.id}>
-                          <ListRow
-                            className="doc-search-hit"
-                            onClick={() => {
-                              conversation.gotoMessage(match.id);
-                              setResultsCollapsed(true);
-                            }}
-                            label={<span className="hit-snippet">{highlightTerms(match.excerpt, query)}</span>}
-                          />
-                        </li>
-                      ))}
+                      {messageMatches.map((match, mIdx) => {
+                        const navIdx = hits.length + mIdx;
+                        return (
+                          <li key={match.id}>
+                            <ListRow
+                              className="doc-search-hit"
+                              active={navIdx === activeIndex}
+                              onClick={() => {
+                                setActiveIndex(navIdx);
+                                conversation.gotoMessage(match.id);
+                                setResultsCollapsed(true);
+                              }}
+                              label={<span className="hit-snippet">{highlightTerms(match.excerpt, query)}</span>}
+                            />
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </section>
@@ -346,12 +385,18 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
   );
 }
 
+let cachedHighlightQuery = "";
+let cachedHighlightRegex: RegExp | null = null;
+
 export function highlightTerms(snippet: string, query: string): ReactNode {
-  const terms = [...new Set(query.trim().split(/\s+/).filter((w) => w.length > 0))]
-    .sort((a, b) => b.length - a.length)
-    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (terms.length === 0) return snippet;
-  const re = new RegExp(`(${terms.join("|")})`, "gi");
-  const parts = snippet.split(re);
+  if (query !== cachedHighlightQuery) {
+    cachedHighlightQuery = query;
+    const terms = [...new Set(query.trim().split(/\s+/).filter((w) => w.length > 0))]
+      .sort((a, b) => b.length - a.length)
+      .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    cachedHighlightRegex = terms.length > 0 ? new RegExp(`(${terms.join("|")})`, "gi") : null;
+  }
+  if (!cachedHighlightRegex) return snippet;
+  const parts = snippet.split(cachedHighlightRegex);
   return parts.map((part, i) => (i % 2 === 1 ? <mark key={i} className="hit-term">{part}</mark> : part));
 }

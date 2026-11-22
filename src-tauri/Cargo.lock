@@ -2868,11 +2868,12 @@ dependencies = [
 
 [[package]]
 name = "pagewise"
-version = "28.0.0"
+version = "29.0.0"
 dependencies = [
  "keyring",
  "lopdf",
  "pdf-inspector",
+ "rayon",
  "serde",
  "serde_json",
  "tauri",

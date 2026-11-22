@@ -123,5 +123,12 @@ export function useResizeWidth(min = MIN, max = MAX) {
     [min, max, persistWidth],
   );
 
-  return { width, onPointerDown, nudgeWidth, min, max: ceiling };
+  const resetWidth = useCallback(() => {
+    const next = clampWidth(DEFAULT_WIDTH, min, maxWidthFor(window.innerWidth, max, min));
+    widthRef.current = next;
+    setWidth(next);
+    persistWidth(next);
+  }, [min, max, persistWidth]);
+
+  return { width, onPointerDown, nudgeWidth, resetWidth, min, max: ceiling };
 }

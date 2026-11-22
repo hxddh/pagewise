@@ -18,6 +18,7 @@
  * the system prompt, for the reason `agent-record-context.ts` gives.
  */
 import { cachedCitationCheck, withClaim } from "./citation-check";
+import { cachedReview, reviewBasis } from "./claim-review";
 import { claimBefore } from "./answer-tables";
 import { extractCitations } from "./citations";
 import { sanitizeForPrompt } from "./agent-view-context";
@@ -59,15 +60,28 @@ export function buildCitationFeedback(path: string | null, messages: readonly Mo
   const failed: string[] = [];
   const seen = new Set<string>();
   for (const c of extractCitations(answer)) {
-    const check = withClaim(cachedCitationCheck(path, c), claimBefore(answer, c.index), c.quote);
-    if (check?.status !== "unlocated" && check?.status !== "outOfRange" && check?.status !== "mismatch") continue;
+    const claim = claimBefore(answer, c.index);
+    const rawCheck = cachedCitationCheck(path, c);
+    const check = withClaim(rawCheck, claim, c.quote);
+    const review =
+      c.quote && claim ? cachedReview(path, claim, c.quote, reviewBasis(rawCheck)) : null;
+    const isContradicted = review?.verdict === "contradicts";
+    if (
+      !isContradicted &&
+      check?.status !== "unlocated" &&
+      check?.status !== "outOfRange" &&
+      check?.status !== "mismatch"
+    ) {
+      continue;
+    }
     if (seen.has(c.raw)) continue;
     seen.add(c.raw);
     const pages = c.pages.length > 1 ? `p${c.pages[0]}-${c.pages[c.pages.length - 1]}` : `p${c.pages[0]}`;
-    const why =
-      check.status === "outOfRange"
+    const why = isContradicted
+      ? `the passage contradicts your sentence (${sanitizeForPrompt(review.reason, 120)})`
+      : check?.status === "outOfRange"
         ? "that page does not exist"
-        : check.status === "mismatch"
+        : check?.status === "mismatch"
           ? `the words are there, but ${sanitizeForPrompt((check.unstated ?? []).join(", "), 80)} in your sentence is not in that passage`
           : "these words are not on that page";
     failed.push(`- ${pages} '${sanitizeForPrompt(c.quote ?? "", 160)}' — ${why}`);
