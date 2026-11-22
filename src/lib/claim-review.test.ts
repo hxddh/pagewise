@@ -13,6 +13,7 @@ let answer: (prompt: string) => { reviews: { item: number; verdict: string; reas
     })),
   };
 };
+let rawTextOverride: ((obj: unknown) => string) | null = null;
 vi.mock("ai", () => ({
   Output: {
     object: ({ schema }: { schema: unknown }) => ({ schema }),
@@ -20,9 +21,12 @@ vi.mock("ai", () => ({
   generateText: vi.fn(async (opts: { prompt: string; output?: unknown }) => {
     calls.push(opts);
     const obj = answer(opts.prompt);
+    const text = rawTextOverride ? rawTextOverride(obj) : JSON.stringify(obj);
     return {
-      text: JSON.stringify(obj),
-      output: opts.output ? obj : undefined,
+      text,
+      // AI SDK v6 defaults to `Output.text()`, so `res.output` is the raw text string
+      // whenever `opts.output` is omitted.
+      output: opts.output ? obj : text,
       usage: { inputTokens: 10, outputTokens: 5 },
     };
   }),
@@ -54,6 +58,7 @@ const defaultAnswer = answer;
 beforeEach(() => {
   calls.length = 0;
   answer = defaultAnswer;
+  rawTextOverride = null;
   store.reset();
   __resetClaimReviewsForTests();
 });
@@ -253,5 +258,11 @@ describe("a citation not found can be sent too (22.0)", () => {
   it("tells the model the words are not on the page word for word", () => {
     const p = reviewPrompt([{ ...item("a"), wholePage: true }]);
     expect(p).toContain("Citation 1\nPage 3 (the quoted words are not on it word for word; this is the page's text):");
+  });
+
+  it("parses text-mode JSON (including <think> and markdown fences) when res.output is a string", async () => {
+    rawTextOverride = (obj) => `<think>reasoning</think>\n\`\`\`json\n${JSON.stringify(obj)}\n\`\`\``;
+    const r = await reviewClaim("/a.pdf", "质保期为 24 个月", "三十六个月", "质保期为最终验收合格之日起三十六个月", 3);
+    expect(r).toEqual({ verdict: "contradicts", reason: "原文：三十六个月" });
   });
 });

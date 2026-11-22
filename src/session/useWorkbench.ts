@@ -322,9 +322,15 @@ export function useWorkbench(): Workbench {
 
       const myEpoch = ++epochRef.current;
       const prevPath = prev?.path ?? null;
+      const wasReload = Boolean(options?.forceReload || prevPath === path);
+
+      loadAbortRef.current?.abort();
+      const controller = new AbortController();
+      loadAbortRef.current = controller;
 
       setPhase("switching");
       setLoading(true);
+      loadingRef.current = true;
       setChatLoading(true);
       setProgress({ stage: "opening", message: "load.opening", percent: 0 });
       setFileError(null);
@@ -333,6 +339,20 @@ export function useWorkbench(): Workbench {
       const messagesToSave = stampMissingFinishedAt([...messagesRef.current], Date.now());
       agent.run.stop();
       agent.run.reset();
+
+      const restorePreviousSession = () => {
+        if (prev) {
+          chatHydrateRef.current = { path: prev.path, messages: messagesToSave };
+          setChatHydrateNonce((n) => n + 1);
+          agentSetMessagesRef.current(messagesToSave);
+          messagesRef.current = messagesToSave;
+          setPhase("ready");
+        } else {
+          chatHydrateRef.current = null;
+          setPhase("empty");
+        }
+        setChatLoading(false);
+      };
 
       if (prevPath) {
         void recordProgress(prevPath, previewPageRef.current, prev?.totalPages ?? 0);
@@ -343,25 +363,26 @@ export function useWorkbench(): Workbench {
         }
       }
 
-      loadAbortRef.current?.abort();
-      const controller = new AbortController();
-      loadAbortRef.current = controller;
-
       // Evict cached PDF proxy and runs BEFORE in-place reload so `getPdfOutline`,
       // `getPdfPageLabels`, and `getPdfAnnotations` never read pre-edit state (28.0).
-      if (options?.forceReload || prevPath === path) {
+      if (wasReload) {
         clearPdfCache(path);
         clearFindingAnchors(path);
       }
 
       try {
+        if (controller.signal.aborted) {
+          const err = new Error("Document open aborted");
+          err.name = "AbortError";
+          throw err;
+        }
         const staged = await loadDocument(
           path,
           (p) => {
             if (epochRef.current === myEpoch) setProgress(p);
           },
           controller.signal,
-          { deferCache: true, isReload: Boolean(options?.forceReload || prevPath === path) },
+          { deferCache: true, isReload: wasReload },
         );
 
         if (epochRef.current !== myEpoch) return;
@@ -373,6 +394,11 @@ export function useWorkbench(): Workbench {
           if (import.meta.env.DEV) console.warn("[session] chat history load failed", e);
         }
 
+        if (controller.signal.aborted) {
+          const err = new Error("Document open aborted");
+          err.name = "AbortError";
+          throw err;
+        }
         if (epochRef.current !== myEpoch) return;
 
         scopeRef.current?.dispose();
@@ -419,12 +445,13 @@ export function useWorkbench(): Workbench {
         );
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
-        if (e instanceof Error && e.name === "AbortError") return;
+        if (e instanceof Error && e.name === "AbortError") {
+          restorePreviousSession();
+          return;
+        }
         if (classifyOpenError(e)?.kind === "encrypted") {
           setPasswordTarget({ path, wrongPassword: false, submitting: false });
-          setPhase(prev ? "ready" : "empty");
-          setChatLoading(false);
-          chatHydrateRef.current = null;
+          restorePreviousSession();
           if (!prev) setDocument(null);
           return;
         }
@@ -432,9 +459,7 @@ export function useWorkbench(): Workbench {
         const msg =
           openErrorMessage(e, t) ?? (raw.startsWith("errors.") ? t(raw) : raw || t("load.failed"));
         setFileError(msg);
-        setPhase(prev ? "ready" : "empty");
-        setChatLoading(false);
-        chatHydrateRef.current = null;
+        restorePreviousSession();
         if (!prev) {
           setDocument(null);
         }
@@ -450,8 +475,16 @@ export function useWorkbench(): Workbench {
           const queuedOpts = queuedOpenOptionsRef.current;
           queuedOpenPathRef.current = null;
           queuedOpenOptionsRef.current = undefined;
-          if (queued && (queuedOpts?.forceReload || queued !== documentRef.current?.path)) {
-            void switchDocument(queued, queuedOpts);
+          if (
+            queued &&
+            (queuedOpts?.forceReload ||
+              queued !== documentRef.current?.path ||
+              (wasReload && queued === path))
+          ) {
+            void switchDocument(queued, {
+              ...queuedOpts,
+              ...(wasReload && queued === path ? { forceReload: true } : {}),
+            });
           }
         }
       }

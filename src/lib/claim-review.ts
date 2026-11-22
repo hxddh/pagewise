@@ -250,8 +250,17 @@ export async function askModel(
       prompt,
       abortSignal,
     });
+    const rawOutput = (res as { output?: unknown }).output;
     const candidate =
-      (res as { output?: unknown }).output ?? parseClaimReviewText(res.text ?? "");
+      typeof rawOutput === "object" && rawOutput !== null
+        ? rawOutput
+        : parseClaimReviewText(
+            typeof res.text === "string"
+              ? res.text
+              : typeof rawOutput === "string"
+                ? rawOutput
+                : "",
+          );
     const checked = schema.safeParse(candidate);
     if (!checked.success) throw new Error("Invalid claim review payload");
     parsed = checked.data;
