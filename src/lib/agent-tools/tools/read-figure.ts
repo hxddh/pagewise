@@ -15,8 +15,8 @@ export function createReadFigureTool(
   return tool({
     description:
       "Inspect a figure, chart or diagram on a page via the vision model (billed). " +
-      "Figures are numbered from 1 by size (omit index for largest; falls back to " +
-      "full page for vector plots). Pass question for exact axis/series values.",
+      "Figures are numbered from 1 by size (omit index for largest; pass fullPage=true " +
+      "for vector plots/equations on pages that also have a small logo). Pass question for exact values.",
     inputSchema: z.object({
       page: z.number().int().min(1),
       index: z
@@ -25,6 +25,10 @@ export function createReadFigureTool(
         .min(1)
         .optional()
         .describe(`Which figure on the page, largest first (default ${R.DEFAULT_FIGURE_INDEX})`),
+      fullPage: z
+        .boolean()
+        .optional()
+        .describe("Inspect the full rendered page instead of cropping a single bitmap"),
       question: z
         .string()
         .optional()
@@ -39,7 +43,7 @@ export function createReadFigureTool(
       }),
       "index",
       () => budget.gen,
-      async ({ page, index = R.DEFAULT_FIGURE_INDEX, question }, options, runGen) => {
+      async ({ page, index = R.DEFAULT_FIGURE_INDEX, fullPage = false, question }, options, runGen) => {
         const path = R.activeDocPath(options);
         const doc = R.requireLoadedDoc(path);
         R.assertPageInBounds(doc, page);
@@ -48,15 +52,15 @@ export function createReadFigureTool(
         }
 
         const figures = figuresOnPage(doc.figures, page);
-        if (figures.length === 0 && index > 1) {
+        if (!fullPage && figures.length === 0 && index > 1) {
           return {
             page,
             figureCount: 0,
             note: `Page ${page} has no embedded bitmap figures; omit index to inspect the rendered page.`,
           };
         }
-        const figure = figures.length > 0 ? figures[index - 1] : undefined;
-        if (figures.length > 0 && !figure) {
+        const figure = !fullPage && figures.length > 0 ? figures[index - 1] : undefined;
+        if (!fullPage && figures.length > 0 && !figure) {
           return {
             page,
             figureCount: figures.length,
@@ -79,7 +83,7 @@ export function createReadFigureTool(
           return { page, figureCount: figures.length, visionUnavailable: true, note: R.NO_VISION_NOTE };
         }
 
-        if (budget.scans >= budget.maxScans) {
+        if (budget.gen !== runGen || budget.scans >= budget.maxScans) {
           return { page, figureCount: figures.length, scanLimitReached: true, note: R.FIGURE_LIMIT_NOTE };
         }
         budget.scans += 1;

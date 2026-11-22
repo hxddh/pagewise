@@ -125,6 +125,13 @@ export interface FollowPageContext {
   viewingPage: number;
 }
 
+/** User asks to locate, navigate to, or inspect a specific clause/section/figure/table. */
+export function hasLocateOrNavigateIntent(text: string): boolean {
+  return /(?:带我看|跳到|跳转到|转到|定位|找到|在哪一?页|在哪个?位置|哪一页有|查看图|看看图|take me to|jump to|go to|navigate to|show me|where is|which page (?:has|is|mentions)|locate\b)/i.test(
+    text,
+  );
+}
+
 /** Whether follow-agent should jump preview to a page the agent just read. */
 export function shouldFollowAgentToPage(
   readPage: number,
@@ -140,18 +147,13 @@ export function shouldFollowAgentToPage(
     return readPage === viewingPage;
   }
 
-  // Naming pages narrows what to follow to those pages — it does not switch
-  // following off. This returned a flat `false`, so asking "第5页讲了什么" and
-  // watching the agent read page 5 left the preview parked wherever it was:
-  // the one case where following is least ambiguous was the one case it refused.
-  // Same shape as the current-page branch above, which had it right.
-  //
-  // A range wider than MAX_RANGE_SPAN is not enumerated, so only its endpoints
-  // are here. That is the intended reading: an ask spanning hundreds of pages is
-  // a survey, and chasing the preview through it is not what the reader wants.
   const explicit = extractExplicitPageNumbers(userText);
   if (explicit.length > 0) {
     return explicit.includes(readPage);
+  }
+
+  if (hasLocateOrNavigateIntent(userText)) {
+    return true;
   }
 
   return readPage === viewingPage;

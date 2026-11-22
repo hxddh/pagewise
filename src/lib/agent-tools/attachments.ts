@@ -2,7 +2,7 @@ import { estimateTokens } from "./reading";
 import { linksOnPages, type PageLink } from "../page-links";
 import { marksOnPage } from "../mark-store";
 import type { LoadedDocument } from "../types";
-import type { ReadAttachments } from "./result";
+import type { AnnotationAttachment, ReadAttachments } from "./result";
 
 /**
  * What travels beside the page text, for the pages that were actually sent.
@@ -70,12 +70,34 @@ export function attachmentsFor(
     }));
   if (marks.length > 0) out.marks = marks;
 
+  if (doc.annotations && doc.annotations.length > 0) {
+    const pageSet = new Set(deliveredPages);
+    const notes: AnnotationAttachment[] = doc.annotations
+      .filter((a) => pageSet.has(a.page))
+      .slice(0, 40)
+      .map((a) => ({
+        page: a.page,
+        subtype: a.subtype,
+        ...(a.author ? { author: a.author.slice(0, 60) } : {}),
+        ...(a.quoted
+          ? {
+              quoted:
+                a.quoted.length > MARK_SNIPPET_CHARS
+                  ? `${a.quoted.slice(0, MARK_SNIPPET_CHARS)}…`
+                  : a.quoted,
+            }
+          : {}),
+        ...(a.contents ? { contents: a.contents.slice(0, 300) } : {}),
+      }));
+    if (notes.length > 0) out.annotations = notes;
+  }
+
   return out;
 }
 
 /** Tokens an assembled attachment set costs, for the run's read budget. */
 export function attachmentTokenCost(attachments: ReadAttachments): number {
-  if (!attachments.links && !attachments.marks) return 0;
+  if (!attachments.links && !attachments.marks && !attachments.annotations) return 0;
   try {
     return estimateTokens(JSON.stringify(attachments));
   } catch {

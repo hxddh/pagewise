@@ -245,10 +245,11 @@ export function describeAnnotations(
   const lines: string[] = [];
   let used = 0;
   for (const a of annotations) {
+    const tag = a.subtype === "StrikeOut" || a.subtype === "Widget" ? ` [${a.subtype}]` : "";
     const who = a.author ? ` (${a.author})` : "";
     const on = a.quoted ? ` on "${a.quoted.slice(0, 120)}"` : "";
     const said = a.contents ? `: ${a.contents}` : "";
-    const line = `- p${a.page}${who}${on}${said}`;
+    const line = `- p${a.page}${tag}${who}${on}${said}`;
     if (used + line.length + 1 > budget) break;
     used += line.length + 1;
     lines.push(line);

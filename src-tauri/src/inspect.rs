@@ -774,6 +774,7 @@ struct PositionsData {
     mcid_runs: Vec<(u32, i64, String)>,
     links: Vec<Link>,
     figures: Vec<Figure>,
+    two_col_blocks: HashMap<u32, Vec<(Vec<String>, Vec<String>)>>,
 }
 
 struct CachedPdf {
@@ -1326,8 +1327,8 @@ fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData,
     let mut by_page: HashMap<u32, Vec<TextItemRect>> = HashMap::new();
     let mut mcid_runs: Vec<(u32, i64, String)> = Vec::new();
     let mut links = Vec::new();
+    let mut links_by_page: HashMap<u32, Vec<(String, f32, f32)>> = HashMap::new();
     let mut figures = Vec::new();
-    let mut lines: Vec<(u32, Rect, String)> = Vec::new();
 
     for item in items {
         let (dx, dy) = origin_of(&meta.origins, item.page);
@@ -1343,6 +1344,10 @@ fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData,
         match item.item_type {
             ItemType::Link(url) => {
                 if !url.starts_with('#') {
+                    links_by_page
+                        .entry(item.page)
+                        .or_default()
+                        .push((url.clone(), rect.x, rect.y));
                     links.push(Link {
                         page: item.page,
                         url,
@@ -1356,14 +1361,11 @@ fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData,
                 rect,
             }),
             ItemType::Text => {
-                if !item.text.trim().is_empty() {
-                    lines.push((item.page, rect, item.text.clone()));
-                    if item.width > 0.0 && item.height > 0.0 {
-                        by_page.entry(item.page).or_default().push(TextItemRect {
-                            text: item.text,
-                            rect,
-                        });
-                    }
+                if !item.text.trim().is_empty() && item.width > 0.0 && item.height > 0.0 {
+                    by_page.entry(item.page).or_default().push(TextItemRect {
+                        text: item.text,
+                        rect,
+                    });
                 }
             }
             _ => {}
@@ -1371,28 +1373,33 @@ fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData,
     }
 
     for g in &meta.goto_links {
-        let dup = links.iter().any(|l| {
-            l.page == g.page
-                && l.url == g.url
-                && (l.rect.x - g.rect.x).abs() < 1.0
-                && (l.rect.y - g.rect.y).abs() < 1.0
+        let dup = links_by_page.get(&g.page).is_some_and(|existing| {
+            existing.iter().any(|(url, lx, ly)| {
+                *url == g.url && (lx - g.rect.x).abs() < 1.0 && (ly - g.rect.y).abs() < 1.0
+            })
         });
         if !dup {
+            links_by_page
+                .entry(g.page)
+                .or_default()
+                .push((g.url.clone(), g.rect.x, g.rect.y));
             links.push(g.clone());
         }
     }
 
     for link in links.iter_mut() {
-        link.context = link_context(link, &lines);
+        let page_items = by_page.get(&link.page).map(Vec::as_slice).unwrap_or(&[]);
+        link.context = link_context(link, page_items);
     }
 
-    let _ = reorder_two_column_blocks(&mut by_page);
+    let two_col_blocks = reorder_two_column_blocks(&mut by_page);
 
     Ok(PositionsData {
         by_page,
         mcid_runs,
         links,
         figures,
+        two_col_blocks,
     })
 }
 
@@ -1502,18 +1509,15 @@ const LINK_CONTEXT_MAX_CHARS: usize = 200;
 /// being written back into the page as `[anchor](url)`, which would swallow the
 /// sentence. The line is still the useful thing to show: it says whose link it
 /// is in a way the URL alone often does not.
-fn link_context(link: &Link, lines: &[(u32, Rect, String)]) -> String {
+fn link_context(link: &Link, page_items: &[TextItemRect]) -> String {
     let mut best: Option<(f32, &str)> = None;
-    for (page, rect, text) in lines {
-        if *page != link.page {
-            continue;
-        }
-        let share = covered_share(&link.rect, rect);
+    for item in page_items {
+        let share = covered_share(&link.rect, &item.rect);
         if share < LINK_CONTEXT_MIN_OVERLAP {
             continue;
         }
         if best.is_none_or(|(top, _)| share > top) {
-            best = Some((share, text));
+            best = Some((share, item.text.as_str()));
         }
     }
     let Some((_, text)) = best else {
@@ -1630,8 +1634,11 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
                 }
             }
             strip_running_lines(&mut texts);
-            for t in &mut texts {
-                *t = clean_extracted_markdown(t);
+            {
+                use rayon::prelude::*;
+                texts.par_iter_mut().for_each(|t| {
+                    *t = clean_extracted_markdown(t);
+                });
             }
             Ok((texts, reasons))
         })();
@@ -1644,77 +1651,41 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
     let (mut texts, ocr_reasons) = extracted_res?;
     if approx_pages <= POSITIONS_PAGE_LIMIT {
         if let Ok(pos) = cached.positions() {
-            // Re-run lightweight column check on page copies to split any interleaved
-            // borderless 2-column blocks (e.g. signature blocks) in `texts`.
-            let mut probe = pos.by_page.clone();
-            // Note: `pos.by_page` is already column-ordered `[L0..Lm, R0..Rm]`;
-            // reconstruct `(left, right)` pairs directly where `m >= 3` share `y`.
-            for (&pnum, items) in &pos.by_page {
+            for (&pnum, blocks) in &pos.two_col_blocks {
                 let idx = (pnum.saturating_sub(1)) as usize;
                 if idx >= texts.len() || has_table(&texts[idx]) {
                     continue;
                 }
-                let mut start = 0usize;
-                while start + 5 < items.len() {
-                    let mut m = 0usize;
-                    // Find split `start..start+m` vs `start+m..start+2m` with matching `y` baselines.
-                    for cand_m in 3..=((items.len() - start) / 2) {
-                        let left_slice = &items[start..start + cand_m];
-                        let right_slice = &items[start + cand_m..start + cand_m * 2];
-                        let lx = left_slice[0].rect.x;
-                        let rx = right_slice[0].rect.x;
-                        let ok = left_slice.iter().zip(right_slice.iter()).all(|(lk, rk)| {
-                            (lk.rect.y - rk.rect.y).abs() <= 2.5
-                                && rk.rect.x - (lk.rect.x + lk.rect.width) >= 40.0
-                                && (lk.rect.x - lx).abs() <= 8.0
-                                && (rk.rect.x - rx).abs() <= 8.0
-                                && lk.rect.width <= 250.0
-                                && rk.rect.width <= 250.0
-                        });
-                        if ok {
-                            m = cand_m;
-                        } else if m > 0 {
-                            break;
-                        }
-                    }
-                    if m >= 3 {
-                        let left: Vec<String> = items[start..start + m]
-                            .iter()
-                            .map(|it| it.text.trim().to_string())
-                            .collect();
-                        let right: Vec<String> = items[start + m..start + m * 2]
-                            .iter()
-                            .map(|it| it.text.trim().to_string())
-                            .collect();
-                        texts[idx] = apply_two_column_markdown_fix(&texts[idx], &left, &right);
-                        start += m * 2;
-                    } else {
-                        start += 1;
-                    }
+                for (left, right) in blocks {
+                    texts[idx] = apply_two_column_markdown_fix(&texts[idx], left, right);
                 }
             }
-            let _ = &mut probe;
         }
     }
     let figure_pages: std::collections::HashSet<u32> = figures.iter().map(|f| f.page).collect();
 
-    let pages: Vec<Page> = texts
-        .into_iter()
-        .zip(ocr_reasons)
-        .enumerate()
-        .map(|(i, (text, reason))| {
-            let page_num = (i + 1) as u32;
-            let has_visual_signal = detected_ocr_pages.contains(&page_num)
-                || reason.is_some()
-                || figure_pages.contains(&page_num);
-            Page {
-                page: page_num,
-                needs_vision: text.is_empty() && has_visual_signal && !no_text_pages.contains(&page_num),
-                has_table: has_table(&text),
-                text,
-            }
-        })
-        .collect();
+    let pages: Vec<Page> = {
+        use rayon::prelude::*;
+        texts
+            .into_par_iter()
+            .zip(ocr_reasons)
+            .enumerate()
+            .map(|(i, (text, reason))| {
+                let page_num = (i + 1) as u32;
+                let has_visual_signal = detected_ocr_pages.contains(&page_num)
+                    || reason.is_some()
+                    || figure_pages.contains(&page_num);
+                Page {
+                    page: page_num,
+                    needs_vision: text.is_empty()
+                        && has_visual_signal
+                        && !no_text_pages.contains(&page_num),
+                    has_table: has_table(&text),
+                    text,
+                }
+            })
+            .collect()
+    };
 
     let outline = synthesize_outline(&pages);
 
@@ -1859,17 +1830,40 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
         if let Some(hit) = lock_unpoisoned(&cached.large_positions).get(&page).cloned() {
             return Ok(hit);
         }
-        let items = if doc_check::has_unlocked_session(&cached.key.0) {
-            extract_text_with_positions_mem(&cached.bytes)
-                .map_err(map_err)?
-                .into_iter()
-                .filter(|item| item.page == page)
-                .collect::<Vec<_>>()
-        } else {
-            let filter = std::collections::HashSet::from([page]);
-            pdf_inspector::extractor::extract_text_with_positions_pages(path, Some(&filter))
-                .map_err(map_err)?
-        };
+        if doc_check::has_unlocked_session(&cached.key.0) {
+            let all_items = extract_text_with_positions_mem(&cached.bytes).map_err(map_err)?;
+            let mut grouped: HashMap<u32, Vec<TextItemRect>> = HashMap::new();
+            for item in all_items {
+                if !matches!(item.item_type, ItemType::Text)
+                    || item.text.trim().is_empty()
+                    || item.width <= 0.0
+                    || item.height <= 0.0
+                {
+                    continue;
+                }
+                let (dx, dy) = origin_of(&meta.origins, item.page);
+                grouped.entry(item.page).or_default().push(TextItemRect {
+                    text: item.text,
+                    rect: Rect {
+                        x: item.x + dx,
+                        y: item.y + dy,
+                        width: item.width,
+                        height: item.height,
+                    },
+                });
+            }
+            let mut store = lock_unpoisoned(&cached.large_positions);
+            for p in 1..=(meta.origins.len() as u32) {
+                store.entry(p).or_default();
+            }
+            for (p, p_items) in grouped {
+                store.insert(p, p_items);
+            }
+            return Ok(store.get(&page).cloned().unwrap_or_default());
+        }
+        let filter = std::collections::HashSet::from([page]);
+        let items = pdf_inspector::extractor::extract_text_with_positions_pages(path, Some(&filter))
+            .map_err(map_err)?;
         let (dx, dy) = origin_of(&meta.origins, page);
         let page_items: Vec<TextItemRect> = items
             .into_iter()
@@ -2149,22 +2143,31 @@ mod tests {
         }
     }
 
+    fn text_item(r: Rect, text: impl Into<String>) -> TextItemRect {
+        TextItemRect {
+            text: text.into(),
+            rect: r,
+        }
+    }
+
     #[test]
     fn places_a_link_on_the_line_it_covers_most() {
-        let lines = vec![
-            (1, rect(0.0, 100.0, 300.0, 12.0), "the line above".to_string()),
-            (1, rect(0.0, 80.0, 300.0, 12.0), "See <u>the spec</u> for details".to_string()),
+        let items = vec![
+            text_item(rect(0.0, 100.0, 300.0, 12.0), "the line above"),
+            text_item(rect(0.0, 80.0, 300.0, 12.0), "See <u>the spec</u> for details"),
         ];
         let link = link_at(rect(30.0, 81.0, 40.0, 10.0));
         // Inline markup is stripped: the context reads as a sentence.
-        assert_eq!(link_context(&link, &lines), "See the spec for details");
+        assert_eq!(link_context(&link, &items), "See the spec for details");
     }
 
     #[test]
     fn never_borrows_a_line_from_another_page() {
-        let lines = vec![(2, rect(0.0, 80.0, 300.0, 12.0), "on page two".to_string())];
+        let mut by_page: HashMap<u32, Vec<TextItemRect>> = HashMap::new();
+        by_page.insert(2, vec![text_item(rect(0.0, 80.0, 300.0, 12.0), "on page two")]);
         let link = link_at(rect(30.0, 81.0, 40.0, 10.0));
-        assert_eq!(link_context(&link, &lines), "");
+        let page_items = by_page.get(&link.page).map(Vec::as_slice).unwrap_or(&[]);
+        assert_eq!(link_context(&link, page_items), "");
     }
 
     #[test]
@@ -2172,17 +2175,17 @@ mod tests {
         // A link box floating clear of every run — a bare annotation over a
         // figure. Naming the nearest line would attribute it to a sentence it
         // has nothing to do with.
-        let lines = vec![(1, rect(0.0, 400.0, 300.0, 12.0), "far away".to_string())];
+        let items = vec![text_item(rect(0.0, 400.0, 300.0, 12.0), "far away")];
         let link = link_at(rect(30.0, 81.0, 40.0, 10.0));
-        assert_eq!(link_context(&link, &lines), "");
+        assert_eq!(link_context(&link, &items), "");
     }
 
     #[test]
     fn truncates_a_context_that_is_really_a_paragraph() {
         let long = "word ".repeat(80);
-        let lines = vec![(1, rect(0.0, 80.0, 300.0, 12.0), long)];
+        let items = vec![text_item(rect(0.0, 80.0, 300.0, 12.0), long)];
         let link = link_at(rect(30.0, 81.0, 40.0, 10.0));
-        let context = link_context(&link, &lines);
+        let context = link_context(&link, &items);
         assert!(context.ends_with('…'));
         assert_eq!(context.chars().count(), LINK_CONTEXT_MAX_CHARS + 1);
     }

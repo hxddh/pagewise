@@ -500,7 +500,7 @@
   transform: translateX(-50%);
   background: var(--page-surface);
   box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--border-strong) 55%, transparent),
     var(--shadow-md);
 }
 

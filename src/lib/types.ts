@@ -158,6 +158,10 @@ export interface LoadedDocument {
    * live in `mark-store` and use the other coordinate convention.
    */
   annotations?: DocAnnotation[];
+  /** Seeded page dimensions (e.g. page 1) so initial mount avoids a scale=1→fit reflow (29.0). */
+  initialPageSizes?: Array<{ page: number; size: { width: number; height: number } }>;
+  /** True during progressive fast-shell mount while full Rust text extraction is still finishing (29.0). */
+  extracting?: boolean;
   /**
    * What each page calls itself, when that differs from where it sits.
    *

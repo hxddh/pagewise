@@ -310,9 +310,19 @@ function sparsePages(doc: LoadedDocument, cap: number | null): number[] {
  * cap are not forgotten — they are read on demand — but the reading line says
  * so when the sweep stops (20.0).
  */
-function sweepWindow(doc: LoadedDocument): { pages: number[]; outside: number } {
+function sweepWindow(
+  doc: LoadedDocument,
+  startPage = 1,
+): { pages: number[]; outside: number } {
   const all = sparsePages(doc, null);
-  const pages = all.slice(0, DEFAULT_AUTO_INDEX_PAGES);
+  if (all.length === 0) return { pages: [], outside: 0 };
+  const pivot = Math.max(1, startPage);
+  // Order outward from the page the reader is currently looking at (`[pivot..end, 1..pivot-1]`)
+  // so resumed or jumped documents index nearby pages first instead of always starting at p.1 (29.0).
+  const fromPivot = all.filter((p) => p >= pivot);
+  const beforePivot = all.filter((p) => p < pivot);
+  const ordered = [...fromPivot, ...beforePivot];
+  const pages = ordered.slice(0, DEFAULT_AUTO_INDEX_PAGES);
   return { pages, outside: all.length - pages.length };
 }
 
@@ -734,6 +744,7 @@ export function scheduleIndex(
     pages?: number[];
     visionBudget?: number | null;
     skipOcr?: boolean;
+    startPage?: number;
   },
 ): void {
   queues.get(doc.path)?.abort.abort();
@@ -752,7 +763,9 @@ export function scheduleIndex(
   // A new sweep replaces what the line said about the last one.
   readingStops.delete(doc.path);
 
-  const planned = options?.pages ? { pages: options.pages, outside: 0 } : sweepWindow(doc);
+  const planned = options?.pages
+    ? { pages: options.pages, outside: 0 }
+    : sweepWindow(doc, options?.startPage ?? 1);
   if (planned.pages.length === 0) return;
   entry.pages = planned.pages;
   entry.outside = planned.outside;

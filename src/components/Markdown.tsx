@@ -49,6 +49,8 @@ const SAFE_IMG_SCHEMES = ["asset:", "data:"];
 // Citations before page references: a marker becomes a link first, and
 // `remarkPageRefs` leaves links alone.
 const remarkPlugins = [remarkGfm, remarkCitations, remarkPageRefs];
+const fastTailPlugins = [remarkCitations, remarkPageRefs];
+const GFM_SYNTAX_RE = /[|~^[\]]|https?:|www\./i;
 
 /**
  * Let the page-citation scheme survive react-markdown's URL sanitizer.
@@ -306,8 +308,9 @@ const tailComponents = {
 
 const ParsedTail = memo(function ParsedTail({ text }: { text: string }) {
   if (!text) return null;
+  const plugins = GFM_SYNTAX_RE.test(text) ? remarkPlugins : fastTailPlugins;
   return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={tailComponents} urlTransform={urlTransform}>
+    <ReactMarkdown remarkPlugins={plugins} components={tailComponents} urlTransform={urlTransform}>
       {text}
     </ReactMarkdown>
   );

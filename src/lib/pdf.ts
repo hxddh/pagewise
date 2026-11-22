@@ -185,6 +185,8 @@ const pageCache = new Map<string, PageRenderSnapshot>();
  */
 const textLayerCache = new Map<string, unknown>();
 const MAX_TEXT_LAYER_CACHE = 40;
+const geometryCache = new Map<string, PageGeometry>();
+const MAX_GEOMETRY_CACHE = 500;
 
 /**
  * Above this page count, a document's annotations are not collected.
@@ -707,28 +709,48 @@ async function paintPage(
   const pixelWidth = Math.max(1, Math.round(viewport.width));
   const pixelHeight = Math.max(1, Math.round(viewport.height));
 
-  canvas.width = pixelWidth;
-  canvas.height = pixelHeight;
-  canvas.style.width = `${cssWidth}px`;
-  canvas.style.height = `${cssHeight}px`;
-  canvas.style.maxWidth = "none";
-  canvas.style.maxHeight = "none";
+  const prev = activeRenderTasks.get(canvas);
+  prev?.cancel();
 
-  const ctx = canvas.getContext("2d", { alpha: false });
+  // Double-buffer re-renders of an already-painted display canvas so zoom,
+  // panel resize, and rough→crisp settle never flash blank while pdf.js paints (29.0).
+  let targetCanvas = canvas;
+  let staging: HTMLCanvasElement | null = null;
+  if (
+    intent === "display" &&
+    canvas.width > 0 &&
+    canvas.height > 0 &&
+    typeof document !== "undefined"
+  ) {
+    const candidate = document.createElement("canvas");
+    const candidateCtx = candidate.getContext("2d", { alpha: false });
+    if (candidateCtx) {
+      staging = candidate;
+      targetCanvas = candidate;
+    }
+  }
+
+  targetCanvas.width = pixelWidth;
+  targetCanvas.height = pixelHeight;
+  if (!staging) {
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+    canvas.style.maxWidth = "none";
+    canvas.style.maxHeight = "none";
+  }
+
+  const ctx = targetCanvas.getContext("2d", { alpha: false });
   if (!ctx) throw new Error("Canvas not supported");
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, pixelWidth, pixelHeight);
 
-  const prev = activeRenderTasks.get(canvas);
-  prev?.cancel();
-
   countEvent("raster");
   const task = page.render({
     canvasContext: ctx,
     viewport,
-    canvas,
+    canvas: targetCanvas,
     intent,
   });
 
@@ -738,14 +760,34 @@ async function paintPage(
 
   try {
     await task.promise;
+    if (staging) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
+      canvas.style.maxWidth = "none";
+      canvas.style.maxHeight = "none";
+      const destCtx = canvas.getContext("2d", { alpha: false });
+      if (destCtx) {
+        destCtx.setTransform(1, 0, 0, 1, 0, 0);
+        destCtx.imageSmoothingEnabled = false;
+        destCtx.drawImage(staging, 0, 0);
+      }
+    }
   } catch (e) {
     if ((e as { name?: string })?.name === "RenderingCancelledException") {
       return { cssWidth, cssHeight, cancel: () => task.cancel(), cancelled: true };
     }
     throw e;
   } finally {
+    if (staging) {
+      staging.width = 0;
+      staging.height = 0;
+    }
     activePaints.delete(paintHandle);
-    activeRenderTasks.delete(canvas);
+    if (activeRenderTasks.get(canvas) === task) {
+      activeRenderTasks.delete(canvas);
+    }
   }
 
   return { cssWidth, cssHeight, cancel: () => task.cancel() };
@@ -931,6 +973,10 @@ export async function getPdfAnnotations(
     const out: DocAnnotation[] = [];
     for (let start = 1; start <= totalPages; start += ANNOTATION_BATCH_SIZE) {
       if (aborted()) break;
+      if (start > 1) {
+        await new Promise<void>((r) => setTimeout(r, 0));
+        if (aborted()) break;
+      }
       const end = Math.min(totalPages, start + ANNOTATION_BATCH_SIZE - 1);
       const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
       const batch = await Promise.all(
@@ -991,27 +1037,85 @@ export async function getPdfOutline(path: string, maxEntries = 100): Promise<Pdf
     const doc = await getPdfDocument(path);
     const tree = await doc.getOutline();
     if (!tree || tree.length === 0) return [];
-    const out: PdfBookmark[] = [];
-    const walk = async (
+    const rawItems: Array<{ title: string; dest: unknown; level: number }> = [];
+    const collect = (
       nodes: Awaited<ReturnType<PDFDocumentProxy["getOutline"]>>,
       level: number,
-    ): Promise<void> => {
+    ): void => {
       if (!nodes) return;
       for (const node of nodes) {
-        if (out.length >= maxEntries) return;
+        if (rawItems.length >= maxEntries) return;
         const title = (node.title ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
         if (title) {
-          const page = node.dest != null ? await outlineDestToPage(doc, node.dest) : null;
-          out.push({ title, page, level });
+          rawItems.push({ title, dest: node.dest, level });
         }
-        if (node.items?.length) await walk(node.items, level + 1);
+        if (node.items?.length && rawItems.length < maxEntries) {
+          collect(node.items, level + 1);
+        }
       }
     };
-    await walk(tree, 0);
-    return out;
+    collect(tree, 0);
+    return await Promise.all(
+      rawItems.map(async (item) => ({
+        title: item.title,
+        page: item.dest != null ? await outlineDestToPage(doc, item.dest) : null,
+        level: item.level,
+      })),
+    );
   } catch {
     return [];
   }
+}
+
+export async function getInitialPageSize(
+  path: string,
+  pageNumber = 1,
+): Promise<{ numPages: number; page: number; size: { width: number; height: number } } | null> {
+  try {
+    const doc = await getPdfDocument(path);
+    if (!doc || typeof doc.numPages !== "number" || doc.numPages < 1) return null;
+    const clamped = Math.min(Math.max(1, Math.round(pageNumber)), doc.numPages);
+    const page = await doc.getPage(clamped);
+    const viewport = page.getViewport({ scale: 1 });
+    return {
+      numPages: doc.numPages,
+      page: clamped,
+      size: { width: viewport.width, height: viewport.height },
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function prerenderPageInIdle(
+  path: string,
+  pageNumber: number,
+  scale: number,
+  quality: PreviewQuality,
+  scaleKey: string,
+  isStale?: () => boolean,
+): void {
+  if (typeof document === "undefined" || pageNumber < 1) return;
+  if (findCachedPageKey(path, pageNumber, scaleKey, quality)) return;
+  const scratch = document.createElement("canvas");
+  void enqueueRender("low", async () => {
+    if (isStale?.() || findCachedPageKey(path, pageNumber, scaleKey, quality)) return;
+    try {
+      await renderAndCache(
+        path,
+        pageNumber,
+        scale,
+        scaleKey,
+        quality,
+        scratch,
+        "display",
+        () => Boolean(isStale?.()),
+      );
+    } finally {
+      scratch.width = 0;
+      scratch.height = 0;
+    }
+  }).catch(() => {});
 }
 
 /**
@@ -1123,6 +1227,9 @@ function evictPdfPath(targetPath: string): void {
   for (const key of [...textLayerCache.keys()]) {
     if (key.startsWith(`${targetPath}|`)) textLayerCache.delete(key);
   }
+  for (const key of [...geometryCache.keys()]) {
+    if (key.startsWith(`${targetPath}|`)) geometryCache.delete(key);
+  }
   for (const [key, snap] of [...pageCache.entries()]) {
     if (key.startsWith(`${targetPath}|`)) {
       pageCacheBytes = Math.max(0, pageCacheBytes - snap.bytes);
@@ -1169,6 +1276,7 @@ export function clearPdfCache(onlyPath?: string): void {
   pdfDocCache.clear();
   clearPdfBytesCache();
   textLayerCache.clear();
+  geometryCache.clear();
   for (const snap of pageCache.values()) snap.bitmap.close();
   pageCache.clear();
   pageCacheBytes = 0;
@@ -1541,12 +1649,19 @@ export async function getPageGeometry(
   path: string,
   pageNumber: number,
 ): Promise<PageGeometry> {
+  const key = `${path}|${pageNumber}`;
+  const hit = geometryCache.get(key);
+  if (hit) {
+    geometryCache.delete(key);
+    geometryCache.set(key, hit);
+    return hit;
+  }
   countEvent("geometry");
   const doc = await getPdfDocument(path);
   const page = await doc.getPage(pageNumber);
   const viewport = page.getViewport({ scale: 1 });
   const view = page.view as [number, number, number, number];
-  return {
+  const geom: PageGeometry = {
     viewportWidth: viewport.width,
     viewportHeight: viewport.height,
     toPdfPoint: (x, y) => {
@@ -1559,6 +1674,13 @@ export async function getPageGeometry(
     },
     view,
   };
+  geometryCache.set(key, geom);
+  while (geometryCache.size > MAX_GEOMETRY_CACHE) {
+    const oldest = geometryCache.keys().next().value;
+    if (oldest === undefined) break;
+    geometryCache.delete(oldest);
+  }
+  return geom;
 }
 
 function bytesToDataUrl(bytes: Uint8Array, mediaType: string): string {

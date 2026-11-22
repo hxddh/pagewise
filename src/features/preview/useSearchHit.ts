@@ -49,14 +49,18 @@ export function useSearchHit(page: number, docPath?: string) {
  * The same rule for a citation followed from an answer: lit while the reader is
  * on the page it named, forgotten the moment they leave it.
  */
-export function useRevealedCitation<T extends { page: number; nonce: number }>(page: number, incoming: T | null) {
+export function useRevealedCitation<
+  T extends { page: number; secondPage?: { page: number }; nonce: number },
+>(page: number, incoming: T | null) {
   const [shown, setShown] = useState<T | null>(incoming);
   // A new click — including a second click on the same citation — replaces it.
   useEffect(() => {
     setShown(incoming);
   }, [incoming?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    setShown((current) => (current && current.page !== page ? null : current));
+    setShown((current) =>
+      current && current.page !== page && current.secondPage?.page !== page ? null : current,
+    );
   }, [page]);
   return shown;
 }

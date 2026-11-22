@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as R from "../reading";
+import { placeFinding } from "../../finding-anchors";
 import {
   reviseFinding,
   resolveFindingId,
@@ -69,14 +70,26 @@ export function createReviseFindingTool() {
             reason: "not revised (no such finding, or it was already replaced)",
           };
         }
+        const placement = finding.evidence
+          ? await placeFinding(path, finding).catch(() => null)
+          : null;
+        const verification =
+          placement?.status === "located"
+            ? ("located" as const)
+            : placement?.status === "absent"
+              ? ("unlocated" as const)
+              : placement?.status === "mismatch"
+                ? ("mismatch" as const)
+                : undefined;
         return {
           revised: true,
           id: findingHandle(finding.id),
-          // `supersedes` is the id the store actually replaced, so the
-          // answer names the same finding the record does even when the agent
-          // quoted a prefix.
           replaced: findingHandle(finding.supersedes ?? ""),
           pages: finding.pages,
+          ...(verification ? { verification } : {}),
+          ...(placement?.status === "mismatch" && placement.unstated.length > 0
+            ? { unstated: placement.unstated }
+            : {}),
         };
       },
     ),

@@ -53,6 +53,23 @@
   max-width: 100%;
 }
 
+.messages-jump-bottom {
+  position: absolute;
+  right: var(--space-lg);
+  bottom: 96px;
+  z-index: var(--z-chat-loading);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+
+.messages-jump-bottom[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /*
  * Keyboard navigation (Alt+Up / Alt+Down) moves focus onto a whole turn. Only
  * :focus-visible, so clicking a message never draws a ring around it.
@@ -686,6 +703,35 @@ button.pages-read-chip:hover {
 .cite-popover-actions {
   padding-top: var(--space-xs);
   border-top: 1px solid var(--border);
+}
+
+.cite-hover-card {
+  position: fixed;
+  z-index: var(--z-menu);
+  pointer-events: none;
+  animation: popover-in var(--transition-fast);
+}
+
+.cite-hover-card[data-above="true"] {
+  transform: translateY(-100%);
+}
+
+.cite-hover-verdict {
+  font-weight: 600;
+  color: var(--finding-text);
+}
+
+.cite-hover-card[data-level="check"] .cite-hover-verdict {
+  color: var(--warning);
+}
+
+.cite-hover-card[data-level="verified"] .cite-popover-quote {
+  border-left-color: var(--finding);
+  border-left-style: solid;
+}
+
+.cite-hover-card[data-level="check"] .cite-popover-quote {
+  border-left-color: var(--warning);
 }
 
 .cite-inert {

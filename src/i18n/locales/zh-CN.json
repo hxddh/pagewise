@@ -136,6 +136,9 @@
     "staleFile": "文件在部分标记之后被改动过，它们可能已经指错了地方。",
     "staleMark": "创建于此文件的较早版本，可能已经指错了地方。",
     "regionMode": "框选标记（拖出一个框，Esc 退出）",
+    "noteSelection": "批注",
+    "citeSelection": "引用",
+    "regionPill": "在页面上拖框选择区域 · 按 Esc 退出",
     "strike": "划掉",
     "unstrike": "恢复",
     "struck": "已划掉",
@@ -261,7 +264,8 @@
     "timedOut": "模型长时间没有响应，本次运行已停止。请重试；如果反复出现，可以换一个服务商。",
     "export": "导出…",
     "moreActions": "此回答的更多操作",
-    "placeholderNoKey": "向文档提问——连接 AI 后发出…"
+    "placeholderNoKey": "向文档提问——连接 AI 后发出…",
+    "scrollToBottom": "回到最新回复"
   },
   "empty": {
     "agentLead": "配置 AI 后即可分析文档",
@@ -273,6 +277,13 @@
     "example3": "关键术语有哪些？",
     "exampleWholeDoc": "总结全部 {{count}} 页",
     "exampleThisPage": "第 {{page}} 页讲了什么？",
+    "starterSection": "总结第 {{page}} 页「{{title}}」的核心内容",
+    "starterAnnotations": "梳理这份 PDF 里的 {{count}} 条批注重点",
+    "starterTables": "提取第 {{page}} 页表格里的关键数据",
+    "starterOutline": "对比「{{first}}」与「{{second}}」的要点",
+    "starterMarks": "串联总结我目前标记的 {{count}} 处内容",
+    "starterFigures": "解读第 {{page}} 页图表展示的结论",
+    "starterHint": "点击直接提问 · Shift+点击填入输入框",
     "connectLead": "连接 AI 后即可就这份文档提问",
     "worksWithoutAi": "阅读、搜索、识别扫描页现在就能用，都在本机完成，不需要 AI。",
     "connectAi": "连接 AI",
@@ -413,10 +424,13 @@
     "walkConversation": "上一条 / 下一条消息",
     "jumpHistory": "跳转后返回 / 前进",
     "scrollRead": "平滑向下 / 向上滚动",
+    "focusComposer": "聚焦提问输入框",
+    "copyCitation": "复制选中文字与页码出处",
     "export": "导出…",
     "zen": "专注模式：隐藏界面"
   },
   "toast": {
+    "citationCopied": "已复制带页码的原文引文",
     "chatExported": "对话已导出",
     "noMessages": "没有可导出的消息",
     "exportFailed": "导出失败",

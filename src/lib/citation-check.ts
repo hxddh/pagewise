@@ -158,9 +158,21 @@ export function checksRevision(): number {
   return revision;
 }
 
-function notifyChecks(): void {
+let notifyScheduled = false;
+
+function notifyChecks(immediate = false): void {
   revision += 1;
-  for (const listener of [...listeners]) listener();
+  if (immediate) {
+    notifyScheduled = false;
+    for (const listener of [...listeners]) listener();
+    return;
+  }
+  if (notifyScheduled || listeners.size === 0) return;
+  notifyScheduled = true;
+  queueMicrotask(() => {
+    notifyScheduled = false;
+    for (const listener of [...listeners]) listener();
+  });
 }
 
 function key(path: string, c: Pick<Citation, "pages" | "quote">): string {
@@ -188,7 +200,7 @@ export function clearCitationChecks(path?: string): void {
     pending.clear();
     transient.clear();
     readWithoutOcr.clear();
-    notifyChecks();
+    notifyChecks(true);
     return;
   }
   const prefix = `${path}\n`;
@@ -196,7 +208,7 @@ export function clearCitationChecks(path?: string): void {
   for (const k of [...transient]) if (k.startsWith(prefix)) transient.delete(k);
   for (const k of [...readWithoutOcr]) if (k.startsWith(prefix)) readWithoutOcr.delete(k);
   for (const k of [...pending.keys()]) if (k.startsWith(prefix)) pending.delete(k);
-  notifyChecks();
+  notifyChecks(true);
 }
 
 /** The check already worked out for this citation, or null if nobody has asked yet. */

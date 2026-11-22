@@ -37,6 +37,7 @@ vi.mock("./pdf", () => ({
   getPdfOutline: async () => bookmarks,
   getPdfPageLabels: async () => null,
   getPdfAnnotations: async () => [],
+  getInitialPageSize: async () => ({ width: 612, height: 792 }),
 }));
 vi.mock("./allowed-paths", () => ({ requireGrantedPath: async () => {} }));
 vi.mock("./file-stamp", () => ({ fileStamp: async () => "" }));

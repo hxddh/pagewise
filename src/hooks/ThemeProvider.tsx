@@ -67,7 +67,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const cycleTheme = useCallback(async () => {
     const order: ThemeMode[] = ["dark", "night", "light", "paper", "system"];
     const current = preferences?.theme ?? "dark";
-    const nextTheme = order[(order.indexOf(current) + 1) % order.length]!;
+    const currentResolved = resolveTheme(current);
+    let idx = (order.indexOf(current) + 1) % order.length;
+    let nextTheme = order[idx]!;
+    // Skip a redundant visual step when `system` resolves to the exact same
+    // appearance the reader is already seeing (or leaving `system` into it).
+    if (resolveTheme(nextTheme) === currentResolved && order.length > 1) {
+      idx = (idx + 1) % order.length;
+      nextTheme = order[idx]!;
+    }
     await setTheme(nextTheme);
   }, [preferences?.theme, setTheme]);
 

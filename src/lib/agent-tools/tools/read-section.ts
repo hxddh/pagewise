@@ -11,14 +11,17 @@ export function createReadSectionTool(
 ) {
   return tool({
       description:
-        "Read a whole section by its heading, instead of guessing which pages it " +
-        "spans. Take the heading from document_outline, and continue as with " +
-        "read_pdf_range when truncated=true (nextStart/nextOffset). Boundaries come " +
-        "from the document's bookmarks, or headings recovered from the page text — " +
-        "approximate when headings are not visually distinct; fall back to " +
-        "read_pdf_range when the result looks wrong.",
+        "Read a section by its heading from document_outline. When truncated=true, " +
+        "continue with start=nextStart and offset=nextOffset. Fall back to " +
+        "read_pdf_range if recovered heading boundaries look approximate.",
       inputSchema: z.object({
         title: z.string().min(1).describe("Heading text, as document_outline reported it"),
+        start: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Page to resume from (a nextStart)"),
         offset: z
           .number()
           .int()
@@ -42,7 +45,7 @@ export function createReadSectionTool(
         }),
         "read",
         () => budget.gen,
-        async ({ title, offset = 0, maxChars = R.DEFAULT_RANGE_MAX_CHARS }, options, runGen) => {
+        async ({ title, start, offset = 0, maxChars = R.DEFAULT_RANGE_MAX_CHARS }, options, runGen) => {
           const path = R.activeDocPath(options);
           const doc = R.requireLoadedDoc(path);
           if (budget.used >= budget.max) {
@@ -64,10 +67,14 @@ export function createReadSectionTool(
           // A resolved section is a page range, and a page range already has one
           // correct reader — including vision indexing for pages with no text
           // layer, the scan allowance, and offset continuation.
+          const resumeStart =
+            start !== undefined
+              ? Math.max(range.startPage, Math.min(range.endPage, start))
+              : range.startPage;
           const read = await R.readPageRange(
             path,
             doc,
-            { start: range.startPage, end: range.endPage, offset, maxChars },
+            { start: resumeStart, end: range.endPage, offset, maxChars },
             budget,
             runGen,
             chargeBudget,

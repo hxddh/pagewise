@@ -60,8 +60,25 @@ export function collectReadPages(parts: UIMessage["parts"] | undefined): number[
       continue;
     }
 
-    if (name === READ_PDF_PAGE_TOOL && typeof input.page === "number") {
-      if (Number.isInteger(input.page) && input.page > 0) set.add(input.page);
+    if (name === READ_PDF_PAGE_TOOL) {
+      const o = output && typeof output === "object" ? (output as { page?: unknown; pages?: unknown }) : null;
+      if (o && Array.isArray(o.pages)) {
+        for (const p of o.pages) {
+          if (typeof p === "number" && Number.isInteger(p) && p > 0 && set.size < MAX_PAGES) {
+            set.add(p);
+          }
+        }
+      } else if (o && typeof o.page === "number" && Number.isInteger(o.page) && o.page > 0) {
+        set.add(o.page);
+      } else if (Array.isArray(input.pages)) {
+        for (const p of input.pages) {
+          if (typeof p === "number" && Number.isInteger(p) && p > 0 && set.size < MAX_PAGES) {
+            set.add(p);
+          }
+        }
+      } else if (typeof input.page === "number" && Number.isInteger(input.page) && input.page > 0) {
+        set.add(input.page);
+      }
     } else if (name === READ_PDF_RANGE_TOOL && typeof input.start === "number") {
       let start = input.start;
       let end = typeof input.end === "number" && input.end >= start ? input.end : start;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { UIMessage } from "ai";
 import { useI18n } from "../../i18n";
 import { MessageAssistantFooter } from "../../components/MessageAssistantFooter";
@@ -38,7 +38,7 @@ export interface MessageRowProps {
  * a run is live, whether this is the newest answer, whether claims can be
  * kept — is the conversation's, and arrives as props from MessageList.
  */
-export function MessageRow({
+export const MessageRow = memo(function MessageRow({
   message,
   live,
   settling,
@@ -152,4 +152,4 @@ export function MessageRow({
       )}
     </div>
   );
-}
+});

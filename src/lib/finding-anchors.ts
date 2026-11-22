@@ -34,6 +34,7 @@ import { pageTextItems } from "./pdf";
 import { ocrEnabled, ocrPage } from "./ocr/ocr-service";
 import { onOcrTextReplaced } from "./ocr/ocr-events";
 import { docCache } from "./doc-cache";
+import { MIN_INDEX_CHARS } from "./page-text-merge";
 import { locateAcrossPages, locateQuote, locateQuoteAll, unionRect, type LocateOutcome } from "./quote-locate";
 import { passageAround } from "./passage";
 import { polarityMismatch } from "./polarity-check";
@@ -91,7 +92,12 @@ export interface PageRuns {
  * page has somewhere to put them — an image document's OCR is text only.
  */
 async function recognisedRuns(path: string, page: number): Promise<PageRuns | null> {
-  if (!ocrEnabled() || docCache.get(path)?.kind !== "pdf") return null;
+  const doc = docCache.get(path);
+  if (!ocrEnabled() || doc?.kind !== "pdf") return null;
+  const entry = Array.isArray(doc.pages) ? doc.pages[page - 1] : undefined;
+  if (entry?.source === "native" && entry.text.trim().length >= MIN_INDEX_CHARS) {
+    return null;
+  }
   const read = await ocrPage(path, page);
   if (!read || read.items.length === 0) return null;
   return { items: read.items, reason: "ok", source: "ocr" };

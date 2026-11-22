@@ -15,11 +15,14 @@
  * cache for the one being left, and a new scope disposes the previous one on
  * its own. `pdf.ts`'s cache internals are registered here, not rewritten.
  */
+import { clearActiveReaderSelection } from "./active-selection";
+import { clearHoveredHighlight } from "./hover-highlight";
 import { clearSteerNotes } from "./agent-steer";
 import { clearAgentMessageContext } from "./agent-view-context";
 import { clearCitationChecks } from "./citation-check";
 import { clearReviews } from "./claim-review";
 import { docCache } from "./doc-cache";
+import { clearSearchFoldCache } from "./document-search";
 import { clearFindingAnchors } from "./finding-anchors";
 import { flushFindingStore, forgetFindings } from "./finding-store";
 import { clearDocumentIndexState } from "./index-events";
@@ -47,6 +50,7 @@ const REGISTRATIONS: DocumentState[] = [
   { name: "index-queue", dispose: (path) => cancelIndex(path) },
   { name: "ocr-service", dispose: (path) => forgetOcr(path) },
   { name: "doc-cache", dispose: (path) => docCache.remove(path) },
+  { name: "search-fold-cache", dispose: () => clearSearchFoldCache() },
   {
     name: "mark-store",
     dispose: (path) => {
@@ -73,6 +77,8 @@ const REGISTRATIONS: DocumentState[] = [
   { name: "usage-tracker", dispose: (path) => forgetDocumentUsage(path) },
   { name: "index-store-identity", dispose: (path) => forgetIndexIdentity(path) },
   { name: "agent-view-context", dispose: () => clearAgentMessageContext() },
+  { name: "active-selection", dispose: (path) => clearActiveReaderSelection(path) },
+  { name: "hover-highlight", dispose: (path) => clearHoveredHighlight(path) },
   // Corrections typed for a run on the document being left: never delivered
   // to the next document's run (21.0 — nothing in the app called this).
   { name: "agent-steer", dispose: () => clearSteerNotes() },

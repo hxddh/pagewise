@@ -93,16 +93,35 @@ function workerFor(langs: OcrLanguages, slot: number): Slot {
   return w;
 }
 
+function canvasToJpegBlob(canvas: HTMLCanvasElement, quality = 0.9): Promise<Blob | null> {
+  if (typeof canvas.toBlob !== "function") return Promise.resolve(null);
+  return new Promise<Blob | null>((resolve) => {
+    try {
+      canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 /** Recognise one rendered page. `toPdf` maps its pixels into PDF user space. */
 export async function recognizeCanvas(
   canvas: HTMLCanvasElement,
   toPdf: PixelToPdf,
   langs: OcrLanguages,
   slot = 0,
+  dpi?: number,
 ): Promise<OcrPage> {
   const { worker, stopped } = workerFor(langs, slot);
-  const w = await Promise.race([worker, stopped]);
-  const { data } = await Promise.race([w.recognize(canvas, {}, { blocks: true, text: false }), stopped]);
+  const [w, jpeg] = await Promise.all([
+    Promise.race([worker, stopped]),
+    canvasToJpegBlob(canvas, 0.9),
+  ]);
+  const params = dpi ? ({ user_defined_dpi: String(dpi) } as Record<string, unknown>) : {};
+  const { data } = await Promise.race([
+    w.recognize((jpeg ?? canvas) as never, params, { blocks: true, text: false }),
+    stopped,
+  ]);
   return ocrPageFrom(data as unknown as OcrPageIn, toPdf);
 }
 

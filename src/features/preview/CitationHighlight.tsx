@@ -8,6 +8,8 @@ export interface RevealedCitation {
   page: number;
   /** Bottom-left origin, as `page_text_items` reports them. */
   rects: PdfRect[];
+  /** Continuation rectangles on `page + 1` when a quote spans a page break (29.0). */
+  secondPage?: { page: number; rects: PdfRect[] };
   /** Distinguishes two clicks on the same citation, so the second one re-lights it. */
   nonce: number;
 }

@@ -2,6 +2,7 @@ import { docCache, mergeTablePages } from "./doc-cache";
 import {
   disposeDocumentResources,
   documentKind,
+  getInitialPageSize,
   getPdfAnnotations,
   getPdfOutline,
   getPdfPageLabels,
@@ -49,13 +50,37 @@ export interface LoadDocumentOptions {
   deferCache?: boolean;
   /** True when reloading the currently open document in place (preserves session state on encrypted prompt). */
   isReload?: boolean;
+  /** Initial target page so Page 1 / resume page dimensions are pre-seeded on Render 1 (29.0). */
+  initialPage?: number;
+  /** Fired right after preflight resolves `(kind, stamp, identity)` so store reads can run in parallel (29.0). */
+  onPreflight?: (meta: { kind: "pdf" | "image"; stamp: string; identity: string }) => void;
+  /** Fired if pdf.js finishes Page 1 geometry before full Rust extraction completes on large PDFs (29.0). */
+  onFastShell?: (doc: LoadedDocument) => void;
+  /** Scan PDF annotations in the background after first paint instead of blocking open (29.0). */
+  deferAnnotations?: boolean;
+  /** Skip `scheduleIndex` inside `commitLoadedDocument` so caller can start it after paint (29.0). */
+  deferScheduleIndex?: boolean;
+}
+
+const pendingExtractions = new Map<string, Promise<void>>();
+
+/** Wait for an in-flight progressive extraction on `path`, if any, before agent tools read `docCache`. */
+export async function waitForDocumentExtraction(path: string): Promise<void> {
+  const pending = pendingExtractions.get(path);
+  if (pending) await pending.catch(() => {});
 }
 
 /** Commit a staged document after chat hydration succeeds. */
-export function commitLoadedDocument(doc: LoadedDocument): LoadedDocument {
+export function commitLoadedDocument(
+  doc: LoadedDocument,
+  options?: { deferScheduleIndex?: boolean },
+): LoadedDocument {
   docCache.set(doc);
-  scheduleIndex(docCache.get(doc.path) ?? doc);
-  return docCache.get(doc.path) ?? doc;
+  const current = docCache.get(doc.path) ?? doc;
+  if (!options?.deferScheduleIndex && !current.extracting) {
+    scheduleIndex(current);
+  }
+  return current;
 }
 
 export async function loadDocument(
@@ -66,13 +91,11 @@ export async function loadDocument(
 ): Promise<LoadedDocument> {
   const name = path.split(/[/\\]/).pop() ?? path;
 
-  await requireGrantedPath(path);
-  // Single-IPC preflight (27.0) reads kind, stamp and fingerprint in one open;
-  // unit tests that mock `documentKind`/`fileStamp` individually fall back cleanly.
+  // Run allowlist check and single-IPC preflight concurrently (29.0).
+  const [, preflight] = await Promise.all([requireGrantedPath(path), preflightDocument(path)]);
   let kind: "pdf" | "image";
   let stamp: string;
   let identity: string;
-  const preflight = await preflightDocument(path);
   if (preflight) {
     kind = preflight.kind;
     stamp = preflight.stamp;
@@ -81,17 +104,86 @@ export async function loadDocument(
     kind = await documentKind(path);
     [stamp, identity] = await Promise.all([fileStamp(path), fileIdentity(path)]);
   }
+  options?.onPreflight?.({ kind, stamp, identity });
 
   report(onProgress, { stage: "opening", message: "load.openingFile", percent: 5 });
   throwIfAborted(signal);
+
+  // Start reading cached vision & OCR pages immediately in parallel with PDF open (29.0).
+  const storedPagesPromise = Promise.all([
+    stamp ? loadIndexedPages(path, stamp, identity) : Promise.resolve([]),
+    restoreOcr(path, identity),
+  ]);
 
   let doc: LoadedDocument;
 
   if (kind === "pdf") {
     preparePdfSwitch(path);
+    let resolveExtraction!: () => void;
+    const extractionBarrier = new Promise<void>((r) => {
+      resolveExtraction = r;
+    });
+    pendingExtractions.set(path, extractionBarrier);
+
     try {
       report(onProgress, { stage: "extracting", message: "load.extracting", percent: 20 });
-      const model = await openDocument(path, signal);
+
+      const targetPage = Math.max(1, options?.initialPage ?? 1);
+      let extractionDone = false;
+      const modelPromise = openDocument(path, signal).finally(() => {
+        extractionDone = true;
+      });
+
+      // Kick off pdf.js visual fast-track concurrently with Rust `openDocument`!
+      const fastPdfPromise = (async () => {
+        const firstSize = await getInitialPageSize(path, targetPage);
+        const page1Size =
+          firstSize && firstSize.page !== 1 ? await getInitialPageSize(path, 1) : firstSize;
+        const [rawOutline, rawLabels] = await Promise.all([
+          getPdfOutline(path),
+          firstSize ? getPdfPageLabels(path, firstSize.numPages) : Promise.resolve(null),
+        ]);
+        const seededSizes: Array<{ page: number; size: { width: number; height: number } }> = [];
+        if (page1Size) seededSizes.push({ page: page1Size.page, size: page1Size.size });
+        if (firstSize && firstSize.page !== 1) {
+          seededSizes.push({ page: firstSize.page, size: firstSize.size });
+        }
+
+        if (
+          options?.onFastShell &&
+          !extractionDone &&
+          !signal?.aborted &&
+          firstSize &&
+          firstSize.numPages > 0
+        ) {
+          const fastOutline = usableOutline(
+            rawOutline.filter(
+              (b): b is { title: string; page: number; level: number } => b.page !== null,
+            ),
+            firstSize.numPages,
+          );
+          options.onFastShell({
+            path,
+            name,
+            kind: "pdf",
+            pages: Array.from({ length: firstSize.numPages }, (_, i) => ({
+              page: i + 1,
+              text: "",
+              source: "native" as const,
+            })),
+            totalPages: firstSize.numPages,
+            stamp,
+            ...(identity ? { identity } : {}),
+            outline: fastOutline,
+            pageLabels: rawLabels ?? undefined,
+            initialPageSizes: seededSizes.length > 0 ? seededSizes : undefined,
+            extracting: true,
+          });
+        }
+        return { firstSize, rawOutline, rawLabels, seededSizes };
+      })();
+
+      const [model, fastPdf] = await Promise.all([modelPromise, fastPdfPromise]);
       throwIfAborted(signal);
 
       report(onProgress, {
@@ -101,11 +193,11 @@ export async function loadDocument(
         percent: 55,
       });
 
-      const [rawOutline, rawLabels, annotations] = await Promise.all([
-        getPdfOutline(path),
-        getPdfPageLabels(path, model.page_count),
-        getPdfAnnotations(path, model.page_count, undefined, signal),
-      ]);
+      const rawLabels =
+        fastPdf.rawLabels ?? (await getPdfPageLabels(path, model.page_count));
+      const annotations = options?.deferAnnotations
+        ? []
+        : await getPdfAnnotations(path, model.page_count, undefined, signal);
       throwIfAborted(signal);
 
       doc = {
@@ -119,7 +211,9 @@ export async function loadDocument(
         title: model.title ?? undefined,
         outline: preferAuthoredOutline(
           usableOutline(
-            rawOutline.filter((b): b is { title: string; page: number; level: number } => b.page !== null),
+            fastPdf.rawOutline.filter(
+              (b): b is { title: string; page: number; level: number } => b.page !== null,
+            ),
             model.page_count,
           ),
           usableOutline(model.structure_outline, model.page_count),
@@ -130,12 +224,29 @@ export async function loadDocument(
         tablePages: model.pages.filter((p) => p.has_table).map((p) => p.page),
         pageLabels: rawLabels ?? undefined,
         annotations,
+        ...(fastPdf.seededSizes.length > 0 ? { initialPageSizes: fastPdf.seededSizes } : {}),
       };
+
+      if (options?.deferAnnotations) {
+        void getPdfAnnotations(path, model.page_count, undefined, signal)
+          .then((loadedNotes) => {
+            if (signal?.aborted || loadedNotes.length === 0) return;
+            const current = docCache.get(path);
+            if (!current || current.stamp !== stamp) return;
+            docCache.set({ ...current, annotations: loadedNotes });
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       if (!(options?.isReload && classifyOpenError(err)?.kind === "encrypted")) {
         disposeDocumentResources(path);
       }
       throw err;
+    } finally {
+      resolveExtraction();
+      if (pendingExtractions.get(path) === extractionBarrier) {
+        pendingExtractions.delete(path);
+      }
     }
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
@@ -150,11 +261,7 @@ export async function loadDocument(
     };
   }
 
-  // Fold in cached vision text and local OCR text in parallel (27.0).
-  const [cached, recognised] = await Promise.all([
-    stamp ? loadIndexedPages(path, stamp, identity) : Promise.resolve([]),
-    restoreOcr(path, identity),
-  ]);
+  const [cached, recognised] = await storedPagesPromise;
   if (cached.length > 0) {
     doc = { ...doc, pages: mergePageTextsOnReload(cached, doc.pages) };
   }
@@ -172,5 +279,5 @@ export async function loadDocument(
     return doc;
   }
 
-  return commitLoadedDocument(doc);
+  return commitLoadedDocument(doc, { deferScheduleIndex: options?.deferScheduleIndex });
 }

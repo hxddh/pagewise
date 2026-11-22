@@ -40,30 +40,16 @@ import { newReadBudget } from "./agent-tools/reading";
  */
 const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
   document_outline: "xU7wy5t-7njCbASQRrJz1IY7-dFM1aKn95duDRb9Jhw",
-  read_figure: "OnkWQxIUIAbR6pnGn9rbjQPx7KsfUd_87jE9Xupap2E",
-  // 9.4's `label` argument, and the sentence that tells the model when to use
-  // it. Deliberate, and paid on every request by every reader whether or not
-  // their document numbers its pages unusually.
-  //
-  // Measured before and after, by the same method both times: this tool's
-  // description + resolved input schema + name goes 1,613 -> 1,958 characters,
-  // and the six readers together 7,968 -> 8,313. +4.3% of the reader block.
-  //
-  // NOT converted to tokens. There is no tokenizer here, and this file already
-  // records two earlier token estimates in this project that were wrong for
-  // exactly that reason. These characters are not comparable to the 4,698
-  // quoted below either — that was measured at 9.0 and the block has grown
-  // since; only the before/after pair above was measured together.
-  //
-  // What the cost buys: the alternative was sending the model the page-label
-  // mapping so it could do the arithmetic itself, and for a three-hundred-page
-  // book that is three hundred labels on every question. This is a fixed 345
-  // characters instead of an unbounded per-document table, and the resolution
-  // is exact rather than arithmetic the model has to get right.
-  read_pdf_page: "etahlunPZHnesYfy-DAXKGd27vuaMOUZNVzLJBcFtY4",
+  // 29.0: `fullPage` fallback on `read_figure` (for vector/TikZ diagrams with
+  // no bitmap XObject), `pages` batch array on `read_pdf_page` (up to 8
+  // non-contiguous pages in one step), `start` continuation on `read_section`,
+  // and `queries` multi-term synonym batch + PDF annotation search on
+  // `search_in_document`. All four fit inside the existing 9,000B prefix gate.
+  read_figure: "kvoVL-BPrNMEUr0_AFDQYcNUyQP2e1Mr5QKlJLBuOx8",
+  read_pdf_page: "7pXUH2ItI5RvAIhe_SecRg-lu6ggQnKVPe9E9azozcI",
   read_pdf_range: "w2KcnFiiBpChZYJS3uBBFQlSyLkpsDX3T3r22RgGEYA",
-  read_section: "WHCaIDtibrQU_633SwjmUmXDFhsB-DF4SHxOjEgvkrE",
-  search_in_document: "nFbX8pj6hTbxlxu3ZRgKeTufbBXF1BkDYEXfoaGuW9Y",
+  read_section: "AIKv3RqjdKA0E6w5h1tAU1g0EcmN3VeIcSE4L9-t-m8",
+  search_in_document: "t6dkIeWrq_ckI5vg7gT3YTmD9a1LULHlY6qxHi7ZhXQ",
   // 9.0's two writers. Added deliberately, and they are not free: measured by
   // description + resolved input schema + name, they are 1,298 characters
   // against the six readers' 4,698 — 27.6%, or about +203 tokens on the 736

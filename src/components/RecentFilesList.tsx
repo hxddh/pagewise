@@ -87,6 +87,11 @@ function RecentFilesListInner({
         <div className="welcome-recent-grid">
           {items.map((file) => {
             const Icon = file.kind === "image" ? FileImage : FileText;
+            const progress = progressSummary(file, t);
+            const subtitle =
+              progress.length > 0
+                ? `${progress.join(" · ")} · ${formatOpenedAt(file.openedAt, t)}`
+                : formatOpenedAt(file.openedAt, t);
             return (
               // raw-button: a card — icon, name and meta in their own layout; Button would flatten it
               <button
@@ -94,10 +99,14 @@ function RecentFilesListInner({
                 type="button"
                 className="welcome-recent-card"
                 disabled={opening}
+                title={file.path}
                 onClick={() => onOpen(file.path)}
               >
                 <Icon size={20} strokeWidth={1.5} className="welcome-recent-icon" />
-                <span className="welcome-recent-name">{file.name}</span>
+                <span className="welcome-recent-body">
+                  <span className="welcome-recent-name">{file.name}</span>
+                  <span className="welcome-recent-meta">{subtitle}</span>
+                </span>
               </button>
             );
           })}

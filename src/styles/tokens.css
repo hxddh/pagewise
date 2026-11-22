@@ -187,9 +187,9 @@
    * `--transition-fast` keeps its name and value; the two longer steps are for
    * things that fade rather than snap.
    */
-  --transition-fast: 120ms ease;
-  --transition: 160ms ease;
-  --transition-slow: 250ms ease;
+  --transition-fast: 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition: 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-slow: 250ms cubic-bezier(0.22, 1, 0.36, 1);
   --pulse-period: 1.2s;
   /*
    * Elevation. Three steps, where twelve hand-written drop shadows had

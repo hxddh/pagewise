@@ -465,15 +465,20 @@ export function verifiedSentences(path: string, markdown: string): VerifiedSente
   const seen = new Set<string>();
   for (const row of sentenceStates(path, markdown)) {
     if (row.state !== "verified") continue;
+    const distinctRowPages = new Set(row.sentence.citations.flatMap((c) => c.pages)).size;
     for (const c of row.sentence.citations) {
       if (!c.quote) continue;
-      const check = withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote);
+      const scopedClaim = claimBefore(markdown, c.index);
+      const check = withClaim(cachedCitationCheck(path, c), scopedClaim, c.quote);
       if (check?.status !== "located" || !check.page) continue;
       const claim = row.sentence.row
-        ? rowClaim(row.sentence.row.table, row.sentence.row.row)
-        : sentenceBefore(markdown, c.index);
-      if (!claim || seen.has(claim)) continue;
-      seen.add(claim);
+        ? distinctRowPages > 1
+          ? scopedClaim || rowClaim(row.sentence.row.table, row.sentence.row.row)
+          : rowClaim(row.sentence.row.table, row.sentence.row.row)
+        : scopedClaim || sentenceBefore(markdown, c.index);
+      const dedupeKey = row.sentence.row && distinctRowPages > 1 ? `${claim}|${check.page}` : claim;
+      if (!claim || seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
       out.push({ claim, page: check.page, quote: c.quote });
     }
   }

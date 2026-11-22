@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cachedReview, reviewBasis, subscribeReviews } from "../lib/claim-review";
+import { setHoveredHighlight } from "../lib/hover-highlight";
 import { useI18n } from "../i18n";
 import {
   cachedCitationCheck,
@@ -30,7 +32,12 @@ export interface CitationEnv {
    * no passage to light — the words were not found — so the click is not a
    * jump that silently shows nothing (21.0).
    */
-  onReveal: (page: number, rects: PdfRect[] | null, notice?: string) => void;
+  onReveal: (
+    page: number,
+    rects: PdfRect[] | null,
+    notice?: string,
+    secondPage?: { page: number; rects: PdfRect[] },
+  ) => void;
   /**
    * Open the document search holding `text` (24.0). A red chip's first next
    * step: the words may be on another page, or worded a little differently.
@@ -107,10 +114,21 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
     env && link.quote && link.claim ? cachedReview(env.path, link.claim, link.quote, reviewBasis(check)) : null,
   );
 
-  // The red chip's popover (24.0). Declared before the early return below,
-  // for the same reason the review subscription is.
+  // The red chip's popover (24.0), plus quiet non-modal hover card (29.0).
+  // Declared before the early return below, for the same reason the review subscription is.
   const [open, setOpen] = useState(false);
+  const [hoverCard, setHoverCard] = useState<{ left: number; top: number; above: boolean } | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+  const hoverLightTimerRef = useRef<number | null>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(
+    () => () => {
+      if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+      if (hoverLightTimerRef.current !== null) window.clearTimeout(hoverLightTimerRef.current);
+    },
+    [],
+  );
 
   const label = children ?? citationLabel(link.pages);
   if (!env) return <sup className="cite cite-inert">{label}</sup>;
@@ -141,15 +159,33 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
   // `outOfRange` cites a page the document does not have: nothing to open.
   const canOpen = status !== "outOfRange";
 
+  const clearHover = () => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    if (hoverLightTimerRef.current !== null) {
+      window.clearTimeout(hoverLightTimerRef.current);
+      hoverLightTimerRef.current = null;
+    }
+    setHoverCard((prev) => (prev === null ? prev : null));
+    setHoveredHighlight(null);
+  };
+
   const reveal = () => {
+    clearHover();
     const rects = read?.rects ?? null;
-    // A chip whose words were not found has nothing to light. Until 21.0
-    // the click still turned the page and cleared the highlight, so "not
-    // on this page" read as a lookup that worked; the reason was only in
-    // the tooltip. It is said now, in the chip's own words. A red chip has
-    // said it in its popover already, so "open anyway" adds no toast (24.0).
-    const nothingToLight = !flagged && !rects && status !== "pending" && status !== "located";
-    env.onReveal(target, rects, nothingToLight ? `${headline}${verdict}` : undefined);
+    // A chip whose words were not found has nothing to light, and a yellow
+    // `check` chip (mismatch / model review doubt) should also explain why it
+    // was flagged when clicked rather than silently lighting the page (29.0).
+    const shouldExplain =
+      !flagged && ((!rects && status !== "pending" && status !== "located") || level === "check");
+    const notice = shouldExplain ? `${headline}${verdict}${reviewLine}` : undefined;
+    if (read?.secondPage) {
+      env.onReveal(target, rects, notice, read.secondPage);
+    } else {
+      env.onReveal(target, rects, notice);
+    }
   };
 
   return (
@@ -163,10 +199,74 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
         aria-label={title}
         aria-haspopup={flagged ? "dialog" : undefined}
         aria-expanded={flagged ? open : undefined}
-        onClick={() => (flagged ? setOpen((o) => !o) : reveal())}
+        onMouseEnter={() => {
+          if (read?.rects?.length && read.page) {
+            if (hoverLightTimerRef.current !== null) window.clearTimeout(hoverLightTimerRef.current);
+            const targetPage = read.page;
+            const targetRects = read.rects;
+            const targetSecond = read.secondPage;
+            hoverLightTimerRef.current = window.setTimeout(() => {
+              hoverLightTimerRef.current = null;
+              setHoveredHighlight({
+                kind: "citation",
+                path: env.path,
+                page: targetPage,
+                rects: targetRects,
+                secondPage: targetSecond,
+              });
+            }, 60);
+          }
+          if (flagged || open) return;
+          if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+          hoverTimerRef.current = window.setTimeout(() => {
+            const box = chipRef.current?.getBoundingClientRect();
+            if (!box) return;
+            const vw = window.innerWidth || 1280;
+            const vh = window.innerHeight || 800;
+            const above = box.bottom + 140 > vh && box.top > 140;
+            const left = Math.min(Math.max(12, box.left), Math.max(12, vw - 332));
+            const top = above ? box.top - 6 : box.bottom + 6;
+            setHoverCard({ left, top, above });
+          }, 180);
+        }}
+        onMouseLeave={clearHover}
+        onClick={() => {
+          clearHover();
+          if (flagged) setOpen((o) => !o);
+          else reveal();
+        }}
       >
         {label}
       </button>
+      {hoverCard && !flagged && !open && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="anchored-popover cite-popover cite-hover-card"
+            data-level={level}
+            data-above={hoverCard.above ? "true" : undefined}
+            aria-hidden="true"
+            style={{ left: hoverCard.left, top: hoverCard.top }}
+          >
+            <div className="cite-popover-body">
+              <p className="cite-hover-verdict">
+                {headline}
+                {verdict}
+              </p>
+              {review && (
+                <p className="cite-popover-review">
+                  {t(`cite.review.${review.verdict}`)}: {review.reason}
+                </p>
+              )}
+              {link.quote && (
+                <blockquote className="cite-popover-quote">
+                  “{link.quote}”
+                </blockquote>
+              )}
+              <p className="cite-popover-page">{t("cite.popover.quoted", { pages })}</p>
+            </div>
+          </div>,
+          document.body,
+        )}
       {flagged && (
         <AnchoredMenu
           open={open}

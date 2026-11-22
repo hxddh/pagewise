@@ -14,6 +14,7 @@ import {
   User,
 } from "lucide-react";
 import { recordLevel } from "../lib/trust-level";
+import { setHoveredHighlight } from "../lib/hover-highlight";
 import { longKey } from "../lib/trust-text";
 import { useI18n } from "../i18n";
 import { useOptionalToast } from "../hooks/useToast";
@@ -282,7 +283,13 @@ function MarksSection({
             one ledger, and both halves move alike. */}
         <AnimatePresence initial={false}>
           {marks.map((mark) => (
-            <motion.li key={mark.id} className="record-mark" {...entryMotion}>
+            <motion.li
+              key={mark.id}
+              className="record-mark"
+              onMouseEnter={() => setHoveredHighlight({ kind: "mark", path, id: mark.id })}
+              onMouseLeave={() => setHoveredHighlight(null)}
+              {...entryMotion}
+            >
               <Button
                 variant="ghost"
                 size="sm"
@@ -380,6 +387,10 @@ function RecordEntry({
       className={`record-entry ${inactive ? "record-entry-inactive" : ""}`}
       data-trust={trust}
       data-level={recordLevel(trust)}
+      onMouseEnter={() => {
+        if (!inactive) setHoveredHighlight({ kind: "finding", path, id: finding.id });
+      }}
+      onMouseLeave={() => setHoveredHighlight(null)}
       {...entryMotion}
     >
       <div className="record-entry-head">

@@ -59,7 +59,12 @@ export function usePdfViewer({
 }: UsePdfViewerOptions) {
   const [zoom, setZoom] = useState<ZoomMode>(loadZoom);
   const [quality, setQuality] = useState<PreviewQuality>("crisp");
-  const [historyState, setHistoryState] = useState({ back: 0, forward: 0, backPage: 0 });
+  const [historyState, setHistoryState] = useState({
+    back: 0,
+    forward: 0,
+    backPage: 0,
+    forwardPage: 0,
+  });
 
   const lastNumericRef = useRef(1);
   const resolvedScaleRef = useRef(1);
@@ -89,7 +94,7 @@ export function usePdfViewer({
     zoomPathRef.current = doc.path;
     backStackRef.current = [];
     forwardStackRef.current = [];
-    setHistoryState({ back: 0, forward: 0, backPage: 0 });
+    setHistoryState({ back: 0, forward: 0, backPage: 0, forwardPage: 0 });
     setZoom(loadZoom());
   }, [doc.path]);
 
@@ -161,12 +166,18 @@ export function usePdfViewer({
     bumpZoom(zoom === "fit-page" ? "fit-width" : "fit-page");
   }, [bumpZoom, zoom]);
 
+  const toggleComfortable = useCallback(() => {
+    bumpZoom(zoom === "comfortable" ? "fit-width" : "comfortable");
+  }, [bumpZoom, zoom]);
+
   const syncHistoryState = useCallback(() => {
     const back = backStackRef.current;
+    const forward = forwardStackRef.current;
     setHistoryState({
       back: back.length,
-      forward: forwardStackRef.current.length,
+      forward: forward.length,
       backPage: back.length > 0 ? back[back.length - 1]!.page : 0,
+      forwardPage: forward.length > 0 ? forward[forward.length - 1]!.page : 0,
     });
   }, []);
 
@@ -184,7 +195,7 @@ export function usePdfViewer({
   const recordJumpFromCurrent = useCallback(
     (targetPage: number) => {
       const clamped = Math.min(totalRef.current, Math.max(1, targetPage));
-      if (Math.abs(clamped - pageRef.current) < 2) return;
+      if (clamped === pageRef.current) return;
       const cur = readCurrentPlace();
       const prevTop = backStackRef.current[backStackRef.current.length - 1];
       if (!prevTop || prevTop.page !== cur.page) {
@@ -286,7 +297,10 @@ export function usePdfViewer({
       const inChatColumn =
         (e.target instanceof Element && !!e.target.closest(".chat-column")) ||
         (document.activeElement instanceof Element && !!document.activeElement.closest(".chat-column"));
-      if (inChatColumn && !(e.metaKey || e.ctrlKey)) return;
+      const isJumpHistoryChord =
+        e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey &&
+        (e.key === "ArrowLeft" || e.key === "ArrowRight");
+      if (inChatColumn && !(e.metaKey || e.ctrlKey) && !isJumpHistoryChord) return;
       /*
        * Zoom on the chord every reader already knows (17.0), before the
        * modifier guard below — that guard exists to keep page keys unmodified.
@@ -321,6 +335,11 @@ export function usePdfViewer({
         }
         if (e.key === "0") {
           toggleFitWidth();
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "8") {
+          toggleComfortable();
           e.preventDefault();
           return;
         }
@@ -392,6 +411,7 @@ export function usePdfViewer({
     zoomIn,
     zoomOut,
     toggleFitWidth,
+    toggleComfortable,
     toggleFitPage,
     goBack,
     goForward,
@@ -415,6 +435,7 @@ export function usePdfViewer({
     canGoBack: historyState.back > 0,
     canGoForward: historyState.forward > 0,
     backPage: historyState.backPage,
+    forwardPage: historyState.forwardPage,
     goBack,
     goForward,
   };

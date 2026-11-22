@@ -13,6 +13,8 @@ interface ResizeHandleProps {
    * panel, negative = shrink it. Optional; defaults to a no-op.
    */
   onNudge?: (deltaPx: number) => void;
+  /** Double-click resets the panel width to its default measure. */
+  onReset?: () => void;
 }
 
 const NUDGE_PX = 16;
@@ -23,6 +25,7 @@ export function ResizeHandle({
   min,
   max,
   onNudge = () => {},
+  onReset,
 }: ResizeHandleProps) {
   const { t } = useI18n();
 
@@ -55,6 +58,7 @@ export function ResizeHandle({
       aria-valuemin={min}
       aria-valuemax={max}
       onPointerDown={onPointerDown}
+      onDoubleClick={onReset}
       onKeyDown={handleKeyDown}
     />
   );

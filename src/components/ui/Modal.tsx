@@ -85,7 +85,7 @@ export function Modal({
       }}
     >
       <Dialog.Portal container={container ?? undefined}>
-        <div className={overlayClassName}>
+        <div className={overlayClassName} data-state={open ? "open" : "closed"}>
           {modal && <Dialog.Overlay className="modal-scrim" />}
           <Dialog.Content
             asChild

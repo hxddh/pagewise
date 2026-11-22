@@ -70,7 +70,12 @@ export interface ChatPanelProps {
   reveal: {
     onJumpToPage?: (page: number) => void;
     onRevealFinding?: (id: string, page: number) => void;
-    onRevealCitation?: (page: number, rects: PdfRect[] | null, notice?: string) => void;
+    onRevealCitation?: (
+      page: number,
+      rects: PdfRect[] | null,
+      notice?: string,
+      secondPage?: { page: number; rects: PdfRect[] },
+    ) => void;
     /** Turn to a mark and open its note. */
     onSelectMark?: (page: number, id: string) => void;
   };
@@ -117,9 +122,12 @@ export const ChatPanel = memo(forwardRef<ChatPanelHandle, ChatPanelProps>(functi
         ? {
             path: doc.path,
             totalPages: doc.totalPages ?? 0,
-            onReveal: (target, rects, notice) => {
-              if (reveal.onRevealCitation) reveal.onRevealCitation(target, rects, notice);
-              else reveal.onJumpToPage?.(target);
+            onReveal: (target, rects, notice, secondPage) => {
+              if (reveal.onRevealCitation) {
+                reveal.onRevealCitation(target, rects, notice, secondPage);
+              } else {
+                reveal.onJumpToPage?.(target);
+              }
             },
             // A red chip's next steps (24.0): look for the words elsewhere in
             // the document, or put a request to cite again in the composer.
@@ -230,6 +238,24 @@ export const ChatPanel = memo(forwardRef<ChatPanelHandle, ChatPanelProps>(functi
 
   const record = useRecordBridge({ doc, messages: agent.messages.list, setTab: panel.setTab });
 
+  const handleRegenerate = useCallback(() => {
+    void regenerate();
+  }, [regenerate]);
+
+  const handleEdit = useCallback(
+    (messageId: string, text: string) =>
+      agent.run.edit(messageId, {
+        text,
+        path: doc?.path ?? "",
+        docName: doc?.name ?? "",
+        docKind: doc?.kind ?? "pdf",
+        viewingPage: page,
+        totalPages: doc?.totalPages ?? 0,
+        includeViewingPage,
+      }),
+    [agent.run, doc?.path, doc?.name, doc?.kind, doc?.totalPages, page, includeViewingPage],
+  );
+
   // Alt+Up / Alt+Down walk the conversation, on the panel root so it works
   // while the composer has focus; the find chord is the workspace's search.
   const convKeys = useConversationKeys(messagesRef, stickToBottomRef);
@@ -267,20 +293,10 @@ export const ChatPanel = memo(forwardRef<ChatPanelHandle, ChatPanelProps>(functi
               stickToBottomRef={stickToBottomRef}
               reveal={record.revealTarget}
               canRegenerate={!!doc}
-              onRegenerate={() => void regenerate()}
+              onRegenerate={handleRegenerate}
               onKeep={doc ? record.keepClaim : undefined}
               onKeepVerified={doc ? record.keepVerified : undefined}
-              onEdit={(messageId, text) =>
-                agent.run.edit(messageId, {
-                  text,
-                  path: doc?.path ?? "",
-                  docName: doc?.name ?? "",
-                  docKind: doc?.kind ?? "pdf",
-                  viewingPage: page,
-                  totalPages: doc?.totalPages ?? 0,
-                  includeViewingPage,
-                })
-              }
+              onEdit={handleEdit}
               readEditError={() => errorMessageRef.current}
               empty={
                 <ChatEmptyState
@@ -288,13 +304,18 @@ export const ChatPanel = memo(forwardRef<ChatPanelHandle, ChatPanelProps>(functi
                   agentToolsSupported={connection.agentToolsSupported}
                   settingsReady={connection.settingsReady}
                   hasDocument={!!doc}
+                  doc={doc}
                   totalPages={doc?.totalPages}
                   previewPage={page}
                   onConfigureApi={handleConfigureApi}
                   questionQueued={questionQueued}
-                  onExamplePrompt={(text) => {
-                    onComposerDraftChange(text);
-                    composerRef.current?.focus();
+                  onExamplePrompt={(text, opts) => {
+                    if (opts?.editOnly) {
+                      onComposerDraftChange(text);
+                      composerRef.current?.focus();
+                      return;
+                    }
+                    void sendOrQueue(text, { webSearch: false });
                   }}
                 />
               }

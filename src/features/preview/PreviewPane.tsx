@@ -1,15 +1,19 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ConfirmDialog } from "../../components/overlays/ConfirmDialog";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { useToast } from "../../hooks/useToast";
+import { setActiveReaderSelection } from "../../lib/active-selection";
+import { getHoveredHighlight, subscribeHoveredHighlight } from "../../lib/hover-highlight";
+import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
 import { getPageIndexState, clearPageIndexState } from "../../lib/index-events";
 import { sanitizeIndexErrorDetail } from "../../lib/index-error-display";
 import { getPageTextLen, pageHasIndexableText } from "../../lib/doc-text";
 import { indexPageInBackground, OCR_TRUSTED_CONFIDENCE } from "../../document/index-queue";
-import { cachedOcrPage } from "../../lib/ocr/ocr-service";
+import { cachedOcrPage, ocrEnabled } from "../../lib/ocr/ocr-service";
 import { useSettled } from "../../lib/use-settled";
 import { isImeComposing } from "../../lib/ime";
 import { usePdfViewer } from "./usePdfViewer";
@@ -69,6 +73,7 @@ function clampSelectionAnchor(
 
 /** How long the page has to stay put before it counts as being read. */
 const INDEX_SETTLE_MS = 500;
+const INDEX_SETTLE_LOCAL_OCR_MS = 100;
 
 interface PreviewPaneProps {
   doc: LoadedDocument;
@@ -145,6 +150,10 @@ function PreviewPaneInner({
   const [thumbsVisible, setThumbsVisible] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
   const [regionMode, setRegionMode] = useState(false);
+  const [altRegionActive, setAltRegionActive] = useState(false);
+  const [jumpPillVisible, setJumpPillVisible] = useState(false);
+  const [selOffscreen, setSelOffscreen] = useState(false);
+  const hovered = useSyncExternalStore(subscribeHoveredHighlight, getHoveredHighlight);
   const [pendingRegion, setPendingRegion] = useState<{
     page: number;
     pdfRect: PdfRect;
@@ -191,6 +200,30 @@ function PreviewPaneInner({
     },
     [viewer, onPageChange],
   );
+
+  // Show a quiet transient jump-back / forward pill whenever reading history changes.
+  useEffect(() => {
+    if (!viewer.canGoBack && !viewer.canGoForward) {
+      setJumpPillVisible(false);
+      return;
+    }
+    setJumpPillVisible(true);
+    const id = window.setTimeout(() => setJumpPillVisible(false), 8000);
+    return () => window.clearTimeout(id);
+  }, [viewer.canGoBack, viewer.canGoForward, viewer.backPage, viewer.forwardPage, page]);
+
+  useEffect(() => {
+    if (!altRegionActive) return;
+    const end = () => setAltRegionActive(false);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("blur", end);
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("blur", end);
+    };
+  }, [altRegionActive]);
 
   const handleSearchFocusBox = useCallback(
     (box: HighlightBox) => {
@@ -301,7 +334,132 @@ function PreviewPaneInner({
   );
   const [askSel, clearAskSel] = useAskSelection(
     scrollerRef,
-    !!onAskAboutSelection && doc.kind === "pdf",
+    doc.kind === "pdf",
+  );
+
+  // Sync active PDF text / region selection into the agent's live view context (29.0).
+  useEffect(() => {
+    if (askSel) {
+      setActiveReaderSelection({
+        path: doc.path,
+        page: askSel.page,
+        text: askSel.text,
+        kind: "text",
+      });
+      return;
+    }
+    if (pendingRegion) {
+      setActiveReaderSelection({
+        path: doc.path,
+        page: pendingRegion.page,
+        text: pendingRegion.text,
+        kind: "region",
+        pdfRect: pendingRegion.pdfRect,
+      });
+      return;
+    }
+    setActiveReaderSelection(null);
+  }, [doc.path, askSel, pendingRegion]);
+
+  // Hide the fixed selection toolbar if the reader scrolls the selected text out of view.
+  useEffect(() => {
+    setSelOffscreen(false);
+    if (!askSel) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const onScroll = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+        setSelOffscreen(true);
+        return;
+      }
+      const rangeBox = sel.getRangeAt(0).getBoundingClientRect();
+      const panelBox = (panelRef.current ?? scroller).getBoundingClientRect();
+      setSelOffscreen(
+        rangeBox.bottom < panelBox.top + 40 || rangeBox.top > panelBox.bottom - 16,
+      );
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [askSel]);
+
+  const copySelectionCitation = useCallback(() => {
+    if (!askSel || doc.kind !== "pdf") return;
+    const box = askSel.pageBox;
+    const selectionRect = askSel.rect;
+    const selPage = askSel.page;
+    const selPages = askSel.pages;
+    const rawText = askSel.text;
+    const run = quoteRun.current;
+    clearAskSel();
+    window.getSelection()?.removeAllRanges();
+    void selectionQuote(doc.path, selPage, rawText, selectionRect, box, selPages).then(
+      async (resolved) => {
+        if (quoteRun.current !== run) return;
+        const quote = (resolved || rawText).trim();
+        if (!quote) return;
+        const shortName = doc.name.replace(/\.pdf$/i, "");
+        const formatted = `“${quote}” (${shortName}, ${t("preview.pageHit", { page: selPage })})`;
+        try {
+          await navigator.clipboard.writeText(formatted);
+          showToast(t("toast.citationCopied"), "default");
+        } catch {
+          showToast(t("toast.copyFailed"), "error");
+        }
+      },
+    );
+  }, [askSel, clearAskSel, doc.kind, doc.name, doc.path, showToast, t]);
+
+  useEffect(() => {
+    if (!askSel || doc.kind !== "pdf") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isTypingTarget(e.target) || isOverlayOpen()) return;
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        copySelectionCitation();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [askSel, doc.kind, copySelectionCitation]);
+
+  const createSelectionMarks = useCallback(
+    (openNote: boolean) => {
+      if (!askSel || doc.kind !== "pdf") return;
+      const slices =
+        askSel.pages && askSel.pages.length > 0
+          ? askSel.pages
+          : [{ page: askSel.page, pageBox: askSel.pageBox, rects: askSel.rects }];
+      const text = askSel.text;
+      const run = quoteRun.current;
+      clearAskSel();
+      window.getSelection()?.removeAllRanges();
+      void (async () => {
+        try {
+          let firstCreatedId: string | null = null;
+          for (const slice of slices) {
+            const geometry = await getPageGeometry(doc.path, slice.page);
+            if (quoteRun.current !== run) return;
+            const mark = addMark(doc.path, {
+              page: slice.page,
+              rects: slice.rects.map((r) => clientRectToPageRect(r, slice.pageBox, geometry)),
+              text: slice.text || text,
+              stamp: doc.stamp ?? "",
+            });
+            if (!mark) {
+              showToast(t("marks.capReached"), "error");
+              break;
+            }
+            if (!firstCreatedId) firstCreatedId = mark.id;
+          }
+          if (openNote && firstCreatedId) onSelectMark?.(firstCreatedId);
+        } catch {
+          // Nothing to place the mark against; leaving the page unmarked is
+          // better than marking it in the wrong spot.
+        }
+      })();
+    },
+    [askSel, clearAskSel, doc.kind, doc.path, doc.stamp, onSelectMark, showToast, t],
   );
 
   const askButton =
@@ -322,14 +480,7 @@ function PreviewPaneInner({
           window.getSelection()?.removeAllRanges();
           void selectionQuote(doc.path, selPage, askSel.text, selectionRect, box, selPages).then(
             (quote) => {
-              // Reading the region is a round trip, and the user can turn the
-              // page or open another document while it is in flight. Dropping
-              // a superseded result keeps a quote from the old page out of the
-              // new one's composer.
               if (quoteRun.current !== run) return;
-              // The composer takes the text as given, so the quotation marks
-              // that make it read as a citation belong here, where we know this
-              // is a passage rather than a sentence about one.
               onAskAboutSelection(`"${quote}"`);
             },
           );
@@ -339,51 +490,39 @@ function PreviewPaneInner({
       </Button>
     ) : null;
 
+  // Choice 2A (29.0): "Mark" highlights silently in 1 click without stealing
+  // focus; "Note" creates the mark and opens the note card; "Cite" copies quote + page.
   const markButton =
     askSel && doc.kind === "pdf" ? (
-      <Button
-        variant="secondary"
-        size="md"
-        className="mark-selection-btn"
-        // Keep the selection alive through the click.
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => {
-          const slices =
-            askSel.pages && askSel.pages.length > 0
-              ? askSel.pages
-              : [{ page: askSel.page, pageBox: askSel.pageBox, rects: askSel.rects }];
-          const text = askSel.text;
-          const run = quoteRun.current;
-          clearAskSel();
-          window.getSelection()?.removeAllRanges();
-          void (async () => {
-            try {
-              let firstCreatedId: string | null = null;
-              for (const slice of slices) {
-                const geometry = await getPageGeometry(doc.path, slice.page);
-                if (quoteRun.current !== run) return;
-                const mark = addMark(doc.path, {
-                  page: slice.page,
-                  rects: slice.rects.map((r) => clientRectToPageRect(r, slice.pageBox, geometry)),
-                  text: slice.text || text,
-                  stamp: doc.stamp ?? "",
-                });
-                if (!mark) {
-                  showToast(t("marks.capReached"), "error");
-                  break;
-                }
-                if (!firstCreatedId) firstCreatedId = mark.id;
-              }
-              if (firstCreatedId) onSelectMark?.(firstCreatedId);
-            } catch {
-              // Nothing to place the mark against; leaving the page unmarked is
-              // better than marking it in the wrong spot.
-            }
-          })();
-        }}
-      >
-        {t("marks.markSelection")}
-      </Button>
+      <>
+        <Button
+          variant="secondary"
+          size="md"
+          className="mark-selection-btn"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => createSelectionMarks(false)}
+        >
+          {t("marks.markSelection")}
+        </Button>
+        <Button
+          variant="secondary"
+          size="md"
+          className="mark-selection-btn"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => createSelectionMarks(true)}
+        >
+          {t("marks.noteSelection")}
+        </Button>
+        <Button
+          variant="secondary"
+          size="md"
+          className="mark-selection-btn"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={copySelectionCitation}
+        >
+          {t("marks.citeSelection")}
+        </Button>
+      </>
     ) : null;
 
   // Leaving the mode or dismissing a boxed region has to be possible with Escape.
@@ -443,7 +582,8 @@ function PreviewPaneInner({
   // page continuously, so an unsettled page number would spend a call on every
   // page scrolled *past* — a 200-page scan, scrolled through once, unattended.
   // The page you are looking at is the one you stopped on.
-  const indexPage = useSettled(doc.kind === "pdf" ? page : 1, INDEX_SETTLE_MS);
+  const indexSettleMs = ocrEnabled() ? INDEX_SETTLE_LOCAL_OCR_MS : INDEX_SETTLE_MS;
+  const indexPage = useSettled(doc.kind === "pdf" ? page : 1, indexSettleMs);
   const indexState = usePageIndexStatus(doc.path, indexPage);
   const pageTextLen = getPageTextLen(doc.path, indexPage, doc.pages);
 
@@ -542,24 +682,38 @@ function PreviewPaneInner({
   // make `PageSlot`'s memo miss, re-reconciling every mounted page and all four
   // of its overlay layers sixty times a second.
   const renderOverlays = useCallback(
-    (slotPage: number) => (
-      <>
-        {searchHit?.page === slotPage && (
-          <SearchHighlight
-            path={doc.path}
-            page={slotPage}
-            query={searchHit.query}
-            focusIndex={searchHit.matchOnPage ?? 0}
-            onFocusBox={handleSearchFocusBox}
-          />
-        )}
-        {citation?.page === slotPage && (
-          <CitationHighlight path={doc.path} page={slotPage} rects={citation.rects} />
-        )}
-        <RegionSelectLayer
-          active={regionMode}
-          onRegion={(rect, pageBox) => {
-            setRegionMode(false);
+    (slotPage: number) => {
+      const citationRects =
+        citation?.page === slotPage
+          ? citation.rects
+          : citation?.secondPage?.page === slotPage
+            ? citation.secondPage.rects
+            : hovered?.kind === "citation" && hovered.path === doc.path
+              ? hovered.page === slotPage
+                ? hovered.rects
+                : hovered.secondPage?.page === slotPage
+                  ? hovered.secondPage.rects
+                  : null
+              : null;
+      return (
+        <>
+          {searchHit?.page === slotPage && (
+            <SearchHighlight
+              path={doc.path}
+              page={slotPage}
+              query={searchHit.query}
+              focusIndex={searchHit.matchOnPage ?? 0}
+              onFocusBox={handleSearchFocusBox}
+            />
+          )}
+          {citationRects && citationRects.length > 0 && (
+            <CitationHighlight path={doc.path} page={slotPage} rects={citationRects} />
+          )}
+          <RegionSelectLayer
+            active={regionMode || altRegionActive}
+            onRegion={(rect, pageBox) => {
+              setRegionMode(false);
+              setAltRegionActive(false);
             const anchorX = rect.left + rect.width / 2;
             const anchorY = Math.max(48, rect.top);
             const run = quoteRun.current;
@@ -625,8 +779,9 @@ function PreviewPaneInner({
         {doc.annotations && doc.annotations.length > 0 && (
           <AnnotationLayer path={doc.path} page={slotPage} annotations={doc.annotations} />
         )}
-      </>
-    ),
+        </>
+      );
+    },
     [
       doc.path,
       doc.links,
@@ -634,7 +789,9 @@ function PreviewPaneInner({
       doc.stamp,
       searchHit,
       citation,
+      hovered,
       regionMode,
+      altRegionActive,
       markRevision,
       selectedMarkId,
       selectedFindingId,
@@ -696,6 +853,41 @@ function PreviewPaneInner({
 
   const canvasBody = (
     <>
+      {regionMode && doc.kind === "pdf" && (
+        <div className="region-mode-pill" role="status">
+          {t("marks.regionPill")}
+        </div>
+      )}
+      {jumpPillVisible && doc.kind === "pdf" && (viewer.canGoBack || viewer.canGoForward) && (
+        <div className="preview-jump-pill" role="group" aria-label={t("commands.jumpHistory")}>
+          {viewer.canGoBack && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                viewer.goBack();
+              }}
+              title={`${t("toast.backToPage", { page: viewer.backPage })} (Alt+←)`}
+            >
+              <ArrowLeft size={12} aria-hidden />
+              {t("preview.pageHit", { page: viewer.backPage })}
+            </Button>
+          )}
+          {viewer.canGoForward && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                viewer.goForward();
+              }}
+              title={`${t("preview.pageHit", { page: viewer.forwardPage })} (Alt+→)`}
+            >
+              {t("preview.pageHit", { page: viewer.forwardPage })}
+              <ArrowRight size={12} aria-hidden />
+            </Button>
+          )}
+        </div>
+      )}
       {indexHint &&
         (indexFailed ? (
           // A failed index always offers Retry (for vision_failed — often a
@@ -871,6 +1063,7 @@ function PreviewPaneInner({
       onZoomOut={viewer.zoomOut}
       zoomDisabled={doc.kind === "image"}
       onPageChange={jumpWithHistory}
+      onStepPage={onPageChange}
       canGoBack={viewer.canGoBack}
       backPage={viewer.backPage}
       onGoBack={viewer.goBack}
@@ -963,11 +1156,16 @@ function PreviewPaneInner({
         <div
           className={`preview-canvas-wrap${hasBottomAsk ? " preview-canvas-has-ask" : ""}`}
           onClick={viewer.focusPreview}
+          onPointerDownCapture={(e) => {
+            if (doc.kind === "pdf" && e.altKey && e.button === 0 && !regionMode) {
+              setAltRegionActive(true);
+            }
+          }}
         >
           {canvasBody}
         </div>
       </div>
-      {(askButton || markButton) && askSel && (
+      {(askButton || markButton) && askSel && !selOffscreen && (
         <div
           className="selection-actions"
           style={clampSelectionAnchor(askSel.x, askSel.y, panelRef.current)}
@@ -991,7 +1189,7 @@ function PreviewPaneInner({
                 const region = pendingRegion;
                 setPendingRegion(null);
                 const prompt = region.text.trim()
-                  ? `"${region.text.trim()}"`
+                  ? `[${t("preview.pageTitle", { page: region.page })}] "${region.text.trim()}"`
                   : t("preview.askAboutRegion", { page: region.page });
                 onAskAboutSelection(prompt);
               }}
@@ -1014,11 +1212,31 @@ function PreviewPaneInner({
                 stamp: doc.stamp ?? "",
                 kind: "region",
               });
+              if (!mark) showToast(t("marks.capReached"), "error");
+            }}
+          >
+            {t("marks.markSelection")}
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
+            className="mark-selection-btn"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const region = pendingRegion;
+              setPendingRegion(null);
+              const mark = addMark(doc.path, {
+                page: region.page,
+                rects: [region.pdfRect],
+                text: region.text,
+                stamp: doc.stamp ?? "",
+                kind: "region",
+              });
               if (mark) onSelectMark?.(mark.id);
               else showToast(t("marks.capReached"), "error");
             }}
           >
-            {t("marks.markSelection")}
+            {t("marks.noteSelection")}
           </Button>
         </div>
       )}
