@@ -99,16 +99,36 @@ export function passageAround(items: readonly TextItemRect[], rects: readonly Pd
       .join(" ");
   }
 
+  const seedHeights = [...inBlock].map((i) => items[i]!.rect.height).filter((h) => h > 0);
+  const seedMedianHeight =
+    seedHeights.length > 0
+      ? [...seedHeights].sort((a, b) => a - b)[Math.floor(seedHeights.length / 2)]!
+      : 0;
+
   let grew = true;
   while (grew && inBlock.size < MAX_RUNS) {
     grew = false;
     const block = [...inBlock].map((i) => items[i]!.rect);
     const left = Math.min(...block.map((r) => r.x));
     const right = Math.max(...block.map((r) => r.x + r.width));
+    const minY = Math.min(...block.map((r) => r.y));
     const lineHeight = Math.max(...block.map((r) => r.height));
     items.forEach((it, i) => {
       if (inBlock.has(i) || inBlock.size >= MAX_RUNS) return;
       if (!overlapsX(it.rect, left, right)) return;
+      const onExistingLine = block.some((r) => sameRowBand(r, it.rect));
+      if (!onExistingLine && seedMedianHeight > 0 && it.rect.height > 0) {
+        // Stop vertical growth across a sharp font-size step (body -> footnote or heading).
+        const ratio = Math.min(seedMedianHeight, it.rect.height) / Math.max(seedMedianHeight, it.rect.height);
+        if (ratio < 0.84) return;
+        if (
+          it.rect.y < minY &&
+          it.rect.height < seedMedianHeight * 0.94 &&
+          /^(?:\*+|†|‡|§|Footnote\b|Notes?:|注[：:])/i.test(it.text.trim())
+        ) {
+          return;
+        }
+      }
       const near = block.some((r) => {
         const gap = Math.max(r.y - (it.rect.y + it.rect.height), it.rect.y - (r.y + r.height));
         return gap <= 1.5 * Math.max(lineHeight, it.rect.height);

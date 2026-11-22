@@ -68,19 +68,34 @@ export function findingAnnotations(
     // machine vouching for it, not the reader who checked it (16.0, B16).
     const placed = placement?.status === "located" || (trust === "confirmed" && placement?.status === "mismatch");
     if (!placement || !placed) continue;
-    const { page, rects } = placement.anchor;
+    const { page, rects, secondPage } = placement.anchor;
     const how = trust === "confirmed" ? labels.confirmed : labels.foundOnPage(page);
+    const author = finding.author === "reader" ? labels.reader : labels.assistant;
+    const contents = `${finding.claim}\n\n${how}`;
     out.push({
       kind: "highlight",
       id: `f-${finding.id}`,
       page,
       rects,
       frame: "pdf",
-      contents: `${finding.claim}\n\n${how}`,
-      author: finding.author === "reader" ? labels.reader : labels.assistant,
+      contents,
+      author,
       subject: labels.finding,
       color: FINDING_COLOR,
     });
+    if (secondPage && secondPage.rects.length > 0) {
+      out.push({
+        kind: "highlight",
+        id: `f-${finding.id}-p${secondPage.page}`,
+        page: secondPage.page,
+        rects: secondPage.rects,
+        frame: "pdf",
+        contents,
+        author,
+        subject: labels.finding,
+        color: FINDING_COLOR,
+      });
+    }
   }
   return out;
 }

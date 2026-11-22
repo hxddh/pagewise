@@ -27,6 +27,10 @@ pub(crate) const VAULT_FILE_NAME: &str = "api-keys.vault";
 /// Providers the frontend is allowed to store keys for. Rejecting anything else
 /// avoids junk/typo entries piling up in the credential store.
 const KNOWN_PROVIDERS: &[&str] = &["openai", "deepseek", "openrouter", "ollama", "custom"];
+/// Upper bound on a single API key so the consolidated Windows Credential
+/// Manager `CRED_MAX_CREDENTIAL_BLOB_SIZE` (2,560 bytes) is never overrun by an
+/// accidental clipboard paste (28.0).
+const MAX_API_KEY_BYTES: usize = 2048;
 
 /// Process-wide mutex serializing all credential reads/writes so concurrent
 /// `spawn_blocking` callers never race on vault updates or stack duplicate OS
@@ -93,7 +97,13 @@ fn write_vault_file(path: &Path, payload: &VaultPayload) -> Result<(), String> {
     let bytes =
         serde_json::to_vec(payload).map_err(|e| format!("Vault serialize failed: {e}"))?;
     let seq = VAULT_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(".pagewise-vault-{}-{seq}.tmp", std::process::id()));
+    // Uses `store_io`'s `.pagewise-<pid>-<n>.tmp` format numbered from `2 << 40`
+    // so `store_io::sweep_stale_temps` purges any crashed vault temp at launch (28.0).
+    let tmp = parent.join(format!(
+        ".pagewise-{}-{}.tmp",
+        std::process::id(),
+        (2u64 << 40) + seq
+    ));
 
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
@@ -129,6 +139,9 @@ fn write_vault_file(path: &Path, payload: &VaultPayload) -> Result<(), String> {
 #[cfg(any(target_os = "macos", test))]
 fn set_file_vault_key(dir: &Path, provider: &str, key: &str) -> Result<(), String> {
     validate_provider(provider)?;
+    if key.len() > MAX_API_KEY_BYTES {
+        return Err("API key exceeds maximum length".to_string());
+    }
     let _guard = lock_vault();
     let path = dir.join(VAULT_FILE_NAME);
     let mut vault = read_vault_file(&path)?;
@@ -218,7 +231,9 @@ fn legacy_keychain_delete(provider: &str) {
 #[cfg(any(not(target_os = "macos"), test))]
 fn read_keychain_vault() -> Result<VaultPayload, String> {
     match vault_entry()?.get_password() {
-        Ok(raw) => serde_json::from_str(&raw).or_else(|_| Ok(VaultPayload::default())),
+        Ok(raw) => {
+            serde_json::from_str(&raw).map_err(|e| format!("Corrupt credential vault: {e}"))
+        }
         Err(keyring::Error::NoEntry) => Ok(VaultPayload::default()),
         Err(e) => Err(e.to_string()),
     }
@@ -233,6 +248,9 @@ fn write_keychain_vault(vault: &VaultPayload) -> Result<(), String> {
 #[cfg(any(not(target_os = "macos"), test))]
 fn set_keychain_key_impl(provider: &str, key: &str) -> Result<(), String> {
     validate_provider(provider)?;
+    if key.len() > MAX_API_KEY_BYTES {
+        return Err("API key exceeds maximum length".to_string());
+    }
     let _guard = lock_vault();
     let mut vault = read_keychain_vault()?;
     vault.keys.insert(provider.to_string(), key.to_string());

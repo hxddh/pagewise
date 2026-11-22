@@ -9,6 +9,7 @@ import {
   preparePdfSwitch,
 } from "./pdf";
 import { preflightDocument } from "./preflight-document";
+import { classifyOpenError } from "./open-error";
 import { preferAuthoredOutline, usableOutline } from "./outline-nav";
 import { throwIfAborted } from "./abort-utils";
 import { report, type LoadProgressCallback } from "./load-progress";
@@ -46,6 +47,8 @@ export function isSupportedDocument(path: string): boolean {
 export interface LoadDocumentOptions {
   /** When true, build the document without touching docCache or the index queue. */
   deferCache?: boolean;
+  /** True when reloading the currently open document in place (preserves session state on encrypted prompt). */
+  isReload?: boolean;
 }
 
 /** Commit a staged document after chat hydration succeeds. */
@@ -129,7 +132,9 @@ export async function loadDocument(
         annotations,
       };
     } catch (err) {
-      disposeDocumentResources(path);
+      if (!(options?.isReload && classifyOpenError(err)?.kind === "encrypted")) {
+        disposeDocumentResources(path);
+      }
       throw err;
     }
   } else {

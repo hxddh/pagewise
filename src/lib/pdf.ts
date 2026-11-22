@@ -77,6 +77,10 @@ export function setActivePdfPath(path: string | null): void {
   if (path && pdfDocCache.has(path)) clearPdfBytesCache(path);
 }
 
+export function activePdfPath(): string | null {
+  return pdfActivePath;
+}
+
 export function clearPdfBytesCache(onlyPath?: string): void {
   if (onlyPath !== undefined) {
     const prev = pdfBytesCache.get(onlyPath);
@@ -136,9 +140,10 @@ export class StalePdfLoadError extends Error {
 let fileReadGen = 0;
 
 function bumpFileReadGeneration(): void {
+  const prevGen = fileReadGen;
   fileReadGen += 1;
   if (isTauriRuntime()) {
-    void invoke("cancel_file_read_cmd").catch(() => {});
+    void invoke("cancel_file_read_cmd", { minGen: prevGen + 1 }).catch(() => {});
   }
 }
 
@@ -563,7 +568,15 @@ async function loadPdfBytesViaAsset(path: string): Promise<Uint8Array> {
 }
 
 async function loadPdfBytesViaIpc(path: string, readGen: number): Promise<Uint8Array> {
-  const raw = await invokeCmd<unknown>("read_file_bytes", { path });
+  let raw: unknown;
+  try {
+    raw = await invokeCmd<unknown>("read_file_bytes", { path, gen: readGen });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("Read cancelled")) {
+      throw new StalePdfLoadError(path);
+    }
+    throw err;
+  }
   if (readGen !== fileReadGen) throw new StalePdfLoadError(path);
   return coerceInvokeBytes(raw);
 }
@@ -598,7 +611,8 @@ async function loadPdfBytes(path: string, epochAtStart: number): Promise<Uint8Ar
     data = await loadPdfBytesViaIpc(path, readGen);
   } catch (e) {
     if (e instanceof StalePdfLoadError) throw e;
-    if (classifyOpenError(e)?.kind === "tooLarge") throw e;
+    if (classifyOpenError(e)) throw e;
+    if (isTauriRuntime()) throw e;
     data = await loadPdfBytesViaAsset(path);
     if (!shouldCommitPdfLoad(path, epochAtStart)) throw new StalePdfLoadError(path);
   }
@@ -1127,8 +1141,7 @@ export function clearPdfCache(onlyPath?: string): void {
     return;
   }
 
-  const preserve =
-    stagedPdfPath !== null && stagedPdfPath !== pdfActivePath ? stagedPdfPath : null;
+  const preserve = stagedPdfPath;
 
   renderEpoch += 1;
   for (const item of renderQueue) item.cancel();
@@ -1311,25 +1324,30 @@ export async function renderPageToJpegBytes(
   quality = VISION_QUALITY,
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
-  const { canvas: offscreen } = await paintDetached(
+  const { canvas: offscreen, page } = await paintDetached(
     path,
     pageNumber,
-    (page) => {
-      const base = page.getViewport({ scale: 1 });
+    (p) => {
+      const base = p.getViewport({ scale: 1 });
       return visionRenderScale(Math.max(base.width, base.height), maxEdge, getOutputScale("performance"));
     },
     signal,
   );
 
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    offscreen.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
-      "image/jpeg",
-      quality,
-    );
-  });
-
-  return new Uint8Array(await blob.arrayBuffer());
+  try {
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      offscreen.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+        "image/jpeg",
+        quality,
+      );
+    });
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    offscreen.width = 0;
+    offscreen.height = 0;
+    if (activePaints.size === 0) page.cleanup?.();
+  }
 }
 
 
@@ -1466,30 +1484,38 @@ export async function renderRegionToJpegBytes(
   // canvas's own pixels rather than assuming they match viewport units.
   const pixelRatio = pageCanvas.width / viewport.width;
   const crop = document.createElement("canvas");
-  crop.width = Math.max(1, Math.round(sw * pixelRatio));
-  crop.height = Math.max(1, Math.round(sh * pixelRatio));
-  const ctx = crop.getContext("2d");
-  if (!ctx) throw new Error("Canvas unavailable");
-  ctx.drawImage(
-    pageCanvas,
-    sx * pixelRatio,
-    sy * pixelRatio,
-    crop.width,
-    crop.height,
-    0,
-    0,
-    crop.width,
-    crop.height,
-  );
-
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    crop.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
-      "image/jpeg",
-      quality,
+  try {
+    crop.width = Math.max(1, Math.round(sw * pixelRatio));
+    crop.height = Math.max(1, Math.round(sh * pixelRatio));
+    const ctx = crop.getContext("2d");
+    if (!ctx) throw new Error("Canvas unavailable");
+    ctx.drawImage(
+      pageCanvas,
+      sx * pixelRatio,
+      sy * pixelRatio,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      crop.width,
+      crop.height,
     );
-  });
-  return new Uint8Array(await blob.arrayBuffer());
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      crop.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+        "image/jpeg",
+        quality,
+      );
+    });
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    pageCanvas.width = 0;
+    pageCanvas.height = 0;
+    crop.width = 0;
+    crop.height = 0;
+    if (activePaints.size === 0) page.cleanup?.();
+  }
 }
 
 /**

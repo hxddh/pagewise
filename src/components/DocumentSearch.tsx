@@ -37,10 +37,12 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const searchGenRef = useRef(0);
+  const hasJumpedRef = useRef(false);
 
   const close = useCallback(() => {
     setOpen(false);
     setResultsCollapsed(false);
+    hasJumpedRef.current = false;
     onClearHighlight?.();
   }, [onClearHighlight]);
 
@@ -62,6 +64,7 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
       setHits([]);
       setRelatedHits([]);
       setActiveIndex(0);
+      hasJumpedRef.current = false;
       setSearching(false);
       return;
     }
@@ -76,6 +79,7 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
       setHits(results);
       setRelatedHits(related);
       setActiveIndex(0);
+      hasJumpedRef.current = false;
       setSearching(false);
     }, 100);
     return () => {
@@ -112,6 +116,7 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
   const stepHit = useCallback(
     (delta: 1 | -1) => {
       if (hits.length === 0) return;
+      hasJumpedRef.current = true;
       const next = (activeIndex + delta + hits.length) % hits.length;
       setActiveIndex(next);
       const hit = hits[next]!;
@@ -179,12 +184,16 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
           if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "Enter" && hits.length > 0) {
             e.preventDefault();
-            if (e.shiftKey) stepHit(-1);
-            else {
+            if (e.shiftKey) {
+              stepHit(-1);
+            } else if (!hasJumpedRef.current) {
               const idx = hits[activeIndex] ? activeIndex : 0;
               const target = hits[idx]!;
+              hasJumpedRef.current = true;
+              setActiveIndex(idx);
               jumpToMatch(target.page, query, ordinalOnPage(idx));
-              setActiveIndex((idx + 1) % hits.length);
+            } else {
+              stepHit(1);
             }
           }
         }}
@@ -284,6 +293,7 @@ export function DocumentSearch({ doc, onJumpToPage, onClearHighlight, containerR
                         <ListRow
                           className={`doc-search-hit${i === activeIndex ? " active" : ""}`}
                           onClick={() => {
+                            hasJumpedRef.current = true;
                             setActiveIndex(i);
                             jumpToMatch(hit.page, query, ordinalOnPage(i));
                             setResultsCollapsed(true);

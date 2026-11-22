@@ -25,8 +25,31 @@ use serde::Serialize;
 static SESSION_PASSWORDS: LazyLock<Mutex<HashMap<PathBuf, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(s) = path.to_str() {
+            if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+                return PathBuf::from(format!(r"\\{rest}"));
+            }
+            if let Some(rest) = s.strip_prefix(r"\\?\") {
+                return PathBuf::from(rest);
+            }
+        }
+    }
+    path
+}
+
+/// Canonical cache/session key normalized across Windows `\\?\` verbatim paths
+/// so closing a deleted/unmounted file (`canonicalize` fallback) still matches
+/// and purges in-memory passwords and decrypted buffers (28.0).
+pub fn clean_path_key(path: &Path) -> PathBuf {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    strip_verbatim_prefix(resolved)
+}
+
 fn canon_key(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    clean_path_key(path)
 }
 
 #[allow(dead_code)]

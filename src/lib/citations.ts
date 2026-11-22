@@ -58,17 +58,34 @@ export function citationRe(): RegExp {
   return /〔([^〔〕\n]{1,700})〕/g;
 }
 
-const PAGES_RE = /^(?:d\d+\s*)?(?:p|P|pp?\.?\s*)\s*(\d{1,5})(?:\s*[-–—~]\s*(\d{1,5}))?/;
-const QUOTE_RE = /^["“「『'‘]([\s\S]+)["”」』'’]$/;
+const PAGES_RE =
+  /^(?:d\d+\s*)?(?:p|P|pp?\.?\s*)\s*(\d{1,5}(?:\s*(?:[-–—~]\s*\d{1,5}|,\s*(?:pp?\.?\s*)?\d{1,5}(?:\s*[-–—~]\s*\d{1,5})?))*)/;
+const QUOTE_RE = /^["“「『'‘«]([\s\S]+)["”」』'’»]$/;
+
+function parsePageSpec(spec: string): number[] | null {
+  const seen = new Set<number>();
+  for (const rawSeg of spec.split(",")) {
+    const seg = rawSeg.trim().replace(/^(?:pp?\.?\s*)/i, "");
+    const m = /^(\d{1,5})(?:\s*[-–—~]\s*(\d{1,5}))?$/.exec(seg);
+    if (!m) return null;
+    const a = parseInt(m[1]!, 10);
+    const b = m[2] ? parseInt(m[2], 10) : a;
+    if (!(a >= 1) || b < a || b - a + 1 > MAX_CITATION_PAGES) return null;
+    for (let p = a; p <= b; p += 1) {
+      seen.add(p);
+      if (seen.size > MAX_CITATION_PAGES) return null;
+    }
+  }
+  return seen.size > 0 ? [...seen].sort((x, y) => x - y) : null;
+}
 
 /** Parse the inside of one marker, or null when it is not a citation. */
 export function parseCitation(inner: string): Omit<Citation, "raw" | "index"> | null {
   const text = inner.trim();
   const pages = PAGES_RE.exec(text);
   if (!pages) return null;
-  const first = parseInt(pages[1]!, 10);
-  const last = pages[2] ? parseInt(pages[2], 10) : first;
-  if (!(first >= 1) || last < first || last - first + 1 > MAX_CITATION_PAGES) return null;
+  const list = parsePageSpec(pages[1]!);
+  if (!list) return null;
 
   const rest = text.slice(pages[0].length).trim().replace(/^[:：,，]\s*/, "");
   let quote: string | null = null;
@@ -79,8 +96,6 @@ export function parseCitation(inner: string): Omit<Citation, "raw" | "index"> | 
     if (!q) return null;
     quote = q[1]!.trim().slice(0, MAX_CITATION_QUOTE) || null;
   }
-  const list: number[] = [];
-  for (let p = first; p <= last; p += 1) list.push(p);
   return { pages: list, quote };
 }
 
@@ -119,6 +134,21 @@ export function hideOpenCitation(text: string): string {
 /** Sentence ends. A full stop between two digits is a decimal point, not an end (16.0). */
 const SENTENCE_END = /(?<!\d)\.|\.(?!\d)|[!?。！？\n]/g;
 
+const ABBREVIATION_BEFORE_DOT_RE =
+  /(?:^|[\s(（[{["“'‘])(?:sec|art|fig|figs|eq|eqs|no|nos|vol|ch|chap|para|subpara|cl|dr|mr|mrs|ms|prof|sr|jr|st|vs|v|cf|viz|approx|ca|al|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|e\.g|i\.e)$/i;
+
+/** True when `.` at `dotIndex` closes a standard title, section, or Latin abbreviation (`Sec. 4`, `e.g.`, `Dr. Lee`). */
+export function isAbbreviationStop(text: string, dotIndex: number): boolean {
+  if (text[dotIndex] !== ".") return false;
+  const window = text.slice(Math.max(0, dotIndex - 12), dotIndex);
+  if (ABBREVIATION_BEFORE_DOT_RE.test(window)) return true;
+  // First dot in `e.g.` or `i.e.`
+  if (/(?:^|[\s(（[{["“'‘])[ei]$/i.test(window) && /^[gi]\./i.test(text.slice(dotIndex + 1, dotIndex + 3))) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * The same rule as a fresh matcher, for a caller walking its own string — the
  * sentence table (`answer-sentences.ts`) splits by it, so a sentence there is
@@ -142,6 +172,7 @@ function startAfterLastStop(cleaned: string, stops: RegExp): number {
   let m: RegExpExecArray | null;
   stops.lastIndex = 0;
   while ((m = stops.exec(cleaned)) !== null) {
+    if (cleaned[m.index] === "." && isAbbreviationStop(cleaned, m.index)) continue;
     if (m.index < last) start = m.index + m[0].length;
   }
   return start;
@@ -207,6 +238,7 @@ export function claimSpanBefore(markdown: string, markerIndex: number): string {
   endRe.lastIndex = afterPos;
   let em: RegExpExecArray | null;
   while ((em = endRe.exec(markdown)) !== null) {
+    if (markdown[em.index] === "." && isAbbreviationStop(markdown, em.index)) continue;
     const beforeStop = markdown.slice(afterPos, em.index);
     const lastOpen = beforeStop.lastIndexOf(CITATION_OPEN);
     if (lastOpen >= 0 && !beforeStop.slice(lastOpen).includes(CITATION_CLOSE)) continue;
@@ -229,7 +261,15 @@ export function citationsToText(markdown: string): string {
   return markdown.replace(citationRe(), (whole, inner: string) => {
     const c = parseCitation(inner);
     if (!c) return whole;
-    const pages = c.pages.length > 1 ? `pp. ${c.pages[0]}–${c.pages[c.pages.length - 1]}` : `p. ${c.pages[0]}`;
+    const first = c.pages[0]!;
+    const last = c.pages[c.pages.length - 1]!;
+    const contiguous = last - first + 1 === c.pages.length;
+    const pages =
+      c.pages.length > 1
+        ? contiguous
+          ? `pp. ${first}–${last}`
+          : `pp. ${c.pages.join(", ")}`
+        : `p. ${first}`;
     return c.quote ? ` [${pages}: “${c.quote}”]` : ` [${pages}]`;
   });
 }

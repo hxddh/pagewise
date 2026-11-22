@@ -32,7 +32,9 @@ const MAX_ANNOTATIONS: usize = 5_000;
 const MAX_RECTS: usize = 256;
 const MAX_CONTENTS: usize = 8_000;
 /// How far below a run's baseline its highlight reaches, as a share of its height.
-const DESCENT: f32 = 0.25;
+/// `0.29` covers lowered inline subscript baselines (`r₁…rₙ`, `medianₖ₍ₒ₎`)
+/// without encroaching on tight single-spaced lines below (28.0).
+const DESCENT: f32 = 0.29;
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -78,12 +80,18 @@ pub struct AnnotationIn {
 /// top-left rectangle (`Frame::View`), so converting `Frame::View` back to PDF
 /// user space only translates from the visible box's top-left without rotating
 /// a second time.
-fn absolute(r: &Rect, frame: Frame, view: [f32; 4]) -> Option<[f32; 4]> {
+fn absolute(r: &Rect, frame: Frame, kind: Kind, view: [f32; 4], rotation: u16) -> Option<[f32; 4]> {
     if ![r.x, r.y, r.width, r.height].iter().all(|v| v.is_finite()) || r.width <= 0.0 || r.height <= 0.0 {
         return None;
     }
     Some(match frame {
-        Frame::Pdf => [r.x, r.y - DESCENT * r.height, r.x + r.width, r.y + r.height],
+        Frame::Pdf if kind == Kind::Square => [r.x, r.y, r.x + r.width, r.y + r.height],
+        Frame::Pdf => match rotation % 360 {
+            90 => [r.x, r.y, r.x + r.width * (1.0 + DESCENT), r.y + r.height],
+            180 => [r.x, r.y, r.x + r.width, r.y + r.height * (1.0 + DESCENT)],
+            270 => [r.x - DESCENT * r.width, r.y, r.x + r.width, r.y + r.height],
+            _ => [r.x, r.y - DESCENT * r.height, r.x + r.width, r.y + r.height],
+        },
         Frame::View => {
             let x0 = view[0] + r.x;
             let top = view[3] - r.y;
@@ -204,9 +212,9 @@ fn build_appearance_stream(
                 let y = r[1] - bounds[1];
                 let rw = (r[2] - r[0]).max(0.01);
                 let rh = (r[3] - r[1]).max(0.01);
-                ops.push_str(&format!("{x:.3} {y:.3} {rw:.3} {rh:.3} re f "));
+                ops.push_str(&format!("{x:.3} {y:.3} {rw:.3} {rh:.3} re "));
             }
-            ops.push('Q');
+            ops.push_str("f Q");
             let gs = dictionary! {
                 "Type" => "ExtGState",
                 "BM" => "Multiply",
@@ -317,7 +325,7 @@ pub fn annotate_document(doc: &mut Document, annotations: &[AnnotationIn], now: 
             .rects
             .iter()
             .take(MAX_RECTS)
-            .filter_map(|r| absolute(r, a.frame, view))
+            .filter_map(|r| absolute(r, a.frame, a.kind, view, rotation))
             .collect();
         if rects.is_empty() {
             continue;
@@ -410,7 +418,13 @@ pub fn annotate_bytes_with_password(
         },
     )
     .or_else(|_| Document::load_mem(bytes))
-    .map_err(|e| format!("Failed to read PDF: {e}"))?;
+    .map_err(|e| {
+        if bytes.windows(8).any(|w| w == b"/Encrypt") {
+            doc_check::coded(doc_check::PDF_ENCRYPTED, "PDF requires a password")
+        } else {
+            format!("Failed to read PDF: {e}")
+        }
+    })?;
     ensure_decrypted(&mut doc, password)?;
     doc.trailer.remove(b"Encrypt");
     doc.encryption_state = None;
@@ -428,9 +442,13 @@ pub fn annotate_bytes_with_password(
 /// Load `src`, annotate it, and save the result to `out`.
 pub fn annotate_file(src: &Path, out: &Path, annotations: &[AnnotationIn]) -> Result<usize, String> {
     use std::io::Write;
-    let src_bytes = std::fs::read(src).map_err(|e| format!("Failed to read PDF: {e}"))?;
     let pw = doc_check::session_password(src);
-    let (pdf_bytes, written) = annotate_bytes_with_password(&src_bytes, annotations, pw.as_deref())?;
+    let (pdf_bytes, written) = if let Some(cached) = crate::inspect::cached_pdf_arc(src) {
+        annotate_bytes_with_password(cached.as_slice(), annotations, pw.as_deref())?
+    } else {
+        let src_bytes = std::fs::read(src).map_err(|e| format!("Failed to read PDF: {e}"))?;
+        annotate_bytes_with_password(&src_bytes, annotations, pw.as_deref())?
+    };
     // Written beside the target and renamed over it, so a failure midway never
     // leaves half a PDF where the reader asked for one. The temp is created
     // exclusively under a name of ours (21.1.2): it was `<file>.pdf.partial`
@@ -526,8 +544,8 @@ mod tests {
         assert_eq!(annots.len(), 1);
         let a = &annots[0];
         assert_eq!(a.get(b"Subtype").unwrap().as_name().unwrap(), b"Highlight");
-        // Reaching a quarter of the line below the baseline, for descenders.
-        assert_eq!(reals(a.get(b"QuadPoints").unwrap()), vec![72.0, 652.0, 402.0, 652.0, 72.0, 637.0, 402.0, 637.0]);
+        // Reaching 0.29 of the line below the baseline, for descenders & subscripts.
+        assert_eq!(reals(a.get(b"QuadPoints").unwrap()), vec![72.0, 652.0, 402.0, 652.0, 72.0, 636.52, 402.0, 636.52]);
         // Non-ASCII contents travel as UTF-16BE with a byte-order mark.
         let Object::String(bytes, _) = a.get(b"Contents").unwrap() else { panic!() };
         assert_eq!(&bytes[..2], &[0xFE, 0xFF]);
@@ -664,7 +682,31 @@ mod tests {
     fn view_frame_marks_do_not_double_rotate() {
         let view = [100.0, 100.0, 512.0, 692.0];
         let r = Rect { x: 10.0, y: 20.0, width: 50.0, height: 12.0 };
-        assert_eq!(absolute(&r, Frame::View, view), Some([110.0, 660.0, 160.0, 672.0]));
+        assert_eq!(
+            absolute(&r, Frame::View, Kind::Square, view, 0),
+            Some([110.0, 660.0, 160.0, 672.0])
+        );
+    }
+
+    #[test]
+    fn pdf_highlights_extend_descent_for_short_words_and_rotated_pages() {
+        let view = [0.0, 0.0, 612.0, 792.0];
+        // Short 2-letter word ("of"): width < height still gets full baseline descent.
+        let short = Rect { x: 100.0, y: 500.0, width: 8.0, height: 10.0 };
+        assert_eq!(
+            absolute(&short, Frame::Pdf, Kind::Highlight, view, 0),
+            Some([100.0, 500.0 - 10.0 * DESCENT, 108.0, 510.0])
+        );
+        // Rotated /Rotate 90 and /Rotate 270 extend along the baseline's perpendicular X axis.
+        let rot = Rect { x: 200.0, y: 300.0, width: 10.0, height: 40.0 };
+        assert_eq!(
+            absolute(&rot, Frame::Pdf, Kind::Highlight, view, 90),
+            Some([200.0, 300.0, 200.0 + 10.0 * (1.0 + DESCENT), 340.0])
+        );
+        assert_eq!(
+            absolute(&rot, Frame::Pdf, Kind::Highlight, view, 270),
+            Some([200.0 - 10.0 * DESCENT, 300.0, 210.0, 340.0])
+        );
     }
 
     #[test]

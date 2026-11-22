@@ -9,12 +9,20 @@
  */
 
 /** Tool-input fields that must be numbers across the document tools. */
-const NUMERIC_TOOL_FIELDS = ["page", "start", "end", "offset", "maxChars", "maxResults"] as const;
+const NUMERIC_TOOL_FIELDS = [
+  "page",
+  "start",
+  "end",
+  "offset",
+  "maxChars",
+  "maxResults",
+  "index",
+] as const;
 
 /**
- * Coerce string-encoded numeric fields in a tool-call argument JSON string.
- * Returns the repaired JSON string, or null when nothing could be fixed
- * (unparseable, not an object, or no numeric-looking string field).
+ * Coerce string-encoded numeric fields (and string/scalar `pages` arrays) in a
+ * tool-call argument JSON string. Returns the repaired JSON string, or null when
+ * nothing could be fixed (unparseable, not an object, or no coercible field).
  */
 export function coerceNumericToolInput(inputJson: string): string | null {
   let parsed: unknown;
@@ -31,6 +39,26 @@ export function coerceNumericToolInput(inputJson: string): string | null {
     const value = obj[field];
     if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
       obj[field] = Number(value);
+      changed = true;
+    }
+  }
+  const pages = obj.pages;
+  if (typeof pages === "number" && Number.isFinite(pages)) {
+    obj.pages = [pages];
+    changed = true;
+  } else if (typeof pages === "string" && pages.trim() !== "") {
+    const nums = pages
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number);
+    if (nums.length > 0 && nums.every(Number.isFinite)) {
+      obj.pages = nums;
+      changed = true;
+    }
+  } else if (Array.isArray(pages) && pages.some((p) => typeof p === "string")) {
+    const nums = pages.map((p) => (typeof p === "string" && p.trim() !== "" ? Number(p) : p));
+    if (nums.every((n) => typeof n === "number" && Number.isFinite(n))) {
+      obj.pages = nums;
       changed = true;
     }
   }

@@ -6,8 +6,10 @@ vi.mock("./pdf", () => ({ pageTextItems: async (_p: string, page: number) => pag
 vi.mock("./ocr/ocr-service", () => ({ ocrEnabled: () => false, ocrPage: async () => null }));
 // The model review is billed and network-bound; the stub answers "supports".
 vi.mock("ai", () => ({
-  generateObject: async () => ({
-    object: { reviews: [{ item: 1, verdict: "supports", reason: "原文：预付百分之三十" }] },
+  Output: { object: ({ schema }: { schema: unknown }) => ({ schema }) },
+  generateText: async () => ({
+    text: JSON.stringify({ reviews: [{ item: 1, verdict: "supports", reason: "原文：预付百分之三十" }] }),
+    output: { reviews: [{ item: 1, verdict: "supports", reason: "原文：预付百分之三十" }] },
     usage: { inputTokens: 1, outputTokens: 1 },
   }),
 }));

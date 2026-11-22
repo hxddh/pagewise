@@ -1,4 +1,5 @@
-import { getToolName, isToolUIPart, type UIMessage } from "ai";
+import type { UIMessage } from "ai";
+import { getToolName, isToolUIPart } from "./tool-part";
 import {
   DOCUMENT_OUTLINE_TOOL,
   NOTE_FINDING_TOOL,

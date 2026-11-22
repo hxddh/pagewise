@@ -340,9 +340,9 @@ async function recognize(path: string, page: number, slot: number, signal?: Abor
     state.readWith.set(page, "eng");
     return { ...first, ms: performance.now() - started };
   }
-  // The second reading is a try: when it fails or runs out of time, the page
-  // keeps what English read (Codex on #157) — the probe must never leave a
-  // page with less than it had.
+  // Reserve a CJK probe slot up front so two concurrent OCR workers do not both
+  // enter 300-DPI dual-model probes past `MAX_CJK_PROBES` (28.0).
+  if (!switched) state.cjkProbes += 1;
   let both: StoredOcrPage | null = null;
   try {
     both = await withPageTimeout(recognizeWith(path, page, slot, "chi_sim+eng", signal));
@@ -351,9 +351,13 @@ async function recognize(path: string, page: number, slot: number, signal?: Abor
     if (isPageTimeout(err)) void terminateOcrSlot(slot);
   }
   const better = bothModelsWin(first, both);
-  if (!switched) {
-    if (better) state.langs = "chi_sim+eng";
-    else state.cjkProbes += 1;
+  if (!switched && better) {
+    state.cjkProbes = Math.max(0, state.cjkProbes - 1);
+    const priorEng = pagesReadWith(state, "eng");
+    if (priorEng.length > 0 && state.dirty) {
+      state.held.push({ langs: "eng", pages: priorEng });
+    }
+    state.langs = "chi_sim+eng";
   }
   state.readWith.set(page, better && both ? "chi_sim+eng" : "eng");
   return { ...(better && both ? both : first), ms: performance.now() - started };
@@ -394,23 +398,28 @@ async function recognizeWith(
     // An image has no PDF space to put boxes in; its words are text only.
     const bytes = await readAuthorizedFileBytes(path, signal);
     const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]));
+    const canvas = document.createElement("canvas");
     try {
-      const canvas = document.createElement("canvas");
       canvas.width = bitmap.width;
       canvas.height = bitmap.height;
       canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
       const read = await recognizeCanvas(canvas, (x, y) => [x, y], langs, slot);
       return { ...read, items: [], page, ms: performance.now() - started };
     } finally {
+      canvas.width = 0;
+      canvas.height = 0;
       bitmap.close();
     }
   }
   const { canvas, toPdf } = await renderPageForOcr(path, page, signal, ocrDpiFor(langs));
-  const read = await recognizeCanvas(canvas, toPdf, langs, slot);
-  // Release the page image now rather than when the collector gets to it.
-  canvas.width = 0;
-  canvas.height = 0;
-  return { ...read, page, ms: performance.now() - started };
+  try {
+    const read = await recognizeCanvas(canvas, toPdf, langs, slot);
+    return { ...read, page, ms: performance.now() - started };
+  } finally {
+    // Always release the 35 MB RGBA backing buffer, including on timeout/abort.
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 /**

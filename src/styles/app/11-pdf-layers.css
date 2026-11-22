@@ -27,6 +27,11 @@
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
+:root[data-theme="night"] .search-highlight-focus {
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 /* The words an answer quoted, lit on the page it cited. The assistant's ink:
    these are its words, found where it said they were. */
 .citation-highlight-layer {
@@ -155,6 +160,12 @@
 :root[data-theme="night"] .pdf-mark-text {
   mix-blend-mode: screen;
   background: color-mix(in srgb, var(--mark-highlight) 32%, transparent);
+}
+
+:root[data-theme="night"] .pdf-mark-text:hover,
+:root[data-theme="night"] .pdf-mark-text:focus-visible,
+:root[data-theme="night"] .pdf-mark-text.pdf-mark-selected {
+  background: color-mix(in srgb, var(--mark-highlight) 52%, transparent);
 }
 
 .mark-selection-btn {

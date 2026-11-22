@@ -79,6 +79,8 @@ vi.mock("../lib/agent-abort", () => ({ clearAgentRunAbortSignal: vi.fn() }));
 vi.mock("../i18n", () => ({ useI18n: () => ({ t: (k: string) => k }) }));
 vi.mock("../lib/agent-steer", () => ({
   steerCurrentRun: (_text: string) => h.steerQueued,
+  reclaimUndeliveredNotes: () => [],
+  emitReclaimedSteer: vi.fn(),
 }));
 vi.mock("../lib/agent-view-context", () => ({
   beginAgentMessage: (ctx: unknown) => h.contexts.push(ctx),

@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 // The model review is billed and network-bound; the stub answers "contradicts"
 // so the brief's line is the one the chip would show for it.
 vi.mock("ai", () => ({
-  generateObject: async () => ({
-    object: { reviews: [{ item: 1, verdict: "contradicts", reason: "原文说的不是这样" }] },
+  Output: { object: ({ schema }: { schema: unknown }) => ({ schema }) },
+  generateText: async () => ({
+    text: JSON.stringify({ reviews: [{ item: 1, verdict: "contradicts", reason: "原文说的不是这样" }] }),
+    output: { reviews: [{ item: 1, verdict: "contradicts", reason: "原文说的不是这样" }] },
     usage: { inputTokens: 1, outputTokens: 1 },
   }),
 }));

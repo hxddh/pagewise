@@ -55,7 +55,14 @@
  */
 import { answerTables, claimBefore, rowClaim, type AnswerRow, type AnswerTable } from "./answer-tables";
 import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
-import { citationRe, extractCitations, sentenceBefore, sentenceEndRe, type Citation } from "./citations";
+import {
+  citationRe,
+  extractCitations,
+  isAbbreviationStop,
+  sentenceBefore,
+  sentenceEndRe,
+  type Citation,
+} from "./citations";
 import { cachedReview, reviewBasis } from "./claim-review";
 import { markdownToPlainText } from "./markdown-text";
 import { quantities, statedIn, type Quantity } from "./quantities";
@@ -168,6 +175,7 @@ function proseUnits(markdown: string, line: Line): Unit[] {
   while ((m = stops.exec(markdown)) !== null) {
     if (m.index >= line.end) break;
     if (inProtected(m.index)) continue;
+    if (markdown[m.index] === "." && isAbbreviationStop(markdown, m.index)) continue;
     out.push({ start: unitStart, end: m.index + m[0].length });
     unitStart = m.index + m[0].length;
   }

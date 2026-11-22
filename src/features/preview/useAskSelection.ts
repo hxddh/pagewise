@@ -4,6 +4,8 @@ export interface PageSelectionSlice {
   page: number;
   pageBox: { left: number; top: number; width: number; height: number };
   rects: { left: number; top: number; width: number; height: number }[];
+  /** Selected text belonging specifically to this page when spanning pages. */
+  text?: string;
 }
 
 export interface AskSelection {
@@ -36,6 +38,28 @@ function slotOf(node: Node | null): HTMLElement | null {
 const MIN_LINE_RECT = 1;
 /** A selection wider than a page is a stray drag, not a passage. */
 const MAX_LINE_RECTS = 200;
+const AUTO_SCROLL_EDGE_PX = 36;
+const AUTO_SCROLL_MAX_STEP_PX = 14;
+
+function sliceTextForSlot(range: Range, slot: HTMLElement): string {
+  try {
+    if (typeof document === "undefined" || typeof range.compareBoundaryPoints !== "function") {
+      return "";
+    }
+    const slotRange = document.createRange();
+    slotRange.selectNodeContents(slot);
+    if (range.compareBoundaryPoints(Range.START_TO_START, slotRange) > 0) {
+      slotRange.setStart(range.startContainer, range.startOffset);
+    }
+    if (range.compareBoundaryPoints(Range.END_TO_END, slotRange) < 0) {
+      slotRange.setEnd(range.endContainer, range.endOffset);
+    }
+    const raw = slotRange.toString().replace(/\s+/g, " ").trim();
+    return raw.length > MAX_QUOTE ? `${raw.slice(0, MAX_QUOTE)}…` : raw;
+  } catch {
+    return "";
+  }
+}
 
 /**
  * The selection line by line, rather than as one box.
@@ -126,6 +150,15 @@ export function useAskSelection<T extends HTMLElement>(
         entry.rects.push(r);
       }
       const pages = [...byPage.values()].sort((a, b) => a.page - b.page);
+      if (pages.length > 1) {
+        for (const pSlice of pages) {
+          const owner = mountedSlots.find((el) => Number(el.dataset.page) === pSlice.page);
+          if (owner) {
+            const sub = sliceTextForSlot(range, owner);
+            if (sub) pSlice.text = sub;
+          }
+        }
+      }
       const primary = pages.find((p) => p.page === pageAttr) ?? pages[0];
       setSel({
         text: text.length > MAX_QUOTE ? `${text.slice(0, MAX_QUOTE)}…` : text,
@@ -151,7 +184,54 @@ export function useAskSelection<T extends HTMLElement>(
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(update);
     };
+    let dragging = false;
+    let pointerY = 0;
+    let scrollRaf = 0;
+    const stopAutoScroll = () => {
+      dragging = false;
+      if (scrollRaf) {
+        cancelAnimationFrame(scrollRaf);
+        scrollRaf = 0;
+      }
+    };
+    const tickAutoScroll = () => {
+      scrollRaf = 0;
+      const container = containerRef.current;
+      if (!dragging || !container) return;
+      const box = container.getBoundingClientRect();
+      let delta = 0;
+      if (pointerY < box.top + AUTO_SCROLL_EDGE_PX && pointerY >= box.top - 120) {
+        const ratio = Math.min(1, (box.top + AUTO_SCROLL_EDGE_PX - pointerY) / AUTO_SCROLL_EDGE_PX);
+        delta = -Math.max(2, Math.round(ratio * AUTO_SCROLL_MAX_STEP_PX));
+      } else if (pointerY > box.bottom - AUTO_SCROLL_EDGE_PX && pointerY <= box.bottom + 120) {
+        const ratio = Math.min(1, (pointerY - (box.bottom - AUTO_SCROLL_EDGE_PX)) / AUTO_SCROLL_EDGE_PX);
+        delta = Math.max(2, Math.round(ratio * AUTO_SCROLL_MAX_STEP_PX));
+      }
+      if (delta !== 0) {
+        container.scrollTop += delta;
+        scrollRaf = requestAnimationFrame(tickAutoScroll);
+      }
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target instanceof Element ? e.target : null;
+      if (!target || !containerRef.current?.contains(target)) return;
+      if (!target.closest(".pdf-text-layer")) return;
+      dragging = true;
+      pointerY = e.clientY;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      pointerY = e.clientY;
+      if (!scrollRaf) scrollRaf = requestAnimationFrame(tickAutoScroll);
+    };
+
     document.addEventListener("selectionchange", onChange);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerup", stopAutoScroll, true);
+    window.addEventListener("pointercancel", stopAutoScroll, true);
+    window.addEventListener("blur", stopAutoScroll);
     // Scrolling does not fire selectionchange, and these are viewport
     // coordinates: while the preview flipped, a selection could not move once
     // made, so computing its position once was computing it forever. On a
@@ -162,7 +242,13 @@ export function useAskSelection<T extends HTMLElement>(
     window.addEventListener("resize", onChange);
     return () => {
       cancelAnimationFrame(raf);
+      stopAutoScroll();
       document.removeEventListener("selectionchange", onChange);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopAutoScroll, true);
+      window.removeEventListener("pointercancel", stopAutoScroll, true);
+      window.removeEventListener("blur", stopAutoScroll);
       window.removeEventListener("scroll", onChange, true);
       window.removeEventListener("resize", onChange);
     };

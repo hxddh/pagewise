@@ -33,6 +33,7 @@ import { getMarks, subscribeMarks } from "./lib/mark-store";
 import { citationsByPage, answerNotesByPage } from "./lib/page-citations";
 import { subscribeChecks, checksRevision } from "./lib/citation-check";
 import { subscribeReviews, reviewRevision } from "./lib/claim-review";
+import { subscribeReclaimedSteer } from "./lib/agent-steer";
 import { SearchScopeProvider, focusMessageRow } from "./components/SearchScope";
 import { WorkspaceChromeProvider } from "./components/WorkspaceHeader";
 import { previewJumpToPage } from "./lib/preview-actions";
@@ -138,6 +139,14 @@ function AppContent() {
   useEffect(() => {
     setPasswordDraft("");
   }, [s.document.passwordPrompt.path]);
+
+  useEffect(
+    () =>
+      subscribeReclaimedSteer((note) => {
+        setComposerDraft((prev) => (prev.trim() ? `${prev}\n${note}` : note));
+      }),
+    [],
+  );
 
   // A store file the app could not read is the one failure the stores cannot
   // report through their return values — they answer a failed read the only way
@@ -295,9 +304,11 @@ function AppContent() {
   const [exportAvailable, setExportAvailable] = useState<ExportAvailability | null>(null);
   const openExport = useCallback(() => {
     if (!doc) return;
+    const findings = activeFindings(doc.path);
+    const marks = getMarks(doc.path);
     setExportAvailable({
-      report: activeFindings(doc.path).length > 0 || getMarks(doc.path).length > 0,
-      pdf: doc.kind === "pdf",
+      report: findings.length > 0 || marks.length > 0,
+      pdf: doc.kind === "pdf" && (findings.some((f) => f.pages.length > 0) || marks.length > 0),
       chat: agent.messages.list.length > 0,
     });
   }, [doc, agent.messages.list.length]);
@@ -701,6 +712,11 @@ function AppContent() {
                           setMarginSessionActive(true);
                           setChatEverOpened(true);
                           setDismissedMarginReplyId(null);
+                          if (!conn.canUseAgent) {
+                            setComposerDraft(text);
+                            if (zen) setZen(false);
+                            s.assistant.setOpen(true);
+                          }
                           if (chatRef.current) {
                             chatRef.current.submitQuestion(text);
                           } else {
@@ -785,6 +801,7 @@ function AppContent() {
           </WorkspaceChromeProvider>
         )}
       </div>
+      {s.agentHost}
     </div>
   );
 }

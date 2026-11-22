@@ -1,4 +1,4 @@
-import { isImageInputError } from "./llm";
+import { isImageInputError } from "./llm-errors";
 
 export type AgentSendPayload = {
   text: string;

@@ -654,13 +654,19 @@ async function scenarioLongChat(browser, ctx) {
   });
   out.scroll = await frameStats(page, from);
 
+  const beforeMessages = await page.evaluate(() => document.querySelectorAll(".message").length);
   const composer = page.getByPlaceholder(/ask about this document/i);
   await composer.click();
   await composer.fill("And the last section?");
   await page.keyboard.press("Enter");
   await page.waitForFunction(
-    () => (document.querySelector(".markdown")?.textContent ?? "").trim().length > 0 || !!document.querySelector(".tool-fold"),
-    null,
+    (n) => {
+      const msgs = document.querySelectorAll(".message");
+      if (msgs.length < n + 2) return false;
+      const last = msgs[msgs.length - 1];
+      return (last?.querySelector(".markdown")?.textContent ?? "").trim().length > 0 || !!last?.querySelector(".tool-fold, .tool-chip");
+    },
+    beforeMessages,
     { timeout: 60_000, polling: 16 },
   );
   out.problems = problems;

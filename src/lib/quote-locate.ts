@@ -20,9 +20,9 @@ export interface CrossPageLocated {
   second: { items: TextItemRect[]; rects: PdfRect[] };
 }
 
-const DROPPED = /[\s\-\u00AD\u2010\u2011\u2012\u2013\u2014\u2212*#\\|]/;
-const QUOTE_MARKS = /['"`\u00B4\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2032\u2033\u300C\u300D\u300E\u300F\uFF02\uFF07]/;
-const INLINE_HTML_TAG = /<\/?(?:u|br|sup|sub|b|i|em|strong)\s*\/?>/gi;
+const DROPPED = /[\s\-\u00AD\u2010\u2011\u2012\u2013\u2014\u2212*#\\|~=]/;
+const QUOTE_MARKS = /['"`\u00B4\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2032\u2033\u300C\u300D\u300E\u300F\uFF02\uFF07«»]/;
+const INLINE_HTML_TAG = /<\/?(?:u|s|del|strike|br|sup|sub|b|i|em|strong)\s*\/?>/gi;
 
 function stripInlineHtml(text: string): string {
   return text.replace(INLINE_HTML_TAG, (m) => " ".repeat(m.length));
@@ -240,7 +240,8 @@ export function locateAcrossPages(
   if (pageA.folded.length === 0 || pageB.folded.length === 0) return null;
 
   const SEAM_ALLOWANCE = 180;
-  const tailWindowStart = Math.max(0, pageA.folded.length - (needle.length + SEAM_ALLOWANCE));
+  const FOOTNOTE_SEAM_ALLOWANCE = 480;
+  const tailWindowStart = Math.max(0, pageA.folded.length - (needle.length + FOOTNOTE_SEAM_ALLOWANCE));
   const headWindowEnd = Math.min(pageB.folded.length, needle.length + SEAM_ALLOWANCE);
   const headSlice = pageB.folded.slice(0, headWindowEnd);
 
@@ -251,13 +252,31 @@ export function locateAcrossPages(
 
     const atA = pageA.folded.lastIndexOf(left);
     if (atA < tailWindowStart) continue;
-    if (pageA.folded.length - (atA + left.length) > SEAM_ALLOWANCE) continue;
+    const trailingA = pageA.folded.length - (atA + left.length);
+    if (trailingA > FOOTNOTE_SEAM_ALLOWANCE) continue;
 
     const atB = headSlice.indexOf(right);
     if (atB < 0 || atB > SEAM_ALLOWANCE) continue;
 
     const aFirst = pageA.itemAt[atA]!;
     const aLast = pageA.itemAt[atA + left.length - 1]!;
+    if (trailingA > SEAM_ALLOWANCE) {
+      const bodyH = itemsA[aFirst]!.rect.height;
+      const bodyY = itemsA[aLast]!.rect.y;
+      let footnoteOnly = true;
+      let trailingChars = 0;
+      for (let k = aLast + 1; k < itemsA.length; k += 1) {
+        const len = pageA.parts[k]?.length ?? 0;
+        if (len === 0) continue;
+        trailingChars += len;
+        const r = itemsA[k]!.rect;
+        if (!(r.y < bodyY && (r.height < bodyH * 0.92 || len <= 12))) {
+          footnoteOnly = false;
+          break;
+        }
+      }
+      if (!footnoteOnly || trailingChars === 0) continue;
+    }
     const bFirst = pageB.itemAt[atB]!;
     const bLast = pageB.itemAt[atB + right.length - 1]!;
     const spanA = itemsA.slice(aFirst, Math.min(aLast + 1, aFirst + MAX_QUOTE_ITEMS));
@@ -390,9 +409,30 @@ function chainLocateAll(
 
   const successors = (from: number, rest: string, used: ReadonlySet<number>): number[] => {
     const r = layout.right[from]!;
-    // An immediate word/run on the same line (`g < 1.5 * height`) cannot be
-    // skipped over onto the next line without omitting words from the quote.
-    if (r >= 0) return !used.has(r) && continues(r, rest) ? [r] : [];
+    // An immediate word/run on the same prose line (`g < 0.85 * height`) cannot
+    // be skipped over onto the next line without omitting words from the quote.
+    // When `r` sits across a wider table-cell gutter (`g >= 0.85 * height`),
+    // allow wrapping onto the next line of the SAME left-aligned cell (`<= r.x`).
+    if (r >= 0) {
+      const out: number[] = [];
+      if (!used.has(r) && continues(r, rest)) out.push(r);
+      const ra = items[from]!.rect;
+      const rr = items[r]!.rect;
+      const g = rr.x - (ra.x + ra.width);
+      if (g >= Math.max(ra.height, 1) * 0.85) {
+        const cellWraps: Array<{ j: number; score: number }> = [];
+        for (let j = 0; j < parts.length; j += 1) {
+          if (used.has(j) || !continues(j, rest) || !isLineBelow(items, layout, from, j)) continue;
+          const rj = items[j]!.rect;
+          if (Math.abs(rj.x - layout.segLeft[from]!) <= 4 && rj.x + 2 < rr.x) {
+            cellWraps.push({ j, score: 10 + (ra.y - rj.y) });
+          }
+        }
+        cellWraps.sort((p, q) => p.score - q.score);
+        for (const w of cellWraps) out.push(w.j);
+      }
+      return out;
+    }
     const found: Array<{ j: number; score: number }> = [];
     for (let j = 0; j < parts.length; j += 1) {
       if (used.has(j) || !continues(j, rest)) continue;

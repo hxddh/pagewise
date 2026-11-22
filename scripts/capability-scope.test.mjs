@@ -158,4 +158,35 @@ describe("the file allowlist", () => {
       .map((s) => s.slice(1, -1));
     expect(new Set(rust)).toEqual(new Set(ts));
   });
+
+  it("grants every Window API method called on getCurrentWindow()", () => {
+    const cap = JSON.parse(read("src-tauri/capabilities/default.json"));
+    const granted = new Set(
+      cap.permissions.map((p) => (typeof p === "string" ? p : p.identifier)),
+    );
+    // Methods NOT covered by `core:default` / `core:window:default` that reject
+    // at runtime in production builds unless explicitly listed (28.0: `destroy`
+    // inside `onCloseRequested` was missing, leaving the close button dead).
+    const methodToPerm = {
+      destroy: "core:window:allow-destroy",
+      unminimize: "core:window:allow-unminimize",
+      show: "core:window:allow-show",
+      setFocus: "core:window:allow-set-focus",
+      setEffects: "core:window:allow-set-effects",
+      setBackgroundColor: "core:window:allow-set-background-color",
+    };
+    const used = new Set();
+    for (const file of sourceFiles("src")) {
+      if (/\.test\.(ts|tsx)$/.test(file)) continue;
+      const text = read(file);
+      if (!text.includes("getCurrentWindow")) continue;
+      for (const method of Object.keys(methodToPerm)) {
+        if (new RegExp(`\\.${method}\\s*\\(`).test(text)) used.add(method);
+      }
+    }
+    expect(used.has("destroy")).toBe(true);
+    for (const method of used) {
+      expect(granted.has(methodToPerm[method]), `missing ${methodToPerm[method]} for win.${method}()`).toBe(true);
+    }
+  });
 });

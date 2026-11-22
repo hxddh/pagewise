@@ -33,6 +33,18 @@ interface Queued {
 
 let queue: Queued[] = [];
 let currentGeneration = 0;
+const reclaimListeners = new Set<(text: string) => void>();
+
+export function subscribeReclaimedSteer(fn: (text: string) => void): () => void {
+  reclaimListeners.add(fn);
+  return () => reclaimListeners.delete(fn);
+}
+
+export function emitReclaimedSteer(text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  for (const fn of reclaimListeners) fn(trimmed);
+}
 
 /**
  * The run a correction typed right now belongs to.

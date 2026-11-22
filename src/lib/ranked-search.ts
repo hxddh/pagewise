@@ -37,13 +37,31 @@ function stem(word: string): string {
   return word;
 }
 
-export function tokenize(text: string): string[] {
+export interface TokenizeOptions {
+  /** Join OCR/PDF spaces between adjacent CJK characters. Default true (for pages); false for user queries so space-separated CJK terms stay distinct. */
+  joinCjkSpaces?: boolean;
+  /** Also emit individual words from hyphenated line wraps (`web- proxy` -> `webproxy`, `web`, `proxy`). */
+  includeHyphenParts?: boolean;
+}
+
+export function tokenize(text: string, options?: TokenizeOptions): string[] {
   const out: string[] = [];
+  const joinCjk = options?.joinCjkSpaces ?? true;
+  if (options?.includeHyphenParts) {
+    for (const hm of text.normalize("NFKC").toLowerCase().matchAll(/([\p{L}]{2,})(?:\u00AD\s*|[-‐‑]\s+)([\p{L}]{2,})/gu)) {
+      const a = hm[1]!;
+      const b = hm[2]!;
+      if (!CJK.test(a) && !STOP.has(a)) out.push(stem(a));
+      if (!CJK.test(b) && !STOP.has(b)) out.push(stem(b));
+    }
+  }
   let joined = text.replace(LINE_WRAP_JOIN, "$1$2");
-  for (;;) {
-    const next = joined.replace(CJK_SPACE_JOIN, "$1$2");
-    if (next === joined) break;
-    joined = next;
+  if (joinCjk) {
+    for (;;) {
+      const next = joined.replace(CJK_SPACE_JOIN, "$1$2");
+      if (next === joined) break;
+      joined = next;
+    }
   }
   for (const m of joined.normalize("NFKC").toLowerCase().matchAll(WORD)) {
     const word = m[0];
@@ -107,7 +125,7 @@ function tokenizePageEntry(rawMarkdown: string): TokenizedPageEntry {
   const plain = markdownToPlainText(rawMarkdown);
   const tf = new Map<string, number>();
   let length = 0;
-  for (const t of tokenize(plain)) {
+  for (const t of tokenize(plain, { joinCjkSpaces: true, includeHyphenParts: true })) {
     tf.set(t, (tf.get(t) ?? 0) + 1);
     length += 1;
   }
@@ -160,7 +178,7 @@ const B = 0.75;
 const UNI_WEIGHT = 0.32;
 
 export function rankPages(pages: PageText[], query: string, limit = 12): RankedHit[] {
-  const terms = [...new Set(tokenize(query))];
+  const terms = [...new Set(tokenize(query, { joinCjkSpaces: false }))];
   if (terms.length === 0 || pages.length === 0) return [];
   const uniTerms = [...new Set(cjkUnigrams(query))];
   const index = indexOf(pages);

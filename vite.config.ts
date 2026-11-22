@@ -18,38 +18,66 @@ export default defineConfig(async () => ({
     // i.e. Safari 15), NOT Chrome. Targeting chrome110 emits syntax WKWebView
     // can't parse and white-screens on the minimum supported OS.
     target: "safari15",
-    // Keep heavy deferred feature chunks (`ai-*`, `zod-*`, `ocr-*`, `markdown-*`, `motion-*`)
-    // out of `index.html`'s cold-boot `<link rel="modulepreload">` list (27.0).
+    // Keep heavy deferred feature chunks out of `index.html`'s cold-boot
+    // `<link rel="modulepreload">` list (27.0–28.0).
     modulePreload: {
       resolveDependencies(_filename, deps) {
-        return deps.filter((d) => !/(?:^|\/)(?:ai|zod|ocr|markdown|motion)-/.test(d));
+        return deps.filter(
+          (d) => !/(?:^|\/)(?:ai-sdk|ai-openai|zod|pdfjs|tesseract|markdown|motion)-/.test(d),
+        );
       },
     },
-    // `rolldownOptions`: Vite 8's bundler is Rolldown, and `rollupOptions` is
-    // its deprecated alias.
+    // `rolldownOptions`: Vite 8's bundler is Rolldown. Use native `codeSplitting.groups`
+    // with explicit priorities and `includeDependenciesRecursively: false` (28.0):
+    // `manualChunks` defaults to `includeDependenciesRecursively: true` at equal
+    // priority 0, which caused `markdown` to swallow `react`/`jsx-runtime` and
+    // forced cold boot to execute 1.34 MB of deferred chunks before WelcomeView.
     rolldownOptions: {
       output: {
         minify: { compress: { dropConsole: true, dropDebugger: true } },
-        manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
-          // `tslib` and `@ai-sdk/react`'s hook glue share CJS/React runtime helpers
-          // with `react-dom`; keeping them in `vendor` prevents entry chunks from
-          // acquiring a reverse static import on `ai-*` or `zod-*`.
-          if (
-            /node_modules\/(react|react-dom|scheduler|tslib|@ai-sdk\/react|swr|use-sync-external-store)\//.test(id)
-          ) {
-            return "vendor";
-          }
-          if (/node_modules\/zod\//.test(id)) return "zod";
-          if (/node_modules\/(ai|@ai-sdk)\//.test(id)) return "ai";
-          if (/node_modules\/(tesseract\.js|wasm-feature-detect)\//.test(id)) return "ocr";
-          if (/node_modules\/(motion|framer-motion|motion-dom|motion-utils)\//.test(id)) return "motion";
-          if (
-            /node_modules\/(react-markdown|remark-|rehype-|micromark|mdast|hast|unist|vfile|character-entities|decode-named-character-reference|property-information|space-separated-tokens|comma-separated-tokens|html-url-attributes|zwitch|longest-streak|ccount|markdown-table|escape-string-regexp|bail|trough|unified|is-plain-obj|devlop|estree|style-to-js|style-to-object|inline-style-parser)/.test(id)
-          ) {
-            return "markdown";
-          }
-          return undefined;
+        codeSplitting: {
+          groups: [
+            {
+              name: "vendor",
+              test: /node_modules[\\/](react|react-dom|react-is|scheduler|tslib|use-sync-external-store|@oxc-project)[\\/]/,
+              priority: 100,
+            },
+            {
+              name: "pdfjs",
+              test: /node_modules[\\/]pdfjs-dist[\\/]/,
+              priority: 70,
+            },
+            {
+              name: "zod",
+              test: /node_modules[\\/]zod[\\/]/,
+              priority: 60,
+            },
+            {
+              name: "ai-openai",
+              test: /node_modules[\\/]@ai-sdk[\\/]openai[\\/]/,
+              priority: 55,
+            },
+            {
+              name: "ai-sdk",
+              test: /node_modules[\\/](ai|@ai-sdk[\\/](react|provider|provider-utils))[\\/]/,
+              priority: 50,
+            },
+            {
+              name: "markdown",
+              test: /node_modules[\\/](react-markdown|remark-gfm)[\\/]/,
+              priority: 40,
+            },
+            {
+              name: "motion",
+              test: /node_modules[\\/](motion|framer-motion)[\\/]/,
+              priority: 30,
+            },
+            {
+              name: "tesseract",
+              test: /node_modules[\\/](tesseract\.js|wasm-feature-detect)[\\/]/,
+              priority: 20,
+            },
+          ],
         },
       },
     },

@@ -16,6 +16,13 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
   "gpt-4o": cap(true, true),
   "gpt-4.1-mini": cap(true, true),
   "gpt-4.1": cap(true, true),
+  "gpt-3.5-turbo": cap(false, true),
+  "o1-mini": cap(false, true),
+  "o3-mini": cap(false, true),
+  "o4-mini": cap(true, true),
+  "openai/o1-mini": cap(false, true),
+  "openai/o3-mini": cap(false, true),
+  "openai/o4-mini": cap(true, true),
 
   "deepseek-v4-flash": cap(false, true),
   "deepseek-v4-pro": cap(false, true),

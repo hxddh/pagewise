@@ -15,6 +15,7 @@ import {
   appendContextToLastUserMessage,
   buildDocumentMapInstructions,
   buildViewContextInstructions,
+  buildViewingPageTextFallback,
   buildWholeDocumentInstructions,
 } from "./agent-view-context";
 import { AGENT_TIMEOUT } from "./agent-timeouts";
@@ -29,7 +30,7 @@ import {
   type StepLike,
 } from "./agent-steer";
 import { resolveModel, resolveReasoning } from "./llm";
-import { runKeepRecentChars, runTokenBudget } from "./model-capabilities";
+import { isAgentMultimodalModel, runKeepRecentChars, runTokenBudget } from "./model-capabilities";
 import { hasWholeDocumentIntent } from "./page-intent";
 import { loadSettings } from "./settings";
 import { getAgentScanCap } from "../document/index-queue";
@@ -281,6 +282,9 @@ export function createDocAgent() {
       if (stepNumber >= runMaxSteps - 1) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
+      if (budget.max > 0 && budget.used >= budget.max) {
+        return { ...carry, toolChoice: "none", reasoning: runReasoning };
+      }
       if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
@@ -303,6 +307,13 @@ export function createDocAgent() {
 
       if (viewCtx && hasWholeDocumentIntent(viewCtx.userText)) {
         viewHint += buildWholeDocumentInstructions(viewCtx);
+      }
+      if (
+        viewCtx?.includeViewingPage &&
+        viewCtx.viewingPage > 0 &&
+        !isAgentMultimodalModel(settings.provider, settings.model)
+      ) {
+        viewHint += buildViewingPageTextFallback(runtime.activeDocPath, viewCtx.viewingPage);
       }
       viewHint += buildDocumentMapInstructions(runtime.activeDocPath, viewCtx?.viewingPage ?? 0);
       viewHint += buildRecordInstructions(runtime.activeDocPath);

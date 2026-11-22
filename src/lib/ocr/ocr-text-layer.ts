@@ -38,11 +38,15 @@ function isPdfItem(word: OcrWordInput): word is TextItemRect {
   return "rect" in word;
 }
 
+const CJK_END = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]$/;
+const CJK_START = /^[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+
 function toPxBox(
   word: OcrWordInput,
   pageWidthPx: number,
   pageHeightPx: number,
   options?: PopulateOcrTextLayerOptions,
+  fallbackPdfSize?: { width: number; height: number },
 ): PxBox | null {
   const text = word.text.trim();
   if (!text) return null;
@@ -75,9 +79,9 @@ function toPxBox(
       return width > 0 && height > 0 ? { text, left, top, width, height } : null;
     }
     // Fallback when neither `geometry` nor `view` was supplied: map against
-    // standard unrotated Letter [0, 0, 612, 792] (or the rendered box when larger).
-    const vw = Math.max(612, rect.x + rect.width);
-    const vh = Math.max(792, rect.y + rect.height);
+    // a single page-wide box (Letter 612x792 or A4 595.28x841.89 / content extent).
+    const vw = fallbackPdfSize?.width ?? Math.max(612, rect.x + rect.width);
+    const vh = fallbackPdfSize?.height ?? Math.max(792, rect.y + rect.height);
     const left = (rect.x / vw) * pageWidthPx;
     const top = ((vh - (rect.y + rect.height)) / vh) * pageHeightPx;
     const width = (rect.width / vw) * pageWidthPx;
@@ -168,9 +172,28 @@ export function populateOcrTextLayer(
   }
   if (ocrWords.length === 0) return 0;
 
+  let fallbackPdfSize: { width: number; height: number } | undefined;
+  if (!options?.geometry && !options?.view) {
+    let maxRight = 0;
+    let maxTop = 0;
+    for (const w of ocrWords) {
+      if (isPdfItem(w)) {
+        maxRight = Math.max(maxRight, w.rect.x + w.rect.width);
+        maxTop = Math.max(maxTop, w.rect.y + w.rect.height);
+      }
+    }
+    if (maxRight > 0 || maxTop > 0) {
+      const a4Like = maxTop > 792 && maxTop <= 842 && maxRight <= 600;
+      fallbackPdfSize = {
+        width: a4Like ? Math.max(595.28, maxRight) : Math.max(612, maxRight),
+        height: a4Like ? Math.max(841.89, maxTop) : Math.max(792, maxTop),
+      };
+    }
+  }
+
   const boxes: PxBox[] = [];
   for (const w of ocrWords) {
-    const px = toPxBox(w, pageWidthPx, pageHeightPx, options);
+    const px = toPxBox(w, pageWidthPx, pageHeightPx, options, fallbackPdfSize);
     if (px) boxes.push(px);
   }
   if (boxes.length === 0) return 0;
@@ -205,7 +228,10 @@ export function populateOcrTextLayer(
         span.style.transformOrigin = "0% 0%";
         span.style.transform = `scaleX(${scaleX.toFixed(4)})`;
       }
-      span.textContent = wi < line.length - 1 ? `${b.text} ` : b.text;
+      const nextWord = wi < line.length - 1 ? line[wi + 1]! : null;
+      const joinWithoutSpace =
+        nextWord !== null && CJK_END.test(b.text) && CJK_START.test(nextWord.text);
+      span.textContent = nextWord && !joinWithoutSpace ? `${b.text} ` : b.text;
       frag.appendChild(span);
       count += 1;
     }

@@ -1,4 +1,21 @@
-import { getToolName, isToolUIPart, type UIMessage } from "ai";
+import type { UIMessage } from "ai";
+
+function isToolUIPart(
+  part: UIMessage["parts"][number],
+): part is UIMessage["parts"][number] & {
+  toolCallId: string;
+  state: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+  toolName?: string;
+} {
+  return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function getToolName(part: UIMessage["parts"][number] & { toolName?: string }): string {
+  return part.type === "dynamic-tool" ? (part.toolName ?? "") : part.type.slice(5);
+}
 import {
   DOCUMENT_OUTLINE_TOOL,
   PRUNE_DOCUMENT_TOOLS,

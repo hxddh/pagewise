@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clearPageBitmapCache } from "../../lib/pdf";
+import { redoMarkChange, undoMarkChange } from "../../lib/mark-store";
 import { loadPreferences } from "../../lib/preferences";
 import { registerPreviewActions } from "../../lib/preview-actions";
 import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
@@ -294,6 +295,20 @@ export function usePdfViewer({
        */
       if (e.metaKey || e.ctrlKey) {
         if (e.altKey) return;
+        const keyLower = e.key.toLowerCase();
+        if (keyLower === "z" && (window.getSelection()?.isCollapsed ?? true)) {
+          const applied = e.shiftKey ? redoMarkChange(doc.path) : undoMarkChange(doc.path);
+          if (applied) {
+            e.preventDefault();
+            return;
+          }
+        }
+        if (!e.metaKey && !e.shiftKey && keyLower === "y" && (window.getSelection()?.isCollapsed ?? true)) {
+          if (redoMarkChange(doc.path)) {
+            e.preventDefault();
+            return;
+          }
+        }
         if (e.key === "=" || e.key === "+") {
           zoomIn();
           e.preventDefault();

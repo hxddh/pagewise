@@ -49,6 +49,24 @@ import { DocumentSearch } from "../../components/DocumentSearch";
 import { Tabs } from "../../components/ui/Tabs";
 import type { AnswerNote, PageCitation } from "../../lib/page-citations";
 
+function clampSelectionAnchor(
+  x: number,
+  y: number,
+  panel: HTMLElement | null,
+): { left: number; top: number } {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  const rect = panel?.getBoundingClientRect();
+  const minX = (rect ? rect.left : 0) + 104;
+  const maxX = Math.max(minX, (rect ? rect.right : vw) - 104);
+  const minY = (rect ? rect.top : 0) + 52;
+  const maxY = Math.max(minY, (rect ? rect.bottom : vh) - 16);
+  return {
+    left: Math.min(maxX, Math.max(minX, x)),
+    top: Math.min(maxY, Math.max(minY, y)),
+  };
+}
+
 /** How long the page has to stay put before it counts as being read. */
 const INDEX_SETTLE_MS = 500;
 
@@ -347,7 +365,7 @@ function PreviewPaneInner({
                 const mark = addMark(doc.path, {
                   page: slice.page,
                   rects: slice.rects.map((r) => clientRectToPageRect(r, slice.pageBox, geometry)),
-                  text,
+                  text: slice.text || text,
                   stamp: doc.stamp ?? "",
                 });
                 if (!mark) {
@@ -925,6 +943,7 @@ function PreviewPaneInner({
           <OutlineSidebar
             outline={outline}
             currentPage={page}
+            pageLabels={doc.pageLabels}
             tabs={sidebarTabs}
             onPageSelect={jumpWithHistory}
           />
@@ -933,6 +952,7 @@ function PreviewPaneInner({
             path={doc.path}
             totalPages={doc.totalPages}
             currentPage={page}
+            pageLabels={doc.pageLabels}
             tabs={sidebarTabs}
             onPageSelect={jumpWithHistory}
           />
@@ -948,13 +968,19 @@ function PreviewPaneInner({
         </div>
       </div>
       {(askButton || markButton) && askSel && (
-        <div className="selection-actions" style={{ left: askSel.x, top: askSel.y }}>
+        <div
+          className="selection-actions"
+          style={clampSelectionAnchor(askSel.x, askSel.y, panelRef.current)}
+        >
           {askButton}
           {markButton}
         </div>
       )}
       {!askSel && pendingRegion && (
-        <div className="selection-actions" style={{ left: pendingRegion.x, top: pendingRegion.y }}>
+        <div
+          className="selection-actions"
+          style={clampSelectionAnchor(pendingRegion.x, pendingRegion.y, panelRef.current)}
+        >
           {onAskAboutSelection && (
             <Button
               variant="primary"
