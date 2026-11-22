@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "../i18n";
 import { activeHeadingIndex } from "../lib/outline-nav";
+import { labelForPage } from "../lib/page-labels";
 import type { DocHeading } from "../lib/types";
 import { ListRow } from "./ui/ListRow";
 
@@ -12,6 +13,7 @@ const OUTLINE_OVERSCAN = 12;
 interface OutlineSidebarProps {
   outline: DocHeading[];
   currentPage: number;
+  pageLabels?: string[];
   /** Rendered in the header so the two sidebars switch in place. */
   tabs: React.ReactNode;
   onPageSelect: (page: number) => void;
@@ -28,6 +30,7 @@ interface OutlineSidebarProps {
 export const OutlineSidebar = memo(function OutlineSidebar({
   outline,
   currentPage,
+  pageLabels,
   tabs,
   onPageSelect,
 }: OutlineSidebarProps) {
@@ -104,6 +107,8 @@ export const OutlineSidebar = memo(function OutlineSidebar({
         {topPad > 0 && <div style={{ height: topPad, flexShrink: 0 }} aria-hidden />}
         {outline.slice(start, end).map((heading, offset) => {
           const i = start + offset;
+          const printed = labelForPage(pageLabels ?? null, heading.page);
+          const pageDisplay = printed ?? String(heading.page);
           return (
             <ListRow
               key={`${heading.page}-${i}-${heading.title}`}
@@ -115,10 +120,10 @@ export const OutlineSidebar = memo(function OutlineSidebar({
                   "--outline-depth": Math.min(Math.max(heading.level, 1), MAX_OUTLINE_DEPTH) - 1,
                 } as CSSProperties
               }
-              title={`${heading.title} · ${t("preview.pageHit", { page: heading.page })}`}
+              title={`${heading.title} · ${t("preview.pageHit", { page: printed ? `${printed} (${heading.page})` : heading.page })}`}
               onClick={() => onPageSelect(heading.page)}
               label={<span className="outline-title">{heading.title}</span>}
-              trailing={<span className="outline-page">{heading.page}</span>}
+              trailing={<span className="outline-page">{pageDisplay}</span>}
             />
           );
         })}

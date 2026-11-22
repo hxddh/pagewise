@@ -15,6 +15,8 @@ export type Dimension =
   | "usd"
   | "eur"
   | "gbp"
+  | "hkd"
+  | "jpy"
   | null;
 
 export interface Quantity {
@@ -128,15 +130,29 @@ const UNITS: Array<[RegExp, Dimension, number]> = [
   [/^(?:分钟|minutes?\b|mins?\b)/i, "time", 60],
   [/^(?:毫秒|milliseconds?\b|ms\b)/i, "time", 0.001],
   [/^(?:秒钟?|seconds?\b|secs?\b|s\b(?![a-z]))/i, "time", 1],
+  [/^万亿元/, "yuan", 1e12],
   [/^亿元/, "yuan", 1e8],
   [/^万元/, "yuan", 1e4],
   [/^(?:元|rmb\b|cny\b)/i, "yuan", 1],
-  [/^(?:dollars?|usd)\b/i, "usd", 1],
-  [/^(?:euros?|eur)\b/i, "eur", 1],
-  [/^(?:pounds?|gbp)\b/i, "gbp", 1],
+  [/^亿美元/, "usd", 1e8],
+  [/^万美元/, "usd", 1e4],
+  [/^(?:美元|美金|dollars?|usd\b)/i, "usd", 1],
+  [/^亿欧元/, "eur", 1e8],
+  [/^万欧元/, "eur", 1e4],
+  [/^(?:欧元|euros?|eur\b)/i, "eur", 1],
+  [/^万英镑/, "gbp", 1e4],
+  [/^(?:英镑|pounds?|gbp\b)/i, "gbp", 1],
+  [/^(?:亿港元|亿港币)/, "hkd", 1e8],
+  [/^(?:万港元|万港币)/, "hkd", 1e4],
+  [/^(?:港元|港币|hkd\b|hk\$)/i, "hkd", 1],
+  [/^(?:亿日元|亿日圆)/, "jpy", 1e8],
+  [/^(?:万日元|万日圆)/, "jpy", 1e4],
+  [/^(?:日元|日圆|jpy\b|yen\b)/i, "jpy", 1],
 ];
 
-const CN_FOLLOW = /^(?:个?工作日|个月|个?季度|年|周|星期|日|天|个?小时|学时|分钟|秒钟?|毫秒|亿元|万元|元|个?基点|份|次|期|倍|名|台|套|项|人|页|条|款|%)/;
+const CN_FOLLOW = /^(?:个?工作日|个月|个?季度|年|周|星期|日|天|个?小时|学时|分钟|秒钟?|毫秒|万亿元|亿元|万元|元|亿美元|万美元|美元|美金|亿欧元|万欧元|欧元|万英镑|英镑|亿港元|亿港币|万港元|万港币|港元|港币|亿日元|万日元|日元|日圆|个?基点|份|次|期|倍|名|台|套|项|人|页|条|款|%)/;
+const CN_STANDALONE_SCALE = /^[一二两三四五六七八九十壹贰叁肆伍陆柒捌玖拾]+(?:[百佰千仟万亿])+$/;
+const SUFFIX_CURRENCY_RE = /^\s*(?:usd|eur|gbp|rmb|cny|hkd|jpy|dollars?|euros?|pounds?|yen)\b/i;
 const EN_WORD_UNIT_FOLLOW =
   /^\s*(?:\(\s*\d+\s*\)\s*)?(?:business\s+days?|calendar\s+days?|years?|months?|quarters?|weeks?|days?|hours?|minutes?|seconds?|percent\b|per\s+cent\b|basis\s+points?\b|bps\b|dollars?|usd\b|euros?|eur\b|pounds?|gbp\b|million\b|billion\b|thousand\b)/i;
 
@@ -156,6 +172,8 @@ function currencyFromPrefix(raw: string | undefined): Dimension {
   if (s === "$" || s === "USD" || s === "US$") return "usd";
   if (s === "€" || s === "EUR") return "eur";
   if (s === "£" || s === "GBP") return "gbp";
+  if (s === "HK$" || s === "HKD") return "hkd";
+  if (s === "JPY") return "jpy";
   if (s === "¥" || s === "￥" || s === "RMB" || s === "CNY" || s === "人民币") return "yuan";
   return null;
 }
@@ -204,7 +222,7 @@ const EN_WORD_RE =
   /\b((?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[-\s]+(?:one|two|three|four|five|six|seven|eight|nine))?|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|one|two|three|four|five|six|seven|eight|nine)\b/gi;
 
 const NUMBER_RE =
-  /(?:([+\-\u2212\u2013])(?=\S))?(?:(USD|US\$|EUR|GBP|RMB|CNY|人民币|[$€£¥￥])\s*)?(?:([+\-\u2212\u2013])(?=\d))?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*([万亿])(?!元)|\s+(thousand|million|billion|trillion)\b|([kKmMbBtT])\b)?\s*(%|‰|‱|percent\b|per\s+cent\b)?/gi;
+  /(?:([+\-\u2212\u2013])(?=\S))?(?:(USD|US\$|HK\$|HKD|JPY|EUR|GBP|RMB|CNY|人民币|[$€£¥￥])\s*)?(?:([+\-\u2212\u2013])(?=\d))?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*(万亿|[万亿])(?!元)|\s+(thousand|million|billion|trillion)\b|([kKmMbBtT])\b)?\s*(%|‰|‱|percent\b|per\s+cent\b)?/gi;
 
 function parseIntOrCn(raw: string): number | null {
   return /^\d+$/.test(raw) ? Number(raw) : chineseNumeral(raw);
@@ -340,19 +358,22 @@ export function quantities(input: string, options: { implicit?: boolean } = {}):
 
     let scale = 1;
     let end = matchStart + m[0].length;
-    if (cnScale === "亿") scale = 1e8;
+    let keepShortScale = false;
+    if (cnScale === "万亿") scale = 1e12;
+    else if (cnScale === "亿") scale = 1e8;
     else if (cnScale === "万") scale = 1e4;
     else if (enScale) scale = EN_SCALE[enScale.toLowerCase()] ?? 1;
     else if (shortScale) {
-      if (prefixDim !== null) {
+      if (prefixDim !== null || SUFFIX_CURRENCY_RE.test(text.slice(end, end + 16))) {
         scale = SHORT_SCALE[shortScale.toLowerCase()] ?? 1;
+        keepShortScale = true;
       } else {
         end -= shortScale.length + (pctRaw ? m[0].slice(m[0].lastIndexOf(shortScale) + shortScale.length).length : 0);
       }
     }
 
     const value = sign * Number(intPart.replace(/,/g, "") + decPart) * scale;
-    const kind = (shortScale && prefixDim === null
+    const kind = (shortScale && !keepShortScale
       ? ""
       : pctRaw
         ? /^p/i.test(pctRaw)
@@ -365,7 +386,8 @@ export function quantities(input: string, options: { implicit?: boolean } = {}):
     const start = m.index!;
     const end = start + m[0].length;
     const rest = text.slice(end, end + 10);
-    if (!CN_FOLLOW.test(rest) || /分之$/.test(text.slice(Math.max(0, start - 2), start))) continue;
+    if (/分之$/.test(text.slice(Math.max(0, start - 2), start)) || /^分之/.test(rest)) continue;
+    if (!CN_FOLLOW.test(rest) && !CN_STANDALONE_SCALE.test(m[0])) continue;
     const value = chineseNumeral(m[0]);
     if (value !== null && value > 0) push(start, end, value, "", rest);
   }
@@ -431,7 +453,12 @@ export function statedIn(q: Quantity, context: readonly Quantity[]): boolean {
     if (q.dimension !== null && c.dimension !== null) {
       return q.dimension === c.dimension && same(c.base, q.base);
     }
-    return same(c.value, q.value) || same(c.base, q.base);
+    if (same(c.value, q.value)) return true;
+    const dim = q.dimension ?? c.dimension;
+    if (dim !== "time" && dim !== "month") {
+      return same(c.base, q.base);
+    }
+    return false;
   });
 }
 

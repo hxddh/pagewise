@@ -5,7 +5,7 @@ import { beginAgentMessage, rollbackAgentMessage, type AgentMessageContext } fro
 import { sendWithImageFallback } from "../lib/agent-send";
 import type { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
-import { formatAgentError, validateModel, assertApiKeyForAgent } from "../lib/llm";
+import { formatAgentError } from "../lib/llm-errors";
 import { isAgentMultimodalModel } from "../lib/model-capabilities";
 import {
   extractUserText,
@@ -17,7 +17,6 @@ import {
 import { getPageWiseMetadata, type PageWiseUIMessage } from "../lib/message-metadata";
 import { PagewiseChatTransport } from "../lib/pagewise-chat-transport";
 import { clearAgentRunAbortSignal, consumeRunTimedOut } from "../lib/agent-abort";
-import { capturePageFilePart } from "../lib/pdf";
 import {
   pruneToolOutputsForHistory,
   sanitizeDanglingToolParts,
@@ -25,7 +24,7 @@ import {
 import { loadSettings } from "../lib/settings";
 import { useI18n } from "../i18n";
 import { waitForStreamIdle } from "../lib/agent-stream-idle";
-import { steerCurrentRun } from "../lib/agent-steer";
+import { emitReclaimedSteer, reclaimUndeliveredNotes, steerCurrentRun } from "../lib/agent-steer";
 
 export interface SendDocumentMessageOptions {
   text: string;
@@ -191,6 +190,37 @@ export function useDocAgent(chatId: string | null = null) {
       setStreamProgress(null);
       if (!isError) pendingSendErrorRef.current = undefined;
 
+      // Reclaim any mid-run steer notes typed during the final synthesis step
+      // (after the last `prepareStep` already ran) so they return to the
+      // composer instead of vanishing silently into the previous bubble (28.0).
+      const undelivered = reclaimUndeliveredNotes();
+      if (undelivered.length > 0) {
+        setMessagesRef.current?.((prev) => {
+          for (let i = prev.length - 1; i >= 0; i -= 1) {
+            if (prev[i]?.role !== "user") continue;
+            const target = prev[i]!;
+            const remaining = [...target.parts];
+            for (let u = undelivered.length - 1; u >= 0; u -= 1) {
+              const lastPart = remaining[remaining.length - 1];
+              if (
+                remaining.length > 1 &&
+                lastPart?.type === "text" &&
+                "text" in lastPart &&
+                lastPart.text === undelivered[u]
+              ) {
+                remaining.pop();
+              }
+            }
+            if (remaining.length === target.parts.length) return prev;
+            const next = [...prev];
+            next[i] = { ...target, parts: remaining } as typeof target;
+            return next;
+          }
+          return prev;
+        });
+        emitReclaimedSteer(undelivered.join("\n"));
+      }
+
       const meta = getPageWiseMetadata(message);
       if (!isAbort && meta?.finishedAt == null) {
         setMessagesRef.current?.((prev) =>
@@ -332,7 +362,10 @@ export function useDocAgent(chatId: string | null = null) {
     const sendGen = sendGenRef.current;
     const agentGen = agentGenRef.current;
     const chatIdAtStart = resolvedChatId;
-    const settings = await loadSettings();
+    const [settings, { validateModel, assertApiKeyForAgent }] = await Promise.all([
+      loadSettings(),
+      import("../lib/llm"),
+    ]);
     if (
       sendGen !== sendGenRef.current ||
       agentGen !== agentGenRef.current ||
@@ -385,6 +418,7 @@ export function useDocAgent(chatId: string | null = null) {
       if (opts.includeViewingPage) {
         const settings = await loadSettings();
         if (isAgentMultimodalModel(settings.provider, settings.model)) {
+          const { capturePageFilePart } = await import("../lib/pdf");
           const file = await capturePageFilePart(opts.path, opts.viewingPage, opts.docKind);
           if (file) {
             return { text, files: [file] };

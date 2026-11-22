@@ -146,6 +146,25 @@ export function buildWholeDocumentInstructions(ctx: AgentMessageContext): string
 }
 
 const MAX_DOC_MAP_CHARS = 1_200;
+const MAX_VIEWING_PAGE_FALLBACK_CHARS = 3_000;
+
+/**
+ * Text fallback when the user explicitly enabled `includeViewingPage` on a
+ * provider/model that cannot accept an attached page image (e.g. OpenRouter,
+ * DeepSeek, text-only Ollama/OpenAI models).
+ */
+export function buildViewingPageTextFallback(docPath: string | null, viewingPage: number): string {
+  if (!docPath || viewingPage <= 0) return "";
+  const pages = docCache.getPages(docPath);
+  const entry = pages.find((p) => p.page === viewingPage);
+  const text = entry?.text.trim() ?? "";
+  if (!text) return "";
+  const clipped =
+    text.length > MAX_VIEWING_PAGE_FALLBACK_CHARS
+      ? `${text.slice(0, MAX_VIEWING_PAGE_FALLBACK_CHARS)}… [truncated]`
+      : text;
+  return `\n\nViewed page ${viewingPage} text:\n${clipped}`;
+}
 
 function formatCompactRanges(pages: readonly number[]): string {
   const sorted = [...new Set(pages.filter((p) => Number.isInteger(p) && p >= 1))].sort((a, b) => a - b);

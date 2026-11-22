@@ -133,6 +133,7 @@ export function PageScroller({
   const [padRight, setPadRight] = useState(DOT_PADDING);
   const [hurried, setHurried] = useState(false);
   const [pinching, setPinching] = useState(false);
+  const [selectionPage, setSelectionPage] = useState<number | null>(null);
 
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const pageRef = useRef(page);
@@ -184,7 +185,12 @@ export function PageScroller({
 
   const scaleRef = useRef(scale);
   scaleRef.current = scale;
-  const pinchAnchorYRef = useRef<number | null>(null);
+  const latestPinchScaleRef = useRef(scale);
+  if (!pinching) latestPinchScaleRef.current = scale;
+  const pinchingRef = useRef(pinching);
+  pinchingRef.current = pinching;
+  const pinchAnchorRef = useRef<{ x: number; y: number } | null>(null);
+  const zoomSubpixelYRef = useRef(0);
   const onPinchZoomRef = useRef(onPinchZoom);
   onPinchZoomRef.current = onPinchZoom;
 
@@ -274,18 +280,24 @@ export function PageScroller({
         if (!(e.ctrlKey || e.metaKey) || !onPinchZoomRef.current) return;
         e.preventDefault();
         const rect = node.getBoundingClientRect();
-        pinchAnchorYRef.current = Math.max(0, Math.min(node.clientHeight, e.clientY - rect.top));
+        pinchAnchorRef.current = {
+          x: Math.max(0, Math.min(node.clientWidth, e.clientX - rect.left)),
+          y: Math.max(0, Math.min(node.clientHeight, e.clientY - rect.top)),
+        };
         const factor = Math.exp(-e.deltaY * 0.0045);
+        const baseScale = pinchingRef.current ? latestPinchScaleRef.current : scaleRef.current;
         const next = Math.min(
           MAX_ZOOM,
-          Math.max(MIN_ZOOM, Math.round(scaleRef.current * factor * 1000) / 1000),
+          Math.max(MIN_ZOOM, Math.round(baseScale * factor * 1000) / 1000),
         );
+        latestPinchScaleRef.current = next;
         setPinching(true);
         onPinchZoomRef.current(next, false);
         window.clearTimeout(pinchTimerRef.current);
         pinchTimerRef.current = window.setTimeout(() => {
           setPinching(false);
-          onPinchZoomRef.current?.(scaleRef.current, true);
+          zoomSubpixelYRef.current = 0;
+          onPinchZoomRef.current?.(latestPinchScaleRef.current, true);
         }, 120);
       };
       node.addEventListener("wheel", onWheel, { passive: false });
@@ -301,6 +313,25 @@ export function PageScroller({
     },
     [containerRef, readLayout],
   );
+
+  useEffect(() => {
+    const onSelection = () => {
+      const node = nodeRef.current;
+      const sel = window.getSelection();
+      if (!node || !sel || sel.isCollapsed || !sel.anchorNode || !node.contains(sel.anchorNode)) {
+        setSelectionPage((prev) => (prev === null ? prev : null));
+        return;
+      }
+      const el =
+        sel.anchorNode instanceof Element ? sel.anchorNode : sel.anchorNode.parentElement;
+      const slot = el?.closest<HTMLElement>(".pdf-page-slot[data-page]");
+      const p = slot ? Number(slot.dataset.page) : NaN;
+      const next = Number.isInteger(p) && p >= 1 ? p : null;
+      setSelectionPage((prev) => (prev === next ? prev : next));
+    };
+    document.addEventListener("selectionchange", onSelection);
+    return () => document.removeEventListener("selectionchange", onSelection);
+  }, []);
 
   // Hold the reader's place when the column reflows under them.
   //
@@ -329,13 +360,32 @@ export function PageScroller({
     relayoutRef.current = { layout, scale };
     if (!node) return;
     if (prev.scale !== scale) {
-      const pointerY = pinchAnchorYRef.current;
-      pinchAnchorYRef.current = null;
-      const anchorScrollTop = pointerY !== null ? node.scrollTop + pointerY : node.scrollTop;
-      const shift = scrollShiftForScale(prev.layout, layout, anchorScrollTop);
-      if (shift !== 0) {
+      const pointer = pinchAnchorRef.current;
+      pinchAnchorRef.current = null;
+      const anchorY = pointer ? pointer.y : 0;
+      const rawShift = scrollShiftForScale(prev.layout, layout, node.scrollTop + anchorY, 0);
+      const totalShift = rawShift + zoomSubpixelYRef.current;
+      const wholeShift = Math.trunc(totalShift);
+      zoomSubpixelYRef.current = totalShift - wholeShift;
+
+      const prevWidest = prev.layout.widths.length > 0 ? Math.max(...prev.layout.widths) : 0;
+      const nextWidest = layout.widths.length > 0 ? Math.max(...layout.widths) : 0;
+      const prevContentW = Math.max(node.clientWidth, prevWidest + PAD_LEFT + padRight);
+      const nextContentW = Math.max(node.clientWidth, nextWidest + PAD_LEFT + padRight);
+      let nextScrollLeft = node.scrollLeft;
+      if (nextContentW > node.clientWidth || node.scrollLeft > 0) {
+        const anchorX = pointer ? pointer.x : node.clientWidth / 2;
+        const ratioX = (node.scrollLeft + anchorX) / Math.max(1, prevContentW);
+        nextScrollLeft = Math.max(
+          0,
+          Math.min(nextContentW - node.clientWidth, Math.round(ratioX * nextContentW - anchorX)),
+        );
+      }
+
+      if (wholeShift !== 0 || nextScrollLeft !== node.scrollLeft) {
         selfScrollRef.current = true;
-        node.scrollTop = Math.max(0, node.scrollTop + shift);
+        if (wholeShift !== 0) node.scrollTop = Math.max(0, node.scrollTop + wholeShift);
+        if (nextScrollLeft !== node.scrollLeft) node.scrollLeft = nextScrollLeft;
         setScrollTop(node.scrollTop);
         requestAnimationFrame(() => {
           selfScrollRef.current = false;
@@ -443,9 +493,18 @@ export function PageScroller({
     [],
   );
 
+  const mountedPages: number[] = [];
+  if (selectionPage !== null && selectionPage >= 1 && selectionPage < first && selectionPage <= pageCount) {
+    mountedPages.push(selectionPage);
+  }
+  for (let p = first; p <= last; p++) mountedPages.push(p);
+  if (selectionPage !== null && selectionPage > last && selectionPage <= pageCount) {
+    mountedPages.push(selectionPage);
+  }
+
   const slots: React.ReactNode[] = [];
   const gutters: React.ReactNode[] = [];
-  for (let p = first; p <= last; p++) {
+  for (const p of mountedPages) {
     const i = p - 1;
     slots.push(
       <PageSlot

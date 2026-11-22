@@ -14,16 +14,8 @@
 import { docCache } from "../lib/doc-cache";
 import { ensureProviderCompatibleImage } from "../lib/image-transcode";
 import { sniffImageType } from "../lib/file-type";
-import {
-  readAuthorizedFileBytes,
-  renderPageToJpegBytes,
-  VISION_MAX_EDGE,
-  VISION_QUALITY,
-} from "../lib/pdf";
-import { generateVisionText } from "../lib/vision-api";
 import { loadVisionSettings } from "../lib/settings";
 import { canSeeWith } from "../lib/model-capabilities";
-import { assertApiKeyForAgent, formatLlmError } from "../lib/llm";
 import { MIN_INDEX_CHARS } from "../lib/page-text-merge";
 import { emitPageIndex } from "../lib/index-events";
 import { forgetIndexedPages, rememberIndexedPage } from "../lib/index-store";
@@ -365,6 +357,12 @@ async function visionImageBytes(
   page: number,
   signal: AbortSignal,
 ): Promise<{ bytes: Uint8Array; mediaType: string }> {
+  const {
+    readAuthorizedFileBytes,
+    renderPageToJpegBytes,
+    VISION_MAX_EDGE,
+    VISION_QUALITY,
+  } = await import("../lib/pdf");
   const doc = docCache.get(path);
   if (doc?.kind === "image") {
     // TIFF/BMP must be transcoded — vision endpoints reject those media types.
@@ -487,6 +485,11 @@ async function indexPage(
   }
 
   emitPageIndex({ path, page, status: "indexing", source: "vision" });
+
+  const [{ generateVisionText }, { assertApiKeyForAgent, formatLlmError }] = await Promise.all([
+    import("../lib/vision-api"),
+    import("../lib/llm"),
+  ]);
 
   try {
     const settings = await loadVisionSettings();

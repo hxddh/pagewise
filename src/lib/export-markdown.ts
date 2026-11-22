@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { isToolUIPart } from "ai";
+import { isToolUIPart } from "./tool-part";
 import { stripDsmlToolMarkup } from "./agent-loop-guards";
 import { citationsToText } from "./citations";
 

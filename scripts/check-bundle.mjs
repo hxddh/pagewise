@@ -54,6 +54,9 @@ if (!existsSync(ASSETS)) {
 }
 
 const offenders = [];
+const coldBootLeaks = [];
+const COLD_ENTRY = /^(?:index|vendor)-/;
+const DEFERRED_CHUNKS = /^\.\/(?:ai-sdk|ai-openai|zod|markdown|motion|pdfjs|tesseract)-/;
 let scanned = 0;
 
 for (const file of readdirSync(ASSETS)) {
@@ -61,6 +64,13 @@ for (const file of readdirSync(ASSETS)) {
   if (VENDORED.test(file)) continue;
   scanned += 1;
   const code = readFileSync(join(ASSETS, file), "utf8");
+  if (COLD_ENTRY.test(file)) {
+    for (const m of code.matchAll(/\bimport\s*(?:\{[^}]*\}|\*\s*as\s*\w+)?\s*from\s*"(\.\/[^"]+)"/g)) {
+      if (DEFERRED_CHUNKS.test(m[1])) {
+        coldBootLeaks.push(`  ${file} statically imports deferred chunk ${m[1]}`);
+      }
+    }
+  }
   // `console` is a global, so minification cannot rename it away; a match here
   // is a real call that survived.
   const hits = code.match(/console\.[a-zA-Z]+/g);
@@ -80,8 +90,13 @@ if (scanned === 0) {
   process.exit(1);
 }
 
+if (coldBootLeaks.length > 0) {
+  console.error(`Cold-boot entry chunks acquired static imports on deferred bundles:\n\n${coldBootLeaks.join("\n")}\n`);
+  process.exit(1);
+}
+
 if (offenders.length === 0) {
-  console.log(`Bundle check passed — ${scanned} chunk(s), no console calls shipped.`);
+  console.log(`Bundle check passed — ${scanned} chunk(s), no console calls or cold-boot leaks shipped.`);
   process.exit(0);
 }
 

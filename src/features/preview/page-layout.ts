@@ -262,6 +262,7 @@ export function scrollShiftForScale(
   prev: PageLayout,
   next: PageLayout,
   scrollTop: number,
+  minPx = 1,
 ): number {
   if (prev === next) return 0;
   if (prev.tops.length !== next.tops.length || prev.tops.length === 0) return 0;
@@ -279,11 +280,10 @@ export function scrollShiftForScale(
   const ratio = Math.min(2, Math.max(-1, (scrollTop - beforeTop) / beforeHeight));
   const target = afterTop + ratio * afterHeight;
   // Never scroll above the top of the document to honour a shift, and never
-  // move for less than a pixel: the layout is whole pixels, and a correction
-  // smaller than one cannot change what is on screen — while treating it as a
-  // movement would suppress the reader's own scroll for that frame.
+  // move for less than `minPx`: callers without sub-pixel accumulation default
+  // to 1px so tiny layout rounding does not suppress user scroll.
   const shift = Math.max(-scrollTop, target - scrollTop);
-  return Math.abs(shift) < 1 ? 0 : shift;
+  return Math.abs(shift) < minPx ? 0 : shift;
 }
 
 /**

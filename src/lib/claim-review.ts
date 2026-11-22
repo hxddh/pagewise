@@ -33,10 +33,8 @@
 import type { CitationCheck } from "./citation-check";
 import { createAtomicStore } from "./atomic-store";
 import { createStoreRuntime } from "./json-store";
-import { assertApiKeyForAgent, resolveModel } from "./llm";
 import { loadSettings } from "./settings";
 import { reportStoreProblem } from "./store-health";
-import { addIndexUsage } from "./usage-tracker";
 
 export type ReviewVerdict = "supports" | "contradicts" | "insufficient";
 
@@ -181,7 +179,21 @@ verdict:
 - "contradicts": the passage says something different — another figure, the other party, a missing condition, the opposite.
 - "insufficient": the passage neither states nor contradicts it.
 
-reason: one short sentence in the sentence's own language, quoting the words of the passage your verdict turns on.`;
+reason: one short sentence in the sentence's own language, quoting the words of the passage your verdict turns on.
+
+Reply with ONLY a valid JSON object matching this shape (no extra prose):
+{"reviews":[{"item":1,"verdict":"supports","reason":"..."}]}`;
+}
+
+const REVIEW_TIMEOUT_MS = 60_000;
+
+export function parseClaimReviewText(raw: string): unknown {
+  const withoutThink = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const fenced = withoutThink.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim() ?? withoutThink;
+  const start = fenced.indexOf("{");
+  const end = fenced.lastIndexOf("}");
+  const slice = start >= 0 && end > start ? fenced.slice(start, end + 1) : fenced;
+  return JSON.parse(slice);
 }
 
 /**
@@ -195,8 +207,9 @@ export async function askModel(
   signal?: AbortSignal,
 ): Promise<(ClaimReview | null)[]> {
   const settings = await loadSettings();
+  const [{ generateText, Output }, { z }, { assertApiKeyForAgent, resolveModel }] =
+    await Promise.all([import("ai"), import("zod"), import("./llm")]);
   assertApiKeyForAgent(settings);
-  const [{ generateObject }, { z }] = await Promise.all([import("ai"), import("zod")]);
   const schema = z.object({
     reviews: z.array(
       z.object({
@@ -206,15 +219,46 @@ export async function askModel(
       }),
     ),
   });
-  const { object, usage } = await generateObject({
-    model: resolveModel(settings),
-    schema,
-    prompt: reviewPrompt(items),
-    abortSignal: signal,
-  });
-  addIndexUsage(usage);
+  const deadline = AbortSignal.timeout(REVIEW_TIMEOUT_MS);
+  const abortSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+  const model = resolveModel(settings);
+  const prompt = reviewPrompt(items);
+
+  let parsed: { reviews: Array<{ item: number; verdict: ReviewVerdict; reason: string }> } | null =
+    null;
+
+  // Only OpenAI's own endpoint guarantees `response_format: { type: "json_schema" }`;
+  // DeepSeek (default provider), OpenRouter non-OpenAI routes, reasoning models,
+  // and Ollama reject `json_schema` with HTTP 400 (28.0).
+  if (settings.provider === "openai" && typeof Output?.object === "function") {
+    try {
+      const res = await generateText({
+        model,
+        output: Output.object({ schema }),
+        prompt,
+        abortSignal,
+      });
+      if (res.output) parsed = res.output;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+    }
+  }
+
+  if (!parsed) {
+    const res = await generateText({
+      model,
+      prompt,
+      abortSignal,
+    });
+    const candidate =
+      (res as { output?: unknown }).output ?? parseClaimReviewText(res.text ?? "");
+    const checked = schema.safeParse(candidate);
+    if (!checked.success) throw new Error("Invalid claim review payload");
+    parsed = checked.data;
+  }
+
   const byItem = new Map<number, ClaimReview | null>();
-  for (const r of object.reviews) {
+  for (const r of parsed.reviews) {
     const review = { verdict: r.verdict, reason: r.reason.slice(0, MAX_REASON) };
     byItem.set(r.item, byItem.has(r.item) ? null : review);
   }

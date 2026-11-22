@@ -38,8 +38,9 @@ export function markdownToPlainText(markdown: string): string {
         .replace(/\*\*(.*?)\*\*/g, "$1")
         .replace(/(^|\W)\*(\S(?:.*?\S)?)\*(?=\W|$)/g, "$1$2")
         .replace(/`([^`]*)`/g, "$1")
-        // Underline runs, which the extractor emits as HTML.
-        .replace(/<\/?u>/g, "")
+        // Inline HTML formatting tags and GFM strikethrough emitted by the extractor.
+        .replace(/<\/?(?:u|s|del|strike|sup|sub|br)\s*\/?>/gi, "")
+        .replace(/~~(.*?)~~/g, "$1")
         // [label](url) → label
         .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1"),
     );

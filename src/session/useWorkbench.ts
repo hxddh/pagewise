@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -12,7 +13,7 @@ import { flushIndexStore } from "../lib/index-store";
 import { flushOcrService } from "../lib/ocr/ocr-service";
 import { checkCitation } from "../lib/citation-check";
 import { loadReviews } from "../lib/claim-review";
-import { prewarmPlacements } from "../lib/finding-anchors";
+import { clearFindingAnchors, prewarmPlacements } from "../lib/finding-anchors";
 import { trustedFindings } from "../lib/agent-record-context";
 import { TRUST_DOUBTFUL } from "../lib/finding-trust";
 import { briefToMarkdown, BRIEF_LABELS_EN, BRIEF_LABELS_ZH } from "../lib/export-brief";
@@ -38,7 +39,8 @@ import { documentToMarkdown, marksToMarkdown } from "../lib/export-document";
 import { clearChat as clearChatFile, loadChat, pruneOrphanedChats, saveChat } from "../chat/persist";
 import { flushChat } from "./flush-chat";
 import { createDocumentScope, type DocumentScope } from "../lib/document-scope";
-import { useDocAgent, warmDocAgentInIdle, type DocAgent } from "../hooks/useDocAgent";
+import type { DocAgent } from "../hooks/useDocAgent";
+import { useLazyDocAgent } from "./useLazyDocAgent";
 import { useConnectionStatus } from "../hooks/useConnectionStatus";
 import { useResizeWidth } from "../hooks/useResizeWidth";
 import { useTauriFileDrop } from "../hooks/useTauriFileDrop";
@@ -100,6 +102,7 @@ export interface Workbench {
       resize: ReturnType<typeof useResizeWidth>;
     };
   };
+  agentHost: ReactNode;
 }
 
 export function useWorkbench(): Workbench {
@@ -135,13 +138,14 @@ export function useWorkbench(): Workbench {
   const loadingRef = useRef(false);
   loadingRef.current = loading;
   const queuedOpenPathRef = useRef<string | null>(null);
+  const queuedOpenOptionsRef = useRef<{ forceReload?: boolean } | undefined>(undefined);
   const notifiedStampRef = useRef<string | null>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
   const chatHydrateRef = useRef<{ path: string; messages: PageWiseUIMessage[] } | null>(null);
   const scopeRef = useRef<DocumentScope | null>(null);
 
   const chatId = document?.path ?? "pagewise-local";
-  const agent = useDocAgent(chatId);
+  const { agent, agentHost } = useLazyDocAgent(chatId, phase !== "empty" || loading);
   const agentSetMessagesRef = useRef(agent.messages.set);
   agentSetMessagesRef.current = agent.messages.set;
   const messagesRef = useRef(agent.messages.list);
@@ -308,6 +312,8 @@ export function useWorkbench(): Workbench {
     async (path: string, options?: { forceReload?: boolean }) => {
       if (loadingRef.current) {
         queuedOpenPathRef.current = path;
+        queuedOpenOptionsRef.current = options;
+        loadAbortRef.current?.abort();
         return;
       }
 
@@ -341,6 +347,13 @@ export function useWorkbench(): Workbench {
       const controller = new AbortController();
       loadAbortRef.current = controller;
 
+      // Evict cached PDF proxy and runs BEFORE in-place reload so `getPdfOutline`,
+      // `getPdfPageLabels`, and `getPdfAnnotations` never read pre-edit state (28.0).
+      if (options?.forceReload || prevPath === path) {
+        clearPdfCache(path);
+        clearFindingAnchors(path);
+      }
+
       try {
         const staged = await loadDocument(
           path,
@@ -348,7 +361,7 @@ export function useWorkbench(): Workbench {
             if (epochRef.current === myEpoch) setProgress(p);
           },
           controller.signal,
-          { deferCache: true },
+          { deferCache: true, isReload: Boolean(options?.forceReload || prevPath === path) },
         );
 
         if (epochRef.current !== myEpoch) return;
@@ -383,7 +396,9 @@ export function useWorkbench(): Workbench {
         const resumeAt = remembered > 1 && remembered <= doc.totalPages ? remembered : 1;
         setPreviewPage(resumeAt);
         setPhase("ready");
-        warmDocAgentInIdle();
+        void import("../hooks/useDocAgent")
+          .then((m) => m.warmDocAgentInIdle())
+          .catch(() => {});
 
         try {
           const recent = await addRecentFile({
@@ -432,9 +447,11 @@ export function useWorkbench(): Workbench {
             loadAbortRef.current = null;
           }
           const queued = queuedOpenPathRef.current;
+          const queuedOpts = queuedOpenOptionsRef.current;
           queuedOpenPathRef.current = null;
-          if (queued && queued !== documentRef.current?.path) {
-            void switchDocument(queued);
+          queuedOpenOptionsRef.current = undefined;
+          if (queued && (queuedOpts?.forceReload || queued !== documentRef.current?.path)) {
+            void switchDocument(queued, queuedOpts);
           }
         }
       }
@@ -717,5 +734,6 @@ export function useWorkbench(): Workbench {
         resize,
       },
     },
+    agentHost,
   };
 }

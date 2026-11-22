@@ -550,6 +550,9 @@ fn clean_extracted_markdown(md: &str) -> String {
 }
 
 fn rejoin_soft_hyphen_wraps(input: &str) -> String {
+    if !input.contains(['\u{00AD}', '\u{2010}', '\u{2011}']) {
+        return input.to_string();
+    }
     let chars: Vec<char> = input.chars().collect();
     let mut out = String::with_capacity(input.len());
     let mut i = 0;
@@ -763,6 +766,7 @@ type PdfCacheKey = (PathBuf, u64, Option<SystemTime>, bool);
 struct LopdfMeta {
     origins: Vec<(f32, f32)>,
     goto_links: Vec<Link>,
+    has_struct_tree: bool,
 }
 
 struct PositionsData {
@@ -774,9 +778,10 @@ struct PositionsData {
 
 struct CachedPdf {
     key: PdfCacheKey,
-    bytes: Vec<u8>,
+    bytes: Arc<Vec<u8>>,
     lopdf_meta: OnceLock<LopdfMeta>,
     positions: OnceLock<Result<PositionsData, String>>,
+    large_positions: Mutex<HashMap<u32, Vec<TextItemRect>>>,
 }
 
 static ACTIVE_PDF: LazyLock<Mutex<Option<Arc<CachedPdf>>>> = LazyLock::new(|| Mutex::new(None));
@@ -816,24 +821,28 @@ pub fn decrypt_pdf_bytes(raw: &[u8], password: &str) -> Result<Vec<u8>, String> 
     Ok(out)
 }
 
-/// Return cached (and already-decrypted, when unlocked) PDF bytes if `path`
-/// matches the active cached PDF, avoiding a second full-file disk read in
-/// `read_file_bytes`.
+/// Return an `O(1)` shared `Arc` handle to the active cached (and decrypted,
+/// when session-unlocked) PDF buffer without copying while holding `ACTIVE_PDF`.
 #[allow(dead_code)]
-pub fn cached_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
+pub fn cached_pdf_arc(path: &Path) -> Option<Arc<Vec<u8>>> {
     let path_str = path.to_str()?;
     let key = pdf_key(path_str).ok()?;
     let guard = lock_unpoisoned(&ACTIVE_PDF);
     let existing = guard.as_ref()?;
-    (existing.key == key).then(|| existing.bytes.clone())
+    (existing.key == key).then(|| Arc::clone(&existing.bytes))
+}
+
+#[allow(dead_code)]
+pub fn cached_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
+    cached_pdf_arc(path).map(|arc| (*arc).clone())
 }
 
 /// Evict a closed document's cached PDF buffer from Rust memory.
 #[allow(dead_code)]
 pub fn evict_cached_pdf(path: &Path) {
-    let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let key_path = doc_check::clean_path_key(path);
     let mut guard = lock_unpoisoned(&ACTIVE_PDF);
-    if guard.as_ref().is_some_and(|c| c.key.0 == canon) {
+    if guard.as_ref().is_some_and(|c| c.key.0 == key_path) {
         *guard = None;
     }
 }
@@ -861,14 +870,15 @@ pub fn unlock_pdf(path: &Path, password: &str) -> Result<(), String> {
     let raw = std::fs::read(path).map_err(map_err)?;
     let decrypted = decrypt_pdf_bytes(&raw, password)?;
     detect_pdf_mem(&decrypted).map_err(|e| doc_check::pdf_error(&e))?;
-    let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let canon = doc_check::clean_path_key(path);
     doc_check::set_session_password(&canon, password.to_string());
     let key = pdf_key(path_str)?;
     let cached = Arc::new(CachedPdf {
         key,
-        bytes: decrypted,
+        bytes: Arc::new(decrypted),
         lopdf_meta: OnceLock::new(),
         positions: OnceLock::new(),
+        large_positions: Mutex::new(HashMap::new()),
     });
     *lock_unpoisoned(&ACTIVE_PDF) = Some(cached);
     Ok(())
@@ -884,7 +894,7 @@ fn pdf_key(path: &str) -> Result<PdfCacheKey, String> {
             format!("{len} bytes; max {}", doc_check::MAX_DOCUMENT_BYTES),
         ));
     }
-    let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let canon = doc_check::clean_path_key(p);
     let unlocked = doc_check::has_unlocked_session(&canon);
     Ok((canon, len, meta.modified().ok(), unlocked))
 }
@@ -916,9 +926,10 @@ fn get_or_load_pdf(path: &str) -> Result<Arc<CachedPdf>, String> {
     };
     let cached = Arc::new(CachedPdf {
         key,
-        bytes,
+        bytes: Arc::new(bytes),
         lopdf_meta: OnceLock::new(),
         positions: OnceLock::new(),
+        large_positions: Mutex::new(HashMap::new()),
     });
     *lock_unpoisoned(&ACTIVE_PDF) = Some(Arc::clone(&cached));
     Ok(cached)
@@ -1125,11 +1136,15 @@ fn parse_lopdf_meta(bytes: &[u8]) -> LopdfMeta {
         return LopdfMeta {
             origins: Vec::new(),
             goto_links: Vec::new(),
+            has_struct_tree: false,
         };
     };
     if doc.is_encrypted() {
         let _ = doc.decrypt("");
     }
+    let has_struct_tree = doc
+        .catalog()
+        .is_ok_and(|cat| cat.has(b"StructTreeRoot"));
     let pages: BTreeMap<u32, lopdf::ObjectId> = doc.get_pages();
     let page_count = pages.len() as u32;
     let origins: Vec<(f32, f32)> = pages.values().map(|&id| visible_origin(&doc, id)).collect();
@@ -1137,6 +1152,7 @@ fn parse_lopdf_meta(bytes: &[u8]) -> LopdfMeta {
         return LopdfMeta {
             origins,
             goto_links: Vec::new(),
+            has_struct_tree,
         };
     }
     let obj_to_page: HashMap<lopdf::ObjectId, u32> =
@@ -1212,7 +1228,97 @@ fn parse_lopdf_meta(bytes: &[u8]) -> LopdfMeta {
     LopdfMeta {
         origins,
         goto_links,
+        has_struct_tree,
     }
+}
+
+/// Detect and reorder borderless two-column blocks (e.g. side-by-side contract
+/// signature blocks) where >=3 consecutive row-pairs share baselines across a
+/// >=40pt empty gutter (`L0 R0 L1 R1 L2 R2` → `L0 L1 L2 R0 R1 R2`), returning
+/// the column-separated Markdown replacement pairs `(interleaved, separated)` per page.
+fn reorder_two_column_blocks(
+    by_page: &mut HashMap<u32, Vec<TextItemRect>>,
+) -> HashMap<u32, Vec<(Vec<String>, Vec<String>)>> {
+    let mut blocks_by_page: HashMap<u32, Vec<(Vec<String>, Vec<String>)>> = HashMap::new();
+    for (&page, items) in by_page.iter_mut() {
+        let mut i = 0;
+        while i + 5 < items.len() {
+            let l0 = &items[i];
+            let r0 = &items[i + 1];
+            let same_row0 = (l0.rect.y - r0.rect.y).abs() <= 2.5;
+            let gutter0 = r0.rect.x - (l0.rect.x + l0.rect.width);
+            if !same_row0 || gutter0 < 40.0 || l0.rect.width > 250.0 || r0.rect.width > 250.0 {
+                i += 1;
+                continue;
+            }
+            let lx = l0.rect.x;
+            let rx = r0.rect.x;
+            let mut pairs = 1usize;
+            let mut prev_y = l0.rect.y;
+            while i + pairs * 2 + 1 < items.len() {
+                let lk = &items[i + pairs * 2];
+                let rk = &items[i + pairs * 2 + 1];
+                let dy = prev_y - lk.rect.y;
+                let same_y = (lk.rect.y - rk.rect.y).abs() <= 2.5;
+                let gutter = rk.rect.x - (lk.rect.x + lk.rect.width);
+                if !same_y
+                    || !(2.0..=40.0).contains(&dy)
+                    || (lk.rect.x - lx).abs() > 8.0
+                    || (rk.rect.x - rx).abs() > 8.0
+                    || gutter < 40.0
+                    || lk.rect.width > 250.0
+                    || rk.rect.width > 250.0
+                {
+                    break;
+                }
+                prev_y = lk.rect.y;
+                pairs += 1;
+            }
+            if pairs >= 3 {
+                let mut left_items = Vec::with_capacity(pairs);
+                let mut right_items = Vec::with_capacity(pairs);
+                let mut left_texts = Vec::with_capacity(pairs);
+                let mut right_texts = Vec::with_capacity(pairs);
+                for k in 0..pairs {
+                    let lk = items[i + k * 2].clone();
+                    let rk = items[i + k * 2 + 1].clone();
+                    left_texts.push(lk.text.trim().to_string());
+                    right_texts.push(rk.text.trim().to_string());
+                    left_items.push(lk);
+                    right_items.push(rk);
+                }
+                for (offset, it) in left_items.into_iter().chain(right_items).enumerate() {
+                    items[i + offset] = it;
+                }
+                blocks_by_page.entry(page).or_default().push((left_texts, right_texts));
+                i += pairs * 2;
+            } else {
+                i += 1;
+            }
+        }
+    }
+    blocks_by_page
+}
+
+fn apply_two_column_markdown_fix(md: &str, left: &[String], right: &[String]) -> String {
+    if left.len() != right.len() || left.is_empty() || md.contains("|---") {
+        return md.to_string();
+    }
+    let separated = format!("{}\n\n{}", left.join("\n"), right.join("\n"));
+    let row_lines: Vec<String> = left
+        .iter()
+        .zip(right.iter())
+        .map(|(l, r)| format!("{l} {r}"))
+        .collect();
+    let space_joined = row_lines.join(" ");
+    if md.contains(&space_joined) {
+        return md.replacen(&space_joined, &separated, 1);
+    }
+    let newline_joined = row_lines.join("\n");
+    if md.contains(&newline_joined) {
+        return md.replacen(&newline_joined, &separated, 1);
+    }
+    md.to_string()
 }
 
 fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData, String> {
@@ -1280,6 +1386,8 @@ fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData,
         link.context = link_context(link, &lines);
     }
 
+    let _ = reorder_two_column_blocks(&mut by_page);
+
     Ok(PositionsData {
         by_page,
         mcid_runs,
@@ -1289,7 +1397,7 @@ fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData,
 }
 
 fn structure_outline(cached: &CachedPdf, page_count: usize) -> Vec<Heading> {
-    if page_count > POSITIONS_PAGE_LIMIT {
+    if page_count > POSITIONS_PAGE_LIMIT || !cached.lopdf_meta().has_struct_tree {
         return Vec::new();
     }
     let Ok(elements) = extract_structure_elements_mem(&cached.bytes, None) else {
@@ -1459,10 +1567,16 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         .filter(|p| !no_text_pages.contains(p))
         .collect();
 
-    // A confident scan has no text layer to extract. Detection costs about a
-    // millisecond and saves parsing the whole document to produce blank pages;
-    // pages flagged `no_text` (neither text nor images) stay off the vision queue.
-    if matches!(detected.pdf_type, PdfType::Scanned) && detected.confidence >= SCANNED_CONFIDENCE {
+    // A confident scan with zero native-text pages has no text layer to extract.
+    // If a mostly-scanned binder still contains a few born-digital pages (e.g. a
+    // digital cover sheet or schedule), only skip extraction when every non-blank
+    // page needs OCR (28.0).
+    let all_pages_scanned =
+        detected_ocr_pages.len() + no_text_pages.len() >= detected.page_count as usize;
+    if matches!(detected.pdf_type, PdfType::Scanned)
+        && detected.confidence >= SCANNED_CONFIDENCE
+        && all_pages_scanned
+    {
         let pages = (1..=detected.page_count)
             .map(|page| Page {
                 page,
@@ -1527,7 +1641,61 @@ pub fn open_document(path: &str) -> Result<DocumentModel, String> {
         (text_res, pos_out)
     });
 
-    let (texts, ocr_reasons) = extracted_res?;
+    let (mut texts, ocr_reasons) = extracted_res?;
+    if approx_pages <= POSITIONS_PAGE_LIMIT {
+        if let Ok(pos) = cached.positions() {
+            // Re-run lightweight column check on page copies to split any interleaved
+            // borderless 2-column blocks (e.g. signature blocks) in `texts`.
+            let mut probe = pos.by_page.clone();
+            // Note: `pos.by_page` is already column-ordered `[L0..Lm, R0..Rm]`;
+            // reconstruct `(left, right)` pairs directly where `m >= 3` share `y`.
+            for (&pnum, items) in &pos.by_page {
+                let idx = (pnum.saturating_sub(1)) as usize;
+                if idx >= texts.len() || has_table(&texts[idx]) {
+                    continue;
+                }
+                let mut start = 0usize;
+                while start + 5 < items.len() {
+                    let mut m = 0usize;
+                    // Find split `start..start+m` vs `start+m..start+2m` with matching `y` baselines.
+                    for cand_m in 3..=((items.len() - start) / 2) {
+                        let left_slice = &items[start..start + cand_m];
+                        let right_slice = &items[start + cand_m..start + cand_m * 2];
+                        let lx = left_slice[0].rect.x;
+                        let rx = right_slice[0].rect.x;
+                        let ok = left_slice.iter().zip(right_slice.iter()).all(|(lk, rk)| {
+                            (lk.rect.y - rk.rect.y).abs() <= 2.5
+                                && rk.rect.x - (lk.rect.x + lk.rect.width) >= 40.0
+                                && (lk.rect.x - lx).abs() <= 8.0
+                                && (rk.rect.x - rx).abs() <= 8.0
+                                && lk.rect.width <= 250.0
+                                && rk.rect.width <= 250.0
+                        });
+                        if ok {
+                            m = cand_m;
+                        } else if m > 0 {
+                            break;
+                        }
+                    }
+                    if m >= 3 {
+                        let left: Vec<String> = items[start..start + m]
+                            .iter()
+                            .map(|it| it.text.trim().to_string())
+                            .collect();
+                        let right: Vec<String> = items[start + m..start + m * 2]
+                            .iter()
+                            .map(|it| it.text.trim().to_string())
+                            .collect();
+                        texts[idx] = apply_two_column_markdown_fix(&texts[idx], &left, &right);
+                        start += m * 2;
+                    } else {
+                        start += 1;
+                    }
+                }
+            }
+            let _ = &mut probe;
+        }
+    }
     let figure_pages: std::collections::HashSet<u32> = figures.iter().map(|f| f.page).collect();
 
     let pages: Vec<Page> = texts
@@ -1688,6 +1856,9 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
     // for those, extract only the requested page from disk (or from decrypted RAM
     // when unlocked for the session).
     if meta.origins.len() > POSITIONS_PAGE_LIMIT {
+        if let Some(hit) = lock_unpoisoned(&cached.large_positions).get(&page).cloned() {
+            return Ok(hit);
+        }
         let items = if doc_check::has_unlocked_session(&cached.key.0) {
             extract_text_with_positions_mem(&cached.bytes)
                 .map_err(map_err)?
@@ -1700,7 +1871,7 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
                 .map_err(map_err)?
         };
         let (dx, dy) = origin_of(&meta.origins, page);
-        return Ok(items
+        let page_items: Vec<TextItemRect> = items
             .into_iter()
             .filter(|item| {
                 matches!(item.item_type, ItemType::Text)
@@ -1717,7 +1888,9 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
                     height: item.height,
                 },
             })
-            .collect());
+            .collect();
+        lock_unpoisoned(&cached.large_positions).insert(page, page_items.clone());
+        return Ok(page_items);
     }
     let pos = cached.positions()?;
     Ok(pos.by_page.get(&page).cloned().unwrap_or_default())

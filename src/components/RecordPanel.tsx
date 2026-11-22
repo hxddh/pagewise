@@ -16,6 +16,7 @@ import {
 import { recordLevel } from "../lib/trust-level";
 import { longKey } from "../lib/trust-text";
 import { useI18n } from "../i18n";
+import { useOptionalToast } from "../hooks/useToast";
 import {
   confirmFinding,
   getFindings,
@@ -24,7 +25,7 @@ import {
   setFindingStruck,
   type Finding,
 } from "../lib/finding-store";
-import { getMarks, marksAreStale, removeMark, type Mark } from "../lib/mark-store";
+import { getMarks, marksAreStale, removeMark, undoMarkChange, type Mark } from "../lib/mark-store";
 import { useFindingPlacement } from "../hooks/useFindingPlacement";
 import { trustNeedsReader, trustOf, type Trust } from "../lib/finding-trust";
 import { Button } from "./ui/Button";
@@ -264,6 +265,7 @@ function MarksSection({
   onJumpToPage: (page: number) => void;
 }) {
   const { t } = useI18n();
+  const toast = useOptionalToast();
   const entryMotion = useEntryMotion();
   // Marks made against a different version of this file. Unlike the page index,
   // which is discarded when the file changes because it can be recomputed, the
@@ -306,7 +308,15 @@ function MarksSection({
                 className="record-mark-delete"
                 title={t("marks.delete")}
                 aria-label={t("marks.delete")}
-                onClick={() => removeMark(path, mark.id)}
+                onClick={() => {
+                  removeMark(path, mark.id);
+                  toast?.showToast(t("toast.markDeleted"), "default", {
+                    label: t("toast.undoAction"),
+                    onClick: () => {
+                      undoMarkChange(path);
+                    },
+                  });
+                }}
               >
                 <Trash2 size={13} />
               </Button>

@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use inspect::{DocumentModel, Rect, RegionText, TextItemRect};
-use tauri::{Emitter, Manager, State};
+use tauri::{Manager, State};
 
 use grants::AllowedPaths;
 
@@ -56,19 +56,23 @@ where
 #[tauri::command]
 async fn file_stamp_cmd(path: String, allowed: State<'_, AllowedPaths>) -> Result<String, String> {
     let canon = ensure_allowed(&allowed, &path)?;
-    let meta =
-        std::fs::metadata(&canon).map_err(|e| format!("Failed to read file metadata: {e}"))?;
-    let mtime = meta
-        .modified()
-        .map_err(|e| format!("Failed to read file metadata: {e}"))?
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| format!("Failed to read file metadata: {e}"))?;
-    Ok(format!(
-        "{}.{:09}:{}",
-        mtime.as_secs(),
-        mtime.subsec_nanos(),
-        meta.len()
-    ))
+    tauri::async_runtime::spawn_blocking(move || {
+        let meta = std::fs::metadata(&canon)
+            .map_err(|e| format!("Failed to read file metadata: {e}"))?;
+        let mtime = meta
+            .modified()
+            .map_err(|e| format!("Failed to read file metadata: {e}"))?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| format!("Failed to read file metadata: {e}"))?;
+        Ok(format!(
+            "{}.{:09}:{}",
+            mtime.as_secs(),
+            mtime.subsec_nanos(),
+            meta.len()
+        ))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))?
 }
 
 /// Content fingerprint for an authorized file: what the file *is*, as opposed
@@ -271,14 +275,28 @@ async fn extract_region_cmd(
 struct FileReadCancel(Arc<AtomicU64>);
 
 impl FileReadCancel {
-    fn bump(&self) {
-        self.0.fetch_add(1, Ordering::SeqCst);
+    fn advance_to(&self, min_gen: Option<u64>) {
+        if let Some(target) = min_gen {
+            self.0.fetch_max(target, Ordering::SeqCst);
+        } else {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+fn is_read_cancelled(cancel: &AtomicU64, req_gen: Option<u64>, gen_at_start: u64) -> bool {
+    let cur = cancel.load(Ordering::SeqCst);
+    match req_gen {
+        // Monotonic generation from JS: a prior cancel (`min_gen <= req_gen - 1`
+        // bumps `cancel` to `min_gen`) only cancels reads strictly older than `cur`.
+        Some(g) => cur > g,
+        None => cur != gen_at_start,
     }
 }
 
 #[tauri::command]
-fn cancel_file_read_cmd(cancel: State<'_, FileReadCancel>) {
-    cancel.bump();
+fn cancel_file_read_cmd(cancel: State<'_, FileReadCancel>, min_gen: Option<u64>) {
+    cancel.advance_to(min_gen);
 }
 
 /// Maximum file size for `read_file_bytes` (256 MiB). The same cap
@@ -290,9 +308,10 @@ const READ_CHUNK_BYTES: usize = 1024 * 1024;
 fn read_file_with_cancel(
     path: &Path,
     cancel: &Arc<AtomicU64>,
+    req_gen: Option<u64>,
     gen_at_start: u64,
 ) -> Result<Vec<u8>, String> {
-    if cancel.load(Ordering::SeqCst) != gen_at_start {
+    if is_read_cancelled(cancel, req_gen, gen_at_start) {
         return Err("Read cancelled".to_string());
     }
     let mut file = File::open(path).map_err(|e| format!("Read failed: {e}"))?;
@@ -306,7 +325,7 @@ fn read_file_with_cancel(
     let mut buf = Vec::with_capacity(len.min(MAX_READ_BYTES) as usize);
     let mut chunk = [0u8; READ_CHUNK_BYTES];
     loop {
-        if cancel.load(Ordering::SeqCst) != gen_at_start {
+        if is_read_cancelled(cancel, req_gen, gen_at_start) {
             return Err("Read cancelled".to_string());
         }
         let n = file.read(&mut chunk).map_err(|e| format!("Read failed: {e}"))?;
@@ -339,43 +358,47 @@ async fn unlock_pdf_cmd(
 }
 
 #[tauri::command]
-fn close_document_cmd(path: String) {
-    let canon = std::fs::canonicalize(&path).unwrap_or_else(|_| PathBuf::from(&path));
-    doc_check::remove_session_password(&canon);
-    inspect::evict_cached_pdf(&canon);
+async fn close_document_cmd(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let key = doc_check::clean_path_key(Path::new(&path));
+        doc_check::remove_session_password(&key);
+        inspect::evict_cached_pdf(&key);
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {e}"))
 }
 
 #[tauri::command]
 async fn read_file_bytes(
     path: String,
+    gen: Option<u64>,
     allowed: State<'_, AllowedPaths>,
     cancel: State<'_, FileReadCancel>,
 ) -> Result<tauri::ipc::Response, String> {
     let canon = ensure_allowed(&allowed, &path)?;
-    doc_check::check_size(&canon)?;
     let cancel_gen = cancel.inner().0.clone();
     let gen_at_start = cancel_gen.load(Ordering::SeqCst);
-    if let Some(bytes) = inspect::cached_pdf_bytes(&canon) {
-        if cancel_gen.load(Ordering::SeqCst) != gen_at_start {
+    let joined = tauri::async_runtime::spawn_blocking(move || {
+        doc_check::check_size(&canon)?;
+        if is_read_cancelled(&cancel_gen, gen, gen_at_start) {
             return Err("Read cancelled".to_string());
         }
-        return Ok(tauri::ipc::Response::new(bytes));
-    }
-    let path_for_read = canon.clone();
-    let cancel_for_blocking = cancel_gen.clone();
-    let bytes = tauri::async_runtime::spawn_blocking(move || {
-        let raw = read_file_with_cancel(&path_for_read, &cancel_for_blocking, gen_at_start)?;
-        if let Some(pw) = doc_check::session_password(&path_for_read) {
+        if let Some(arc_bytes) = inspect::cached_pdf_arc(&canon) {
+            if is_read_cancelled(&cancel_gen, gen, gen_at_start) {
+                return Err("Read cancelled".to_string());
+            }
+            return Ok((*arc_bytes).clone());
+        }
+        let raw = read_file_with_cancel(&canon, &cancel_gen, gen, gen_at_start)?;
+        if let Some(pw) = doc_check::session_password(&canon) {
             inspect::decrypt_pdf_bytes(&raw, &pw)
         } else {
             Ok(raw)
         }
     })
     .await
-    .map_err(|e| format!("Task join failed: {e}"))??;
-    if cancel_gen.load(Ordering::SeqCst) != gen_at_start {
-        return Err("Read cancelled".to_string());
-    }
+    .map_err(|e| format!("Task join failed: {e}"))?;
+    let bytes = joined?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -509,12 +532,13 @@ pub fn run() {
             // relative path typed in a terminal names a file there (16.0).
             // Granted here, before the front end hears of it (21.0).
             if let Some(path) = open_path::path_from_args(&argv, Path::new(&cwd)) {
-                match grants::grant_document(app, Path::new(&path)) {
-                    Ok(canon) => {
-                        let _ = window.emit("pagewise://open-path", grants::for_front_end(&canon));
+                let handle = app.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    match grants::grant_document(&handle, Path::new(&path)) {
+                        Ok(canon) => open_path::enqueue_granted(&handle, canon),
+                        Err(err) => open_path::refuse_open(&handle, err),
                     }
-                    Err(err) => open_path::refuse_open(app, err),
-                }
+                });
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())

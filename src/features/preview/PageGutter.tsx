@@ -1,8 +1,9 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
+import { useOptionalToast } from "../../hooks/useToast";
 import type { AnswerNote, PageCitation } from "../../lib/page-citations";
 import { columnEntries, columnTops, cardExcerpt, gutterEntries, type GutterEntry } from "./page-gutter";
-import { getMarks, MAX_NOTE_TEXT, removeMark, setMarkNote, type Mark } from "../../lib/mark-store";
+import { getMarks, MAX_NOTE_TEXT, removeMark, setMarkNote, undoMarkChange, type Mark } from "../../lib/mark-store";
 import { getFindings } from "../../lib/finding-store";
 import { placeFinding } from "../../lib/finding-anchors";
 import { cachedCitationCheck, checkCitation } from "../../lib/citation-check";
@@ -115,6 +116,7 @@ function MarkNotePopoverBody({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const toast = useOptionalToast();
   const [note, setNote] = useState(mark.note);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const latest = useRef(note);
@@ -169,6 +171,12 @@ function MarkNotePopoverBody({
           label={t("marks.delete")}
           onClick={() => {
             removeMark(path, mark.id);
+            toast?.showToast(t("toast.markDeleted"), "default", {
+              label: t("toast.undoAction"),
+              onClick: () => {
+                undoMarkChange(path);
+              },
+            });
             onClose();
           }}
         />

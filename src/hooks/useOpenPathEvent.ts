@@ -33,7 +33,10 @@ export function useOpenPathEvent(
 
     const subscriptions = [
       listen<string>(OPEN_PATH_EVENT, (event) => deliver(event.payload)),
-      listen<string>(OPEN_REFUSED_EVENT, (event) => deliverError(event.payload)),
+      listen<string>(OPEN_REFUSED_EVENT, (event) => {
+        void invokeCmd<string | null>("take_pending_open_error").catch(() => {});
+        deliverError(event.payload);
+      }),
       listen(OPEN_PENDING_EVENT, () => takePending()),
     ];
     for (const sub of subscriptions) {

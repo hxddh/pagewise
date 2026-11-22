@@ -26,8 +26,8 @@ body
 .preview-canvas-wrap.image-wrap
 .preview-canvas, .preview-image
 .preview-canvas
-[data-theme="paper"] .preview-canvas
-[data-theme="night"] .preview-canvas
+[data-theme="paper"] .preview-canvas, [data-theme="paper"] .preview-image
+[data-theme="night"] .preview-canvas, [data-theme="night"] .preview-image
 .preview-page-frame
 .pdf-text-layer:not(.pdf-text-layer-active)
 .pdf-text-layer
@@ -325,6 +325,7 @@ button.pages-read-chip:hover
 .search-highlight-layer
 .search-highlight
 .search-highlight-focus
+:root[data-theme="night"] .search-highlight-focus
 .citation-highlight-layer
 .citation-highlight
 @keyframes citation-decay
@@ -346,6 +347,7 @@ button.pages-read-chip:hover
 .pdf-mark-region:hover, .pdf-mark-region:focus-visible, .pdf-mark-region.pdf-mark-selected
 :root[data-theme="dark"] .pdf-mark-text
 :root[data-theme="night"] .pdf-mark-text
+:root[data-theme="night"] .pdf-mark-text:hover, :root[data-theme="night"] .pdf-mark-text:focus-visible, :root[data-theme="night"] .pdf-mark-text.pdf-mark-selected
 .mark-selection-btn
 .mark-selection-btn:hover
 .mark-stale-note
@@ -390,9 +392,6 @@ button.pages-read-chip:hover
   from
   to
 .library-drawer
-@keyframes drawer-in
-  from
-  to
 .library-drawer-header
 .library-drawer-header h2
 .library-drawer-open
@@ -449,8 +448,8 @@ button.pages-read-chip:hover
 .app.v3 .composer textarea
 .app.v3 .composer-footer
 .app.v3 .composer-hint
-[data-material="on"] :root
-[data-material="on"] .app-rail, [data-material="on"] .chat-column, [data-material="on"] .drawer-panel, [data-material="on"] .preview-toolbar
+:root[data-material="on"], :root[data-material="on"] body, :root[data-material="on"] .app.v3
+:root[data-material="on"] .app-rail, :root[data-material="on"] .chat-column, :root[data-material="on"] .library-drawer, :root[data-material="on"] .preview-toolbar
 # 13-chat-late.css
 .empty-state-minimal
 .empty-examples

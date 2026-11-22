@@ -34,9 +34,11 @@ import { pageTextItems } from "./pdf";
 import { ocrEnabled, ocrPage } from "./ocr/ocr-service";
 import { onOcrTextReplaced } from "./ocr/ocr-events";
 import { docCache } from "./doc-cache";
-import { locateAcrossPages, locateQuote, unionRect, type LocateOutcome } from "./quote-locate";
+import { locateAcrossPages, locateQuote, locateQuoteAll, unionRect, type LocateOutcome } from "./quote-locate";
 import { passageAround } from "./passage";
+import { polarityMismatch } from "./polarity-check";
 import { unstatedQuantities } from "./quantities";
+import { struckOutMismatch } from "./strikethrough-check";
 import type { Finding } from "./finding-store";
 import type { PdfRect, TextItemRect } from "./types";
 
@@ -47,6 +49,8 @@ export interface FindingAnchor {
   rects: PdfRect[];
   /** All of them as one, for placing a margin note beside the passage. */
   bounds: PdfRect;
+  /** Continuation rectangles on `page + 1` when the evidence spans a page break (28.0). */
+  secondPage?: { page: number; rects: PdfRect[] };
 }
 
 export type FindingPlacement =
@@ -186,13 +190,27 @@ async function resolvePlacement(path: string, finding: Finding): Promise<Finding
     const runs = await pageRuns(path, page);
     const outcome: LocateOutcome = locateQuote(runs.items, quote);
     if (outcome.status === "located") {
-      const bounds = unionRect(outcome.rects);
-      if (bounds) {
-        const anchor = { page, rects: outcome.rects, bounds };
-        const passage = `${passageAround(runs.items, outcome.rects)}\n${quote}`;
-        const unstated = unstatedQuantities(finding.claim, passage);
-        if (unstated.length > 0) return { status: "mismatch", anchor, unstated: unstated.map((q) => q.text) };
-        return { status: "located", anchor };
+      const all = locateQuoteAll(runs.items, quote);
+      const candidates = all.length > 0 ? all : [{ items: outcome.items, rects: outcome.rects }];
+      let firstMismatch: { anchor: FindingAnchor; reasons: string[] } | null = null;
+      for (const cand of candidates) {
+        const bounds = unionRect(cand.rects);
+        if (!bounds) continue;
+        const anchor: FindingAnchor = { page, rects: cand.rects, bounds };
+        const passage = `${passageAround(runs.items, cand.rects)}\n${quote}`;
+        const unstated = unstatedQuantities(finding.claim, passage).map((q) => q.text);
+        const flipped = polarityMismatch(finding.claim, passage);
+        const struck = struckOutMismatch(path, page, cand.rects, quote, finding.claim);
+        const reasons = [...unstated, ...flipped, ...struck];
+        if (reasons.length === 0) return { status: "located", anchor };
+        if (!firstMismatch) firstMismatch = { anchor, reasons };
+      }
+      if (firstMismatch) {
+        return {
+          status: "mismatch",
+          anchor: firstMismatch.anchor,
+          unstated: firstMismatch.reasons,
+        };
       }
     }
     if (outcome.status === "uncheckable") return { status: "uncheckable" };
@@ -213,11 +231,22 @@ async function resolvePlacement(path: string, finding: Finding): Promise<Finding
     if (cross) {
       const bounds = unionRect(cross.first.rects);
       if (bounds) {
-        const anchor = { page: pA, rects: cross.first.rects, bounds };
+        const anchor: FindingAnchor = {
+          page: pA,
+          rects: cross.first.rects,
+          bounds,
+          secondPage: { page: pB, rects: cross.second.rects },
+        };
         const passage = `${passageAround(runsA.items, cross.first.rects)}\n${passageAround(runsB.items, cross.second.rects)}\n${quote}`;
-        const unstated = unstatedQuantities(finding.claim, passage);
-        if (unstated.length > 0) {
-          return { status: "mismatch", anchor, unstated: unstated.map((q) => q.text) };
+        const unstated = unstatedQuantities(finding.claim, passage).map((q) => q.text);
+        const flipped = polarityMismatch(finding.claim, passage);
+        const struck = [
+          ...struckOutMismatch(path, pA, cross.first.rects, quote, finding.claim),
+          ...struckOutMismatch(path, pB, cross.second.rects, quote, finding.claim),
+        ];
+        const reasons = [...unstated, ...flipped, ...struck];
+        if (reasons.length > 0) {
+          return { status: "mismatch", anchor, unstated: reasons };
         }
         return { status: "located", anchor };
       }

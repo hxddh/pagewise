@@ -439,6 +439,8 @@
     "reloadAction": "Reload",
     "jumpedToPage": "Jumped to page {{page}}",
     "backToPage": "Back to page {{page}}",
+    "markDeleted": "Mark deleted",
+    "undoAction": "Undo",
     "storeUnreadable": "{{file}} could not be read — it was left as it is, and nothing will overwrite it",
     "storeNewer": "{{file}} was saved by a newer PageWise — it is left as it is, and changes made here are not saved until you update",
     "storeFull": "{{file}} is full — this change is not saved; remove entries you no longer need to make room",

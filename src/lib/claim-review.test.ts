@@ -14,12 +14,20 @@ let answer: (prompt: string) => { reviews: { item: number; verdict: string; reas
   };
 };
 vi.mock("ai", () => ({
-  generateObject: vi.fn(async (opts: { prompt: string }) => {
+  Output: {
+    object: ({ schema }: { schema: unknown }) => ({ schema }),
+  },
+  generateText: vi.fn(async (opts: { prompt: string; output?: unknown }) => {
     calls.push(opts);
-    return { object: answer(opts.prompt), usage: { inputTokens: 10, outputTokens: 5 } };
+    const obj = answer(opts.prompt);
+    return {
+      text: JSON.stringify(obj),
+      output: opts.output ? obj : undefined,
+      usage: { inputTokens: 10, outputTokens: 5 },
+    };
   }),
 }));
-vi.mock("./settings", () => ({ loadSettings: async () => ({ provider: "openai", model: "m", apiKey: "k" }) }));
+vi.mock("./settings", () => ({ loadSettings: async () => ({ provider: "deepseek", model: "m", apiKey: "k" }) }));
 vi.mock("./llm", () => ({ resolveModel: () => "model", assertApiKeyForAgent: () => undefined }));
 
 import {

@@ -1,22 +1,10 @@
 import type { Context, ToolSet } from "@ai-sdk/provider-utils";
-import type { Agent } from "ai";
+import type { Agent, ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import { prepareHistoryForModel } from "./history-window";
-import {
-  convertToModelMessages,
-  getToolName,
-  isToolUIPart,
-  toUIMessageStream,
-  type ChatTransport,
-  type UIMessage,
-  type UIMessageChunk,
-} from "ai";
-import { validateChatMessagesForSend } from "./validate-chat-messages";
 import type { ProviderId } from "./types";
-import { resolveStreamingTransform } from "./stream-transform";
 import { clearAgentProgress, subscribeAgentProgress } from "./agent-progress";
 import { wrapStreamWithAgentProgress } from "./inject-progress-stream";
 import { setAgentRunAbortSignal, clearAgentRunAbortSignal, isTimeoutReason, noteRunTimedOut, consumeRunTimedOut } from "./agent-abort";
-import { setWebSearchForRun } from "./llm";
 import { consumePendingAgentContext } from "./agent-view-context";
 import { buildRuntimeContext } from "./agent-runtime-context";
 import {
@@ -24,6 +12,16 @@ import {
   type PageWiseMessageMetadata,
   type PageWiseUIMessage,
 } from "./message-metadata";
+
+function isToolPart(
+  part: UIMessage["parts"][number],
+): part is UIMessage["parts"][number] & { state: string; output?: unknown; toolName?: string } {
+  return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function toolNameOf(part: UIMessage["parts"][number] & { toolName?: string }): string {
+  return part.type === "dynamic-tool" ? (part.toolName ?? "") : part.type.slice(5);
+}
 
 export interface PagewiseChatTransportOptions<
   CALL_OPTIONS,
@@ -88,7 +86,21 @@ export class PagewiseChatTransport<
   > {
     clearAgentProgress();
 
-    const [agent, provider] = await Promise.all([this.resolveAgent(), this.resolveProvider()]);
+    const [
+      agent,
+      provider,
+      { convertToModelMessages, toUIMessageStream },
+      { validateChatMessagesForSend },
+      { resolveStreamingTransform },
+      { setWebSearchForRun },
+    ] = await Promise.all([
+      this.resolveAgent(),
+      this.resolveProvider(),
+      import("ai"),
+      import("./validate-chat-messages"),
+      import("./stream-transform"),
+      import("./llm"),
+    ]);
     const validatedMessages = await validateChatMessagesForSend({
       messages,
       provider,
@@ -211,8 +223,8 @@ function messagesSignature(messages: UIMessage[]): string {
       if (part.type === "text" && "text" in part) {
         const text = typeof part.text === "string" ? part.text : "";
         sig += `t${text.length}:${text.slice(0, 64)};`;
-      } else if (isToolUIPart(part)) {
-        const name = getToolName(part);
+      } else if (isToolPart(part)) {
+        const name = toolNameOf(part);
         const out =
           part.state === "output-available" || part.state === "output-error"
             ? toolOutputSig(part.output)

@@ -439,6 +439,8 @@
     "reloadAction": "重新加载",
     "jumpedToPage": "已跳到第 {{page}} 页",
     "backToPage": "返回第 {{page}} 页",
+    "markDeleted": "已删除标记",
+    "undoAction": "撤销",
     "storeUnreadable": "{{file}} 无法读取 —— 已保持原样，不会被覆盖",
     "storeNewer": "{{file}} 由更新版本的 PageWise 保存 —— 已保持原样，在此做的改动不会保存，请更新应用",
     "storeFull": "{{file}} 已满 —— 这次改动没有保存；删除不再需要的条目以腾出空间",

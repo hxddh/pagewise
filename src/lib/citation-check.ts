@@ -32,16 +32,24 @@ import { claimBefore } from "./answer-tables";
 import { pageText, passageAround } from "./passage";
 import { polarityMismatch } from "./polarity-check";
 import { unstatedQuantities } from "./quantities";
+import { struckOutMismatch } from "./strikethrough-check";
 
 /**
  * A located check, read against the sentence it supports: `mismatch` when the
- * sentence states a number the passage around the quote does not (15.0) or
- * flips an explicit polarity / comparator / deadline / party pole (26.0).
+ * sentence states a number the passage around the quote does not (15.0), flips
+ * an explicit polarity / comparator / deadline / party pole (26.0), or cites
+ * struck-out text as active without disclosing deletion (28.0).
  * When a short quote appears more than once on the cited page, disambiguates
  * across all candidate passages on that page before flagging a mismatch.
  */
-export function withClaim(check: CitationCheck | null, claim: string, quote?: string | null): CitationCheck | null {
+export function withClaim(
+  check: CitationCheck | null,
+  claim: string,
+  quote?: string | null,
+  path?: string,
+): CitationCheck | null {
   if (!check || check.status !== "located" || !claim) return check;
+  const docPath = path ?? check.path;
   const candidates =
     check.candidates && check.candidates.length > 0
       ? check.candidates
@@ -52,7 +60,8 @@ export function withClaim(check: CitationCheck | null, claim: string, quote?: st
     const context = `${cand.passage}\n${quote ?? ""}`;
     const unstated = unstatedQuantities(claim, context).map((q) => q.text);
     const flipped = polarityMismatch(claim, context);
-    const reasons = [...unstated, ...flipped];
+    const struck = struckOutMismatch(docPath, check.page, cand.rects, quote, claim);
+    const reasons = [...unstated, ...flipped, ...struck];
     if (reasons.length === 0) {
       return cand.passage === check.passage && cand.rects === check.rects
         ? check
@@ -96,10 +105,14 @@ export type CitationStatus =
 
 export interface CitationCheck {
   status: CitationStatus;
+  /** Document path the check was resolved against (for strikethrough lookup). */
+  path?: string;
   /** Where the words were found. Only for `located`. */
   page?: number;
   /** One rectangle per text run the quote spans, bottom-left origin. Only for `located`. */
   rects?: PdfRect[];
+  /** Continuation rectangles on `page + 1` when a located quote spans a page break (28.0). */
+  secondPage?: { page: number; rects: PdfRect[] };
   /** The paragraph the quote was found in, as page text. Only for `located`. */
   passage?: string;
   /** Additional occurrences of the same quote on `page`, for disambiguating repeated cells/phrases. */
@@ -265,6 +278,7 @@ async function resolve(
       const passage = candidates[0]?.passage ?? passageAround(runs.items, outcome.rects);
       return settled({
         status: "located",
+        path,
         page,
         rects: outcome.rects,
         passage,
@@ -288,7 +302,14 @@ async function resolve(
     const cross = locateAcrossPages(runsA.items, runsB.items, c.quote);
     if (cross) {
       const passage = `${passageAround(runsA.items, cross.first.rects)}\n${passageAround(runsB.items, cross.second.rects)}`;
-      return settled({ status: "located", page: pA, rects: cross.first.rects, passage });
+      return settled({
+        status: "located",
+        path,
+        page: pA,
+        rects: cross.first.rects,
+        secondPage: { page: pB, rects: cross.second.rects },
+        passage,
+      });
     }
   }
   if (sawUnreadable) return { check: { status: "unreadable" }, failedRead, emptyPage };

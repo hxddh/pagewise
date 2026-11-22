@@ -17,7 +17,7 @@ function snippetAround(text: string, index: number, matchLen: number, radius = 8
   return start > 0 ? `…${chunk}` : chunk;
 }
 
-const LINE_WRAP_HYPHEN = /^(?:[\u2010\u2011]\s+|-\r?\n\s*)/;
+const LINE_WRAP_HYPHEN = /^(?:[\u2010\u2011]\s+|-\r?\n\s*|-\s+(?=\p{Ll}))/u;
 const CJK_CHAR = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
 
 /**

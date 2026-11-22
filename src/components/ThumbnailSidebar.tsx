@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
+import { labelForPage } from "../lib/page-labels";
 import { renderThumbnail } from "../lib/pdf";
 import { ListRow } from "./ui/ListRow";
 
@@ -61,6 +62,7 @@ interface ThumbnailSidebarProps {
   path: string;
   totalPages: number;
   currentPage: number;
+  pageLabels?: string[];
   /** Replaces the header label so the sidebars can switch in place. */
   tabs?: React.ReactNode;
   onPageSelect: (page: number) => void;
@@ -69,6 +71,7 @@ interface ThumbnailSidebarProps {
 const ThumbnailItem = memo(function ThumbnailItem({
   path,
   page,
+  displayNum,
   active,
   onSelect,
   pageLabel,
@@ -76,6 +79,7 @@ const ThumbnailItem = memo(function ThumbnailItem({
 }: {
   path: string;
   page: number;
+  displayNum: string;
   active: boolean;
   onSelect: () => void;
   pageLabel: string;
@@ -127,7 +131,7 @@ const ThumbnailItem = memo(function ThumbnailItem({
       aria-label={pageLabel}
       style={{ height: THUMB_BUTTON_HEIGHT }}
       leading={<canvas ref={canvasRef} className="thumb-canvas" />}
-      trailing={<span className="thumb-label">{page}</span>}
+      trailing={<span className="thumb-label">{displayNum}</span>}
     />
   );
 });
@@ -136,6 +140,7 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
   path,
   totalPages,
   currentPage,
+  pageLabels,
   tabs,
   onPageSelect,
 }: ThumbnailSidebarProps) {
@@ -200,17 +205,22 @@ export const ThumbnailSidebar = memo(function ThumbnailSidebar({
         style={{ position: "relative" }}
       >
         <div style={{ height: (range.start - 1) * THUMB_ROW_HEIGHT }} aria-hidden />
-        {pages.map((page) => (
-          <ThumbnailItem
-            key={page}
-            path={path}
-            page={page}
-            active={page === currentPage}
-            onSelect={() => onPageSelect(page)}
-            pageLabel={t("preview.pageTitle", { page })}
-            visible
-          />
-        ))}
+        {pages.map((page) => {
+          const printed = labelForPage(pageLabels ?? null, page);
+          const displayNum = printed ? `${printed} · ${page}` : String(page);
+          return (
+            <ThumbnailItem
+              key={page}
+              path={path}
+              page={page}
+              displayNum={displayNum}
+              active={page === currentPage}
+              onSelect={() => onPageSelect(page)}
+              pageLabel={t("preview.pageTitle", { page: printed ? `${printed} (${page})` : page })}
+              visible
+            />
+          );
+        })}
         <div
           style={{ height: Math.max(0, (totalPages - range.end) * THUMB_ROW_HEIGHT) }}
           aria-hidden

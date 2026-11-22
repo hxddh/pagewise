@@ -93,6 +93,19 @@ impl PendingOpenError {
             *e = Some(err);
         }
     }
+
+    pub fn clear(&self) {
+        if let Ok(mut e) = self.0.lock() {
+            *e = None;
+        }
+    }
+}
+
+/// Queue a granted path for the frontend and clear any stale launch error.
+pub fn enqueue_granted(app: &AppHandle, canon: PathBuf) {
+    app.state::<PendingOpenError>().clear();
+    app.state::<PendingOpen>().set(canon);
+    let _ = app.emit("pagewise://open-pending", ());
 }
 
 /// The file the app was asked to open and has not opened yet, once.
@@ -124,7 +137,10 @@ pub fn grant_pending(app: &AppHandle) {
         return;
     };
     match crate::grants::grant_document(app, &raw) {
-        Ok(canon) => app.state::<PendingOpen>().set(canon),
+        Ok(canon) => {
+            app.state::<PendingOpenError>().clear();
+            app.state::<PendingOpen>().set(canon);
+        }
         Err(err) => refuse_open(app, err),
     }
 }
@@ -140,14 +156,12 @@ pub fn opened(app: &AppHandle, urls: &[tauri::Url]) {
         let _ = window.show();
         let _ = window.set_focus();
     }
-    // Granted before the front end is told (21.0).
-    match crate::grants::grant_document(app, &path) {
-        Ok(canon) => {
-            app.state::<PendingOpen>().set(canon);
-            let _ = app.emit("pagewise://open-pending", ());
-        }
-        Err(err) => refuse_open(app, err),
-    }
+    // Off the main UI thread so `canonicalize` + grant list `fsync` never stalls the window.
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || match crate::grants::grant_document(&handle, &path) {
+        Ok(canon) => enqueue_granted(&handle, canon),
+        Err(err) => refuse_open(&handle, err),
+    });
 }
 
 #[cfg(test)]

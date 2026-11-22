@@ -241,9 +241,82 @@ export async function flushMarkStore(): Promise<void> {
 
 export const flushMarks = flushMarkStore;
 
+const MAX_MARK_HISTORY = 30;
+const NOTE_COALESCE_MS = 1_500;
+
+interface MarkHistory {
+  undo: Mark[][];
+  redo: Mark[][];
+  lastNoteEdit?: { id: string; at: number };
+}
+
+const historyByPath = new Map<string, MarkHistory>();
+
+function cloneMarks(list: readonly Mark[]): Mark[] {
+  return list.map((m) => ({ ...m, rects: m.rects.map((r) => ({ ...r })) }));
+}
+
+function getHistory(path: string): MarkHistory {
+  let h = historyByPath.get(path);
+  if (!h) {
+    h = { undo: [], redo: [] };
+    historyByPath.set(path, h);
+  }
+  return h;
+}
+
+function recordUndoSnapshot(path: string, prev: readonly Mark[], coalesceNoteId?: string): void {
+  const h = getHistory(path);
+  const now = Date.now();
+  if (
+    coalesceNoteId &&
+    h.lastNoteEdit?.id === coalesceNoteId &&
+    now - h.lastNoteEdit.at <= NOTE_COALESCE_MS &&
+    h.undo.length > 0
+  ) {
+    h.lastNoteEdit.at = now;
+    h.redo = [];
+    return;
+  }
+  h.undo.push(cloneMarks(prev));
+  if (h.undo.length > MAX_MARK_HISTORY) h.undo.shift();
+  h.redo = [];
+  h.lastNoteEdit = coalesceNoteId ? { id: coalesceNoteId, at: now } : undefined;
+}
+
 function mutate(path: string, next: Mark[]): void {
   marks.replace(path, sortMarks(next));
   listeners.notify(path);
+}
+
+export function canUndoMarkChange(path: string): boolean {
+  return (historyByPath.get(path)?.undo.length ?? 0) > 0;
+}
+
+export function canRedoMarkChange(path: string): boolean {
+  return (historyByPath.get(path)?.redo.length ?? 0) > 0;
+}
+
+export function undoMarkChange(path: string): boolean {
+  const h = historyByPath.get(path);
+  if (!h || h.undo.length === 0) return false;
+  const prev = h.undo.pop()!;
+  h.redo.push(cloneMarks(getMarks(path)));
+  if (h.redo.length > MAX_MARK_HISTORY) h.redo.shift();
+  h.lastNoteEdit = undefined;
+  mutate(path, prev);
+  return true;
+}
+
+export function redoMarkChange(path: string): boolean {
+  const h = historyByPath.get(path);
+  if (!h || h.redo.length === 0) return false;
+  const next = h.redo.pop()!;
+  h.undo.push(cloneMarks(getMarks(path)));
+  if (h.undo.length > MAX_MARK_HISTORY) h.undo.shift();
+  h.lastNoteEdit = undefined;
+  mutate(path, next);
+  return true;
 }
 
 export interface NewMark {
@@ -271,6 +344,7 @@ export function addMark(path: string, input: NewMark): Mark | null {
     // Omitted for text marks, so a document of them stores nothing extra.
     ...(input.kind === "region" ? { kind: "region" as const } : {}),
   };
+  recordUndoSnapshot(path, existing);
   mutate(path, [...existing, mark]);
   return mark;
 }
@@ -284,13 +358,19 @@ export function setMarkNote(path: string, id: string, note: string): void {
     changed = true;
     return { ...m, note: trimmed };
   });
-  if (changed) mutate(path, next);
+  if (changed) {
+    recordUndoSnapshot(path, existing, id);
+    mutate(path, next);
+  }
 }
 
 export function removeMark(path: string, id: string): void {
   const existing = getMarks(path);
   const next = existing.filter((m) => m.id !== id);
-  if (next.length !== existing.length) mutate(path, next);
+  if (next.length !== existing.length) {
+    recordUndoSnapshot(path, existing);
+    mutate(path, next);
+  }
 }
 
 /**
@@ -299,6 +379,7 @@ export function removeMark(path: string, id: string): void {
  * only copy of them (16.0).
  */
 export function forgetMarks(path: string): void {
+  historyByPath.delete(path);
   marks.forget(path);
 }
 
@@ -313,6 +394,7 @@ if (typeof window !== "undefined") {
 }
 
 export function __resetMarkStoreForTests(): void {
+  historyByPath.clear();
   marks.reset();
   listeners.clear();
 }
