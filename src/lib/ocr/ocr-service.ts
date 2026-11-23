@@ -186,6 +186,13 @@ function pagesReadWith(state: DocState, langs: OcrLanguages): StoredOcrPage[] {
  * section; finding them is what remembers the switch.
  */
 export async function restoreOcr(path: string, identity?: string): Promise<PageText[]> {
+  const existing = docs.get(path);
+  if (existing && existing.identity && existing.identity !== identity) {
+    // Content changed at the same path (in-place reload / silent hot-reload):
+    // flush dirty pages under the old identity and evict cached pages/jobs so
+    // previous scan text never bleeds into or saves under `identity` (30.0).
+    forgetOcr(path);
+  }
   const state = stateFor(path);
   if (identity) state.identity = identity;
   if (!enabled || !identity) return [];

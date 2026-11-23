@@ -10,11 +10,13 @@ import {
 import { docCache } from "../lib/doc-cache";
 import { flushMarks, getMarks, loadMarks, subscribeMarks } from "../lib/mark-store";
 import { flushFindings, loadFindings, subscribeFindings } from "../lib/finding-store";
-import { flushIndexStore } from "../lib/index-store";
-import { flushOcrService } from "../lib/ocr/ocr-service";
+import { flushIndexStore, forgetIndexIdentity } from "../lib/index-store";
+import { flushOcrService, forgetOcr, restoreOcr } from "../lib/ocr/ocr-service";
 import { checkCitation, clearCitationChecks } from "../lib/citation-check";
-import { loadReviews } from "../lib/claim-review";
+import { clearReviews, loadReviews } from "../lib/claim-review";
 import { clearFindingAnchors, prewarmPlacements } from "../lib/finding-anchors";
+import { clearDocumentIndexState } from "../lib/index-events";
+import { clearSearchFoldCache } from "../lib/document-search";
 import { isTauriRuntime } from "../lib/runtime";
 import { trustedFindings } from "../lib/agent-record-context";
 import { TRUST_DOUBTFUL } from "../lib/finding-trust";
@@ -31,7 +33,7 @@ import { checkRecentPaths, openSampleDocument, pickDocument } from "../lib/allow
 import { classifyOpenError, openErrorMessage } from "../lib/open-error";
 import { invokeCmd } from "../lib/invoke-cmd";
 import { clearPdfCache } from "../lib/pdf";
-import { reindexDocument, scheduleIndex } from "../document/index-queue";
+import { cancelIndex, reindexDocument, scheduleIndex } from "../document/index-queue";
 import {
   evidenceAnnotations,
   saveAnnotatedPdfWithPath,
@@ -372,6 +374,9 @@ export function useWorkbench(): Workbench {
           if (!docCache.get(prev.path)) {
             docCache.set?.(prev);
           }
+          if (wasReload && prev.identity) {
+            void restoreOcr(prev.path, prev.identity);
+          }
           notifiedStampRef.current = prevStamp;
           setPreviewPage(prevPage);
           setDocument(prev);
@@ -405,9 +410,15 @@ export function useWorkbench(): Workbench {
       // first document open pays zero lazy-chunk waterfall after `loadDocument` (29.0).
       void import("../features/preview/PreviewPane").catch(() => {});
 
-      // Evict cached PDF proxy and runs BEFORE in-place reload so `getPdfOutline`,
-      // `getPdfPageLabels`, and `getPdfAnnotations` never read pre-edit state (28.0).
+      // Evict cached PDF proxy, OCR/indexing state, and runs BEFORE in-place reload so
+      // `getPdfOutline`, `restoreOcr`, and `scheduleIndex` never read pre-edit state (28.0 / 30.0).
       if (wasReload) {
+        cancelIndex(path);
+        forgetOcr(path);
+        clearDocumentIndexState(path);
+        forgetIndexIdentity(path);
+        clearSearchFoldCache();
+        clearReviews(path);
         clearPdfCache(path);
         clearFindingAnchors(path);
         clearCitationChecks(path);
@@ -889,15 +900,22 @@ export function useWorkbench(): Workbench {
       foundOnPage: (page) => t("annotations.foundOnPage", { page }),
       confirmed: t("annotations.confirmed"),
     };
+    const snapshotStamp = doc.stamp ?? "";
     try {
       const entries = trustedFindings(doc.path);
-      const annotations = await evidenceAnnotations(doc.path, doc.stamp ?? "", entries, getMarks(doc.path), labels);
+      const annotations = await evidenceAnnotations(doc.path, snapshotStamp, entries, getMarks(doc.path), labels);
       if (annotations.length === 0) {
         showToast(t("toast.annotatedNothing"), "error");
         return;
       }
       const name = doc.name.replace(/\.[^.]+$/, "") + "-annotated.pdf";
-      const written = await saveAnnotatedPdfWithPath(doc.path, annotations, name, t("dialog.pdfFilter"));
+      const written = await saveAnnotatedPdfWithPath(
+        doc.path,
+        annotations,
+        name,
+        t("dialog.pdfFilter"),
+        snapshotStamp,
+      );
       if (written !== null) {
         showToast(
           t("toast.annotatedExported", { count: written.count }),

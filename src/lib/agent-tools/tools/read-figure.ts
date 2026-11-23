@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { visionModelAvailable } from "../../settings";
 import { z } from "zod";
-import { consumePinnedDraftSelection, getActiveReaderSelection } from "../../active-selection";
+import { getRunOrActiveReaderSelection } from "../../active-selection";
 import { describeFigure, describeFigureOrPage, figuresOnPage, viewRectToPdfRect } from "../../read-figure";
 import { getAgentRunAbortSignal } from "../../agent-abort";
 import { throwIfAborted } from "../../abort-utils";
@@ -55,7 +55,7 @@ export function createReadFigureTool(
         const figures = figuresOnPage(doc.figures, page);
         // When the user boxed a specific region on `page` (`Alt+drag`), prioritize
         // cropping that exact user-boxed region on default `read_figure({ page })` (30.0).
-        const sel = getActiveReaderSelection(path);
+        const sel = getRunOrActiveReaderSelection(path);
         const boxedViewRect =
           !fullPage && index === 1 && sel?.kind === "region" && sel.page === page && sel.pdfRect
             ? sel.pdfRect
@@ -112,7 +112,6 @@ export function createReadFigureTool(
         let description: string;
         if (boxedViewRect && doc.kind === "pdf") {
           const pdfRect = await viewRectToPdfRect(path, page, boxedViewRect);
-          if (sel?.pinnedForDraft) consumePinnedDraftSelection(path);
           description = await describeFigure(path, page, { page, rect: pdfRect }, signal, question);
         } else if (figure) {
           description = await describeFigure(path, page, figure, signal, question);

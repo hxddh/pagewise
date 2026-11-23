@@ -150,8 +150,9 @@ export async function saveAnnotatedPdf(
   annotations: readonly AnnotationOut[],
   defaultName: string,
   filterName: string,
+  snapshotStamp?: string,
 ): Promise<number | null> {
-  const res = await saveAnnotatedPdfWithPath(path, annotations, defaultName, filterName);
+  const res = await saveAnnotatedPdfWithPath(path, annotations, defaultName, filterName, snapshotStamp);
   return res ? res.count : null;
 }
 
@@ -160,10 +161,13 @@ export async function saveAnnotatedPdfWithPath(
   annotations: readonly AnnotationOut[],
   defaultName: string,
   filterName: string,
+  snapshotStamp?: string,
 ): Promise<{ count: number; path: string } | null> {
+  // Capture the snapshot stamp BEFORE awaiting the save dialog so an external
+  // hot-reload while the dialog is open cannot pair old coordinates with a new stamp (30.0).
+  const expectedStamp = snapshotStamp !== undefined ? snapshotStamp : docCache.get(path)?.stamp;
   const out = await pickSavePath(defaultName, filterName, ["pdf"]);
   if (!out) return null;
-  const expectedStamp = docCache.get(path)?.stamp;
   const count = await invoke<number>("export_annotated_pdf", {
     path,
     outPath: out,

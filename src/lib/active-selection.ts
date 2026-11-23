@@ -13,11 +13,15 @@ export interface ActiveReaderSelection {
 
 let currentSelection: ActiveReaderSelection | null = null;
 let pinnedDraftSelection: ActiveReaderSelection | null = null;
+let activeRunSelection: ActiveReaderSelection | null = null;
 
 export function setActiveReaderSelection(sel: ActiveReaderSelection | null): void {
   if (!sel || (!sel.text.trim() && sel.kind !== "region")) {
     currentSelection = null;
     return;
+  }
+  if (pinnedDraftSelection?.path === sel.path) {
+    pinnedDraftSelection = null;
   }
   currentSelection = {
     ...sel,
@@ -26,9 +30,9 @@ export function setActiveReaderSelection(sel: ActiveReaderSelection | null): voi
 }
 
 /**
- * Preserve a snapshot of the active text/region selection when "Ask about this"
- * clears the live overlay to populate the composer draft, so `prepareCall` and
- * `read_figure` still receive the exact boxed coordinates when the user hits Enter (30.0).
+ * Preserve a one-shot snapshot of the active text/region selection when "Ask about this"
+ * clears the live overlay to populate the composer draft. Transferred into run-scoped
+ * state when that question is sent and retired once the question finishes (30.0).
  */
 export function pinActiveReaderSelectionForDraft(sel: ActiveReaderSelection): void {
   if (!sel.text.trim() && sel.kind !== "region") return;
@@ -46,11 +50,53 @@ export function consumePinnedDraftSelection(path: string | null): ActiveReaderSe
   return taken;
 }
 
+/** Live selection currently visible on screen (never returns an unconsumed draft pin). */
 export function getActiveReaderSelection(path: string | null): ActiveReaderSelection | null {
   if (!path) return null;
   if (currentSelection && currentSelection.path === path) return currentSelection;
-  if (pinnedDraftSelection && pinnedDraftSelection.path === path) return pinnedDraftSelection;
   return null;
+}
+
+/** Live selection or the run-scoped selection captured for the active question (`read_figure`). */
+export function getRunOrActiveReaderSelection(path: string | null): ActiveReaderSelection | null {
+  if (!path) return null;
+  if (currentSelection && currentSelection.path === path) return currentSelection;
+  if (activeRunSelection && activeRunSelection.path === path) return activeRunSelection;
+  return null;
+}
+
+export function setRunReaderSelection(sel: ActiveReaderSelection | null): void {
+  activeRunSelection = sel;
+}
+
+export function clearRunReaderSelection(onlyPath?: string): void {
+  if (onlyPath === undefined || activeRunSelection?.path === onlyPath) {
+    activeRunSelection = null;
+  }
+}
+
+/**
+ * Resolve the selection belonging to a newly submitted question on `path` while viewing
+ * `viewingPage`: prefers a live selection on `viewingPage`, else consumes the one-shot
+ * pinned draft selection (`pinnedDraftSelection = null`) into `activeRunSelection`.
+ */
+export function takeReaderSelectionForTurn(
+  path: string | null,
+  viewingPage: number,
+): ActiveReaderSelection | null {
+  if (!path) {
+    activeRunSelection = null;
+    return null;
+  }
+  const live = getActiveReaderSelection(path);
+  if (live && (viewingPage <= 0 || live.page === viewingPage)) {
+    if (pinnedDraftSelection?.path === path) pinnedDraftSelection = null;
+    activeRunSelection = live;
+    return live;
+  }
+  const pinned = consumePinnedDraftSelection(path);
+  activeRunSelection = pinned;
+  return pinned;
 }
 
 export function clearActiveReaderSelection(onlyPath?: string): void {
@@ -59,5 +105,8 @@ export function clearActiveReaderSelection(onlyPath?: string): void {
   }
   if (onlyPath === undefined || pinnedDraftSelection?.path === onlyPath) {
     pinnedDraftSelection = null;
+  }
+  if (onlyPath === undefined || activeRunSelection?.path === onlyPath) {
+    activeRunSelection = null;
   }
 }

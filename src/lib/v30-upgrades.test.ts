@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clearActiveReaderSelection,
-  consumePinnedDraftSelection,
+  clearRunReaderSelection,
+  getRunOrActiveReaderSelection,
   pinActiveReaderSelectionForDraft,
   setActiveReaderSelection,
 } from "./active-selection";
-import { buildViewContextInstructions } from "./agent-view-context";
+import { beginAgentMessage, buildViewContextInstructions, clearAgentMessageContext } from "./agent-view-context";
 import { claimBefore, coCitationsBefore } from "./answer-tables";
 import { checkCitation, clearCitationChecks, tallyCitations, withClaim } from "./citation-check";
 import { compactRunMessages } from "./compact-run-messages";
@@ -22,6 +23,7 @@ describe("v30 hardened verification, agent compaction & reader selection upgrade
     clearCitationChecks();
     clearFindingAnchors();
     clearActiveReaderSelection();
+    clearAgentMessageContext();
   });
 
   it("parses parenthesized accounting negatives without misreading legal numeral restatements", () => {
@@ -186,11 +188,42 @@ describe("v30 hardened verification, agent compaction & reader selection upgrade
     });
     expect(instructionsOnP6).not.toContain("stale selection");
 
-    // Pinned draft selection survives clearing live DOM selection and is consumed once:
-    pinActiveReaderSelectionForDraft({ path, page: 2, text: "pinned quote", kind: "text" });
+    // Pinned draft selection is transferred into run-scoped context for Question 1,
+    // cleared on run finish, and never leaks into Question 2:
+    pinActiveReaderSelectionForDraft({
+      path,
+      page: 2,
+      text: "pinned quote",
+      kind: "region",
+      pdfRect: { x: 10, y: 20, width: 120, height: 80 },
+    });
     setActiveReaderSelection(null);
-    const consumed = consumePinnedDraftSelection(path);
-    expect(consumed?.text).toBe("pinned quote");
-    expect(consumePinnedDraftSelection(path)).toBeNull();
+    const q1Ctx = {
+      path,
+      docName: "paper.pdf",
+      viewingPage: 6,
+      totalPages: 10,
+      userText: "explain this figure",
+      includeViewingPage: false,
+    };
+    beginAgentMessage(q1Ctx);
+    expect(buildViewContextInstructions(q1Ctx)).toContain("pinned quote");
+    expect(getRunOrActiveReaderSelection(path)?.text).toBe("pinned quote");
+
+    // Question 1 finishes -> run selection clears:
+    clearRunReaderSelection();
+    expect(getRunOrActiveReaderSelection(path)).toBeNull();
+
+    // Unrelated Question 2 on page 6 must NOT see the retired draft selection:
+    const q2Ctx = {
+      path,
+      docName: "paper.pdf",
+      viewingPage: 6,
+      totalPages: 10,
+      userText: "what is on page 6?",
+      includeViewingPage: false,
+    };
+    beginAgentMessage(q2Ctx);
+    expect(buildViewContextInstructions(q2Ctx)).not.toContain("pinned quote");
   });
 });
