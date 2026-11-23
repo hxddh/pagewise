@@ -3,6 +3,7 @@ import { loadVisionSettings } from "./settings";
 import { assertApiKeyForAgent } from "./llm";
 import { recordVisionCall } from "./usage-tracker";
 import {
+  getPageGeometry,
   readAuthorizedFileBytes,
   renderPageToJpegBytes,
   renderRegionToJpegBytes,
@@ -50,6 +51,22 @@ export function pagesWithFigures(figures: DocFigure[] | undefined): number[] {
 function buildFigurePrompt(question?: string): string {
   const q = question?.trim();
   return q ? `${FIGURE_PROMPT}\n\nFocus specifically on answering: ${q}` : FIGURE_PROMPT;
+}
+
+/** Convert a top-left `Frame::View` selection rectangle into bottom-left PDF user space. */
+export async function viewRectToPdfRect(
+  path: string,
+  page: number,
+  viewRect: DocFigure["rect"],
+): Promise<DocFigure["rect"]> {
+  const geom = await getPageGeometry(path, page);
+  const [viewLeft, , , viewTop] = geom.view;
+  return {
+    x: viewLeft + viewRect.x,
+    y: viewTop - viewRect.y - viewRect.height,
+    width: viewRect.width,
+    height: viewRect.height,
+  };
 }
 
 export async function describeFigure(

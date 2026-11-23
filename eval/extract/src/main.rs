@@ -46,6 +46,27 @@ struct DocDump {
 
 fn main() {
     let files: Vec<String> = std::env::args().skip(1).collect();
+    if files.first().map(String::as_str) == Some("--region") {
+        let [_, input, page_s, x_s, y_s, w_s, h_s] = files.as_slice() else {
+            eprintln!("usage: pagewise-eval-extract --region <in.pdf> <page> <x> <y> <width> <height>");
+            std::process::exit(2);
+        };
+        let page: u32 = page_s.parse().expect("page");
+        let rect = inspect::Rect {
+            x: x_s.parse().expect("x"),
+            y: y_s.parse().expect("y"),
+            width: w_s.parse().expect("width"),
+            height: h_s.parse().expect("height"),
+        };
+        match inspect::extract_region(input, page, rect) {
+            Ok(region) => println!("{}", serde_json::to_string(&region).expect("serialize")),
+            Err(e) => {
+                eprintln!("{input}: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if files.first().map(String::as_str) == Some("--annotate") {
         let [_, input, output, json] = files.as_slice() else {
             eprintln!("usage: pagewise-eval-extract --annotate <in.pdf> <out.pdf> <annotations.json>");

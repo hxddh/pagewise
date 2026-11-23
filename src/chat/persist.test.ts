@@ -107,4 +107,26 @@ describe("a chat follows its file", () => {
     await pruneOrphanedChats(["/doc-11.pdf"], 4);
     expect(store.has("pagewise:identity-index")).toBe(true);
   });
+
+  it("externalizes chat transcripts into chats/<uuid>.json sidecars and prunes dropped sidecars (30.0)", async () => {
+    const { clearChat, loadChat, pruneOrphanedChats, saveChat } = await import("./persist");
+    await saveChat("/doc-a.pdf", [{ id: "a1", text: "x".repeat(4000) }] as never, "id-a");
+    await saveChat("/doc-b.pdf", [{ id: "b1", text: "y".repeat(4000) }] as never, "id-b");
+    await saveChat("/doc-c.pdf", [{ id: "c1", text: "z".repeat(4000) }] as never, "id-c");
+
+    // Index stays tiny (< 1 KB) while full payloads sit in `chats/*.json`.
+    const indexBytes = disk.files.get("pagewise-v3-chats.json")?.length ?? 0;
+    expect(indexBytes).toBeLessThan(1_000);
+    const sidecarsBefore = [...disk.files.keys()].filter((k) => k.startsWith("chats/"));
+    expect(sidecarsBefore).toHaveLength(3);
+
+    expect(await loadChat("/doc-b.pdf")).toEqual([{ id: "b1", text: "y".repeat(4000) }]);
+
+    await clearChat("/doc-a.pdf");
+    expect([...disk.files.keys()].filter((k) => k.startsWith("chats/"))).toHaveLength(2);
+
+    await pruneOrphanedChats(["/doc-c.pdf"], 1);
+    expect([...disk.files.keys()].filter((k) => k.startsWith("chats/"))).toHaveLength(1);
+    expect(await loadChat("/doc-c.pdf")).toEqual([{ id: "c1", text: "z".repeat(4000) }]);
+  });
 });

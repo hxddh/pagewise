@@ -1,4 +1,9 @@
-import { getActiveReaderSelection } from "./active-selection";
+import {
+  clearRunReaderSelection,
+  setRunReaderSelection,
+  takeReaderSelectionForTurn,
+  type ActiveReaderSelection,
+} from "./active-selection";
 import { docCache } from "./doc-cache";
 import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
 import { marksOnPage } from "./mark-store";
@@ -12,6 +17,8 @@ export interface AgentMessageContext {
   includeViewingPage: boolean;
   /** User opted this message into web search (OpenRouter native). */
   webSearch?: boolean;
+  /** Run-scoped reader selection captured once when this question was submitted (30.0). */
+  selection?: ActiveReaderSelection | null;
 }
 
 /**
@@ -25,6 +32,11 @@ const MAX_PENDING = 16;
 let lastMessageContext: AgentMessageContext | null = null;
 
 export function beginAgentMessage(ctx: AgentMessageContext): void {
+  if (ctx.selection === undefined) {
+    ctx.selection = takeReaderSelectionForTurn(ctx.path, ctx.viewingPage);
+  } else {
+    setRunReaderSelection(ctx.selection);
+  }
   pendingQueue.push(ctx);
   if (pendingQueue.length > MAX_PENDING) pendingQueue.shift();
   lastMessageContext = ctx;
@@ -34,6 +46,7 @@ export function rollbackLastAgentMessage(): void {
   if (pendingQueue.length === 0) return;
   pendingQueue.pop();
   lastMessageContext = pendingQueue[pendingQueue.length - 1] ?? null;
+  setRunReaderSelection(lastMessageContext?.selection ?? null);
 }
 
 /**
@@ -48,6 +61,7 @@ export function rollbackAgentMessage(ctx: AgentMessageContext): void {
   if (idx < 0) return;
   pendingQueue.splice(idx, 1);
   lastMessageContext = pendingQueue[pendingQueue.length - 1] ?? null;
+  setRunReaderSelection(lastMessageContext?.selection ?? null);
 }
 
 export function consumePendingAgentContext(): AgentMessageContext | null {
@@ -61,6 +75,7 @@ export function getLastAgentMessageContext(): AgentMessageContext | null {
 export function clearAgentMessageContext(): void {
   pendingQueue.length = 0;
   lastMessageContext = null;
+  clearRunReaderSelection();
 }
 
 /**
@@ -137,13 +152,19 @@ export function buildViewContextInstructions(ctx: AgentMessageContext): string {
       ? base
       : `${base} The user is viewing page ${ctx.viewingPage}; read that page first for "this page"/"本页"/"当前页" requests or when the question likely refers to what they are looking at — otherwise search or read whichever pages answer the question.`;
 
-  const activeSel = getActiveReaderSelection(ctx.path);
+  // Prevent off-screen lingering DOM selections from earlier pages from polluting
+  // questions on `ctx.viewingPage`, while consuming one-shot "Ask about this" draft
+  // pins strictly for the single associated question (30.0).
+  const activeSel =
+    ctx.selection !== undefined
+      ? ctx.selection
+      : takeReaderSelectionForTurn(ctx.path, ctx.viewingPage);
   if (activeSel) {
     const snippet = sanitizeForPrompt(activeSel.text, 900);
     if (activeSel.kind === "region") {
       out += snippet
         ? `\nThe user currently has a boxed region selected on page ${activeSel.page} containing: "${snippet}" (use read_figure on page ${activeSel.page} if visual chart/diagram details are needed).`
-        : `\nThe user currently has a boxed visual region selected on page ${activeSel.page} (use read_figure on page ${activeSel.page} with fullPage=true to inspect it).`;
+        : `\nThe user currently has a boxed visual region selected on page ${activeSel.page} (use read_figure on page ${activeSel.page} to inspect that cropped region).`;
     } else if (snippet) {
       out += `\nThe user currently has this passage highlighted on page ${activeSel.page}: "${snippet}".`;
     }

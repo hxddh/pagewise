@@ -86,12 +86,30 @@ fn absolute(r: &Rect, frame: Frame, kind: Kind, view: [f32; 4], rotation: u16) -
     }
     Some(match frame {
         Frame::Pdf if kind == Kind::Square => [r.x, r.y, r.x + r.width, r.y + r.height],
-        Frame::Pdf => match rotation % 360 {
-            90 => [r.x, r.y, r.x + r.width * (1.0 + DESCENT), r.y + r.height],
-            180 => [r.x, r.y, r.x + r.width, r.y + r.height * (1.0 + DESCENT)],
-            270 => [r.x - DESCENT * r.width, r.y, r.x + r.width, r.y + r.height],
-            _ => [r.x, r.y - DESCENT * r.height, r.x + r.width, r.y + r.height],
-        },
+        Frame::Pdf => {
+            // Extend baseline descent strictly perpendicular to the glyph run's
+            // actual baseline axis (30.0). On a portrait-stream page saved with
+            // `/Rotate 90` or `/Rotate 270` (`rotated.pdf`), lines still run
+            // horizontally in user space (`r.width >> r.height`), so scaling
+            // `r.width` by `DESCENT` previously overshot +84pt into the margin.
+            let horizontal_stream_on_turned_page = r.width > r.height * 2.0 && r.width > 24.0;
+            let vertical_stream_on_upright_page = r.height > r.width * 4.5 && r.height > 28.0;
+            match rotation % 360 {
+                90 if !horizontal_stream_on_turned_page => {
+                    [r.x, r.y, r.x + r.width * (1.0 + DESCENT), r.y + r.height]
+                }
+                270 if !horizontal_stream_on_turned_page => {
+                    [r.x - DESCENT * r.width, r.y, r.x + r.width, r.y + r.height]
+                }
+                180 if !vertical_stream_on_upright_page => {
+                    [r.x, r.y, r.x + r.width, r.y + r.height * (1.0 + DESCENT)]
+                }
+                0 | 180 if vertical_stream_on_upright_page => {
+                    [r.x, r.y, r.x + r.width * (1.0 + DESCENT), r.y + r.height]
+                }
+                _ => [r.x, r.y - DESCENT * r.height, r.x + r.width, r.y + r.height],
+            }
+        }
         Frame::View => {
             let x0 = view[0] + r.x;
             let top = view[3] - r.y;
@@ -404,11 +422,11 @@ pub fn annotate_bytes(bytes: &[u8], annotations: &[AnnotationIn]) -> Result<(Vec
     annotate_bytes_with_password(bytes, annotations, None)
 }
 
-pub fn annotate_bytes_with_password(
+fn load_annotated_doc(
     bytes: &[u8],
     annotations: &[AnnotationIn],
     password: Option<&str>,
-) -> Result<(Vec<u8>, usize), String> {
+) -> Result<(Document, usize), String> {
     let pw_str = password.unwrap_or("").to_string();
     let mut doc = Document::load_mem_with_options(
         bytes,
@@ -433,6 +451,15 @@ pub fn annotate_bytes_with_password(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let written = annotate_document(&mut doc, annotations, now)?;
+    Ok((doc, written))
+}
+
+pub fn annotate_bytes_with_password(
+    bytes: &[u8],
+    annotations: &[AnnotationIn],
+    password: Option<&str>,
+) -> Result<(Vec<u8>, usize), String> {
+    let (mut doc, written) = load_annotated_doc(bytes, annotations, password)?;
     let mut out = Vec::new();
     doc.save_to(&mut out)
         .map_err(|e| format!("Failed to write PDF: {e}"))?;
@@ -440,42 +467,61 @@ pub fn annotate_bytes_with_password(
 }
 
 /// Load `src`, annotate it, and save the result to `out`.
+#[allow(dead_code)]
 pub fn annotate_file(src: &Path, out: &Path, annotations: &[AnnotationIn]) -> Result<usize, String> {
-    use std::io::Write;
+    annotate_file_checked(src, out, annotations, None)
+}
+
+/// Stamp-locked variant of [`annotate_file`]: when `expected_stamp` is supplied,
+/// reads from the matching in-memory snapshot (preventing split-brain coordinate
+/// drift if `src` changed on disk) and streams `save_to` directly through a
+/// `BufWriter` without buffering an extra whole-PDF `Vec<u8>` in RAM (30.0).
+pub fn annotate_file_checked(
+    src: &Path,
+    out: &Path,
+    annotations: &[AnnotationIn],
+    expected_stamp: Option<&str>,
+) -> Result<usize, String> {
+    use std::io::{BufWriter, Write};
     let pw = doc_check::session_password(src);
-    let (pdf_bytes, written) = if let Some(cached) = crate::inspect::cached_pdf_arc(src) {
-        annotate_bytes_with_password(cached.as_slice(), annotations, pw.as_deref())?
-    } else {
-        let src_bytes = std::fs::read(src).map_err(|e| format!("Failed to read PDF: {e}"))?;
-        annotate_bytes_with_password(&src_bytes, annotations, pw.as_deref())?
-    };
-    // Written beside the target and renamed over it, so a failure midway never
-    // leaves half a PDF where the reader asked for one. The temp is created
-    // exclusively under a name of ours (21.1.2): it was `<file>.pdf.partial`
-    // through `File::create`, which truncated a reader's file of that name
-    // and followed a symlink there — the hole 21.1.0 closed in `store_io`
-    // only. Inline rather than through `store_io`: this file is also compiled
-    // into the eval extractor.
+    let src_arc = crate::inspect::cached_pdf_for_stamp(src, expected_stamp)?;
+    let (mut doc, written) = load_annotated_doc(src_arc.as_slice(), annotations, pw.as_deref())?;
+    drop(src_arc);
+
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let parent = out.parent().unwrap_or_else(|| Path::new("."));
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    // `store_io`'s pattern, numbered from 2^40 so the two counters never meet.
     let tmp = parent.join(format!(".pagewise-{}-{}.tmp", std::process::id(), (1u64 << 40) + seq));
-    let mut file = std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&tmp)
         .map_err(|e| format!("Failed to write PDF: {e}"))?;
-    // Ours from here: removed on any failure, the save's included.
     let commit = (|| -> std::io::Result<()> {
         let saved = (|| -> std::io::Result<()> {
-            file.write_all(&pdf_bytes)?;
-            file.sync_all()
+            let mut writer = BufWriter::new(file);
+            doc.save_to(&mut writer)
+                .map_err(std::io::Error::other)?;
+            writer.flush()?;
+            let inner = writer.into_inner().map_err(|e| e.into_error())?;
+            inner.sync_all()
         })();
-        // Closed before the rename: Windows will not rename an open file.
-        drop(file);
         saved?;
-        std::fs::rename(&tmp, out)?;
+        let mut attempt = 0u32;
+        loop {
+            match std::fs::rename(&tmp, out) {
+                Ok(()) => break,
+                Err(e)
+                    if cfg!(windows)
+                        && e.kind() == std::io::ErrorKind::PermissionDenied
+                        && attempt < 4 =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(5 << attempt));
+                    attempt += 1;
+                }
+                Err(e) => return Err(e),
+            }
+        }
         if let Some(dir) = out.parent().and_then(|p| std::fs::File::open(p).ok()) {
             let _ = dir.sync_all();
         }
@@ -706,6 +752,17 @@ mod tests {
         assert_eq!(
             absolute(&rot, Frame::Pdf, Kind::Highlight, view, 270),
             Some([200.0 - 10.0 * DESCENT, 300.0, 210.0, 340.0])
+        );
+        // Portrait-stream page turned via `/Rotate 90` or `/Rotate 270` (`rotated.pdf`):
+        // horizontal lines (`width: 290, height: 11`) must extend descent along Y, NOT +84pt along X!
+        let portrait_line = Rect { x: 72.0, y: 720.0, width: 290.0, height: 11.0 };
+        assert_eq!(
+            absolute(&portrait_line, Frame::Pdf, Kind::Highlight, view, 90),
+            Some([72.0, 720.0 - 11.0 * DESCENT, 362.0, 731.0])
+        );
+        assert_eq!(
+            absolute(&portrait_line, Frame::Pdf, Kind::Highlight, view, 270),
+            Some([72.0, 720.0 - 11.0 * DESCENT, 362.0, 731.0])
         );
     }
 

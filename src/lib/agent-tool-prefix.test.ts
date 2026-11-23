@@ -39,7 +39,9 @@ import { newReadBudget } from "./agent-tools/reading";
  * no line endings and no path to get wrong.
  */
 const PROMPT_PREFIX_DIGESTS: Record<string, string> = {
-  document_outline: "xU7wy5t-7njCbASQRrJz1IY7-dFM1aKn95duDRb9Jhw",
+  // 30.0: trimmed duplicate `pageStats`/`previews` prose already carried on the
+  // two field `.describe()` strings (-125 B from every step's cached prefix).
+  document_outline: "Z6q_P2ksQ9Qc4ksTYBFneHb8jf8fJ8kT85UjDv-chNs",
   // 29.0: `fullPage` fallback on `read_figure` (for vector/TikZ diagrams with
   // no bitmap XObject), `pages` batch array on `read_pdf_page` (up to 8
   // non-contiguous pages in one step), `start` continuation on `read_section`,

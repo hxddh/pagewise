@@ -1,7 +1,7 @@
 {
   "name": "pagewise",
   "private": true,
-  "version": "29.0.0",
+  "version": "30.0.0",
   "description": "Local desktop PDF agent — page-wise AI analysis",
   "license": "MIT",
   "type": "module",
@@ -46,7 +46,6 @@
     "@tauri-apps/plugin-opener": "^2.7.3",
     "ai": "^7.0.179",
     "lucide-react": "^1.77.0",
-    "motion": "^14.14.0",
     "pdfjs-dist": "^6.5.438",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",

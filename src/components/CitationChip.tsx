@@ -87,9 +87,16 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
   const env = useContext(CitationContext);
   const { t, locale } = useI18n();
   const [check, setCheck] = useState<CitationCheck | null>(() => (env ? cachedCitationCheck(env.path, link) : null));
+  const [, setSiblingTick] = useState(0);
   const pagesKey = link.pages.join(",");
   // Checks forgotten — the page's words were read again (22.0): check again.
   const epoch = useSyncExternalStore(subscribeChecks, checksEpoch);
+  const hasSiblings = Boolean(link.siblings && link.siblings.length > 0);
+
+  useEffect(() => {
+    if (!env || !hasSiblings) return;
+    return subscribeChecks(() => setSiblingTick((n) => n + 1));
+  }, [env, hasSiblings]);
 
   useEffect(() => {
     if (!env) return;
@@ -120,22 +127,40 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
   const [hoverCard, setHoverCard] = useState<{ left: number; top: number; above: boolean } | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
   const hoverLightTimerRef = useRef<number | null>(null);
+  const litByMeRef = useRef(false);
   const chipRef = useRef<HTMLButtonElement>(null);
 
   useEffect(
     () => () => {
       if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
       if (hoverLightTimerRef.current !== null) window.clearTimeout(hoverLightTimerRef.current);
+      if (litByMeRef.current) {
+        litByMeRef.current = false;
+        setHoveredHighlight(null);
+      }
     },
     [],
   );
+
+  useEffect(() => {
+    if (!hoverCard) return;
+    const dismissOnScroll = () => {
+      setHoverCard(null);
+      if (litByMeRef.current) {
+        litByMeRef.current = false;
+        setHoveredHighlight(null);
+      }
+    };
+    window.addEventListener("scroll", dismissOnScroll, true);
+    return () => window.removeEventListener("scroll", dismissOnScroll, true);
+  }, [hoverCard]);
 
   const label = children ?? citationLabel(link.pages);
   if (!env) return <sup className="cite cite-inert">{label}</sup>;
 
   // Read against the sentence it supports: a number the passage does not state
   // turns a found quote into a doubted one (15.0).
-  const read = withClaim(check, link.claim ?? "", link.quote);
+  const read = withClaim(check, link.claim ?? "", link.quote, env.path, link.siblings);
   const status: CitationChipStatus = read?.status ?? "pending";
   const pages = citationLabel(link.pages);
   // The words the check found, from the one table of them (trust-text.ts):
@@ -169,7 +194,12 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
       hoverLightTimerRef.current = null;
     }
     setHoverCard((prev) => (prev === null ? prev : null));
-    setHoveredHighlight(null);
+    if (litByMeRef.current) {
+      litByMeRef.current = false;
+      setHoveredHighlight(null);
+    } else {
+      setHoveredHighlight(null);
+    }
   };
 
   const reveal = () => {
@@ -207,6 +237,7 @@ export function CitationChip({ link, children }: { link: CitationLink; children?
             const targetSecond = read.secondPage;
             hoverLightTimerRef.current = window.setTimeout(() => {
               hoverLightTimerRef.current = null;
+              litByMeRef.current = true;
               setHoveredHighlight({
                 kind: "citation",
                 path: env.path,

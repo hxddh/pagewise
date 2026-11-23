@@ -1,5 +1,5 @@
 import { citationRe, parseCitation, sentenceEndRe } from "./citations";
-import { claimBefore } from "./answer-tables";
+import { claimBefore, coCitationsBefore } from "./answer-tables";
 
 export const CITATION_SCHEME = "pagewise-cite:";
 
@@ -17,11 +17,15 @@ export interface CitationLink {
   pages: number[];
   quote: string | null;
   claim?: string;
+  siblings?: Array<{ pages: number[]; quote: string }>;
 }
 
 export function citationUrl(link: CitationLink): string {
   const data: Record<string, unknown> = { p: link.pages, q: link.quote };
   if (link.claim) data.c = link.claim;
+  if (link.siblings && link.siblings.length > 0) {
+    data.s = link.siblings.map((s) => ({ p: s.pages, q: s.quote }));
+  }
   return `${CITATION_SCHEME}${encodeURIComponent(JSON.stringify(data))}`;
 }
 
@@ -32,13 +36,29 @@ export function parseCitationUrl(url: string): CitationLink | null {
       p?: unknown;
       q?: unknown;
       c?: unknown;
+      s?: unknown;
     };
     const pages = Array.isArray(raw.p) ? raw.p.filter((n): n is number => Number.isInteger(n) && n >= 1) : [];
     if (pages.length === 0) return null;
+    const siblings = Array.isArray(raw.s)
+      ? raw.s
+          .map((item) => {
+            if (!item || typeof item !== "object") return null;
+            const sPages = Array.isArray((item as { p?: unknown }).p)
+              ? (item as { p: unknown[] }).p.filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1)
+              : [];
+            const sQuote = (item as { q?: unknown }).q;
+            return sPages.length > 0 && typeof sQuote === "string" && sQuote
+              ? { pages: sPages, quote: sQuote }
+              : null;
+          })
+          .filter((x): x is { pages: number[]; quote: string } => x !== null)
+      : [];
     return {
       pages,
       quote: typeof raw.q === "string" && raw.q ? raw.q : null,
       ...(typeof raw.c === "string" && raw.c ? { claim: raw.c } : {}),
+      ...(siblings.length > 0 ? { siblings } : {}),
     };
   } catch {
     return null;
@@ -76,11 +96,16 @@ function tokenizeTextChild(value: string, source: string, nodeStart: number): Pi
     if (before) out.push({ kind: "node", node: { type: "text", value: before } });
     const at = source ? sourceIndex(source, nodeStart + match.index, match[0]) : -1;
     const claim = at >= 0 ? claimBefore(source, at) : "";
+    const siblings = at >= 0 && claim ? coCitationsBefore(source, at) : [];
     out.push({
       kind: "marker",
       link: {
         type: "link",
-        url: citationUrl(claim ? { ...parsed, claim } : parsed),
+        url: citationUrl({
+          ...parsed,
+          ...(claim ? { claim } : {}),
+          ...(siblings.length > 0 ? { siblings } : {}),
+        }),
         children: [{ type: "text", value: citationLabel(parsed.pages) }],
       },
     });

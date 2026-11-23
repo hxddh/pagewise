@@ -107,31 +107,220 @@ function joinLines(lines: string[]): string {
   return out;
 }
 
+interface OcrSubLine {
+  items: TextItemRect[];
+  text: string;
+  minX: number;
+  maxX: number;
+  midY: number;
+  height: number;
+  paraId: number;
+}
+
+const GUTTER_NOISE_RE = /^[~_=|\\]{2,}$/;
+
+function isNoiseSpeck(word: string, confidence: number, widthPt: number, heightPt: number): boolean {
+  if (GUTTER_NOISE_RE.test(word) && confidence < 75) return true;
+  // Microscopic 1–2px scan specks (`height < 2.2pt`) misread as `"i"` / `"Co"` at low confidence.
+  if (heightPt < 2.2 && confidence < 65) return true;
+  if (widthPt < 1.2 && heightPt < 2.5 && confidence < 65) return true;
+  return false;
+}
+
+function buildSubLine(words: TextItemRect[], paraId: number): OcrSubLine {
+  let text = "";
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let sumMidY = 0;
+  let maxH = 0;
+  for (const w of words) {
+    text = joinWords(text, w.text);
+    minX = Math.min(minX, w.rect.x);
+    maxX = Math.max(maxX, w.rect.x + w.rect.width);
+    sumMidY += w.rect.y + w.rect.height / 2;
+    maxH = Math.max(maxH, w.rect.height);
+  }
+  return {
+    items: words,
+    text,
+    minX,
+    maxX,
+    midY: sumMidY / Math.max(1, words.length),
+    height: maxH,
+    paraId,
+  };
+}
+
+/**
+ * Detect a clear two-column vertical gutter `gx` when >= 4 wide column sub-lines
+ * sit strictly on each side of `gx` so interleaved left/right OCR lines are
+ * reconstructed into true top-to-bottom column reading order (30.0).
+ */
+function detectTwoColumnGutter(subLines: readonly OcrSubLine[]): number | null {
+  if (subLines.length < 8) return null;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const l of subLines) {
+    minX = Math.min(minX, l.minX);
+    maxX = Math.max(maxX, l.maxX);
+  }
+  const span = maxX - minX;
+  if (span < 260) return null;
+
+  const zoneLo = minX + span * 0.36;
+  const zoneHi = minX + span * 0.64;
+  let bestGx: number | null = null;
+  let bestScore = -Infinity;
+
+  for (let gx = zoneLo; gx <= zoneHi; gx += 4) {
+    let leftCols = 0;
+    let rightCols = 0;
+    let narrowCross = 0;
+    for (const l of subLines) {
+      const w = l.maxX - l.minX;
+      if (l.maxX <= gx - 3) {
+        if (w >= 55) leftCols += 1;
+      } else if (l.minX >= gx + 3) {
+        if (w >= 55) rightCols += 1;
+      } else if (w < span * 0.55) {
+        // A narrow sub-line straddling `gx` means `gx` cuts through a table column, not a gutter.
+        narrowCross += 1;
+      }
+    }
+    if (leftCols >= 4 && rightCols >= 4 && narrowCross <= 1) {
+      const balance = Math.min(leftCols, rightCols) * 3 + (leftCols + rightCols) - narrowCross * 10;
+      if (balance > bestScore) {
+        bestScore = balance;
+        bestGx = gx;
+      }
+    }
+  }
+  return bestGx;
+}
+
+function sortBandTopDown(lines: OcrSubLine[]): OcrSubLine[] {
+  return [...lines].sort((a, b) => {
+    const h = Math.max(a.height, b.height, 1);
+    if (Math.abs(a.midY - b.midY) < h * 0.55) return a.minX - b.minX;
+    return b.midY - a.midY;
+  });
+}
+
+function orderSubLines(subLines: OcrSubLine[]): OcrSubLine[] {
+  if (subLines.length <= 1) return subLines;
+  const gx = detectTwoColumnGutter(subLines);
+  if (gx === null) return subLines;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const l of subLines) {
+    minX = Math.min(minX, l.minX);
+    maxX = Math.max(maxX, l.maxX);
+  }
+  const span = maxX - minX;
+  const topSorted = sortBandTopDown(subLines);
+
+  const ordered: OcrSubLine[] = [];
+  let band: OcrSubLine[] = [];
+  const flushBand = () => {
+    if (band.length === 0) return;
+    const left = band.filter((l) => l.maxX <= gx);
+    const right = band.filter((l) => l.minX >= gx);
+    const middle = band.filter((l) => l.maxX > gx && l.minX < gx);
+    if (left.length >= 2 && right.length >= 2 && middle.length === 0) {
+      ordered.push(...sortBandTopDown(left), ...sortBandTopDown(right));
+    } else {
+      ordered.push(...sortBandTopDown(band));
+    }
+    band = [];
+  };
+
+  for (const l of topSorted) {
+    const isFullSpan = l.minX < gx - 12 && l.maxX > gx + 12 && l.maxX - l.minX >= span * 0.52;
+    if (isFullSpan) {
+      flushBand();
+      ordered.push(l);
+    } else {
+      band.push(l);
+    }
+  }
+  flushBand();
+  return ordered;
+}
+
 export function ocrPageFrom(page: OcrPageIn, toPdf: PixelToPdf): OcrPage {
-  const items: TextItemRect[] = [];
-  const paragraphs: string[] = [];
+  const rawSubLines: OcrSubLine[] = [];
   let weighted = 0;
   let chars = 0;
+  let paraSeq = 0;
+
   for (const block of page.blocks ?? []) {
     for (const paragraph of block.paragraphs) {
-      const lines: string[] = [];
+      paraSeq += 1;
       for (const line of paragraph.lines) {
-        let text = "";
+        const lineWords: TextItemRect[] = [];
         for (const word of line.words) {
           const w = word.text.trim();
           if (!w || (word.confidence < MIN_WORD_CONFIDENCE && !/[\p{L}\p{N}]/u.test(w))) continue;
           const rect = rectOf(word.bbox, toPdf);
           if (rect.width <= 0 || rect.height <= 0) continue;
-          items.push({ text: w, rect });
-          text = joinWords(text, w);
+          if (isNoiseSpeck(w, word.confidence, rect.width, rect.height)) continue;
+          lineWords.push({ text: w, rect });
           weighted += word.confidence * w.length;
           chars += w.length;
         }
-        if (text) lines.push(text);
+        if (lineWords.length === 0) continue;
+
+        // Split horizontal lines merged across wide column gutters (`gap >= 15pt` and `>= 1.9 * height`).
+        let current: TextItemRect[] = [lineWords[0]!];
+        for (let i = 1; i < lineWords.length; i += 1) {
+          const prev = current[current.length - 1]!;
+          const next = lineWords[i]!;
+          const gap = next.rect.x - (prev.rect.x + prev.rect.width);
+          const refH = Math.max(prev.rect.height, next.rect.height, 1);
+          if (gap >= Math.max(15, refH * 1.9)) {
+            rawSubLines.push(buildSubLine(current, paraSeq));
+            current = [next];
+          } else {
+            current.push(next);
+          }
+        }
+        rawSubLines.push(buildSubLine(current, paraSeq));
       }
-      if (lines.length) paragraphs.push(joinLines(lines));
     }
   }
+
+  const ordered = orderSubLines(rawSubLines);
+  const items: TextItemRect[] = [];
+  const paragraphs: string[] = [];
+  let curLines: string[] = [];
+  let prevLine: OcrSubLine | null = null;
+
+  for (const sub of ordered) {
+    for (const it of sub.items) items.push(it);
+    if (prevLine) {
+      const refH = Math.max(prevLine.height, sub.height, 1);
+      const sameRow = Math.abs(prevLine.midY - sub.midY) < refH * 0.55 && sub.minX > prevLine.maxX;
+      if (sameRow && curLines.length > 0) {
+        curLines[curLines.length - 1] = `${curLines[curLines.length - 1]} | ${sub.text}`;
+        prevLine = sub;
+        continue;
+      }
+      const colJump = sub.midY > prevLine.midY + refH * 1.5;
+      const paraGap = prevLine.midY - sub.midY > refH * 2.1;
+      const diffPara = sub.paraId !== prevLine.paraId && Math.abs(sub.minX - prevLine.minX) > refH * 2;
+      if (colJump || paraGap || diffPara) {
+        if (curLines.length > 0) {
+          paragraphs.push(joinLines(curLines));
+          curLines = [];
+        }
+      }
+    }
+    curLines.push(sub.text);
+    prevLine = sub;
+  }
+  if (curLines.length > 0) paragraphs.push(joinLines(curLines));
+
   return { items, text: paragraphs.join("\n\n"), confidence: chars ? weighted / chars : 0 };
 }
 

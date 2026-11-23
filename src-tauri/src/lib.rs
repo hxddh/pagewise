@@ -1,5 +1,6 @@
 mod annotate;
 mod doc_check;
+mod file_watch;
 mod grants;
 mod inspect;
 mod ocr_cache;
@@ -59,17 +60,7 @@ async fn file_stamp_cmd(path: String, allowed: State<'_, AllowedPaths>) -> Resul
     tauri::async_runtime::spawn_blocking(move || {
         let meta = std::fs::metadata(&canon)
             .map_err(|e| format!("Failed to read file metadata: {e}"))?;
-        let mtime = meta
-            .modified()
-            .map_err(|e| format!("Failed to read file metadata: {e}"))?
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| format!("Failed to read file metadata: {e}"))?;
-        Ok(format!(
-            "{}.{:09}:{}",
-            mtime.as_secs(),
-            mtime.subsec_nanos(),
-            meta.len()
-        ))
+        doc_check::stamp_of_meta(&meta)
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -212,12 +203,22 @@ async fn preflight_document_cmd(
 #[tauri::command]
 async fn open_document_cmd(
     path: String,
+    app: tauri::AppHandle,
     allowed: State<'_, AllowedPaths>,
+    watcher: State<'_, file_watch::ActiveFileWatch>,
 ) -> Result<DocumentModel, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
+    let canon_for_watch = canon.clone();
+    let watcher_clone = watcher.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        run_blocking_pdf(|| inspect::open_document(&canon_str))
+        let model = run_blocking_pdf(|| inspect::open_document(&canon_str))?;
+        if let Ok(meta) = std::fs::metadata(&canon_for_watch) {
+            if let Ok(stamp) = doc_check::stamp_of_meta(&meta) {
+                watcher_clone.watch(&app, canon_for_watch, stamp);
+            }
+        }
+        Ok(model)
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -243,12 +244,13 @@ async fn document_kind_cmd(
 async fn page_text_items_cmd(
     path: String,
     page: u32,
+    expected_stamp: Option<String>,
     allowed: State<'_, AllowedPaths>,
 ) -> Result<Vec<TextItemRect>, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        run_blocking_pdf(|| inspect::page_text_items(&canon_str, page))
+        run_blocking_pdf(|| inspect::page_text_items_checked(&canon_str, page, expected_stamp.as_deref()))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -260,12 +262,13 @@ async fn extract_region_cmd(
     path: String,
     page: u32,
     rect: Rect,
+    expected_stamp: Option<String>,
     allowed: State<'_, AllowedPaths>,
 ) -> Result<RegionText, String> {
     let canon = ensure_allowed(&allowed, &path)?;
     let canon_str = canon.to_str().ok_or("Invalid path encoding")?.to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        run_blocking_pdf(|| inspect::extract_region(&canon_str, page, rect))
+        run_blocking_pdf(|| inspect::extract_region_checked(&canon_str, page, rect, expected_stamp.as_deref()))
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -358,11 +361,23 @@ async fn unlock_pdf_cmd(
 }
 
 #[tauri::command]
-async fn close_document_cmd(path: String) -> Result<(), String> {
+async fn close_document_cmd(
+    path: String,
+    watcher: State<'_, file_watch::ActiveFileWatch>,
+) -> Result<(), String> {
+    let watcher_clone = watcher.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let key = doc_check::clean_path_key(Path::new(&path));
+        let raw_path = Path::new(&path);
+        let canon = std::fs::canonicalize(raw_path).unwrap_or_else(|_| raw_path.to_path_buf());
+        let key = doc_check::clean_path_key(&canon);
+        watcher_clone.unwatch_if_matches(&key);
         doc_check::remove_session_password(&key);
         inspect::evict_cached_pdf(&key);
+        // Also clear non-canonical fallback key in case the file was deleted/unlinked before close.
+        if raw_path != key {
+            doc_check::remove_session_password(raw_path);
+            inspect::evict_cached_pdf(raw_path);
+        }
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))
@@ -384,6 +399,20 @@ async fn read_file_bytes(
             return Err("Read cancelled".to_string());
         }
         if let Some(arc_bytes) = inspect::cached_pdf_arc(&canon) {
+            if is_read_cancelled(&cancel_gen, gen, gen_at_start) {
+                return Err("Read cancelled".to_string());
+            }
+            return Ok((*arc_bytes).clone());
+        }
+        // Coalesce cold PDF reads with concurrent `open_document_cmd` through
+        // `inspect::load_or_cached_pdf_arc` (`LOADING_PDF` single-flight) so opening
+        // a large PDF never reads it twice from disk into 2x RAM (30.0).
+        if doc_check::read_head(&canon)
+            .ok()
+            .and_then(|h| doc_check::sniff(&h))
+            == Some(doc_check::DocumentKind::Pdf)
+        {
+            let arc_bytes = inspect::load_or_cached_pdf_arc(&canon)?;
             if is_read_cancelled(&cancel_gen, gen, gen_at_start) {
                 return Err("Read cancelled".to_string());
             }
@@ -488,6 +517,7 @@ async fn export_annotated_pdf(
     path: String,
     out_path: String,
     annotations: Vec<annotate::AnnotationIn>,
+    expected_stamp: Option<String>,
     allowed: State<'_, AllowedPaths>,
 ) -> Result<usize, String> {
     let source = ensure_allowed(&allowed, &path)?;
@@ -497,7 +527,14 @@ async fn export_annotated_pdf(
         if std::fs::canonicalize(&resolved).is_ok_and(|p| p == source) {
             return Err("Choose a new file: the open document is not overwritten".to_string());
         }
-        run_blocking_pdf(|| annotate::annotate_file(&source, &resolved, &annotations))
+        run_blocking_pdf(|| {
+            annotate::annotate_file_checked(
+                &source,
+                &resolved,
+                &annotations,
+                expected_stamp.as_deref(),
+            )
+        })
     })
     .await
     .map_err(|e| format!("Task join failed: {e}"))?
@@ -557,6 +594,7 @@ pub fn run() {
         .manage(open_path::PendingOpen::from_launch())
         .manage(open_path::PendingOpenError::default())
         .manage(FileReadCancel::default())
+        .manage(file_watch::ActiveFileWatch::default())
         .setup(|app| {
             let handle = app.handle();
             if let Ok(dir) = handle.path().app_data_dir() {
@@ -584,6 +622,7 @@ pub fn run() {
             grants::check_recent_paths,
             grants::open_sample_document,
             cancel_file_read_cmd,
+            file_watch::watch_document_cmd,
             preflight_document_cmd,
             file_stamp_cmd,
             file_identity_cmd,

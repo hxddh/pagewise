@@ -209,6 +209,17 @@ export const PageGutter = memo(function PageGutter({
   const activeAnchorRef = useRef<HTMLElement | null>(null);
   const [expandedAnswerIdx, setExpandedAnswerIdx] = useState<number | null>(null);
   const answerAnchorRef = useRef<HTMLElement | null>(null);
+  const litByMeRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      if (litByMeRef.current) {
+        litByMeRef.current = false;
+        setHoveredHighlight(null);
+      }
+    },
+    [],
+  );
 
   const entries = useMemo(
     () =>
@@ -279,18 +290,26 @@ export const PageGutter = memo(function PageGutter({
       entryRefs.current.get(`mark-${selectedMark.id}`) ?? pageMarkEl ?? gutterRef.current;
   }
 
+  const clearHovered = () => {
+    litByMeRef.current = false;
+    setHoveredHighlight(null);
+  };
+
   const hoverEntry = (entry: GutterEntry) => {
     if (entry.kind === "mark") {
+      litByMeRef.current = true;
       setHoveredHighlight({ kind: "mark", path, id: entry.id });
       return;
     }
     if (entry.kind === "finding") {
+      litByMeRef.current = true;
       setHoveredHighlight({ kind: "finding", path, id: entry.id });
       return;
     }
     for (const c of entry.citations ?? []) {
       const check = cachedCitationCheck(path, c);
       if (check?.rects?.length && check.page) {
+        litByMeRef.current = true;
         setHoveredHighlight({
           kind: "citation",
           path,
@@ -395,7 +414,7 @@ export const PageGutter = memo(function PageGutter({
             title={note(entry)}
             aria-label={label(entry)}
             onMouseEnter={() => hoverEntry(entry)}
-            onMouseLeave={() => setHoveredHighlight(null)}
+            onMouseLeave={clearHovered}
             onClick={(e) => activate(entry, i, e.currentTarget)}
           />
         ))}

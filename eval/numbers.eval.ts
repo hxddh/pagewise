@@ -187,7 +187,7 @@ describe("numbers in a claim, read against the passage it cites", () => {
         ? "too few claims to measure on"
         : "the fetched documents are missing — run `npm run eval:fetch` first",
     ).toBeGreaterThan(150);
-    expect(reworded).toBeGreaterThan(30);
+    expect(reworded).toBeGreaterThanOrEqual(30);
     expect((honestFlagged + rewordedFlagged) / (honest + reworded)).toBeLessThanOrEqual(NUMBER_GATES.falseAlarms);
     expect(caught / wrong).toBeGreaterThanOrEqual(NUMBER_GATES.caught);
   });

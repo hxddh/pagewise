@@ -1,4 +1,8 @@
 import { docCache, mergeTablePages } from "./doc-cache";
+import { clearCitationChecks } from "./citation-check";
+import { clearFindingAnchors } from "./finding-anchors";
+import { invokeCmd } from "./invoke-cmd";
+import { isTauriRuntime } from "./runtime";
 import {
   disposeDocumentResources,
   documentKind,
@@ -234,6 +238,9 @@ export async function loadDocument(
             const current = docCache.get(path);
             if (!current || current.stamp !== stamp) return;
             docCache.set({ ...current, annotations: loadedNotes });
+            // Re-evaluate strikethrough checks now that external PDF markup landed.
+            clearFindingAnchors(path);
+            clearCitationChecks(path);
           })
           .catch(() => {});
       }
@@ -250,6 +257,9 @@ export async function loadDocument(
     }
   } else {
     report(onProgress, { stage: "opening", message: "load.loadingImage", percent: 60 });
+    if (isTauriRuntime() && stamp) {
+      void invokeCmd("watch_document_cmd", { path, stamp }).catch(() => {});
+    }
     doc = {
       path,
       name,

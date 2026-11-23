@@ -88,9 +88,10 @@ describe("search", () => {
       if (hit(r.before, r.expected)) expect(hit(r.after, r.expected), `${r.q.doc}: ${r.q.query}`).toBe(true);
     }
     expect(after / rows.length).toBeGreaterThanOrEqual(SEARCH_GATE);
+    expect(firstAfter / rows.length).toBeGreaterThanOrEqual(SEARCH_TOP1_GATE);
   });
 
-  it("handles ligatures, hyphenated line wraps, fair multi-page coverage, and CJK synonym backoff (v25)", () => {
+  it("handles ligatures, hyphenated line wraps, fair multi-page coverage, heading boost, and CJK synonym backoff (v25–v30)", () => {
     const ligPages = [
       { page: 1, text: "Introductory overview." },
       { page: 2, text: "An efﬁcient workﬂow improves admis-\nsion control latency." },
@@ -111,8 +112,22 @@ describe("search", () => {
       { page: 3, text: "第六条 质保期为最终验收合格之日起三十六个月" },
     ];
     expect(searchForAgent(cjkPages, "保修期限", 5)[0]?.page).toBe(3);
+
+    const headingPages = [
+      {
+        page: 1,
+        text: "Overview of general obligations, including indemnification procedures described later in this agreement.",
+      },
+      {
+        page: 8,
+        text: "## 8. Indemnification Cap\nLiability under this section shall not exceed total fees paid.",
+      },
+    ];
+    expect(searchForAgent(headingPages, "indemnification limitation", 5)[0]?.page).toBe(8);
   });
 });
 
 /** Right page in the first three, over the whole question set. */
 export const SEARCH_GATE = 0.95;
+/** Right page ranked #1, over the whole question set (30.0). */
+export const SEARCH_TOP1_GATE = 0.8;

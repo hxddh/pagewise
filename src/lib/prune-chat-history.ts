@@ -235,10 +235,20 @@ export function compactToolOutput(
       output && typeof output === "object"
         ? (output as { page?: unknown; pages?: unknown })
         : null;
-    if (outObj && Array.isArray(outObj.pages) && outObj.pages.length > 1) {
-      const chars = textLength(output);
-      const list = outObj.pages.filter((p): p is number => typeof p === "number").join(", ");
-      return `[Read pages ${list}, ${chars} chars — re-read with read_pdf_page to quote verbatim]`;
+    const raw = extractRawText(output);
+    const digest = extractPageDigest(raw);
+    const digestPart = digest ? `: ${digest}` : "";
+    if (outObj && Array.isArray(outObj.pages)) {
+      const pagesList = outObj.pages.filter((p): p is number => typeof p === "number");
+      if (pagesList.length > 1) {
+        const chars = textLength(output);
+        return `[Read pages ${pagesList.join(", ")}, ${chars} chars${digestPart} — re-read with read_pdf_page to quote verbatim]`;
+      }
+      if (pagesList.length === 1) {
+        const single = pagesList[0]!;
+        const chars = textLength(output);
+        return `[Read page ${single}, ${chars} chars${digestPart} — re-read page ${single} to quote verbatim]`;
+      }
     }
     const resolvedPage =
       outObj && typeof outObj.page === "number"
@@ -248,8 +258,6 @@ export function compactToolOutput(
           : undefined;
     if (resolvedPage !== undefined) {
       const chars = textLength(output);
-      const digest = extractPageDigest(extractRawText(output));
-      const digestPart = digest ? `: ${digest}` : "";
       return `[Read page ${resolvedPage}, ${chars} chars${digestPart} — re-read page ${resolvedPage} to quote verbatim]`;
     }
   }

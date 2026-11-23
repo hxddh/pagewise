@@ -23,7 +23,7 @@ export default defineConfig(async () => ({
     modulePreload: {
       resolveDependencies(_filename, deps) {
         return deps.filter(
-          (d) => !/(?:^|\/)(?:ai-sdk|ai-openai|zod|pdfjs|tesseract|markdown|motion)-/.test(d),
+          (d) => !/(?:^|\/)(?:ai-sdk|ai-openai|zod|pdfjs|tesseract|markdown)-/.test(d),
         );
       },
     },
@@ -66,11 +66,6 @@ export default defineConfig(async () => ({
               name: "markdown",
               test: /node_modules[\\/](react-markdown|remark-gfm)[\\/]/,
               priority: 40,
-            },
-            {
-              name: "motion",
-              test: /node_modules[\\/](motion|framer-motion)[\\/]/,
-              priority: 30,
             },
             {
               name: "tesseract",

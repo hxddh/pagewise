@@ -298,6 +298,7 @@ interface Layout {
   adjRowRight: number[];
   lineStart: boolean[];
   segLeft: number[];
+  rowSegLeft: number[];
   hasLineBelow: boolean[];
 }
 
@@ -314,6 +315,7 @@ function layoutOf(items: readonly TextItemRect[], parts: readonly string[]): Lay
   const right = new Array<number>(n).fill(-1);
   const adjRowRight = new Array<number>(n).fill(-1);
   const left = new Array<number>(n).fill(-1);
+  const rowLeft = new Array<number>(n).fill(-1);
   for (let i = 0; i < n; i += 1) {
     if ((parts[i]?.length ?? 0) === 0) continue;
     const a = items[i]!.rect;
@@ -332,8 +334,8 @@ function layoutOf(items: readonly TextItemRect[], parts: readonly string[]): Lay
           best = j;
           bestGap = g;
         }
-        // Table-cell horizontal adjacency (`gap <= g < 260`) only between compact
-        // cells (`< 180pt`) so two full-width prose columns never bridge mid-page.
+        // Table-cell / diagram horizontal adjacency (`gap <= g < 260`) only between
+        // compact cells (`< 180pt`) so two full-width prose columns never bridge mid-page.
         if (g >= gap && g < 260 && Math.min(a.width, b.width) < 180 && g < rowBestGap) {
           rowBest = j;
           rowBestGap = g;
@@ -343,10 +345,17 @@ function layoutOf(items: readonly TextItemRect[], parts: readonly string[]): Lay
     right[i] = best;
     adjRowRight[i] = rowBest;
     if (best >= 0 && left[best] < 0) left[best] = i;
+    if (best >= 0 && rowLeft[best] < 0) rowLeft[best] = i;
+    if (rowBest >= 0 && rowLeft[rowBest] < 0) rowLeft[rowBest] = i;
   }
   const segLeft = items.map((item, i) => {
     let k = i;
     for (let guard = 0; left[k]! >= 0 && guard < n; guard += 1) k = left[k]!;
+    return k === i ? item.rect.x : items[k]!.rect.x;
+  });
+  const rowSegLeft = items.map((item, i) => {
+    let k = i;
+    for (let guard = 0; rowLeft[k]! >= 0 && guard < n; guard += 1) k = rowLeft[k]!;
     return k === i ? item.rect.x : items[k]!.rect.x;
   });
   const layout: Layout = {
@@ -354,6 +363,7 @@ function layoutOf(items: readonly TextItemRect[], parts: readonly string[]): Lay
     adjRowRight,
     lineStart: left.map((l) => l < 0),
     segLeft,
+    rowSegLeft,
     hasLineBelow: [],
   };
   layout.hasLineBelow = items.map((_, i) =>
@@ -382,7 +392,9 @@ function isLineBelow(items: readonly TextItemRect[], layout: Layout, a: number, 
   const rb = items[b]!.rect;
   const h = Math.max(ra.height, rb.height, 1);
   const drop = ra.y - rb.y;
-  return drop > h * 0.4 && drop < h * 3.2 && Math.abs(rb.x - layout.segLeft[a]!) < h * 4;
+  if (!(drop > h * 0.4 && drop < h * 3.2)) return false;
+  if (Math.abs(rb.x - layout.segLeft[a]!) < h * 4) return true;
+  return layout.rowSegLeft[a] !== layout.segLeft[a] && Math.abs(rb.x - layout.rowSegLeft[a]!) < h * 5;
 }
 
 function chainLocate(items: readonly TextItemRect[], needle: string): number[] | null {

@@ -1,5 +1,6 @@
 import type { PDFPageProxy, RenderTask } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { docCache } from "./doc-cache";
 import { invokeCmd } from "./invoke-cmd";
 import { classifyOpenError } from "./open-error";
 import { sniffImageType } from "./file-type";
@@ -518,7 +519,13 @@ export async function extractRegion(
   page: number,
   rect: PdfRect,
 ): Promise<RegionText> {
-  return invokeCmd<RegionText>("extract_region_cmd", { path, page, rect });
+  const expectedStamp = docCache.get(path)?.stamp;
+  return invokeCmd<RegionText>("extract_region_cmd", {
+    path,
+    page,
+    rect,
+    ...(expectedStamp ? { expectedStamp } : {}),
+  });
 }
 
 /**
@@ -529,7 +536,12 @@ export async function pageTextItems(
   path: string,
   page: number,
 ): Promise<TextItemRect[]> {
-  return invokeCmd<TextItemRect[]>("page_text_items_cmd", { path, page });
+  const expectedStamp = docCache.get(path)?.stamp;
+  return invokeCmd<TextItemRect[]>("page_text_items_cmd", {
+    path,
+    page,
+    ...(expectedStamp ? { expectedStamp } : {}),
+  });
 }
 
 function coerceInvokeBytes(raw: unknown): Uint8Array {

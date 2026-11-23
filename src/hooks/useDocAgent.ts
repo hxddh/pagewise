@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import type { ChatStatus } from "ai";
 import { beginAgentMessage, rollbackAgentMessage, type AgentMessageContext } from "../lib/agent-view-context";
+import { clearRunReaderSelection } from "../lib/active-selection";
 import { sendWithImageFallback } from "../lib/agent-send";
 import type { createDocAgent } from "../lib/agent";
 import { isAgentProgressDataPart } from "../lib/inject-progress-stream";
@@ -187,6 +188,7 @@ export function useDocAgent(chatId: string | null = null) {
     onFinish: ({ message, isAbort, isError }) => {
       if (streamAgentGenRef.current !== agentGenRef.current) return;
 
+      clearRunReaderSelection();
       setStreamProgress((prev) => (prev === null ? prev : null));
       if (!isError) pendingSendErrorRef.current = undefined;
 
@@ -650,6 +652,7 @@ export function useDocAgent(chatId: string | null = null) {
   const clearChat = useCallback(() => {
     chat.stop();
     clearAgentRunAbortSignal();
+    clearRunReaderSelection();
     chat.setMessages([]);
     chat.clearError();
     setSendError(undefined);
@@ -724,6 +727,7 @@ export function useDocAgent(chatId: string | null = null) {
           }
           chat.stop();
           clearAgentRunAbortSignal();
+          clearRunReaderSelection();
           chat.clearError();
           setSendError(undefined);
           setStreamProgress(null);

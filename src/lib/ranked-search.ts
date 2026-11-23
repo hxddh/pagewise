@@ -98,6 +98,7 @@ function cjkUnigrams(text: string): string[] {
 interface Index {
   plain: string[];
   tf: Map<string, number>[];
+  headingTerms: Set<string>[];
   df: Map<string, number>;
   uniTf: Map<string, number>[];
   uniDf: Map<string, number>;
@@ -108,8 +109,30 @@ interface Index {
 interface TokenizedPageEntry {
   plain: string;
   tf: Map<string, number>;
+  headingTerms: Set<string>;
   uniTf: Map<string, number>;
   length: number;
+}
+
+const HEADING_LINE_RE =
+  /^(?:#{2,4}\s+.+|\*\*[^*\n]{2,90}\*\*|第[一二三四五六七八九十百零〇\d]+[条章节]\s+\S.{0,60}|\d+(?:\.\d+)+\.?\s+[A-Z\u4e00-\u9fff][^\n]{1,80})$/;
+
+function extractHeadingTokens(rawMarkdown: string): Set<string> {
+  const out = new Set<string>();
+  const lines = rawMarkdown.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i]!.trim();
+    if (!trimmed || trimmed.length > 100 || trimmed.startsWith("|")) continue;
+    const underlined =
+      i + 1 < lines.length && /^[-=]{3,}\s*$/.test(lines[i + 1]!.trim());
+    if (HEADING_LINE_RE.test(trimmed) || underlined) {
+      const plainLine = markdownToPlainText(trimmed);
+      for (const t of tokenize(plainLine, { joinCjkSpaces: true, includeHyphenParts: true })) {
+        out.add(t);
+      }
+    }
+  }
+  return out;
 }
 
 const MAX_PAGE_TOKEN_CACHE = 2_000;
@@ -123,6 +146,7 @@ function tokenizePageEntry(rawMarkdown: string): TokenizedPageEntry {
     return hit;
   }
   const plain = markdownToPlainText(rawMarkdown);
+  const headingTerms = extractHeadingTokens(rawMarkdown);
   const tf = new Map<string, number>();
   let length = 0;
   for (const t of tokenize(plain, { joinCjkSpaces: true, includeHyphenParts: true })) {
@@ -133,7 +157,7 @@ function tokenizePageEntry(rawMarkdown: string): TokenizedPageEntry {
   for (const u of cjkUnigrams(plain)) {
     uniTf.set(u, (uniTf.get(u) ?? 0) + 1);
   }
-  const entry: TokenizedPageEntry = { plain, tf, uniTf, length };
+  const entry: TokenizedPageEntry = { plain, tf, headingTerms, uniTf, length };
   pageTokenCache.set(rawMarkdown, entry);
   while (pageTokenCache.size > MAX_PAGE_TOKEN_CACHE) {
     const oldest = pageTokenCache.keys().next().value;
@@ -151,6 +175,7 @@ function indexOf(pages: PageText[]): Index {
   const entries = pages.map((p) => tokenizePageEntry(p.text));
   const plain = entries.map((e) => e.plain);
   const tf = entries.map((e) => e.tf);
+  const headingTerms = entries.map((e) => e.headingTerms);
   const df = new Map<string, number>();
   for (const counts of tf) for (const t of counts.keys()) df.set(t, (df.get(t) ?? 0) + 1);
 
@@ -161,7 +186,7 @@ function indexOf(pages: PageText[]): Index {
   const lengths = entries.map((e) => e.length);
   const totalLen = lengths.reduce((a, b) => a + b, 0);
   const avgLength = totalLen / Math.max(1, lengths.length) || 1;
-  const index = { plain, tf, df, uniTf, uniDf, lengths, avgLength };
+  const index = { plain, tf, headingTerms, df, uniTf, uniDf, lengths, avgLength };
   indexCache.set(pages, index);
   return index;
 }
@@ -176,6 +201,7 @@ export interface RankedHit {
 const K1 = 1.2;
 const B = 0.75;
 const UNI_WEIGHT = 0.32;
+const HEADING_BOOST = 1.2;
 
 export function rankPages(pages: PageText[], query: string, limit = 12): RankedHit[] {
   const terms = [...new Set(tokenize(query, { joinCjkSpaces: false }))];
@@ -191,6 +217,7 @@ export function rankPages(pages: PageText[], query: string, limit = 12): RankedH
 
   for (let i = 0; i < n; i += 1) {
     const counts = index.tf[i]!;
+    const headings = index.headingTerms[i]!;
     const lenNorm = K1 * (1 - B + (B * index.lengths[i]!) / index.avgLength);
     let primaryScore = 0;
     const found: string[] = [];
@@ -200,7 +227,8 @@ export function rankPages(pages: PageText[], query: string, limit = 12): RankedH
       found.push(term);
       const df = index.df.get(term) ?? 0;
       const idf = Math.log(1 + (n - df + 0.5) / (df + 0.5));
-      primaryScore += idf * ((f * (K1 + 1)) / (f + lenNorm));
+      const boost = headings.has(term) ? HEADING_BOOST : 1;
+      primaryScore += boost * idf * ((f * (K1 + 1)) / (f + lenNorm));
     }
 
     let uniScore = 0;

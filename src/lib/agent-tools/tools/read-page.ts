@@ -99,19 +99,21 @@ export function createReadPdfPageTool(
             let totalChars = 0;
             let hitBudget = false;
             let scanLimitReached = false;
+            let sawOcrSource = false;
             const totalCap = Math.min(50_000, Math.max(maxChars, distinctPages.length * R.DEFAULT_PAGE_MAX_CHARS));
 
             for (let idx = 0; idx < distinctPages.length; idx += 1) {
               const p = distinctPages[idx]!;
+              const pageOffset = idx === 0 && offset > 0 ? offset : 0;
               const pLabel = R.printedLabel(doc, p);
               const hdr = pLabel
                 ? `--- Page ${p} (printed ${pLabel}) ---`
                 : `--- Page ${p} ---`;
-              if (R.alreadyDelivered(budget, path, p)) {
+              if (pageOffset === 0 && R.alreadyDelivered(budget, path, p)) {
                 blocks.push(`${hdr}\n${R.ALREADY_READ_NOTE}`);
                 continue;
               }
-              const free = R.isFreeReread(budget, path, p);
+              const free = pageOffset === 0 && R.isFreeReread(budget, path, p);
               const remainingCap = Math.max(0, totalCap - totalChars);
               if ((!free && budget.used >= budget.max) || remainingCap === 0) {
                 if (!free && budget.used >= budget.max) hitBudget = true;
@@ -122,6 +124,7 @@ export function createReadPdfPageTool(
               }
 
               const item = await R.readPageText(path, p, budget, runGen);
+              if (item.source === "ocr") sawOcrSource = true;
               if (item.scanLimit) {
                 scanLimitReached = true;
                 unscannedPages.push(p);
@@ -143,7 +146,9 @@ export function createReadPdfPageTool(
                 continue;
               }
 
-              const budgetRoom = free ? remainingCap : R.affordableChars(item.text, budget);
+              const from = Math.min(pageOffset, item.text.length);
+              const availableText = item.text.slice(from);
+              const budgetRoom = free ? remainingCap : R.affordableChars(availableText, budget);
               const room = Math.min(maxChars, remainingCap, budgetRoom);
               if (room <= 0) {
                 if (!free) hitBudget = true;
@@ -152,19 +157,20 @@ export function createReadPdfPageTool(
                 );
                 break;
               }
-              const slice = item.text.slice(0, room);
+              const slice = availableText.slice(0, room);
+              const consumedEnd = from + slice.length;
               if (!free) chargeBudget(runGen, R.estimateTokens(slice));
               totalChars += slice.length;
               deliveredNow.push(p);
 
-              if (slice.length < item.text.length) {
-                truncatedPages.push({ page: p, nextOffset: slice.length });
+              if (consumedEnd < item.text.length) {
+                truncatedPages.push({ page: p, nextOffset: consumedEnd });
                 if (!free && budgetRoom < Math.min(maxChars, remainingCap)) hitBudget = true;
                 blocks.push(
-                  `${hdr}\n${slice}\n[… page ${p} truncated at offset ${slice.length} of ${item.text.length}; resume with read_pdf_page({ page: ${p}, offset: ${slice.length} })]`,
+                  `${hdr}\n${slice}\n[… page ${p} truncated at offset ${consumedEnd} of ${item.text.length}; resume with read_pdf_page({ page: ${p}, offset: ${consumedEnd} })]`,
                 );
               } else {
-                R.markDelivered(budget, path, p, runGen);
+                if (from === 0) R.markDelivered(budget, path, p, runGen);
                 blocks.push(`${hdr}\n${slice}`);
               }
             }
@@ -181,6 +187,7 @@ export function createReadPdfPageTool(
             const notes: string[] = [];
             if (hitBudget) notes.push(R.BUDGET_NOTE);
             if (scanLimitReached) notes.push(R.SCAN_LIMIT_NOTE);
+            if (sawOcrSource) notes.push(R.OCR_TEXT_NOTE);
             if (failedPages.length > 0) {
               notes.push(
                 `Pages ${R.compressPageRanges(failedPages)} could not be indexed (${failureReasons.join("; ")}) — do not treat them as empty pages.`,

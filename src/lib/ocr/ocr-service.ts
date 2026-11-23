@@ -90,8 +90,29 @@ export function configureOcr(options: { enabled: boolean; languages: OcrLanguage
       state.langs = undefined;
       state.cjkProbes = 0;
       // Said once the other section is in, so what is checked again reads it.
-      if (enabled && state.identity) void restoreOcr(path, state.identity).finally(() => ocrTextReplaced(path));
-      else ocrTextReplaced(path);
+      const syncReplacedDocPages = (restored: PageText[]) => {
+        const cur = docCache.get(path);
+        if (cur && Array.isArray(cur.pages) && typeof docCache.set === "function") {
+          const byPage = new Map(restored.map((p) => [p.page, p]));
+          const nextPages = cur.pages.map((p) => {
+            if (p.source === "vision") return p;
+            const hit = byPage.get(p.page);
+            if (hit) return hit;
+            if (p.source === "ocr") return { page: p.page, text: "" };
+            return p;
+          });
+          docCache.set({ ...cur, pages: nextPages });
+        }
+        ocrTextReplaced(path);
+      };
+      if (enabled && state.identity) {
+        void restoreOcr(path, state.identity).then(
+          (restored) => syncReplacedDocPages(restored),
+          () => syncReplacedDocPages([]),
+        );
+      } else {
+        syncReplacedDocPages([]);
+      }
     }
   }
   if (changed) void terminateOcr();
@@ -165,6 +186,13 @@ function pagesReadWith(state: DocState, langs: OcrLanguages): StoredOcrPage[] {
  * section; finding them is what remembers the switch.
  */
 export async function restoreOcr(path: string, identity?: string): Promise<PageText[]> {
+  const existing = docs.get(path);
+  if (existing && existing.identity && existing.identity !== identity) {
+    // Content changed at the same path (in-place reload / silent hot-reload):
+    // flush dirty pages under the old identity and evict cached pages/jobs so
+    // previous scan text never bleeds into or saves under `identity` (30.0).
+    forgetOcr(path);
+  }
   const state = stateFor(path);
   if (identity) state.identity = identity;
   if (!enabled || !identity) return [];
@@ -409,7 +437,8 @@ async function recognizeWith(
   const doc = docCache.get(path);
   if (!doc) return null;
   if (doc.kind === "image") {
-    // An image has no PDF space to put boxes in; its words are text only.
+    // Convert image pixel coordinates into bottom-left Y-up runs so standalone
+    // images support deterministic quote verification via `locateQuote` (30.0).
     const bytes = await readAuthorizedFileBytes(path, signal);
     const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]));
     const canvas = document.createElement("canvas");
@@ -417,8 +446,9 @@ async function recognizeWith(
       canvas.width = bitmap.width;
       canvas.height = bitmap.height;
       canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
-      const read = await recognizeCanvas(canvas, (x, y) => [x, y], langs, slot);
-      return { ...read, items: [], page, ms: performance.now() - started };
+      const h = bitmap.height;
+      const read = await recognizeCanvas(canvas, (x, y) => [x, h - y], langs, slot);
+      return { ...read, page, ms: performance.now() - started };
     } finally {
       canvas.width = 0;
       canvas.height = 0;

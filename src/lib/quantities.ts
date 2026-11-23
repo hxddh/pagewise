@@ -25,6 +25,8 @@ export interface Quantity {
   dimension: Dimension;
   base: number;
   text: string;
+  start?: number;
+  end?: number;
 }
 
 const DIGIT: Record<string, number> = {
@@ -196,8 +198,9 @@ function withoutReferences(text: string): string {
   return text
     .replace(/第\s*[\d一二三四五六七八九十百]+\s*页/g, " ")
     .replace(/第\s*[\d零〇一二三四五六七八九十百.]+\s*(?:条款|条|款|项|章|节|部分)/g, " ")
+    .replace(/(?:附件|附表|附图|表|图)\s*[\d一二三四五六七八九十]+(?:\.\d+)*/g, " ")
     .replace(
-      /(?:\b(?:sections?|clauses?|articles?|sec\.)|§)\s*\d+(?:\.\d+)*(?:\s*(?:,|and|or|to|through|[-–])\s*(?:and\s+)?\d+(?:\.\d+)*)*/gi,
+      /(?:\b(?:sections?|clauses?|articles?|sec\.|tables?|figures?|figs?\.|exhibits?|appendi(?:x|ces)|schedules?)|§)\s*\d+(?:\.\d+)*(?:\s*(?:,|and|or|to|through|[-–])\s*(?:and\s+)?\d+(?:\.\d+)*)*/gi,
       " ",
     )
     .replace(/\bpp?\.\s*\d+(?:\s*[-–]\s*\d+)?/gi, " ")
@@ -210,7 +213,8 @@ const IMPLICIT: Array<[RegExp, number]> = [
   [/每一?年|按年/g, 12],
 ];
 
-const ISO_DATE_RE = /\b(19\d{2}|20\d{2}|2100)[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b/g;
+const ISO_DATE_RE = /\b(19\d{2}|20\d{2}|2100)[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b/g;
+const US_SLASH_DATE_RE = /\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\/(19\d{2}|20\d{2}|2100)\b/g;
 const ZH_DATE_RE =
   /((?:19|20)\d{2}|[零〇一二三四五六七八九]{4})\s*年\s*(1[0-2]|0?[1-9]|十[一二]?|[一二三四五六七八九])\s*月\s*(3[01]|[12]\d|0?[1-9]|[一二三]?十[一二三四五六七八九]?|[一二三四五六七八九])\s*[日号]/g;
 const EN_MDY_DATE_RE =
@@ -272,6 +276,8 @@ export function quantities(input: string, options: { implicit?: boolean } = {}):
       dimension,
       base: value * factor,
       text: text.slice(start, end).trim(),
+      start,
+      end,
     });
   };
 
@@ -287,10 +293,13 @@ export function quantities(input: string, options: { implicit?: boolean } = {}):
     }
   };
 
-  // Calendar dates first so `2025-04-17`, `2025年4月17日`, and `April 17, 2025`
-  // compare as one canonical date instead of misparsing `2025年` as 24,300 months.
+  // Calendar dates first so `2025-04-17`, `2025.04.17`, `04/17/2025`, `2025年4月17日`,
+  // and `April 17, 2025` compare as one canonical date instead of misparsing `2025年`.
   for (const m of text.matchAll(ISO_DATE_RE)) {
     pushDate(m.index!, m.index! + m[0].length, Number(m[1]), Number(m[2]), Number(m[3]));
+  }
+  for (const m of text.matchAll(US_SLASH_DATE_RE)) {
+    pushDate(m.index!, m.index! + m[0].length, Number(m[3]), Number(m[1]), Number(m[2]));
   }
   for (const m of text.matchAll(ZH_DATE_RE)) {
     const y = parseIntOrCn(m[1]!);
@@ -356,8 +365,25 @@ export function quantities(input: string, options: { implicit?: boolean } = {}):
       }
     }
 
+    const rawEnd = matchStart + m[0].length;
+    // Parenthesized accounting negatives: `(12.5%)`, `($1,200)`, `(1,284.50)` —
+    // requires currency, rate (`%`/`‰`), decimal, or comma-grouped thousands inside
+    // `(...)` so legal restatements like `thirty-six (36) months` or `(1)` list
+    // markers are never misread as negative (30.0).
+    const wrappedInAccountingParens =
+      !outerSign &&
+      !innerSign &&
+      effectiveStart > 0 &&
+      text[effectiveStart - 1] === "(" &&
+      text[rawEnd] === ")" &&
+      (prefixDim !== null || Boolean(pctRaw) || Boolean(decPart) || intPart.includes(","));
+    if (wrappedInAccountingParens) {
+      sign = -1;
+      effectiveStart -= 1;
+    }
+
     let scale = 1;
-    let end = matchStart + m[0].length;
+    let end = wrappedInAccountingParens ? rawEnd + 1 : rawEnd;
     let keepShortScale = false;
     if (cnScale === "万亿") scale = 1e12;
     else if (cnScale === "亿") scale = 1e8;
@@ -417,10 +443,11 @@ export function quantities(input: string, options: { implicit?: boolean } = {}):
     const b = out[i + 1]!;
     if (a.kind !== "" || a.dimension !== null) continue;
     if (b.kind === "" && b.dimension === null) continue;
-    const aAt = text.indexOf(a.text);
-    const bAt = aAt >= 0 ? text.indexOf(b.text, aAt + a.text.length) : -1;
-    if (aAt < 0 || bAt < 0) continue;
-    const between = text.slice(aAt + a.text.length, bAt);
+    const aAt = a.start ?? text.indexOf(a.text);
+    const aEnd = a.end ?? (aAt >= 0 ? aAt + a.text.length : -1);
+    const bAt = b.start ?? (aEnd >= 0 ? text.indexOf(b.text, aEnd) : -1);
+    if (aAt < 0 || aEnd < 0 || bAt < 0) continue;
+    const between = text.slice(aEnd, bAt);
     if (/^\s*(?:[-–—~]|至|到|\bto\b|\band\b)\s*$/i.test(between)) {
       if (b.kind !== "") {
         a.kind = b.kind;

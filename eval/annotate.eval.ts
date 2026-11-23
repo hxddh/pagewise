@@ -60,6 +60,8 @@ describe("evidence written into the PDF", () => {
     const misses: string[] = [];
     const rows: string[] = [];
 
+    const perDocStats = new Map<string, { written: number; seen: number; covered: number }>();
+
     for (const file of files) {
       const doc = loadDoc(file);
       const annotations: Array<Record<string, unknown>> = [];
@@ -108,6 +110,7 @@ describe("evidence written into the PDF", () => {
       await task.destroy();
       present += seen.size;
       covered += docCovered;
+      perDocStats.set(doc.id, { written: n, seen: seen.size, covered: docCovered });
       rows.push(`| ${doc.id} | ${n} | ${seen.size} | ${docCovered} |`);
     }
 
@@ -121,5 +124,13 @@ describe("evidence written into the PDF", () => {
     expect(written).toBeGreaterThan(300);
     expect(present / written).toBeGreaterThanOrEqual(ANNOTATE_GATES.present);
     expect(covered / present).toBeGreaterThanOrEqual(ANNOTATE_GATES.covered);
+    // Explicit geometry guard for rotated (`/Rotate 0/90/180/270`) and non-zero CropBox PDFs (30.0).
+    for (const special of ["rotated", "cropped"]) {
+      const stat = perDocStats.get(special);
+      if (stat && stat.written > 0) {
+        expect(stat.seen, `${special} highlight presence`).toBe(stat.written);
+        expect(stat.covered / stat.seen, `${special} quad coverage`).toBeGreaterThanOrEqual(0.95);
+      }
+    }
   });
 });

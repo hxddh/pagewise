@@ -12,7 +12,10 @@
 import { quantities, statedIn } from "./quantities";
 
 const CONDITIONAL_ESCAPE_EN = /\b(?:unless|except|provided\s+that|save\s+where|other\s+than)\b/i;
+const CONDITIONAL_QUALIFIER_EN =
+  /\b(?:if|when|where|subject\s+to|approved|authorized|with\b[^.;\n]{0,40}\b(?:consent|approval|permission|authorization)|without\b[^.;\n]{0,40}\b(?:consent|approval|permission|authorization))\b/i;
 const CONDITIONAL_ESCAPE_ZH = /(?:除非|但书|但.*除外|另有约定除外|经.*同意除外)/;
+const CONDITIONAL_QUALIFIER_ZH = /(?:若|如果|在.*情况下|经.*(?:同意|批准|许可|授权)|未经.*(?:同意|批准|许可|授权))/;
 
 interface LexicalPair {
   label: string;
@@ -75,11 +78,22 @@ function extractModalVerbsZh(text: string, re: RegExp): Set<string> {
 
 const EN_PROHIBIT_VERB =
   /\b(?:shall\s+not|must\s+not|may\s+not|cannot|can't|is\s+not\s+permitted\s+to|are\s+not\s+permitted\s+to|is\s+prohibited\s+from|are\s+prohibited\s+from)\s+(?:be\s+)?([a-z]{4,})\b/gi;
-const EN_PERMIT_VERB =
-  /(?<!\bnot\s)\b(?:may|can|is\s+permitted\s+to|are\s+permitted\s+to|is\s+entitled\s+to|are\s+entitled\s+to|has\s+the\s+right\s+to|have\s+the\s+right\s+to)\s+(?:freely\s+|be\s+)?([a-z]{4,})\b/gi;
+const EN_PERMIT_OR_OBLIGE_VERB =
+  /(?<!\bnot\s)\b(?:may|can|shall(?!\s+not\b)|must(?!\s+not\b)|is\s+permitted\s+to|are\s+permitted\s+to|is\s+entitled\s+to|are\s+entitled\s+to|has\s+the\s+right\s+to|have\s+the\s+right\s+to|is\s+required\s+to|are\s+required\s+to)\s+(?:freely\s+|be\s+)?([a-z]{4,})\b/gi;
 
-const ZH_PROHIBIT_VERB = /(?:不得|禁止|严禁|无权)\s*([一-鿿]{2,4})/g;
-const ZH_PERMIT_VERB = /(?<!不得|禁止|严禁|无|不)(?:有权|可以|允许|准予)\s*([一-鿿]{2,4})/g;
+const ZH_PROHIBIT_VERB = /(?:不得|禁止|严禁|无权|不承担|无需)\s*([一-鿿]{2,4})/g;
+const ZH_PERMIT_OR_OBLIGE_VERB = /(?<!不得|禁止|严禁|无|不|免于)(?:有权|可以|允许|准予|应当|必须)\s*([一-鿿]{2,4})/g;
+
+function stripExceptionTailEn(text: string): string {
+  return text.replace(
+    /[,;—–-]?\s*\b(?:unless|except|provided\s+that|save\s+where|other\s+than)\b[\s\S]*$/i,
+    "",
+  );
+}
+
+function stripExceptionTailZh(text: string): string {
+  return text.replace(/[，；、]?\s*(?:除非|但书|但[^\n。；]*除外|另有约定除外|经[^\n。；]*同意除外)[\s\S]*$/, "");
+}
 
 type BoundPole = "lower" | "upper";
 
@@ -122,35 +136,51 @@ function comparatorsForNumber(text: string, numText: string): BoundPole[] {
 
 type TimePole = "within" | "after";
 
-function deadlinePoleAround(text: string, numText: string): TimePole | null {
-  const idx = text.toLowerCase().indexOf(numText.toLowerCase());
-  if (idx < 0) return null;
-  const before = text.slice(Math.max(0, idx - 20), idx);
-  const after = text.slice(idx + numText.length, idx + numText.length + 24);
+function deadlinePolesForNumber(text: string, numText: string): TimePole[] {
+  if (!numText) return [];
+  const lowerText = text.toLowerCase();
+  const needle = numText.toLowerCase();
+  const poles: TimePole[] = [];
+  let from = 0;
+  while (from <= lowerText.length - needle.length) {
+    const idx = lowerText.indexOf(needle, from);
+    if (idx < 0) break;
+    from = idx + Math.max(1, needle.length);
+    const before = text.slice(Math.max(0, idx - 20), idx);
+    const after = text.slice(idx + numText.length, idx + numText.length + 24);
 
-  const isWithin =
-    /\b(?:within|no\s+later\s+than|before)\s*$/i.test(before) ||
-    /^\s*(?:个?(?:工作日|自然日|日|天|周|星期|个月|年|小时))?\s*(?:内|之内|以内)/.test(after);
-  const isAfter =
-    /\b(?:after|following|upon\s+expiration\s+of)\s*$/i.test(before) ||
-    /^\s*(?:个?(?:工作日|自然日|日|天|周|星期|个月|年|小时))\s*(?:后|之后|以后|届满后)/.test(after);
+    const isWithin =
+      /\b(?:within|no\s+later\s+than|before)\s*$/i.test(before) ||
+      /^\s*(?:个?(?:工作日|自然日|日|天|周|星期|个月|年|小时))?\s*(?:内|之内|以内)/.test(after);
+    const isAfter =
+      /\b(?:after|following|upon\s+expiration\s+of)\s*$/i.test(before) ||
+      /^\s*(?:个?(?:工作日|自然日|日|天|周|星期|个月|年|小时))\s*(?:后|之后|以后|届满后)/.test(after);
 
-  if (isWithin && !isAfter) return "within";
-  if (isAfter && !isWithin) return "after";
-  return null;
+    if (isWithin && !isAfter) poles.push("within");
+    else if (isAfter && !isWithin) poles.push("after");
+  }
+  return [...new Set(poles)];
 }
 
 type TrendPole = "up" | "down";
 
-function trendPoleAround(text: string, numText: string): TrendPole | null {
-  const idx = text.toLowerCase().indexOf(numText.toLowerCase());
-  if (idx < 0) return null;
-  const window = text.slice(Math.max(0, idx - 28), idx + numText.length + 16);
-  const up = /\b(?:increased?|grew|risen|rose|up)\b|增长|上升|提高|上调/i.test(window);
-  const down = /\b(?:decreased?|fell|dropped|declined|reduced|down)\b|下降|减少|降低|下调/i.test(window);
-  if (up && !down) return "up";
-  if (down && !up) return "down";
-  return null;
+function trendPolesForNumber(text: string, numText: string): TrendPole[] {
+  if (!numText) return [];
+  const lowerText = text.toLowerCase();
+  const needle = numText.toLowerCase();
+  const poles: TrendPole[] = [];
+  let from = 0;
+  while (from <= lowerText.length - needle.length) {
+    const idx = lowerText.indexOf(needle, from);
+    if (idx < 0) break;
+    from = idx + Math.max(1, needle.length);
+    const window = text.slice(Math.max(0, idx - 28), idx + numText.length + 16);
+    const up = /\b(?:increased?|grew|risen|rose|up)\b|增长|上升|提高|上调/i.test(window);
+    const down = /\b(?:decreased?|fell|dropped|declined|reduced|down)\b|下降|减少|降低|下调/i.test(window);
+    if (up && !down) poles.push("up");
+    else if (down && !up) poles.push("down");
+  }
+  return [...new Set(poles)];
 }
 
 const PARTY_PAIRS: ReadonlyArray<{
@@ -207,12 +237,20 @@ export function polarityMismatch(claim: string, context: string): string[] {
     }
   }
 
-  // 2. Modal prohibition vs permission on the SAME verb (unless conditional escape present)
-  if (!CONDITIONAL_ESCAPE_EN.test(normCtx) && !CONDITIONAL_ESCAPE_EN.test(normClaim)) {
+  // 2. Modal prohibition vs permission/obligation on the SAME verb, scoped to the
+  //    main clause so trailing `, except ...` / `，但...除外` provisos do not blind
+  //    verification when an unqualified claim flips the main prohibition, while
+  //    still allowing honest conditional restatements ("may assign with consent") (30.0).
+  const ctxHasEscapeEn = CONDITIONAL_ESCAPE_EN.test(normCtx);
+  if (
+    !CONDITIONAL_ESCAPE_EN.test(normClaim) &&
+    !(ctxHasEscapeEn && CONDITIONAL_QUALIFIER_EN.test(normClaim))
+  ) {
+    const mainCtxEn = ctxHasEscapeEn ? stripExceptionTailEn(normCtx) : normCtx;
     const cProhibit = extractModalVerbsEn(normClaim, EN_PROHIBIT_VERB);
-    const cPermit = extractModalVerbsEn(normClaim, EN_PERMIT_VERB);
-    const pProhibit = extractModalVerbsEn(normCtx, EN_PROHIBIT_VERB);
-    const pPermit = extractModalVerbsEn(normCtx, EN_PERMIT_VERB);
+    const cPermit = extractModalVerbsEn(normClaim, EN_PERMIT_OR_OBLIGE_VERB);
+    const pProhibit = extractModalVerbsEn(mainCtxEn, EN_PROHIBIT_VERB);
+    const pPermit = extractModalVerbsEn(mainCtxEn, EN_PERMIT_OR_OBLIGE_VERB);
     for (const v of cProhibit) {
       if (pPermit.has(v) && !pProhibit.has(v)) reasons.push(`prohibited vs permitted (${v})`);
     }
@@ -221,11 +259,16 @@ export function polarityMismatch(claim: string, context: string): string[] {
     }
   }
 
-  if (!CONDITIONAL_ESCAPE_ZH.test(normCtx) && !CONDITIONAL_ESCAPE_ZH.test(normClaim)) {
+  const ctxHasEscapeZh = CONDITIONAL_ESCAPE_ZH.test(normCtx);
+  if (
+    !CONDITIONAL_ESCAPE_ZH.test(normClaim) &&
+    !(ctxHasEscapeZh && CONDITIONAL_QUALIFIER_ZH.test(normClaim))
+  ) {
+    const mainCtxZh = ctxHasEscapeZh ? stripExceptionTailZh(normCtx) : normCtx;
     const cProhibitZh = extractModalVerbsZh(normClaim, ZH_PROHIBIT_VERB);
-    const cPermitZh = extractModalVerbsZh(normClaim, ZH_PERMIT_VERB);
-    const pProhibitZh = extractModalVerbsZh(normCtx, ZH_PROHIBIT_VERB);
-    const pPermitZh = extractModalVerbsZh(normCtx, ZH_PERMIT_VERB);
+    const cPermitZh = extractModalVerbsZh(normClaim, ZH_PERMIT_OR_OBLIGE_VERB);
+    const pProhibitZh = extractModalVerbsZh(mainCtxZh, ZH_PROHIBIT_VERB);
+    const pPermitZh = extractModalVerbsZh(mainCtxZh, ZH_PERMIT_OR_OBLIGE_VERB);
     for (const v of cProhibitZh) {
       if (pPermitZh.has(v) && !pProhibitZh.has(v)) reasons.push(`不得${v} ↔ 可以${v}`);
     }
@@ -250,17 +293,19 @@ export function polarityMismatch(claim: string, context: string): string[] {
       }
     }
 
-    const cTime = deadlinePoleAround(normClaim, cq.text);
-    if (cTime) {
-      const pTimes = matching.map((pq) => deadlinePoleAround(normCtx, pq.text)).filter(Boolean);
+    const cTimes = deadlinePolesForNumber(normClaim, cq.text);
+    if (cTimes.length === 1) {
+      const cTime = cTimes[0]!;
+      const pTimes = [...new Set(matching.flatMap((pq) => deadlinePolesForNumber(normCtx, pq.text)))];
       if (pTimes.length > 0 && pTimes.every((t) => t !== cTime)) {
         reasons.push(`${cq.text} (${cTime === "within" ? "within vs after" : "after vs within"})`);
       }
     }
 
-    const cTrend = trendPoleAround(normClaim, cq.text);
-    if (cTrend) {
-      const pTrends = matching.map((pq) => trendPoleAround(normCtx, pq.text)).filter(Boolean);
+    const cTrends = trendPolesForNumber(normClaim, cq.text);
+    if (cTrends.length === 1) {
+      const cTrend = cTrends[0]!;
+      const pTrends = [...new Set(matching.flatMap((pq) => trendPolesForNumber(normCtx, pq.text)))];
       if (pTrends.length > 0 && pTrends.every((t) => t !== cTrend)) {
         reasons.push(`${cq.text} (${cTrend === "up" ? "increase vs decrease" : "decrease vs increase"})`);
       }

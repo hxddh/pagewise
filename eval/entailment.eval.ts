@@ -14,10 +14,12 @@
  *   6. Party obligation swap & cross-format date/unit distortion ("乙方支付" vs "甲方支付", "1.8 ms" vs "1.8 s", "2025-04-18" vs "April 17, 2025")
  */
 import { describe, expect, it } from "vitest";
-import { claimBefore } from "../src/lib/answer-tables";
-import { extractCitations } from "../src/lib/citations";
+import { claimBefore, coCitationsBefore } from "../src/lib/answer-tables";
+import { citationKey, extractCitations } from "../src/lib/citations";
 import { withClaim, type CitationCheck } from "../src/lib/citation-check";
+import { docCache } from "../src/lib/doc-cache";
 import { passageAround } from "../src/lib/passage";
+import type { DocAnnotation } from "../src/lib/pdf-annotations";
 import { locateQuote, locateQuoteAll } from "../src/lib/quote-locate";
 import type { TextItemRect } from "../src/lib/types";
 
@@ -25,30 +27,86 @@ function run(text: string, x: number, y: number, width = 420, height = 12): Text
   return { text, rect: { x, y, width, height } };
 }
 
-function checkMarkdownAgainstRuns(markdown: string, pageRunsMap: Record<number, TextItemRect[]>) {
+function checkMarkdownAgainstRuns(
+  markdown: string,
+  pageRunsMap: Record<number, TextItemRect[]>,
+  options?: { prosePages?: Record<number, string>; annotations?: DocAnnotation[] },
+) {
+  const path = "/eval/entailment.pdf";
+  const maxPage = Math.max(1, ...Object.keys(pageRunsMap).map(Number));
+  docCache.set({
+    path,
+    name: "entailment.pdf",
+    kind: "pdf",
+    totalPages: maxPage,
+    pages: Array.from({ length: maxPage }, (_, i) => ({
+      page: i + 1,
+      text:
+        options?.prosePages?.[i + 1] ??
+        (pageRunsMap[i + 1] ?? []).map((r) => r.text).join(" "),
+      source: "native" as const,
+    })),
+    annotations: options?.annotations ?? [],
+  });
   const cites = extractCitations(markdown);
-  return cites.map((c) => {
+  const baseByKey = new Map<string, CitationCheck>();
+  for (const c of cites) {
     const page = c.pages[0]!;
     const items = pageRunsMap[page] ?? [];
     const quote = c.quote ?? "";
     const outcome = locateQuote(items, quote);
     if (outcome.status !== "located") {
-      return { status: outcome.status };
+      baseByKey.set(citationKey(c), { status: outcome.status as CitationCheck["status"] });
+      continue;
     }
     const all = locateQuoteAll(items, quote);
     const candidates = all.map((m) => ({
       rects: m.rects,
       passage: passageAround(items, m.rects),
     }));
-    const base: CitationCheck = {
+    baseByKey.set(citationKey(c), {
       status: "located",
+      path,
       page,
       rects: outcome.rects,
       passage: candidates[0]?.passage ?? passageAround(items, outcome.rects),
       ...(candidates.length > 1 ? { candidates } : {}),
-    };
+    });
+  }
+  return cites.map((c) => {
+    const base = baseByKey.get(citationKey(c))!;
+    if (base.status !== "located") return base;
     const claim = claimBefore(markdown, c.index);
-    return withClaim(base, claim, quote)!;
+    const siblings = coCitationsBefore(markdown, c.index);
+    // Pool verified sibling passages for multi-citation rows/claims (30.0).
+    const sibContext = siblings
+      .filter((s) => baseByKey.get(citationKey(s))?.status === "located")
+      .map((s) => `${baseByKey.get(citationKey(s))?.passage ?? ""}\n${s.quote}`)
+      .join("\n");
+    const enrichedBase: CitationCheck = sibContext
+      ? {
+          ...base,
+          // Keep own passage for polarity/strikethrough while testing full pipeline:
+          candidates: (
+            base.candidates ?? [{ rects: base.rects ?? [], passage: base.passage ?? "" }]
+          ).map((cand) => ({ ...cand })),
+        }
+      : base;
+    // Temporarily seed citation-check cache via `withClaim` when no async cache is used:
+    if (sibContext) {
+      const mergedCheck: CitationCheck = {
+        ...enrichedBase,
+        passage: `${enrichedBase.passage ?? ""}\n${sibContext}`,
+        candidates: undefined,
+      };
+      const numericOnly = withClaim(mergedCheck, claim, c.quote, path);
+      if (numericOnly?.status === "mismatch") return numericOnly;
+      // Still verify polarity & strikethrough strictly against this citation's own passage:
+      const strictNoNums = claim.replace(/\d+(?:[.,]\d+)?%?/g, "");
+      const ownStrict = withClaim(enrichedBase, strictNoNums, c.quote, path);
+      return ownStrict?.status === "mismatch" ? ownStrict : enrichedBase;
+    }
+    return withClaim(enrichedBase, claim, c.quote, path)!;
   });
 }
 
@@ -56,6 +114,8 @@ interface AdversarialCase {
   category: string;
   name: string;
   runs: Record<number, TextItemRect[]>;
+  prosePages?: Record<number, string>;
+  annotations?: DocAnnotation[];
   honest: string;
   adversarial: string;
 }
@@ -211,19 +271,95 @@ const CASES: readonly AdversarialCase[] = [
     adversarial:
       'Signed on 2025-04-18, the fee is 1.5% and P99 latency is 1.8 seconds〔p9 "P99 latency is 1.8 ms"〕.',
   },
+
+  // 7. v30.0 Hardened Entailment: accounting negatives, exception clauses,
+  //    prohibition↔obligation flips, multi-citation Sources cells, & 2-char redlines
+  {
+    category: "v30Hardening",
+    name: "parenthesized accounting negative (12.5%) vs positive 12.5%",
+    runs: {
+      3: [run("GAAP operating margin for FY2025 was (12.5%) compared with prior guidance.", 72, 640)],
+    },
+    honest: 'GAAP operating margin was -12.5% in FY2025〔p3 "operating margin for FY2025 was (12.5%)"〕.',
+    adversarial: 'GAAP operating margin was 12.5% in FY2025〔p3 "operating margin for FY2025"〕.',
+  },
+  {
+    category: "v30Hardening",
+    name: "prohibition with narrow exception clause (`except with prior written consent`)",
+    runs: {
+      4: [
+        run(
+          "Contractor shall not subcontract any work, except where approved in writing by Owner.",
+          72,
+          620,
+        ),
+      ],
+    },
+    honest:
+      'Contractor shall not subcontract the work without written approval〔p4 "Contractor shall not subcontract any work"〕.',
+    adversarial:
+      'Contractor may subcontract any work freely〔p4 "subcontract any work, except where approved"〕.',
+  },
+  {
+    category: "v30Hardening",
+    name: "prohibition vs mandatory obligation flip (`shall not disclose` vs `must disclose`)",
+    runs: {
+      5: [run("Recipient shall not disclose Confidential Information to third parties.", 72, 600)],
+    },
+    honest:
+      'Recipient must not disclose Confidential Information〔p5 "Recipient shall not disclose Confidential Information"〕.',
+    adversarial:
+      'Recipient must disclose Confidential Information to third parties〔p5 "Confidential Information to third parties"〕.',
+  },
+  {
+    category: "v30Hardening",
+    name: "multi-citation dedicated Sources table cell verifies uncited value cells",
+    runs: {
+      2: [run("Initial milestone deposit: 30% upon signing.", 72, 680)],
+      5: [run("Final acceptance balance: 70% within 15 days.", 72, 640)],
+    },
+    honest: [
+      "| Item | Split | Sources |",
+      "| --- | --- | --- |",
+      '| Payment | 30%, 70% | 〔p2 "deposit: 30% upon signing"〕 〔p5 "balance: 70% within 15 days"〕 |',
+    ].join("\n"),
+    adversarial: [
+      "| Item | Split | Sources |",
+      "| --- | --- | --- |",
+      '| Payment | 30%, 95% | 〔p2 "deposit: 30% upon signing"〕 〔p5 "balance: 70% within 15 days"〕 |',
+    ].join("\n"),
+  },
+  {
+    category: "v30Hardening",
+    name: "2-char inline redline strikethrough (`<s>5%</s> 3%`)",
+    runs: {
+      7: [run("Late fee rate is 5% 3% per month.", 72, 600)],
+    },
+    prosePages: {
+      7: "Late fee rate is <s>5%</s> 3% per month.",
+    },
+    honest: 'The late fee was reduced from a struck-out 5% to 3% per month〔p7 "Late fee rate is 5% 3%"〕.',
+    adversarial: 'The active late fee rate is 5% per month〔p7 "Late fee rate is 5%"〕.',
+  },
 ];
 
-describe("Entailment 2.0 adversarial verification suite (v26)", () => {
+describe("Entailment 2.0 adversarial verification suite (v26–v30)", () => {
   it("passes 100% of honest paraphrases and flags 100% of adversarial distortions", () => {
     const falseAlarms: string[] = [];
     const missedAdversarial: string[] = [];
 
     for (const tc of CASES) {
-      const honestResults = checkMarkdownAgainstRuns(tc.honest, tc.runs);
+      const honestResults = checkMarkdownAgainstRuns(tc.honest, tc.runs, {
+        prosePages: tc.prosePages,
+        annotations: tc.annotations,
+      });
       if (honestResults.some((r) => r.status !== "located")) {
         falseAlarms.push(`${tc.category}/${tc.name}: ${JSON.stringify(honestResults)}`);
       }
-      const advResults = checkMarkdownAgainstRuns(tc.adversarial, tc.runs);
+      const advResults = checkMarkdownAgainstRuns(tc.adversarial, tc.runs, {
+        prosePages: tc.prosePages,
+        annotations: tc.annotations,
+      });
       if (!advResults.some((r) => r.status === "mismatch")) {
         missedAdversarial.push(`${tc.category}/${tc.name}: ${JSON.stringify(advResults)}`);
       }

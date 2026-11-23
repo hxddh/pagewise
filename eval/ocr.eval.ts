@@ -54,7 +54,9 @@ const ENGINE = (createRequire(import.meta.url)("tesseract.js/package.json") as {
 export const OCR_GATES = {
   proseEn: 0.95,
   proseZh: 0.85,
-  overall: 0.8,
+  twoColumn: 0.88,
+  table: 0.7,
+  overall: 0.85,
   falsePositives: 0.01,
   medianMs: 5_000,
 };
@@ -307,8 +309,8 @@ describe("citations on scanned pages (local OCR)", () => {
         "|---|---:|---:|---:|",
         `| single-column prose (English) | ${tally.proseEn[1]} | ${pct(...tally.proseEn)} | ≥ ${OCR_GATES.proseEn * 100}% |`,
         `| prose (Chinese) | ${tally.proseZh[1]} | ${pct(...tally.proseZh)} | ≥ ${OCR_GATES.proseZh * 100}% |`,
-        `| two-column | ${tally.twoColumn[1]} | ${pct(...tally.twoColumn)} | not a promise |`,
-        `| tables | ${tally.table[1]} | ${pct(...tally.table)} | not a promise |`,
+        `| two-column | ${tally.twoColumn[1]} | ${pct(...tally.twoColumn)} | ≥ ${OCR_GATES.twoColumn * 100}% |`,
+        `| tables | ${tally.table[1]} | ${pct(...tally.table)} | ≥ ${OCR_GATES.table * 100}% |`,
         `| **generated corpus** | ${overall[1]} | **${pct(...overall)}** | ≥ ${OCR_GATES.overall * 100}% |`,
         `| fetched (incl. a real scan) | ${tally.fetched[1]} | ${pct(...tally.fetched)} | reported |`,
         `| altered quotes wrongly located | ${negTried} | ${negFound} (${pct(negFound, negTried)}) | ≤ ${OCR_GATES.falsePositives * 100}% |`,
@@ -332,6 +334,8 @@ describe("citations on scanned pages (local OCR)", () => {
     expect(overall[1]).toBeGreaterThan(300);
     expect(tally.proseEn[0] / tally.proseEn[1]).toBeGreaterThanOrEqual(OCR_GATES.proseEn);
     expect(tally.proseZh[0] / tally.proseZh[1]).toBeGreaterThanOrEqual(OCR_GATES.proseZh);
+    expect(tally.twoColumn[0] / tally.twoColumn[1]).toBeGreaterThanOrEqual(OCR_GATES.twoColumn);
+    expect(tally.table[0] / tally.table[1]).toBeGreaterThanOrEqual(OCR_GATES.table);
     expect(overall[0] / overall[1]).toBeGreaterThanOrEqual(OCR_GATES.overall);
     expect(negFound / negTried).toBeLessThanOrEqual(OCR_GATES.falsePositives);
     expect(medianMs).toBeLessThanOrEqual(OCR_GATES.medianMs);

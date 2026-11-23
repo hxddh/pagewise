@@ -88,8 +88,15 @@ export function createReviseFindingTool() {
           pages: finding.pages,
           ...(verification ? { verification } : {}),
           ...(placement?.status === "mismatch" && placement.unstated.length > 0
-            ? { unstated: placement.unstated }
-            : {}),
+            ? {
+                unstated: placement.unstated,
+                note: `Revised, but "${placement.unstated.join(", ")}" in claim conflicted with or was absent from the quoted passage — call revise_finding again if inaccurate.`,
+              }
+            : placement?.status === "absent"
+              ? {
+                  note: "Revised, but `evidence` was not found verbatim on the cited page(s) — verify exact wording.",
+                }
+              : {}),
         };
       },
     ),
