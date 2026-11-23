@@ -93,7 +93,7 @@ export interface PageRuns {
  */
 async function recognisedRuns(path: string, page: number): Promise<PageRuns | null> {
   const doc = docCache.get(path);
-  if (!ocrEnabled() || doc?.kind !== "pdf") return null;
+  if (!ocrEnabled() || (doc?.kind !== "pdf" && doc?.kind !== "image")) return null;
   const entry = Array.isArray(doc.pages) ? doc.pages[page - 1] : undefined;
   if (entry?.source === "native" && entry.text.trim().length >= MIN_INDEX_CHARS) {
     return null;

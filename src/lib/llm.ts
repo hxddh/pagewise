@@ -148,11 +148,12 @@ function transformProviderRequestBody(settings: LlmSettings, rawBody: string): s
   const withWeb = settings.provider === "openrouter" ? takeWebSearchInjection(rawBody) : null;
   const source = withWeb ?? rawBody;
   const isOllama = settings.provider === "ollama";
-  const isAnthropicRoute =
+  const lowerModel = settings.model.trim().toLowerCase();
+  const isEphemeralCacheRoute =
     settings.provider === "openrouter" &&
-    settings.model.trim().toLowerCase().startsWith("anthropic/");
+    (lowerModel.startsWith("anthropic/") || lowerModel.startsWith("google/gemini-"));
   const isDeepseek = isDeepseekModel(settings);
-  if (!isOllama && !isAnthropicRoute && !isDeepseek) return source;
+  if (!isOllama && !isEphemeralCacheRoute && !isDeepseek) return source;
 
   try {
     const parsed = JSON.parse(source) as Record<string, unknown>;
@@ -169,30 +170,44 @@ function transformProviderRequestBody(settings: LlmSettings, rawBody: string): s
       }
     }
 
-    if (isAnthropicRoute && Array.isArray(parsed.messages)) {
+    if (isEphemeralCacheRoute && Array.isArray(parsed.messages)) {
       const msgs = parsed.messages as Array<Record<string, unknown>>;
-      const markCacheEphemeral = (m: Record<string, unknown> | undefined) => {
-        if (!m) return;
+      const markCacheEphemeral = (m: Record<string, unknown> | undefined): boolean => {
+        if (!m) return false;
         if (typeof m.content === "string") {
+          // Never wrap an empty string: Anthropic rejects `{ type: "text", text: "" }` with HTTP 400.
+          if (m.content.length === 0) return false;
           m.content = [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }];
           mutated = true;
-        } else if (Array.isArray(m.content) && m.content.length > 0) {
-          const last = m.content[m.content.length - 1] as Record<string, unknown>;
-          if (last && typeof last === "object" && last.cache_control === undefined) {
-            last.cache_control = { type: "ephemeral" };
-            mutated = true;
+          return true;
+        }
+        if (Array.isArray(m.content) && m.content.length > 0) {
+          for (let k = m.content.length - 1; k >= 0; k -= 1) {
+            const block = m.content[k] as Record<string, unknown> | undefined;
+            if (!block || typeof block !== "object") continue;
+            if (block.type === "text" && typeof block.text === "string" && block.text.length === 0) {
+              continue;
+            }
+            if (block.cache_control === undefined) {
+              block.cache_control = { type: "ephemeral" };
+              mutated = true;
+            }
+            return true;
           }
         }
+        return false;
       };
       for (const m of msgs) {
         if (m && m.role === "system") markCacheEphemeral(m);
       }
-      // Place a second ephemeral cache breakpoint on the message immediately
-      // preceding the newest message so multi-turn history and multi-step tool
-      // loops on Claude hit Anthropic's prompt cache (29.0).
-      if (msgs.length >= 3) {
-        const prior = msgs[msgs.length - 2];
-        if (prior && prior.role !== "system") markCacheEphemeral(prior);
+      // Place the rolling conversation cache breakpoint on the latest non-empty
+      // non-system message (`user` on step 1, latest `tool` result on step 2..N)
+      // so every tool-loop step hits 100% of prior context and caches the newest
+      // tool output for the next step without failing on `content: null` assistant turns (30.0).
+      for (let i = msgs.length - 1; i >= 0; i -= 1) {
+        const candidate = msgs[i];
+        if (!candidate || candidate.role === "system") continue;
+        if (markCacheEphemeral(candidate)) break;
       }
     }
 

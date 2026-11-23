@@ -27,8 +27,8 @@ body
 .preview-canvas-wrap.image-wrap
 .preview-canvas, .preview-image
 .preview-canvas
-[data-theme="paper"] .preview-canvas, [data-theme="paper"] .preview-image
-[data-theme="night"] .preview-canvas, [data-theme="night"] .preview-image
+[data-theme="paper"] .preview-canvas
+[data-theme="night"] .preview-canvas
 .preview-page-frame
 .pdf-text-layer:not(.pdf-text-layer-active)
 .pdf-text-layer
@@ -353,6 +353,14 @@ button.pages-read-chip:hover
 .pdf-link-layer
 .pdf-link
 .pdf-link:hover, .pdf-link:focus-visible
+.link-peek-card
+.link-peek-head
+.link-peek-page
+.link-peek-title
+.link-peek-thumb-wrap
+.link-peek-thumb
+[data-theme="night"] .link-peek-thumb
+.link-peek-snippet
 .pdf-mark-layer
 .pdf-mark
 .pdf-mark-text
@@ -369,6 +377,7 @@ button.pages-read-chip:hover
 .mark-selection-btn:hover
 .mark-stale-note
 .pdf-region-layer
+.preview-panel[data-alt-ready="true"] .pdf-page-slot, .preview-panel[data-alt-ready="true"] .pdf-text-layer span, .preview-panel[data-alt-ready="true"] .pdf-link, .preview-panel[data-alt-ready="true"] .pdf-mark
 .pdf-region-band
 .preview-jump-pill, .region-mode-pill
 .preview-jump-pill

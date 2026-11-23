@@ -101,6 +101,23 @@ pub const PDF_DAMAGED: &str = "pdf-damaged";
 pub const FILE_TOO_LARGE: &str = "file-too-large";
 /// Neither a PDF nor an image this platform's webview can show.
 pub const UNSUPPORTED_TYPE: &str = "unsupported-type";
+/// The file on disk was modified since the frontend opened its snapshot (30.0).
+pub const PDF_CHANGED: &str = "pdf-changed";
+
+/// Nanosecond modification-time + byte-length stamp (`"<secs>.<nanos:09>:<len>"`).
+pub fn stamp_of_meta(meta: &std::fs::Metadata) -> Result<String, String> {
+    let mtime = meta
+        .modified()
+        .map_err(|e| format!("Failed to read file metadata: {e}"))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("Failed to read file metadata: {e}"))?;
+    Ok(format!(
+        "{}.{:09}:{}",
+        mtime.as_secs(),
+        mtime.subsec_nanos(),
+        meta.len()
+    ))
+}
 
 pub fn coded(code: &str, detail: impl Display) -> String {
     format!("{code}: {detail}")

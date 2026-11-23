@@ -1,4 +1,4 @@
-import { getActiveReaderSelection } from "./active-selection";
+import { consumePinnedDraftSelection, getActiveReaderSelection } from "./active-selection";
 import { docCache } from "./doc-cache";
 import { DOCUMENT_OUTLINE_TOOL } from "./document-tool-names";
 import { marksOnPage } from "./mark-store";
@@ -137,13 +137,21 @@ export function buildViewContextInstructions(ctx: AgentMessageContext): string {
       ? base
       : `${base} The user is viewing page ${ctx.viewingPage}; read that page first for "this page"/"本页"/"当前页" requests or when the question likely refers to what they are looking at — otherwise search or read whichever pages answer the question.`;
 
-  const activeSel = getActiveReaderSelection(ctx.path);
+  const liveSel = getActiveReaderSelection(ctx.path);
+  // Prevent off-screen lingering DOM selections from earlier pages from polluting
+  // questions on `ctx.viewingPage`, while honoring pinned "Ask about this" drafts (30.0).
+  const activeSel =
+    liveSel?.pinnedForDraft
+      ? liveSel
+      : liveSel && (ctx.viewingPage <= 0 || liveSel.page === ctx.viewingPage)
+        ? liveSel
+        : consumePinnedDraftSelection(ctx.path);
   if (activeSel) {
     const snippet = sanitizeForPrompt(activeSel.text, 900);
     if (activeSel.kind === "region") {
       out += snippet
         ? `\nThe user currently has a boxed region selected on page ${activeSel.page} containing: "${snippet}" (use read_figure on page ${activeSel.page} if visual chart/diagram details are needed).`
-        : `\nThe user currently has a boxed visual region selected on page ${activeSel.page} (use read_figure on page ${activeSel.page} with fullPage=true to inspect it).`;
+        : `\nThe user currently has a boxed visual region selected on page ${activeSel.page} (use read_figure on page ${activeSel.page} to inspect that cropped region).`;
     } else if (snippet) {
       out += `\nThe user currently has this passage highlighted on page ${activeSel.page}: "${snippet}".`;
     }

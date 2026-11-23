@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
@@ -11,9 +12,10 @@ import { flushMarks, getMarks, loadMarks, subscribeMarks } from "../lib/mark-sto
 import { flushFindings, loadFindings, subscribeFindings } from "../lib/finding-store";
 import { flushIndexStore } from "../lib/index-store";
 import { flushOcrService } from "../lib/ocr/ocr-service";
-import { checkCitation } from "../lib/citation-check";
+import { checkCitation, clearCitationChecks } from "../lib/citation-check";
 import { loadReviews } from "../lib/claim-review";
 import { clearFindingAnchors, prewarmPlacements } from "../lib/finding-anchors";
+import { isTauriRuntime } from "../lib/runtime";
 import { trustedFindings } from "../lib/agent-record-context";
 import { TRUST_DOUBTFUL } from "../lib/finding-trust";
 import { briefToMarkdown, BRIEF_LABELS_EN, BRIEF_LABELS_ZH } from "../lib/export-brief";
@@ -138,8 +140,11 @@ export function useWorkbench(): Workbench {
   const loadingRef = useRef(false);
   loadingRef.current = loading;
   const queuedOpenPathRef = useRef<string | null>(null);
-  const queuedOpenOptionsRef = useRef<{ forceReload?: boolean } | undefined>(undefined);
+  const queuedOpenOptionsRef = useRef<{ forceReload?: boolean; silentHotReload?: boolean } | undefined>(
+    undefined,
+  );
   const notifiedStampRef = useRef<string | null>(null);
+  const pendingExternalStampRef = useRef<{ path: string; stamp: string } | null>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
   const chatHydrateRef = useRef<{ path: string; messages: PageWiseUIMessage[] } | null>(null);
   const scopeRef = useRef<DocumentScope | null>(null);
@@ -313,7 +318,7 @@ export function useWorkbench(): Workbench {
   }, [recordProgress]);
 
   const switchDocument = useCallback(
-    async (path: string, options?: { forceReload?: boolean }) => {
+    async (path: string, options?: { forceReload?: boolean; silentHotReload?: boolean }) => {
       if (loadingRef.current) {
         queuedOpenPathRef.current = path;
         queuedOpenOptionsRef.current = options;
@@ -329,22 +334,27 @@ export function useWorkbench(): Workbench {
       const prevPage = previewPageRef.current;
       const prevStamp = notifiedStampRef.current;
       const wasReload = Boolean(options?.forceReload || prevPath === path);
+      const isSilentHotReload = Boolean(options?.silentHotReload && prev && prev.path === path);
 
       loadAbortRef.current?.abort();
       const controller = new AbortController();
       loadAbortRef.current = controller;
 
-      setPhase("switching");
-      setLoading(true);
       loadingRef.current = true;
-      setChatLoading(true);
-      setProgress({ stage: "opening", message: "load.opening", percent: 0 });
       setFileError(null);
+      if (!isSilentHotReload) {
+        setPhase("switching");
+        setLoading(true);
+        setChatLoading(true);
+        setProgress({ stage: "opening", message: "load.opening", percent: 0 });
+      }
 
       await agent.run.waitForIdle();
       const messagesToSave = stampMissingFinishedAt([...messagesRef.current], Date.now());
-      agent.run.stop();
-      agent.run.reset();
+      if (!isSilentHotReload) {
+        agent.run.stop();
+        agent.run.reset();
+      }
 
       let fastShellMounted = false;
 
@@ -400,6 +410,7 @@ export function useWorkbench(): Workbench {
       if (wasReload) {
         clearPdfCache(path);
         clearFindingAnchors(path);
+        clearCitationChecks(path);
       }
 
       const rememberedPage = options?.forceReload
@@ -469,17 +480,20 @@ export function useWorkbench(): Workbench {
 
         if (epochRef.current !== myEpoch) return;
 
-        let messages: PageWiseUIMessage[] = [];
+        let messages: PageWiseUIMessage[] = messagesToSave;
         let preloadedFindings: Awaited<ReturnType<typeof loadFindings>> | null = null;
-        if (earlyStoresPromise) {
-          const resolved = await (earlyStoresPromise as Promise<PreflightStores>);
-          messages = resolved.messages;
-          preloadedFindings = resolved.findings;
-        } else {
-          try {
-            messages = (await loadChat(path, staged.identity)) as PageWiseUIMessage[];
-          } catch (e) {
-            if (import.meta.env.DEV) console.warn("[session] chat history load failed", e);
+        if (!isSilentHotReload) {
+          messages = [];
+          if (earlyStoresPromise) {
+            const resolved = await (earlyStoresPromise as Promise<PreflightStores>);
+            messages = resolved.messages;
+            preloadedFindings = resolved.findings;
+          } else {
+            try {
+              messages = (await loadChat(path, staged.identity)) as PageWiseUIMessage[];
+            } catch (e) {
+              if (import.meta.env.DEV) console.warn("[session] chat history load failed", e);
+            }
           }
         }
 
@@ -490,14 +504,15 @@ export function useWorkbench(): Workbench {
         }
         if (epochRef.current !== myEpoch) return;
 
-        if (!fastShellMounted) {
+        if (!fastShellMounted && !isSilentHotReload) {
           scopeRef.current?.dispose();
           scopeRef.current = null;
         }
 
         const doc = commitLoadedDocument(staged, { deferScheduleIndex: true });
         notifiedStampRef.current = doc.stamp ?? null;
-        if (!fastShellMounted) {
+        pendingExternalStampRef.current = null;
+        if (!fastShellMounted && !scopeRef.current) {
           scopeRef.current = createDocumentScope(doc.path);
         }
         const findings =
@@ -510,11 +525,16 @@ export function useWorkbench(): Workbench {
             ])
           )[1];
         void prewarmPlacements(doc.path, findings);
-        chatHydrateRef.current = { path: doc.path, messages };
-        setChatHydrateNonce((n) => n + 1);
+        if (!isSilentHotReload) {
+          chatHydrateRef.current = { path: doc.path, messages };
+          setChatHydrateNonce((n) => n + 1);
+        }
         setDocument(docCache.get(doc.path) ?? doc);
-        const resumeAt = rememberedPage > 1 && rememberedPage <= doc.totalPages ? rememberedPage : 1;
-        setPreviewPage(resumeAt);
+        const resumeAt =
+          rememberedPage > 1 && rememberedPage <= doc.totalPages ? rememberedPage : 1;
+        if (!isSilentHotReload || resumeAt !== previewPageRef.current) {
+          setPreviewPage(resumeAt);
+        }
         setPhase("ready");
 
         // Start background OCR/vision sweep after first paint settles so Page 1
@@ -543,12 +563,16 @@ export function useWorkbench(): Workbench {
         } catch {
           // Recents failure never aborts an already-opened document.
         }
-        showToast(
-          resumeAt > 1 && !options?.forceReload
-            ? t("toast.resumedAt", { page: resumeAt })
-            : t("toast.opened", { name: doc.name }),
-          "success",
-        );
+        if (isSilentHotReload) {
+          showToast(t("toast.fileChangedOnDisk"), "default");
+        } else {
+          showToast(
+            resumeAt > 1 && !options?.forceReload
+              ? t("toast.resumedAt", { page: resumeAt })
+              : t("toast.opened", { name: doc.name }),
+            "success",
+          );
+        }
       } catch (e) {
         if (epochRef.current !== myEpoch) return;
         if (e instanceof Error && e.name === "AbortError") {
@@ -625,27 +649,85 @@ export function useWorkbench(): Workbench {
     setPasswordTarget(null);
   }, []);
 
-  // Detect external modifications on window focus and offer a 1-click reload.
+  // Option A (30.0): Silent zero-flash live hot-reload when the open document
+  // changes on disk while the assistant is idle; if an AI stream is running,
+  // hold the current snapshot steady (`expectedStamp` lock) and hot-reload as
+  // soon as the stream finishes.
+  const handleExternalModification = useCallback(
+    (targetPath: string, freshStamp: string) => {
+      const cur = documentRef.current;
+      if (!cur || cur.path !== targetPath || phase !== "ready" || loadingRef.current || !cur.stamp) {
+        return;
+      }
+      if (!freshStamp || freshStamp === cur.stamp) return;
+      if (agent.run.isBusy()) {
+        pendingExternalStampRef.current = { path: cur.path, stamp: freshStamp };
+        if (notifiedStampRef.current !== freshStamp) {
+          notifiedStampRef.current = freshStamp;
+          showToast(t("toast.fileChangedOnDisk"), "default", {
+            label: t("toast.reloadAction"),
+            onClick: () => {
+              pendingExternalStampRef.current = null;
+              void switchDocument(cur.path, { forceReload: true, silentHotReload: true });
+            },
+          });
+        }
+        return;
+      }
+      if (notifiedStampRef.current === freshStamp) return;
+      notifiedStampRef.current = freshStamp;
+      pendingExternalStampRef.current = null;
+      void switchDocument(cur.path, { forceReload: true, silentHotReload: true });
+    },
+    [agent.run, phase, showToast, switchDocument, t],
+  );
+
+  useEffect(() => {
+    const pending = pendingExternalStampRef.current;
+    const cur = documentRef.current;
+    if (!pending || !cur || cur.path !== pending.path || phase !== "ready" || loadingRef.current) {
+      return;
+    }
+    if (agent.run.isBusy()) return;
+    pendingExternalStampRef.current = null;
+    if (pending.stamp !== cur.stamp) {
+      void switchDocument(cur.path, { forceReload: true, silentHotReload: true });
+    }
+  }, [agent.run, agent.run.status, phase, switchDocument]);
+
   useEffect(() => {
     const onFocus = () => {
       const cur = documentRef.current;
       if (!cur || phase !== "ready" || loadingRef.current || !cur.stamp) return;
       void fileStamp(cur.path)
         .then((freshStamp) => {
-          if (!freshStamp || documentRef.current?.path !== cur.path) return;
-          if (freshStamp !== cur.stamp && notifiedStampRef.current !== freshStamp) {
-            notifiedStampRef.current = freshStamp;
-            showToast(t("toast.fileChangedOnDisk"), "default", {
-              label: t("toast.reloadAction"),
-              onClick: () => void switchDocument(cur.path, { forceReload: true }),
-            });
-          }
+          if (freshStamp) handleExternalModification(cur.path, freshStamp);
         })
         .catch(() => {});
     };
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [phase, showToast, switchDocument, t]);
+    let disposed = false;
+    let unlistenWatch: (() => void) | null = null;
+    if (isTauriRuntime()) {
+      void listen<{ path?: string; stamp?: string }>("pagewise://document-modified", (ev) => {
+        if (disposed) return;
+        const modPath = typeof ev.payload?.path === "string" ? ev.payload.path : "";
+        const modStamp = typeof ev.payload?.stamp === "string" ? ev.payload.stamp : "";
+        if (modPath && modStamp) handleExternalModification(modPath, modStamp);
+      }).then(
+        (fn) => {
+          if (disposed) fn();
+          else unlistenWatch = fn;
+        },
+        () => {},
+      );
+    }
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", onFocus);
+      unlistenWatch?.();
+    };
+  }, [handleExternalModification, phase]);
 
   const openPath = useCallback(
     (path: string) => {

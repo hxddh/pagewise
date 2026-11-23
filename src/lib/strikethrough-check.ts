@@ -96,7 +96,7 @@ export function struckOutMismatch(
 
   // 2. Extracted `<s>...</s>` / `~~...~~` spans on the cited page when no
   //    unstruck occurrence of the same quote exists on that page.
-  if (foldedQuote.length < 3) return [];
+  if (foldedQuote.length < 2) return [];
   const pages = typeof docCache.getPages === "function" ? docCache.getPages(path) : (doc?.pages ?? []);
   const pageEntry = pages.find((p) => p.page === page);
   const pageMarkdown = pageEntry?.text ?? "";
@@ -110,13 +110,27 @@ export function struckOutMismatch(
   while ((m = STRUCK_SPAN_RE.exec(pageMarkdown)) !== null) {
     const inner = m[1] ?? m[2] ?? "";
     const folded = foldForStrike(inner);
-    if (folded.length >= 3) struckSpans.push({ raw: inner, folded });
+    // Catch 2-char surgical legal/financial redlines (`<s>5%</s>`, `<s>30</s>`,
+    // `<s>甲方</s>`, `<s>不得</s>`) as well as >=3-char struck phrases (30.0).
+    const significantTwoChar =
+      folded.length === 2 && /[\d%‰‱一-鿿]/.test(folded);
+    if (folded.length >= 3 || significantTwoChar) {
+      struckSpans.push({ raw: inner, folded });
+    }
   }
   if (struckSpans.length === 0) return [];
 
-  const hit = struckSpans.find(
-    (s) => foldedQuote.includes(s.folded) || s.folded.includes(foldedQuote),
-  );
+  const overlapsBoundary = (a: string, b: string): boolean => {
+    if (a.includes(b) || b.includes(a)) return true;
+    const minOverlap = Math.min(a.length, b.length, 6);
+    if (minOverlap < 4) return false;
+    for (let len = Math.min(a.length, b.length); len >= minOverlap; len -= 1) {
+      if (a.endsWith(b.slice(0, len)) || b.endsWith(a.slice(0, len))) return true;
+    }
+    return false;
+  };
+
+  const hit = struckSpans.find((s) => overlapsBoundary(foldedQuote, s.folded));
   if (!hit) return [];
 
   const unstruckMarkdown = pageMarkdown.replace(STRUCK_SPAN_RE, " ");

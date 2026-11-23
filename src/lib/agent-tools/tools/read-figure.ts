@@ -1,7 +1,8 @@
 import { tool } from "ai";
 import { visionModelAvailable } from "../../settings";
 import { z } from "zod";
-import { describeFigure, describeFigureOrPage, figuresOnPage } from "../../read-figure";
+import { consumePinnedDraftSelection, getActiveReaderSelection } from "../../active-selection";
+import { describeFigure, describeFigureOrPage, figuresOnPage, viewRectToPdfRect } from "../../read-figure";
 import { getAgentRunAbortSignal } from "../../agent-abort";
 import { throwIfAborted } from "../../abort-utils";
 import * as R from "../reading";
@@ -52,23 +53,41 @@ export function createReadFigureTool(
         }
 
         const figures = figuresOnPage(doc.figures, page);
-        if (!fullPage && figures.length === 0 && index > 1) {
+        // When the user boxed a specific region on `page` (`Alt+drag`), prioritize
+        // cropping that exact user-boxed region on default `read_figure({ page })` (30.0).
+        const sel = getActiveReaderSelection(path);
+        const boxedViewRect =
+          !fullPage && index === 1 && sel?.kind === "region" && sel.page === page && sel.pdfRect
+            ? sel.pdfRect
+            : undefined;
+        if (!fullPage && !boxedViewRect && figures.length === 0 && index > 1) {
           return {
             page,
             figureCount: 0,
             note: `Page ${page} has no embedded bitmap figures; omit index to inspect the rendered page.`,
           };
         }
-        const figure = !fullPage && figures.length > 0 ? figures[index - 1] : undefined;
-        if (!fullPage && figures.length > 0 && !figure) {
+        const candidateFigure = !fullPage && figures.length > 0 ? figures[index - 1] : undefined;
+        if (!fullPage && !boxedViewRect && figures.length > 0 && !candidateFigure) {
           return {
             page,
             figureCount: figures.length,
             note: `Page ${page} has ${figures.length} figure(s); index ${index} is out of range.`,
           };
         }
+        // Avoid the corner-logo trap: when `index` was defaulted to 1 and the largest
+        // bitmap on the page is tiny (`< 56pt` on an edge, e.g. a running header icon
+        // on a vector matplotlib/TikZ plot page), inspect the rendered page instead.
+        const figure =
+          boxedViewRect
+            ? undefined
+            : candidateFigure &&
+                index === 1 &&
+                (candidateFigure.rect.width < 56 || candidateFigure.rect.height < 56)
+              ? undefined
+              : candidateFigure;
 
-        const effectiveIndex = figure ? index : 0;
+        const effectiveIndex = boxedViewRect ? -1 : figure ? index : 0;
         if (R.alreadyDeliveredFigure(budget, path, page, effectiveIndex, question)) {
           return {
             page,
@@ -90,15 +109,22 @@ export function createReadFigureTool(
 
         const signal = getAgentRunAbortSignal();
         throwIfAborted(signal);
-        const description = figure
-          ? await describeFigure(path, page, figure, signal, question)
-          : await describeFigureOrPage(path, doc, page, undefined, question, signal);
+        let description: string;
+        if (boxedViewRect && doc.kind === "pdf") {
+          const pdfRect = await viewRectToPdfRect(path, page, boxedViewRect);
+          if (sel?.pinnedForDraft) consumePinnedDraftSelection(path);
+          description = await describeFigure(path, page, { page, rect: pdfRect }, signal, question);
+        } else if (figure) {
+          description = await describeFigure(path, page, figure, signal, question);
+        } else {
+          description = await describeFigureOrPage(path, doc, page, undefined, question, signal);
+        }
         throwIfAborted(signal);
         R.markFigureDelivered(budget, path, page, effectiveIndex, runGen, question);
 
         const result = {
           page,
-          ...(figure ? { figureIndex: index } : { fullPage: true }),
+          ...(boxedViewRect ? { boxedRegion: true } : figure ? { figureIndex: index } : { fullPage: true }),
           figureCount: figures.length,
           description,
         };

@@ -1,9 +1,43 @@
 import type { UIMessage } from "ai";
-import { createAtomicStore, type StoreHandle } from "../lib/atomic-store";
+import {
+  CHATS_DIR,
+  chatFileName,
+  createAtomicStore,
+  deleteStoreFiles,
+  listStoreDir,
+  readStoreFile,
+  writeStoreFile,
+  type StoreHandle,
+} from "../lib/atomic-store";
 import { prepareMessagesForPersist } from "../lib/persist-messages";
 import { hydrateChatMessages, normalizeUIMessages } from "../lib/messages-utils";
 import { createStoreRuntime } from "../lib/json-store";
 import { reportWriteFailed, reportWriteSucceeded } from "../lib/store-health";
+
+interface ChatSidecarRef {
+  sidecar: string;
+}
+
+function isSidecarRef(value: unknown): value is ChatSidecarRef {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { sidecar?: unknown }).sidecar === "string" &&
+    (value as ChatSidecarRef).sidecar.length >= 8
+  );
+}
+
+async function resolveStoredPayload(raw: unknown): Promise<unknown> {
+  if (!isSidecarRef(raw)) return raw;
+  const text = await readStoreFile(chatFileName(raw.sidecar));
+  if (typeof text !== "string") return [];
+  try {
+    return JSON.parse(text);
+  } catch {
+    return [];
+  }
+}
 
 const STORE_PATH = "pagewise-v3-chats.json";
 /**
@@ -79,7 +113,7 @@ export async function loadChat(path: string, identity?: string): Promise<UIMessa
         }
       }
     }
-    const messages = normalizeUIMessages(raw);
+    const messages = normalizeUIMessages(await resolveStoredPayload(raw));
     if (messages.length === 0) return [];
     return hydrateChatMessages(messages);
   } catch {
@@ -104,7 +138,11 @@ export async function saveChat(
 function writeChat(path: string, messages: UIMessage[], identity?: string): Promise<void> {
   return runtime.withStoreLock(async () => {
     const store = await runtime.store();
-    await store.set(chatKey(path), prepareMessagesForPersist(messages));
+    const existing = await store.get<unknown>(chatKey(path));
+    const sidecar = isSidecarRef(existing) ? existing.sidecar : crypto.randomUUID();
+    const prepared = prepareMessagesForPersist(messages);
+    await writeStoreFile(chatFileName(sidecar), JSON.stringify(prepared));
+    await store.set(chatKey(path), { sidecar });
     await store.set(SAVED_AT_KEY, { ...(await readSavedAt(store)), [chatKey(path)]: Date.now() });
     if (identity) {
       const index = await readIdentityIndex(store);
@@ -129,13 +167,15 @@ export async function clearChat(path: string): Promise<void> {
 function removeChat(path: string): Promise<void> {
   return runtime.withStoreLock(async () => {
     const store = await runtime.store();
+    const existing = await store.get<unknown>(chatKey(path));
     await store.delete(chatKey(path));
     const savedAt = await readSavedAt(store);
-    if (chatKey(path) in savedAt) {
-      delete savedAt[chatKey(path)];
-      await store.set(SAVED_AT_KEY, savedAt);
-    }
+    delete savedAt[chatKey(path)];
+    await store.set(SAVED_AT_KEY, savedAt);
     await store.save();
+    if (isSidecarRef(existing)) {
+      await deleteStoreFiles([chatFileName(existing.sidecar)]).catch(() => {});
+    }
   });
 }
 
@@ -162,21 +202,43 @@ export async function pruneOrphanedChats(
     await runtime.withStoreLock(async () => {
       const store = await runtime.store();
       const keys = (await store.keys()).filter((k) => !RESERVED_KEYS.has(k));
-      if (keys.length <= maxChats) return;
-      const keep = new Set(keepPaths.map(chatKey));
-      // Oldest save first; a chat saved before 16.0 recorded ages counts as
-      // oldest of all. Drop those outside the recents until under the cap.
-      const savedAt = await readSavedAt(store);
-      const recorded = Object.keys(savedAt).length > 0;
-      const droppable = keys.filter((k) => !keep.has(k)).sort((a, b) => (savedAt[a] ?? 0) - (savedAt[b] ?? 0));
-      const dropCount = Math.min(droppable.length, keys.length - maxChats);
-      if (dropCount <= 0) return;
-      for (const k of droppable.slice(0, dropCount)) {
-        await store.delete(k);
-        delete savedAt[k];
+      if (keys.length > maxChats) {
+        const keep = new Set(keepPaths.map(chatKey));
+        // Oldest save first; a chat saved before 16.0 recorded ages counts as
+        // oldest of all. Drop those outside the recents until under the cap.
+        const savedAt = await readSavedAt(store);
+        const recorded = Object.keys(savedAt).length > 0;
+        const droppable = keys
+          .filter((k) => !keep.has(k))
+          .sort((a, b) => (savedAt[a] ?? 0) - (savedAt[b] ?? 0));
+        const dropCount = Math.min(droppable.length, keys.length - maxChats);
+        if (dropCount > 0) {
+          const droppedSidecars: string[] = [];
+          for (const k of droppable.slice(0, dropCount)) {
+            const val = await store.get<unknown>(k);
+            if (isSidecarRef(val)) droppedSidecars.push(chatFileName(val.sidecar));
+            await store.delete(k);
+            delete savedAt[k];
+          }
+          if (recorded) await store.set(SAVED_AT_KEY, savedAt);
+          await store.save();
+          if (droppedSidecars.length > 0) {
+            await deleteStoreFiles(droppedSidecars).catch(() => {});
+          }
+        }
       }
-      if (recorded) await store.set(SAVED_AT_KEY, savedAt);
-      await store.save();
+      // Sweep any unreferenced sidecar files left behind by interrupted writes.
+      const liveKeys = (await store.keys()).filter((k) => !RESERVED_KEYS.has(k));
+      const referenced = new Set<string>();
+      for (const k of liveKeys) {
+        const val = await store.get<unknown>(k);
+        if (isSidecarRef(val)) referenced.add(chatFileName(val.sidecar));
+      }
+      const present = await listStoreDir(CHATS_DIR);
+      const orphans = present.filter((name) => !referenced.has(name));
+      if (orphans.length > 0) {
+        await deleteStoreFiles(orphans).catch(() => {});
+      }
     });
   } catch {
     /* best-effort cleanup */

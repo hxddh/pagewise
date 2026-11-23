@@ -260,14 +260,14 @@ function AppContent() {
       const insert = text.trim();
       if (!insert) return;
       setComposerDraft((prev) => (prev.trim() ? `${prev.trim()} ${insert} ` : `${insert} `));
-      if (s.assistant.open) {
+      if (s.assistant.open && !zen) {
         setFocusComposerNonce((n) => n + 1);
       } else {
         setMarginAskOpen(true);
         setMarginFocusNonce((n) => n + 1);
       }
     },
-    [s.assistant.open],
+    [s.assistant.open, zen],
   );
 
   useEffect(() => {
@@ -283,14 +283,11 @@ function AppContent() {
       return next;
     });
   }, []);
-  /** The pill in Zen: open the floating margin ask bar in-place without leaving Zen. */
+  /** The pill in Zen: open the floating margin ask bar in-place without leaving Zen or mutating the saved panel state. */
   const askFromZen = useCallback(() => {
-    if (s.assistant.open) {
-      s.assistant.setOpen(false);
-    }
     setMarginAskOpen(true);
     setMarginFocusNonce((n) => n + 1);
-  }, [s.assistant]);
+  }, []);
 
   const openableRecents = openableRecentFiles(s.library.recentFiles);
 
@@ -460,7 +457,7 @@ function AppContent() {
   );
 
   const marginReply = useMemo(() => {
-    if (!doc || s.assistant.open || !marginSessionActive) return null;
+    if (!doc || (s.assistant.open && !zen) || !marginSessionActive) return null;
     const list = agent.messages.list;
     for (let i = list.length - 1; i >= 0; i -= 1) {
       const m = list[i]!;
@@ -756,7 +753,7 @@ function AppContent() {
                       revealedCitation={revealedCitation}
                       citations={citedPages}
                       notes={marginNotes}
-                      marginColumn={!s.assistant.open}
+                      marginColumn={!s.assistant.open || zen}
                       marginAsk={{
                         visible:
                           !zen ||

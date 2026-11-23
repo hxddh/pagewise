@@ -28,8 +28,8 @@ import {
   type Citation,
 } from "./citations";
 import type { PdfRect } from "./types";
-import { claimBefore } from "./answer-tables";
-import { pageText, passageAround } from "./passage";
+import { claimBefore, coCitationsBefore } from "./answer-tables";
+import { MAX_PAGE_TEXT, pageText, passageAround } from "./passage";
 import { polarityMismatch } from "./polarity-check";
 import { unstatedQuantities } from "./quantities";
 import { struckOutMismatch } from "./strikethrough-check";
@@ -41,12 +41,15 @@ import { struckOutMismatch } from "./strikethrough-check";
  * struck-out text as active without disclosing deletion (28.0).
  * When a short quote appears more than once on the cited page, disambiguates
  * across all candidate passages on that page before flagging a mismatch.
+ * When multiple citations co-sign the exact same claim span, verified (`located`)
+ * sibling quotes/passages pool exclusively for numeric coverage (30.0).
  */
 export function withClaim(
   check: CitationCheck | null,
   claim: string,
   quote?: string | null,
   path?: string,
+  siblings?: ReadonlyArray<Pick<Citation, "pages" | "quote">>,
 ): CitationCheck | null {
   if (!check || check.status !== "located" || !claim) return check;
   const docPath = path ?? check.path;
@@ -55,12 +58,33 @@ export function withClaim(
       ? check.candidates
       : [{ rects: check.rects ?? [], passage: check.passage ?? "" }];
 
+  let siblingNumericContext = "";
+  if (docPath && siblings && siblings.length > 0) {
+    const parts: string[] = [];
+    for (const sib of siblings) {
+      if (!sib.quote) continue;
+      const sibCheck = cachedCitationCheck(docPath, sib);
+      if (sibCheck?.status === "located") {
+        if (sibCheck.passage) parts.push(sibCheck.passage);
+        parts.push(sib.quote);
+      }
+    }
+    if (parts.length > 0) siblingNumericContext = `\n${parts.join("\n")}`;
+  }
+
   let firstReasons: string[] | null = null;
   for (const cand of candidates) {
     const context = `${cand.passage}\n${quote ?? ""}`;
-    const unstated = unstatedQuantities(claim, context).map((q) => q.text);
+    const unstated = unstatedQuantities(claim, `${context}${siblingNumericContext}`).map(
+      (q) => q.text,
+    );
     const flipped = polarityMismatch(claim, context);
-    const struck = struckOutMismatch(docPath, check.page, cand.rects, quote, claim);
+    const struck = [
+      ...struckOutMismatch(docPath, check.page, cand.rects, quote, claim),
+      ...(check.secondPage
+        ? struckOutMismatch(docPath, check.secondPage.page, check.secondPage.rects, quote, claim)
+        : []),
+    ];
     const reasons = [...unstated, ...flipped, ...struck];
     if (reasons.length === 0) {
       return cand.passage === check.passage && cand.rects === check.rects
@@ -267,7 +291,8 @@ async function resolve(
   let sawRecognised = false;
   let failedRead = false;
   let emptyPage = false;
-  let firstText: { page: number; text: string } | null | undefined;
+  const readablePages: Array<{ page: number; text: string }> = [];
+  let pageTextOverflowed = false;
   for (const page of c.pages) {
     const runs = await pageRuns(path, page);
     if (runs.reason === "failed") {
@@ -276,9 +301,10 @@ async function resolve(
       continue;
     }
     if (runs.items.length === 0) emptyPage = true;
-    else if (firstText === undefined) {
+    else if (!pageTextOverflowed) {
       const text = pageText(runs.items);
-      firstText = text === null ? null : { page, text };
+      if (text === null) pageTextOverflowed = true;
+      else readablePages.push({ page, text });
     }
     const outcome = locateQuote(runs.items, c.quote);
     if (outcome.status === "located") {
@@ -325,8 +351,24 @@ async function resolve(
     }
   }
   if (sawUnreadable) return { check: { status: "unreadable" }, failedRead, emptyPage };
+  // Join all readable cited pages when under `MAX_PAGE_TEXT` so model review of
+  // a multi-page citation (`〔p12-13 "..."〕`) sees page 13 too, falling back to
+  // the first readable page when the combined span would exceed `MAX_PAGE_TEXT`.
+  let text: { page: number; text: string } | undefined;
+  if (!pageTextOverflowed && readablePages.length > 0) {
+    if (readablePages.length === 1) {
+      text = readablePages[0];
+    } else {
+      const joined = readablePages.map((p) => `[Page ${p.page}]\n${p.text}`).join("\n\n");
+      text =
+        joined.length <= MAX_PAGE_TEXT
+          ? { page: readablePages[0]!.page, text: joined }
+          : readablePages[0];
+    }
+  } else if (readablePages.length > 0) {
+    text = readablePages[0];
+  }
   // So is one page whose only words are OCR's reading of it.
-  const text = firstText ?? undefined;
   if (sawRecognised) return settled({ status: "unconfirmed", pageText: text });
   return settled(sawAbsent ? { status: "unlocated", pageText: text } : { status: "unchecked" });
 }
@@ -369,7 +411,13 @@ export function tallyCitations(path: string, markdown: string): CitationTally {
     if (seen.has(k)) continue;
     seen.add(k);
     tally.total += 1;
-    const check = withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote);
+    const check = withClaim(
+      cachedCitationCheck(path, c),
+      claimBefore(markdown, c.index),
+      c.quote,
+      path,
+      coCitationsBefore(markdown, c.index),
+    );
     if (!check) tally.pending += 1;
     else tally[check.status] += 1;
   }

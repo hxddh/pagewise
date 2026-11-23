@@ -208,6 +208,9 @@ export function installTauriMock({ pdfB64, doc, apiKey, settings, files: seedFil
         case "ocr_cache_clear":
           ocrCache.clear();
           return null;
+        case "watch_document_cmd":
+        case "close_document_cmd":
+          return null;
         default:
           break;
       }

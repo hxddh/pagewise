@@ -56,7 +56,7 @@ if (!existsSync(ASSETS)) {
 const offenders = [];
 const coldBootLeaks = [];
 const COLD_ENTRY = /^(?:index|vendor)-/;
-const DEFERRED_CHUNKS = /^\.\/(?:ai-sdk|ai-openai|zod|markdown|motion|pdfjs|tesseract)-/;
+const DEFERRED_CHUNKS = /^\.\/(?:ai-sdk|ai-openai|zod|markdown|pdfjs|tesseract)-/;
 let scanned = 0;
 
 for (const file of readdirSync(ASSETS)) {

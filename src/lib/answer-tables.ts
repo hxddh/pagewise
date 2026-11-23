@@ -16,7 +16,14 @@
  * Plain GFM tables only: a header row, a delimiter row, body rows. A `|`
  * inside a citation marker's quote does not split a cell.
  */
-import { citationRe, claimSpanBefore, extractCitations, stripCitations, type Citation } from "./citations";
+import {
+  citationKey,
+  citationRe,
+  claimSpanBefore,
+  extractCitations,
+  stripCitations,
+  type Citation,
+} from "./citations";
 import { citationLevel, type TrustLevel } from "./trust-level";
 import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
 import { cachedReview, reviewBasis, type ReviewVerdict } from "./claim-review";
@@ -161,7 +168,13 @@ export function tablesToCsv(path: string, markdown: string, labels: CsvLabels): 
       const citations = extractCitations(markdown).filter((c) => c.index >= row.start && c.index <= row.end);
       // Read against its cell, so a number the passage does not state shows here too.
       const statusOf = (c: Citation) =>
-        withClaim(cachedCitationCheck(path, c), claimBefore(markdown, c.index), c.quote)?.status ?? "pending";
+        withClaim(
+          cachedCitationCheck(path, c),
+          claimBefore(markdown, c.index),
+          c.quote,
+          path,
+          coCitationsBefore(markdown, c.index),
+        )?.status ?? "pending";
       const sources = citations.map((c) => {
         const review = c.quote
           ? cachedReview(path, claimBefore(markdown, c.index), c.quote, reviewBasis(cachedCitationCheck(path, c)))
@@ -258,11 +271,11 @@ export function claimBefore(markdown: string, index: number): string {
     const line = markdown.slice(inRow.row.start, index).replace(citationRe(), "");
     return plain(line.slice(line.lastIndexOf("|") + 1));
   }
+  const cellText = plain(cell.raw.replace(/\\\|/g, "|"));
   const cellCites = extractCitations(cell.raw);
-  if (cellCites.length > 1) {
+  if (cellCites.length > 1 && cellText && cellText !== "—" && cellText !== "-") {
     return claimSpanBefore(cell.raw, index - cell.start);
   }
-  const cellText = plain(cell.raw.replace(/\\\|/g, "|"));
   if (cellText && cellText !== "—" && cellText !== "-") {
     return cellText;
   }
@@ -274,4 +287,30 @@ export function claimBefore(markdown: string, index: number): string {
     .map((s) => plain(s.raw.replace(/\\\|/g, "|")))
     .filter((v) => v && v !== "—" && v !== "-")
     .join(" · ");
+}
+
+/**
+ * Quoted sibling citations that co-sign the exact same `claimBefore` span on
+ * the same line (e.g. `30% upfront and 70% on delivery 〔p2 "30% upfront"〕 〔p5 "70% on delivery"〕`
+ * or a dedicated `Sources` table cell `| Payment | 30%, 70% | 〔p2 "30%"〕 〔p5 "70%"〕 |`).
+ */
+export function coCitationsBefore(
+  markdown: string,
+  index: number,
+): Array<{ pages: number[]; quote: string }> {
+  const claim = claimBefore(markdown, index);
+  if (!claim) return [];
+  const lineStart = markdown.lastIndexOf("\n", Math.max(0, index - 1)) + 1;
+  const lineEndRaw = markdown.indexOf("\n", index);
+  const lineEnd = lineEndRaw >= 0 ? lineEndRaw : markdown.length;
+  const allOnLine = extractCitations(markdown).filter(
+    (c) => c.index >= lineStart && c.index < lineEnd && Boolean(c.quote),
+  );
+  if (allOnLine.length <= 1) return [];
+  const self = allOnLine.find((c) => c.index === index);
+  const selfKey = self ? citationKey(self) : null;
+  return allOnLine
+    .filter((c) => c.index !== index && (selfKey === null || citationKey(c) !== selfKey))
+    .filter((c) => claimBefore(markdown, c.index) === claim)
+    .map((c) => ({ pages: c.pages, quote: c.quote! }));
 }

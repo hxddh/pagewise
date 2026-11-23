@@ -140,13 +140,12 @@ export const SYSTEM_INSTRUCTIONS = `You are PageWise, a local desktop PDF assist
 Rules:
 - Read with tools; never invent page text. Cite pages for document facts, then explain and synthesize freely — keep clear what is from the document and what is background knowledge.
 - Scanned pages are read by local OCR, or by a vision model where that fails — wait for results. OCR text may misread characters: quote it verbatim as given, since citations are checked against it.
-- Pick tools freely: search_in_document locates terms (supports \`queries\` for synonyms), read_pdf_page reads one page or \`pages\` (up to 8 hit pages at once), read_pdf_range / read_section read spans, document_outline surveys structure.
+- Pick tools freely: search_in_document locates terms, read_pdf_page reads one page or \`pages\`, read_pdf_range / read_section read spans, document_outline surveys structure.
 - If search returns nothing useful, read pages anyway — figures or scans defeat search; "no hits" is not absence. Unindexed pages are read on demand (locally or via a billed vision allowance); read only what you need, and say if the allowance runs out.
 - When the user asks about a term or selection while viewing a page, read that page first; for an ambiguous acronym/term, read where it appears rather than guessing.
 - Don't answer a document-spanning question from one page — search or read further. On audits, reviews or multi-step analyses, record verified conclusions with note_finding (and correct superseded ones with revise_finding).
-- Cite every document fact right after it: 〔p12 "exact words copied from page 12"〕 — sheet number as tools number it, plus a short verbatim quote, punctuation included. Never quote from memory, paraphrase, translate, or splice distant phrases inside quotes. Spanning pages: 〔p12-13 "words spanning pages 12–13"〕. Unquotable figure/chart: 〔p12〕. No marker on your own reasoning.
+- Cite every document fact right after it: 〔p12 "exact words copied from page 12"〕 — sheet number as tools number it, plus a short verbatim quote, punctuation included. Never quote from memory, paraphrase, translate, or splice distant phrases inside quotes. Spanning pages: 〔p12-13 "words spanning pages 12–13"〕. Unquotable figure/chart: 〔p12〕. No marker on your own reasoning. Re-read summarized pages before quoting verbatim.
 - When listing, comparing or tabulating across the document, answer with a Markdown table: one row per item, citation marker right after every document value, "—" (no marker) when absent, no \`|\` inside quotes, and state which pages you checked.
-- If no document is loaded, ask the user to open a PDF. Re-read summarized pages before quoting verbatim.
 - Tool results attach \`marks\` (reader highlights/notes, read-only), \`annotations\` (PDF comments/redlines/form values), and \`links\` (URLs/targets with line context). Use read_figure when text does not convey a figure/chart (pass fullPage=true for vector plots).
 - A page where indexing failed is not blank: do not treat it as empty or re-read it; tell the user indexing failed.`;
 
@@ -163,7 +162,10 @@ export function systemMessageFor(
       providerOptions: { openai: { promptCacheBreakpoint: { mode: "explicit" } } },
     };
   }
-  if (settings.provider === "openrouter" && model.startsWith("anthropic/")) {
+  if (
+    settings.provider === "openrouter" &&
+    (model.startsWith("anthropic/") || model.startsWith("google/gemini-"))
+  ) {
     return {
       role: "system",
       content: SYSTEM_INSTRUCTIONS,
@@ -275,8 +277,16 @@ export function createDocAgent() {
         },
       ) as typeof messages;
 
-      const withSteer = withSteerMessage(compacted ?? [], budget.gen) as typeof messages;
+      const baseMessages = compacted ?? messages ?? [];
+      const withSteer = withSteerMessage(baseMessages, budget.gen) as typeof messages;
+      const steerArrived = withSteer !== baseMessages;
       const carry = withSteer !== messages ? { messages: withSteer } : {};
+      // Grant +2 recovery steps when the reader sends a mid-stream steer correction
+      // so the model can actually call a tool to check the requested page instead
+      // of having its newly consumed steer note swallowed by `toolChoice: "none"` (30.0).
+      if (steerArrived) {
+        runMaxSteps = Math.max(runMaxSteps, stepNumber + 3);
+      }
 
       if (stepNumber >= runMaxSteps - 1) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
@@ -284,7 +294,7 @@ export function createDocAgent() {
       if (budget.max > 0 && budget.used >= budget.max) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
-      if (steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
+      if (!steerArrived && steps.length >= 2 && isMetaToolOnlyLoop(toMetaLoopSnapshot(steps), 2)) {
         return { ...carry, toolChoice: "none", reasoning: runReasoning };
       }
       return { ...carry, reasoning: stepReasoning(runReasoning, steps as ReadonlyArray<StepLike>) };

@@ -53,7 +53,14 @@
  * CSV and the model feedback read (15.0). The split never cuts inside a
  * marker, a code span, a math span or a table row.
  */
-import { answerTables, claimBefore, rowClaim, type AnswerRow, type AnswerTable } from "./answer-tables";
+import {
+  answerTables,
+  claimBefore,
+  coCitationsBefore,
+  rowClaim,
+  type AnswerRow,
+  type AnswerTable,
+} from "./answer-tables";
 import { cachedCitationCheck, withClaim, type CitationStatus } from "./citation-check";
 import {
   citationRe,
@@ -388,7 +395,13 @@ export function sentenceStates(path: string, markdown: string): SentenceRow[] {
     let checking = false;
     for (const c of sentence.citations) {
       const claim = claimBefore(markdown, c.index);
-      const check = withClaim(cachedCitationCheck(path, c), claim, c.quote);
+      const check = withClaim(
+        cachedCitationCheck(path, c),
+        claim,
+        c.quote,
+        path,
+        coCitationsBefore(markdown, c.index),
+      );
       const review = c.quote && claim ? cachedReview(path, claim, c.quote, reviewBasis(check)) : null;
       const reason: SentenceReason = check?.status ?? "pending";
       if (!check) checking = true;
@@ -469,7 +482,13 @@ export function verifiedSentences(path: string, markdown: string): VerifiedSente
     for (const c of row.sentence.citations) {
       if (!c.quote) continue;
       const scopedClaim = claimBefore(markdown, c.index);
-      const check = withClaim(cachedCitationCheck(path, c), scopedClaim, c.quote);
+      const check = withClaim(
+        cachedCitationCheck(path, c),
+        scopedClaim,
+        c.quote,
+        path,
+        coCitationsBefore(markdown, c.index),
+      );
       if (check?.status !== "located" || !check.page) continue;
       const claim = row.sentence.row
         ? distinctRowPages > 1

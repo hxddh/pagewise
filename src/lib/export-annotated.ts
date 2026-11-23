@@ -17,6 +17,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { pickSavePath } from "./allowed-paths";
+import { docCache } from "./doc-cache";
 import { placeFinding, type FindingPlacement } from "./finding-anchors";
 import type { Finding } from "./finding-store";
 import type { Trust } from "./finding-trust";
@@ -84,13 +85,15 @@ export function findingAnnotations(
       color: FINDING_COLOR,
     });
     if (secondPage && secondPage.rects.length > 0) {
+      const secondHow =
+        trust === "confirmed" ? labels.confirmed : labels.foundOnPage(secondPage.page);
       out.push({
         kind: "highlight",
         id: `f-${finding.id}-p${secondPage.page}`,
         page: secondPage.page,
         rects: secondPage.rects,
         frame: "pdf",
-        contents,
+        contents: `${finding.claim}\n\n${secondHow}`,
         author,
         subject: labels.finding,
         color: FINDING_COLOR,
@@ -160,6 +163,12 @@ export async function saveAnnotatedPdfWithPath(
 ): Promise<{ count: number; path: string } | null> {
   const out = await pickSavePath(defaultName, filterName, ["pdf"]);
   if (!out) return null;
-  const count = await invoke<number>("export_annotated_pdf", { path, outPath: out, annotations });
+  const expectedStamp = docCache.get(path)?.stamp;
+  const count = await invoke<number>("export_annotated_pdf", {
+    path,
+    outPath: out,
+    annotations,
+    ...(expectedStamp ? { expectedStamp } : {}),
+  });
   return { count, path: out };
 }

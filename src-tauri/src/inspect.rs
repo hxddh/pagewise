@@ -228,7 +228,8 @@ fn recover_blank_pages(bytes: &[u8], blank: &[usize]) -> Vec<(usize, String)> {
             .collect::<Vec<_>>()
             .join("\n");
         if let Some(md) = table_md {
-            let prose = reflow_lines(&text);
+            let filtered = strip_duplicate_table_lines(&text, &md);
+            let prose = reflow_lines(&filtered);
             let combined = if prose.is_empty() { md } else { format!("{prose}\n\n{md}") };
             out.push((*slot, combined));
         } else if !text.trim().is_empty() {
@@ -236,6 +237,36 @@ fn recover_blank_pages(bytes: &[u8], blank: &[usize]) -> Vec<(usize, String)> {
         }
     }
     out
+}
+
+/// Remove raw lines from `text` whose characters already appear inside `table_md`
+/// so rescued pages do not emit every table row twice (once as prose, once as Markdown table).
+fn strip_duplicate_table_lines(text: &str, table_md: &str) -> String {
+    let mut table_blob = String::new();
+    for line in table_md.lines() {
+        if let Some(cells) = split_md_row(line) {
+            if is_md_delimiter_row(&cells) {
+                continue;
+            }
+            for cell in cells {
+                for ch in cell.chars() {
+                    if !ch.is_whitespace() {
+                        table_blob.push(ch);
+                    }
+                }
+            }
+        }
+    }
+    if table_blob.is_empty() {
+        return text.to_string();
+    }
+    text.lines()
+        .filter(|line| {
+            let compact: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+            compact.len() < 2 || !table_blob.contains(&compact)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Put the region path's printed lines back into paragraphs.
@@ -618,14 +649,87 @@ fn looks_like_table_caption(cell: &str) -> bool {
     false
 }
 
+fn is_numeric_like_cell(cell: &str) -> bool {
+    let t = cell.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let digits = t.chars().filter(|c| c.is_ascii_digit()).count();
+    let alpha = t.chars().filter(|c| c.is_alphabetic()).count();
+    digits > 0 && digits >= alpha
+}
+
+fn split_merged_summary_row(cells: &[&str]) -> Option<(String, String)> {
+    if cells.len() < 3 {
+        return None;
+    }
+    let c0 = cells[0].trim();
+    let (row_num, summary_kw) = c0.split_once(char::is_whitespace)?;
+    let row_num = row_num.trim();
+    let summary_kw = summary_kw.trim();
+    if row_num.is_empty() || !row_num.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let is_summary = matches!(summary_kw, "合计" | "总计" | "小计")
+        || summary_kw.eq_ignore_ascii_case("total")
+        || summary_kw.eq_ignore_ascii_case("subtotal");
+    if !is_summary {
+        return None;
+    }
+    let c1 = cells[1].trim();
+    let (item_name, amount) = c1.rsplit_once(char::is_whitespace)?;
+    let item_name = item_name.trim();
+    let amount = amount.trim();
+    let has_digits = amount.chars().any(|c| c.is_ascii_digit());
+    let valid_amount = has_digits
+        && amount.chars().all(|c| {
+            c.is_ascii_digit() || matches!(c, ',' | '.' | '¥' | '$' | '€' | '£' | '-' | '%')
+        });
+    if item_name.is_empty() || !valid_amount || cells[2..].iter().all(|c| c.trim().is_empty()) {
+        return None;
+    }
+    let mut data_cells = Vec::with_capacity(cells.len());
+    data_cells.push(row_num);
+    data_cells.push(item_name);
+    data_cells.extend_from_slice(&cells[2..]);
+    let data_row = format!("|{}|", data_cells.join("|"));
+
+    let mut sum_cells = vec![""; cells.len()];
+    sum_cells[0] = summary_kw;
+    sum_cells[1] = amount;
+    let sum_row = format!("|{}|", sum_cells.join("|"));
+    Some((data_row, sum_row))
+}
+
+fn is_orphan_caption_number(line: &str) -> bool {
+    let t = line.trim();
+    let Some(num) = t.strip_suffix(':').or_else(|| t.strip_suffix('.')) else {
+        return false;
+    };
+    !num.is_empty() && num.len() <= 4 && num.chars().all(|c| c.is_ascii_digit())
+}
+
 fn repair_booktabs_captions(md: &str) -> String {
     let lines: Vec<&str> = md.lines().collect();
     if lines.len() < 3 {
         return md.to_string();
     }
+    let mut skipped_orphans = std::collections::HashSet::new();
     let mut out: Vec<String> = Vec::with_capacity(lines.len() + 2);
     let mut i = 0;
+    let mut in_table_data = false;
     while i < lines.len() {
+        if skipped_orphans.contains(&i) {
+            // Collapse the extra blank line left next to a lifted `"1:"` orphan.
+            if out.last().is_some_and(|l| l.is_empty())
+                && lines.get(i + 1).is_some_and(|next| next.trim().is_empty())
+            {
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
         if i + 2 < lines.len() {
             if let (Some(c0), Some(c1), Some(c2)) = (
                 split_md_row(lines[i]),
@@ -646,10 +750,86 @@ fn repair_booktabs_captions(md: &str) -> String {
                     out.push(String::new());
                     out.push(lines[i + 2].to_string());
                     out.push(lines[i + 1].to_string());
+                    in_table_data = true;
                     i += 3;
                     continue;
                 }
             }
+        }
+        if let Some(cells) = split_md_row(lines[i]) {
+            if is_md_delimiter_row(&cells) {
+                in_table_data = true;
+                out.push(lines[i].to_string());
+                i += 1;
+                continue;
+            }
+            let next_is_row = lines.get(i + 1).and_then(|l| split_md_row(l)).is_some();
+            if in_table_data && !next_is_row {
+                if let Some((data_row, sum_row)) = split_merged_summary_row(&cells) {
+                    out.push(data_row);
+                    out.push(sum_row);
+                    in_table_data = false;
+                    i += 1;
+                    continue;
+                }
+                // Check for a bottom `"Table N:"` caption swallowed into the final row (`paper-en` p2).
+                let prev_has_numeric = out
+                    .last()
+                    .and_then(|prev| split_md_row(prev))
+                    .is_some_and(|pc| pc.iter().skip(1).any(|c| is_numeric_like_cell(c)));
+                let tail_non_numeric =
+                    cells.len() >= 2 && !cells.iter().skip(1).any(|c| is_numeric_like_cell(c));
+                if prev_has_numeric && tail_non_numeric {
+                    let c0_plain = clean_heading(cells[0]);
+                    if looks_like_table_caption(&c0_plain) {
+                        let caption = cells
+                            .iter()
+                            .copied()
+                            .filter(|s| !s.is_empty())
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        out.push(String::new());
+                        out.push(caption);
+                        in_table_data = false;
+                        i += 1;
+                        continue;
+                    }
+                    if let Some(rest0) = c0_plain.strip_prefix("Table ") {
+                        if let Some((idx, num_tok)) = lines
+                            .iter()
+                            .enumerate()
+                            .skip(i + 1)
+                            .find(|(_, l)| is_orphan_caption_number(l))
+                        {
+                            skipped_orphans.insert(idx);
+                            let mid = cells[1..]
+                                .iter()
+                                .copied()
+                                .filter(|s| !s.is_empty())
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            let caption = [
+                                "Table",
+                                num_tok.trim(),
+                                mid.as_str(),
+                                rest0.trim(),
+                            ]
+                            .into_iter()
+                            .filter(|s| !s.is_empty())
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                            out.push(String::new());
+                            out.push(caption);
+                            in_table_data = false;
+                            i += 1;
+                            continue;
+                        }
+                    }
+                }
+                in_table_data = false;
+            }
+        } else {
+            in_table_data = false;
         }
         out.push(lines[i].to_string());
         i += 1;
@@ -777,21 +957,64 @@ struct PositionsData {
     two_col_blocks: HashMap<u32, Vec<(Vec<String>, Vec<String>)>>,
 }
 
+const MAX_CACHED_PDFS: usize = 2;
+
 struct CachedPdf {
     key: PdfCacheKey,
+    stamp: String,
     bytes: Arc<Vec<u8>>,
     lopdf_meta: OnceLock<LopdfMeta>,
     positions: OnceLock<Result<PositionsData, String>>,
     large_positions: Mutex<HashMap<u32, Vec<TextItemRect>>>,
 }
 
-static ACTIVE_PDF: LazyLock<Mutex<Option<Arc<CachedPdf>>>> = LazyLock::new(|| Mutex::new(None));
+static ACTIVE_PDF: LazyLock<Mutex<Vec<Arc<CachedPdf>>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 static LOADING_PDF: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn lock_unpoisoned<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match m.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn find_cached_by_key(key: &PdfCacheKey) -> Option<Arc<CachedPdf>> {
+    let mut guard = lock_unpoisoned(&ACTIVE_PDF);
+    let idx = guard.iter().position(|c| &c.key == key)?;
+    let entry = guard.remove(idx);
+    let clone = Arc::clone(&entry);
+    guard.insert(0, entry);
+    Some(clone)
+}
+
+fn find_cached_by_stamp(canon: &Path, stamp: &str, unlocked: bool) -> Option<Arc<CachedPdf>> {
+    let mut guard = lock_unpoisoned(&ACTIVE_PDF);
+    let idx = guard
+        .iter()
+        .position(|c| c.key.0 == canon && c.stamp == stamp && c.key.3 == unlocked)?;
+    let entry = guard.remove(idx);
+    let clone = Arc::clone(&entry);
+    guard.insert(0, entry);
+    Some(clone)
+}
+
+fn insert_cached_pdf(entry: Arc<CachedPdf>) {
+    let mut guard = lock_unpoisoned(&ACTIVE_PDF);
+    // Replace any existing entry for the same canonical path + unlock state, or
+    // keep at most `MAX_CACHED_PDFS` entries bounded by `MAX_DOCUMENT_BYTES`.
+    guard.retain(|c| !(c.key.0 == entry.key.0 && c.key.2 == entry.key.2 && c.key.3 == entry.key.3));
+    guard.insert(0, entry);
+    while guard.len() > MAX_CACHED_PDFS {
+        guard.pop();
+    }
+    while guard.len() > 1
+        && guard
+            .iter()
+            .map(|c| c.bytes.len() as u64)
+            .sum::<u64>()
+            > doc_check::MAX_DOCUMENT_BYTES
+    {
+        guard.pop();
     }
 }
 
@@ -827,10 +1050,29 @@ pub fn decrypt_pdf_bytes(raw: &[u8], password: &str) -> Result<Vec<u8>, String> 
 #[allow(dead_code)]
 pub fn cached_pdf_arc(path: &Path) -> Option<Arc<Vec<u8>>> {
     let path_str = path.to_str()?;
-    let key = pdf_key(path_str).ok()?;
-    let guard = lock_unpoisoned(&ACTIVE_PDF);
-    let existing = guard.as_ref()?;
-    (existing.key == key).then(|| Arc::clone(&existing.bytes))
+    let (key, _) = pdf_key_and_stamp(path_str).ok()?;
+    find_cached_by_key(&key).map(|c| Arc::clone(&c.bytes))
+}
+
+/// Single-flight PDF byte loader shared by `open_document` and `read_file_bytes`
+/// so opening a PDF never reads it twice from disk concurrently (30.0).
+#[allow(dead_code)]
+pub fn load_or_cached_pdf_arc(path: &Path) -> Result<Arc<Vec<u8>>, String> {
+    let path_str = path.to_str().ok_or("Invalid path encoding")?;
+    let cached = get_or_load_pdf(path_str)?;
+    Ok(Arc::clone(&cached.bytes))
+}
+
+/// Resolve a PDF buffer locked to `expected_stamp` when supplied so annotated
+/// exports and coordinate lookups never silently read a newer file on disk
+/// against stale frontend state (30.0).
+pub fn cached_pdf_for_stamp(
+    path: &Path,
+    expected_stamp: Option<&str>,
+) -> Result<Arc<Vec<u8>>, String> {
+    let path_str = path.to_str().ok_or("Invalid path encoding")?;
+    let cached = get_or_load_pdf_for_stamp(path_str, expected_stamp)?;
+    Ok(Arc::clone(&cached.bytes))
 }
 
 #[allow(dead_code)]
@@ -843,9 +1085,7 @@ pub fn cached_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
 pub fn evict_cached_pdf(path: &Path) {
     let key_path = doc_check::clean_path_key(path);
     let mut guard = lock_unpoisoned(&ACTIVE_PDF);
-    if guard.as_ref().is_some_and(|c| c.key.0 == key_path) {
-        *guard = None;
-    }
+    guard.retain(|c| c.key.0 != key_path);
 }
 
 /// Unlock a password-protected PDF for the current in-memory session and warm
@@ -873,19 +1113,20 @@ pub fn unlock_pdf(path: &Path, password: &str) -> Result<(), String> {
     detect_pdf_mem(&decrypted).map_err(|e| doc_check::pdf_error(&e))?;
     let canon = doc_check::clean_path_key(path);
     doc_check::set_session_password(&canon, password.to_string());
-    let key = pdf_key(path_str)?;
+    let (key, stamp) = pdf_key_and_stamp(path_str)?;
     let cached = Arc::new(CachedPdf {
         key,
+        stamp,
         bytes: Arc::new(decrypted),
         lopdf_meta: OnceLock::new(),
         positions: OnceLock::new(),
         large_positions: Mutex::new(HashMap::new()),
     });
-    *lock_unpoisoned(&ACTIVE_PDF) = Some(cached);
+    insert_cached_pdf(cached);
     Ok(())
 }
 
-fn pdf_key(path: &str) -> Result<PdfCacheKey, String> {
+fn pdf_key_and_stamp(path: &str) -> Result<(PdfCacheKey, String), String> {
     let p = Path::new(path);
     let meta = std::fs::metadata(p).map_err(map_err)?;
     let len = meta.len();
@@ -895,23 +1136,20 @@ fn pdf_key(path: &str) -> Result<PdfCacheKey, String> {
             format!("{len} bytes; max {}", doc_check::MAX_DOCUMENT_BYTES),
         ));
     }
+    let stamp = doc_check::stamp_of_meta(&meta).unwrap_or_else(|_| format!("0:{len}"));
     let canon = doc_check::clean_path_key(p);
     let unlocked = doc_check::has_unlocked_session(&canon);
-    Ok((canon, len, meta.modified().ok(), unlocked))
+    Ok(((canon, len, meta.modified().ok(), unlocked), stamp))
 }
 
 fn get_or_load_pdf(path: &str) -> Result<Arc<CachedPdf>, String> {
-    let key = pdf_key(path)?;
-    if let Some(existing) = lock_unpoisoned(&ACTIVE_PDF).as_ref() {
-        if existing.key == key {
-            return Ok(Arc::clone(existing));
-        }
+    let (key, stamp) = pdf_key_and_stamp(path)?;
+    if let Some(existing) = find_cached_by_key(&key) {
+        return Ok(existing);
     }
     let _guard = lock_unpoisoned(&LOADING_PDF);
-    if let Some(existing) = lock_unpoisoned(&ACTIVE_PDF).as_ref() {
-        if existing.key == key {
-            return Ok(Arc::clone(existing));
-        }
+    if let Some(existing) = find_cached_by_key(&key) {
+        return Ok(existing);
     }
     let raw = std::fs::read(path).map_err(map_err)?;
     if raw.len() as u64 > doc_check::MAX_DOCUMENT_BYTES {
@@ -927,13 +1165,38 @@ fn get_or_load_pdf(path: &str) -> Result<Arc<CachedPdf>, String> {
     };
     let cached = Arc::new(CachedPdf {
         key,
+        stamp,
         bytes: Arc::new(bytes),
         lopdf_meta: OnceLock::new(),
         positions: OnceLock::new(),
         large_positions: Mutex::new(HashMap::new()),
     });
-    *lock_unpoisoned(&ACTIVE_PDF) = Some(Arc::clone(&cached));
+    insert_cached_pdf(Arc::clone(&cached));
     Ok(cached)
+}
+
+fn get_or_load_pdf_for_stamp(
+    path: &str,
+    expected_stamp: Option<&str>,
+) -> Result<Arc<CachedPdf>, String> {
+    let Some(exp) = expected_stamp.filter(|s| !s.is_empty()) else {
+        return get_or_load_pdf(path);
+    };
+    let canon = doc_check::clean_path_key(Path::new(path));
+    let unlocked = doc_check::has_unlocked_session(&canon);
+    // Serve directly from in-memory snapshot if still resident, even if the file
+    // on disk was overwritten mid-session!
+    if let Some(existing) = find_cached_by_stamp(&canon, exp, unlocked) {
+        return Ok(existing);
+    }
+    let loaded = get_or_load_pdf(path)?;
+    if loaded.stamp != exp {
+        return Err(doc_check::coded(
+            doc_check::PDF_CHANGED,
+            format!("document changed on disk (expected {exp}, found {})", loaded.stamp),
+        ));
+    }
+    Ok(loaded)
 }
 
 impl CachedPdf {
@@ -1356,10 +1619,16 @@ fn build_positions_data(bytes: &[u8], meta: &LopdfMeta) -> Result<PositionsData,
                     });
                 }
             }
-            ItemType::Image => figures.push(Figure {
-                page: item.page,
-                rect,
-            }),
+            ItemType::Image => {
+                // Ignore tiny decorative icons / 1x1 tracking rasters so they
+                // neither masquerade as Figure #1 nor force Vision on blank pages (30.0).
+                if rect.width >= 16.0 && rect.height >= 16.0 {
+                    figures.push(Figure {
+                        page: item.page,
+                        rect,
+                    });
+                }
+            }
             ItemType::Text => {
                 if !item.text.trim().is_empty() && item.width > 0.0 && item.height > 0.0 {
                     by_page.entry(item.page).or_default().push(TextItemRect {
@@ -1817,20 +2086,29 @@ fn origin_of(origins: &[(f32, f32)], page: u32) -> (f32, f32) {
 /// Fetched per page rather than carried in [`DocumentModel`]: a 117-page
 /// document holds some 23,000 runs, which is a heavy thing to pay for on every
 /// open in service of a feature used occasionally.
+#[allow(dead_code)]
 pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, String> {
+    page_text_items_checked(path, page, None)
+}
+
+pub fn page_text_items_checked(
+    path: &str,
+    page: u32,
+    expected_stamp: Option<&str>,
+) -> Result<Vec<TextItemRect>, String> {
     if page == 0 {
         return Err("page must be 1-based".to_string());
     }
-    let cached = get_or_load_pdf(path)?;
+    let cached = get_or_load_pdf_for_stamp(path, expected_stamp)?;
     let meta = cached.lopdf_meta();
     // Large (>1,000 page) documents skip full-document position caching on open;
-    // for those, extract only the requested page from disk (or from decrypted RAM
-    // when unlocked for the session).
+    // for those, extract only the requested page from disk (or from in-memory bytes
+    // when session-unlocked or pinned to an `expected_stamp` snapshot).
     if meta.origins.len() > POSITIONS_PAGE_LIMIT {
         if let Some(hit) = lock_unpoisoned(&cached.large_positions).get(&page).cloned() {
             return Ok(hit);
         }
-        if doc_check::has_unlocked_session(&cached.key.0) {
+        if doc_check::has_unlocked_session(&cached.key.0) || expected_stamp.is_some() {
             let all_items = extract_text_with_positions_mem(&cached.bytes).map_err(map_err)?;
             let mut grouped: HashMap<u32, Vec<TextItemRect>> = HashMap::new();
             for item in all_items {
@@ -1895,11 +2173,21 @@ pub fn page_text_items(path: &str, page: u32) -> Result<Vec<TextItemRect>, Strin
 /// `rect` uses a **top-left** origin in PDF points, which is what a pdf.js
 /// viewport selection already is, so the caller passes its coordinates through
 /// unchanged.
+#[allow(dead_code)]
 pub fn extract_region(path: &str, page: u32, rect: Rect) -> Result<RegionText, String> {
+    extract_region_checked(path, page, rect, None)
+}
+
+pub fn extract_region_checked(
+    path: &str,
+    page: u32,
+    rect: Rect,
+    expected_stamp: Option<&str>,
+) -> Result<RegionText, String> {
     if page == 0 {
         return Err("page must be 1-based".to_string());
     }
-    let cached = get_or_load_pdf(path)?;
+    let cached = get_or_load_pdf_for_stamp(path, expected_stamp)?;
     let bytes = &cached.bytes;
     let bbox = [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height];
     // The region API indexes pages from zero.
@@ -2641,5 +2929,79 @@ mod tests {
         )
         .expect("region");
         assert!(region.latex.is_none(), "prose face must not pass the math gate");
+    }
+
+    #[test]
+    fn region_extraction_works_across_rotated_and_cropped_pages() {
+        let rot = fixture("rotated.pdf");
+        for page in 1..=4 {
+            let region = extract_region(
+                &rot,
+                page,
+                Rect { x: 60.0, y: 50.0, width: 450.0, height: 200.0 },
+            )
+            .expect("rotated region");
+            assert!(
+                region.text.contains(&format!("Page {page} body text")),
+                "page {page} text = {}",
+                region.text
+            );
+        }
+        let cropped = extract_region(
+            &fixture("cropped.pdf"),
+            1,
+            Rect { x: 20.0, y: 40.0, width: 350.0, height: 150.0 },
+        )
+        .expect("cropped region");
+        assert!(cropped.text.contains("Marker text"), "cropped = {}", cropped.text);
+    }
+
+    #[test]
+    fn repairs_merged_summary_rows_and_swallowed_bottom_captions() {
+        let merged = "|序号|设备名称|型号|数量|单价（元）|小计（元）|\n|---|---|---|---|---|---|\n|1|数字化摄影|HY-DR|2 台|1,280,000.00|2,560,000.00|\n|4 合计|影像工作站及软件授权 4,368,000.00|HY-WS 9|4 套|55,000.00|220,000.00|\n\n2.2 合同价格固定。";
+        let fixed = repair_booktabs_captions(merged);
+        assert!(fixed.contains("|4|影像工作站及软件授权|HY-WS 9|4 套|55,000.00|220,000.00|"), "{fixed}");
+        assert!(fixed.contains("|合计|4,368,000.00|||||"), "{fixed}");
+
+        let swallowed = "|Trace|LRU|ARC|TinyLFU|Sieve-A|\n|---|---|---|---|---|\n|MIX|45.8|44.1|43.9|44.6|\n|Table unique bytes. Lower is better.|Byte miss|ratio (%)|at a capacity|of 2% of|\n\nHere k(o) is the size class.\n\n1:\n\n# 5 Results";
+        let fixed_cap = repair_booktabs_captions(swallowed);
+        assert!(
+            fixed_cap.contains("Table 1: Byte miss ratio (%) at a capacity of 2% of unique bytes. Lower is better."),
+            "{fixed_cap}"
+        );
+        assert!(!fixed_cap.contains("\n1:\n"), "{fixed_cap}");
+    }
+
+    #[test]
+    fn two_slot_lru_and_stamp_lock_prevent_split_brain() {
+        let a = fixture("text-simple.pdf");
+        let b = fixture("cropped.pdf");
+        open_document(&a).expect("open a");
+        open_document(&b).expect("open b");
+        // Both A and B stay resident in the 2-slot LRU cache!
+        assert!(cached_pdf_arc(Path::new(&a)).is_some(), "A evicted despite 2-slot LRU");
+        assert!(cached_pdf_arc(Path::new(&b)).is_some(), "B should be cached");
+
+        // Copy `text-simple.pdf` to a temp file, cache it under `stamp_v1`, then
+        // overwrite it on disk: querying with `stamp_v1` still serves `stamp_v1`'s
+        // snapshot from RAM without split-brain, while querying a bogus stamp errors
+        // with `pdf-changed`.
+        let tmp = std::env::temp_dir().join(format!("pagewise-stamp-{}.pdf", std::process::id()));
+        std::fs::copy(&a, &tmp).unwrap();
+        let meta1 = std::fs::metadata(&tmp).unwrap();
+        let stamp1 = doc_check::stamp_of_meta(&meta1).unwrap();
+        let tmp_str = tmp.to_str().unwrap();
+        let items_v1 = page_text_items_checked(tmp_str, 1, Some(&stamp1)).expect("v1 items");
+        assert!(!items_v1.is_empty());
+
+        std::fs::copy(&b, &tmp).unwrap();
+        let items_pinned = page_text_items_checked(tmp_str, 1, Some(&stamp1))
+            .expect("pinned snapshot survives disk overwrite");
+        assert_eq!(items_pinned.len(), items_v1.len());
+
+        evict_cached_pdf(&tmp);
+        let err = page_text_items_checked(tmp_str, 1, Some(&stamp1)).unwrap_err();
+        assert!(err.starts_with(doc_check::PDF_CHANGED), "got {err}");
+        let _ = std::fs::remove_file(&tmp);
     }
 }

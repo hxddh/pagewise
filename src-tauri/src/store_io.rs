@@ -38,21 +38,45 @@ use tauri::{AppHandle, Manager};
 /// A store file may not exceed this. The largest store measured in the 20.0
 /// review — 5,000 findings with 20,000-character bodies — is ~104 MB.
 const MAX_STORE_BYTES: usize = 256 * 1024 * 1024;
-/// The only directory under the store area: one file per kept answer.
+/// Side directories under the store area: one file per kept answer or per chat.
 const BODIES_DIR: &str = "finding-bodies";
+const CHATS_DIR: &str = "chats";
 
-/// A file name in the store area: `marks.json`, or `finding-bodies/<id>.json`.
+fn is_allowed_side_dir(dir: &str) -> bool {
+    matches!(dir, BODIES_DIR | CHATS_DIR)
+}
+
+/// Process-wide per-file write locks so concurrent `spawn_blocking` store saves
+/// on the same target never race each other on disk (30.0).
+static STORE_WRITE_LOCKS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, std::sync::Arc<std::sync::Mutex<()>>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn lock_for_store_path(path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> {
+    let mut map = match STORE_WRITE_LOCKS.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    std::sync::Arc::clone(
+        map.entry(path.to_path_buf())
+            .or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(()))),
+    )
+}
+
+/// A file name in the store area: `marks.json`, `finding-bodies/<id>.json`, or `chats/<id>.json`.
 ///
 /// Validated rather than trusted — it comes from the webview. One path
 /// component (no separators, no `..`, no drive letters), `.json`, and nothing
 /// that would let the name leave the app data directory.
 pub fn store_file_name(name: &str) -> Option<PathBuf> {
-    if let Some(rest) = name.strip_prefix(&format!("{BODIES_DIR}/")) {
-        let id = rest.strip_suffix(".json")?;
-        // `crypto.randomUUID()`: hex and dashes, 36 characters.
-        let valid = (8..=64).contains(&id.len())
-            && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
-        return valid.then(|| PathBuf::from(BODIES_DIR).join(format!("{id}.json")));
+    for side_dir in [BODIES_DIR, CHATS_DIR] {
+        if let Some(rest) = name.strip_prefix(&format!("{side_dir}/")) {
+            let id = rest.strip_suffix(".json")?;
+            // `crypto.randomUUID()` or FNV-1a hex hash: hex and dashes, 8..=64 chars.
+            let valid = (8..=64).contains(&id.len())
+                && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
+            return valid.then(|| PathBuf::from(side_dir).join(format!("{id}.json")));
+        }
     }
     let stem = name.strip_suffix(".json")?;
     let valid = (1..=64).contains(&stem.len())
@@ -215,6 +239,11 @@ pub async fn store_write_cmd(
     }
     let path = store_path(&app, &name)?;
     tauri::async_runtime::spawn_blocking(move || {
+        let file_lock = lock_for_store_path(&path);
+        let _guard = match file_lock.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
         write_atomic(&path, contents.as_bytes())
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))
     })
@@ -222,19 +251,19 @@ pub async fn store_write_cmd(
     .map_err(|e| format!("Task join failed: {e}"))?
 }
 
-/// The absolute path of the one side directory, or an error.
+/// The absolute path of an allowed side directory, or an error.
 fn store_dir_path(app: &AppHandle, dir: &str) -> Result<PathBuf, String> {
-    if dir != BODIES_DIR {
+    if !is_allowed_side_dir(dir) {
         return Err("Invalid store directory".to_string());
     }
     let base = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("No app data directory: {e}"))?;
-    Ok(base.join(BODIES_DIR))
+    Ok(base.join(dir))
 }
 
-/// The names inside the bodies directory, as store file names.
+/// The names inside a side directory, as store file names.
 #[tauri::command]
 pub async fn store_list_cmd(app: AppHandle, dir: String) -> Result<Vec<String>, String> {
     let path = store_dir_path(&app, &dir)?;
@@ -249,8 +278,9 @@ pub async fn store_list_cmd(app: AppHandle, dir: String) -> Result<Vec<String>, 
         for entry in entries.filter_map(Result::ok) {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if store_file_name(&format!("{BODIES_DIR}/{name}")).is_some() {
-                names.push(format!("{BODIES_DIR}/{name}"));
+            let candidate = format!("{dir}/{name}");
+            if store_file_name(&candidate).is_some() {
+                names.push(candidate);
             }
         }
         Ok(names)
@@ -259,16 +289,18 @@ pub async fn store_list_cmd(app: AppHandle, dir: String) -> Result<Vec<String>, 
     .map_err(|e| format!("Task join failed: {e}"))?
 }
 
-/// Delete named files from the bodies directory. Missing ones are not an error.
+/// Delete named files from a side directory. Missing ones are not an error.
 #[tauri::command]
 pub async fn store_delete_cmd(app: AppHandle, names: Vec<String>) -> Result<(), String> {
-    // Only the side directory: the store files themselves are replaced by a
-    // write, never removed, and a name that is not `finding-bodies/<id>.json`
-    // has no business here.
+    // Only side directories: the root store files themselves are replaced by a
+    // write, never removed.
     let paths = names
         .iter()
         .map(|name| {
-            if !name.starts_with(&format!("{BODIES_DIR}/")) {
+            let in_side = [BODIES_DIR, CHATS_DIR]
+                .iter()
+                .any(|d| name.starts_with(&format!("{d}/")));
+            if !in_side {
                 return Err("Invalid store file name".to_string());
             }
             store_path(&app, name)
@@ -276,6 +308,11 @@ pub async fn store_delete_cmd(app: AppHandle, names: Vec<String>) -> Result<(), 
         .collect::<Result<Vec<_>, _>>()?;
     tauri::async_runtime::spawn_blocking(move || {
         for path in paths {
+            let file_lock = lock_for_store_path(&path);
+            let _guard = match file_lock.lock() {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
+            };
             match std::fs::remove_file(&path) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -338,11 +375,17 @@ mod tests {
             store_file_name(&format!("finding-bodies/{id}.json")),
             Some(PathBuf::from(format!("finding-bodies/{id}.json")))
         );
+        assert_eq!(
+            store_file_name(&format!("chats/{id}.json")),
+            Some(PathBuf::from(format!("chats/{id}.json")))
+        );
         for name in [
             "finding-bodies/../../etc/passwd.json",
             "finding-bodies/not-hex-zzzzzzzz.json",
             "finding-bodies/.json",
             "finding-bodies/0f8fad5b-d9cb-469f-a165-70867728950e.txt",
+            "chats/../../etc/passwd.json",
+            "chats/not-hex-zzzzzzzz.json",
         ] {
             assert_eq!(store_file_name(name), None, "{name} must not resolve");
         }

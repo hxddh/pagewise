@@ -5,7 +5,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { useToast } from "../../hooks/useToast";
-import { setActiveReaderSelection } from "../../lib/active-selection";
+import {
+  clearActiveReaderSelection,
+  pinActiveReaderSelectionForDraft,
+  setActiveReaderSelection,
+} from "../../lib/active-selection";
 import { getHoveredHighlight, subscribeHoveredHighlight } from "../../lib/hover-highlight";
 import { isOverlayOpen, isTypingTarget } from "../../lib/shortcut-guards";
 import { usePageIndexStatus } from "../../hooks/usePageIndexStatus";
@@ -150,7 +154,6 @@ function PreviewPaneInner({
   const [thumbsVisible, setThumbsVisible] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline">("pages");
   const [regionMode, setRegionMode] = useState(false);
-  const [altKeyHeld, setAltKeyHeld] = useState(false);
   const [altRegionActive, setAltRegionActive] = useState(false);
   const [altDragSeed, setAltDragSeed] = useState<{
     page: number;
@@ -191,6 +194,7 @@ function PreviewPaneInner({
       topFraction: place.topFraction,
       heightFraction: 0.05,
       nonce: targetNonceRef.current,
+      exact: true,
     });
   }, []);
   const viewer = usePdfViewer({
@@ -222,26 +226,36 @@ function PreviewPaneInner({
   }, [viewer.canGoBack, viewer.canGoForward, viewer.backPage, viewer.forwardPage, page]);
 
   useEffect(() => {
+    const clearAttr = () => panelRef.current?.removeAttribute("data-alt-ready");
     if (doc.kind !== "pdf") {
-      setAltKeyHeld(false);
+      clearAttr();
       return;
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Alt" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-        setAltKeyHeld(true);
+      if (
+        e.key === "Alt" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !isTypingTarget(e.target) &&
+        !isOverlayOpen()
+      ) {
+        panelRef.current?.setAttribute("data-alt-ready", "true");
+      } else {
+        clearAttr();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Alt" || !e.altKey) setAltKeyHeld(false);
+      if (e.key === "Alt" || !e.altKey) clearAttr();
     };
-    const onBlur = () => setAltKeyHeld(false);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", onBlur);
+    window.addEventListener("blur", clearAttr);
     return () => {
+      clearAttr();
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("blur", clearAttr);
     };
   }, [doc.kind]);
 
@@ -397,6 +411,8 @@ function PreviewPaneInner({
     setActiveReaderSelection(null);
   }, [doc.path, askSel, pendingRegion]);
 
+  useEffect(() => () => clearActiveReaderSelection(doc.path), [doc.path]);
+
   // Hide the fixed selection toolbar if the reader scrolls the selected text out of view.
   useEffect(() => {
     setSelOffscreen(false);
@@ -511,12 +527,25 @@ function PreviewPaneInner({
           const selectionRect = askSel.rect;
           const selPage = askSel.page;
           const selPages = askSel.pages;
+          const rawText = askSel.text;
           const run = quoteRun.current;
+          pinActiveReaderSelectionForDraft({
+            path: doc.path,
+            page: selPage,
+            text: rawText,
+            kind: "text",
+          });
           clearAskSel();
           window.getSelection()?.removeAllRanges();
-          void selectionQuote(doc.path, selPage, askSel.text, selectionRect, box, selPages).then(
+          void selectionQuote(doc.path, selPage, rawText, selectionRect, box, selPages).then(
             (quote) => {
               if (quoteRun.current !== run) return;
+              pinActiveReaderSelectionForDraft({
+                path: doc.path,
+                page: selPage,
+                text: quote || rawText,
+                kind: "text",
+              });
               onAskAboutSelection(`"${quote}"`);
             },
           );
@@ -746,7 +775,7 @@ function PreviewPaneInner({
             <CitationHighlight path={doc.path} page={slotPage} rects={citationRects} />
           )}
           <RegionSelectLayer
-            active={regionMode || altKeyHeld || altRegionActive}
+            active={regionMode || altRegionActive}
             seed={altDragSeed?.page === slotPage ? altDragSeed : null}
             onRegion={(rect, pageBox) => {
               setRegionMode(false);
@@ -829,7 +858,6 @@ function PreviewPaneInner({
       citation,
       hovered,
       regionMode,
-      altKeyHeld,
       altRegionActive,
       altDragSeed,
       markRevision,
@@ -1198,20 +1226,19 @@ function PreviewPaneInner({
           onClick={viewer.focusPreview}
           onPointerDownCapture={(e) => {
             if (doc.kind === "pdf" && e.altKey && e.button === 0 && !regionMode) {
+              panelRef.current?.removeAttribute("data-alt-ready");
               setAltRegionActive(true);
-              if (!altKeyHeld) {
-                const slotEl = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-page]");
-                const slotPage = slotEl ? Number(slotEl.dataset.page) : NaN;
-                if (Number.isInteger(slotPage) && slotPage >= 1) {
-                  e.preventDefault();
-                  setAltDragSeed({
-                    page: slotPage,
-                    pointerId: e.pointerId,
-                    clientX: e.clientX,
-                    clientY: e.clientY,
-                    nonce: ++altSeedNonceRef.current,
-                  });
-                }
+              const slotEl = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-page]");
+              const slotPage = slotEl ? Number(slotEl.dataset.page) : NaN;
+              if (Number.isInteger(slotPage) && slotPage >= 1) {
+                e.preventDefault();
+                setAltDragSeed({
+                  page: slotPage,
+                  pointerId: e.pointerId,
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                  nonce: ++altSeedNonceRef.current,
+                });
               }
             }
           }}
@@ -1241,6 +1268,13 @@ function PreviewPaneInner({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 const region = pendingRegion;
+                pinActiveReaderSelectionForDraft({
+                  path: doc.path,
+                  page: region.page,
+                  text: region.text,
+                  kind: "region",
+                  pdfRect: region.pdfRect,
+                });
                 setPendingRegion(null);
                 const prompt = region.text.trim()
                   ? `[${t("preview.pageTitle", { page: region.page })}] "${region.text.trim()}"`

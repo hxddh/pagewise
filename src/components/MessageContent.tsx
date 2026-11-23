@@ -1,7 +1,16 @@
 import { memo, useContext, useMemo } from "react";
 import type { UIMessage } from "ai";
-import { isToolUIPart } from "ai";
 import { openUrl } from "@tauri-apps/plugin-opener";
+
+/** Local runtime check matching AI SDK v7 `isToolUIPart` so rendering chat history never pulls the `ai-sdk` runtime chunk (30.0). */
+function isToolUIPart(
+  part: UIMessage["parts"][number],
+): part is Extract<UIMessage["parts"][number], { state: string }> {
+  return (
+    part.type === "dynamic-tool" ||
+    (typeof part.type === "string" && part.type.startsWith("tool-"))
+  );
+}
 import { useI18n } from "../i18n";
 import { collectReadPages } from "../lib/read-pages";
 import { PageRefContext } from "./Markdown";

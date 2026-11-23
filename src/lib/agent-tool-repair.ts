@@ -19,7 +19,7 @@ const NUMERIC_TOOL_FIELDS = [
   "index",
 ] as const;
 
-const BOOLEAN_TOOL_FIELDS = ["fullPage", "previews"] as const;
+const BOOLEAN_TOOL_FIELDS = ["fullPage", "previews", "pageStats"] as const;
 
 function parsePageToken(raw: string): number[] | null {
   const trimmed = raw.trim().replace(/^(?:pages?|p\.?)\s*/i, "");
@@ -28,7 +28,7 @@ function parsePageToken(raw: string): number[] | null {
   if (range) {
     const a = Number(range[1]);
     const b = Number(range[2]);
-    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    if (!Number.isInteger(a) || !Number.isInteger(b)) return null;
     const lo = Math.min(a, b);
     const hi = Math.max(a, b);
     if (hi - lo > 20) return null;
@@ -37,7 +37,7 @@ function parsePageToken(raw: string): number[] | null {
     return out;
   }
   const n = Number(trimmed);
-  return Number.isFinite(n) ? [n] : null;
+  return Number.isInteger(n) ? [n] : null;
 }
 
 /**

@@ -249,7 +249,10 @@ function findCitationClose(markdown: string, openPos: number): number {
 }
 
 export function claimSpanBefore(markdown: string, markerIndex: number): string {
-  const cleaned = markdown.slice(0, markerIndex).replace(citationRe(), MARKER_STOP);
+  const cleaned = markdown
+    .slice(0, markerIndex)
+    .replace(citationRe(), MARKER_STOP)
+    .replace(new RegExp(`${MARKER_STOP}(?:[ \\t]*${MARKER_STOP})+`, "g"), MARKER_STOP);
   const stops = new RegExp(`${SENTENCE_END.source}|${MARKER_STOP}`, "g");
   const head = tidy(cleaned.slice(startAfterLastStop(cleaned, stops)).split(MARKER_STOP).join(""));
 

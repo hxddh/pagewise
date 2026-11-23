@@ -19,7 +19,7 @@
  */
 import { cachedCitationCheck, withClaim } from "./citation-check";
 import { cachedReview, reviewBasis } from "./claim-review";
-import { claimBefore } from "./answer-tables";
+import { claimBefore, coCitationsBefore } from "./answer-tables";
 import { extractCitations } from "./citations";
 import { sanitizeForPrompt } from "./agent-view-context";
 
@@ -62,7 +62,7 @@ export function buildCitationFeedback(path: string | null, messages: readonly Mo
   for (const c of extractCitations(answer)) {
     const claim = claimBefore(answer, c.index);
     const rawCheck = cachedCitationCheck(path, c);
-    const check = withClaim(rawCheck, claim, c.quote);
+    const check = withClaim(rawCheck, claim, c.quote, path, coCitationsBefore(answer, c.index));
     const review =
       c.quote && claim ? cachedReview(path, claim, c.quote, reviewBasis(rawCheck)) : null;
     const isContradicted = review?.verdict === "contradicts";

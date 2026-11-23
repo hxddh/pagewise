@@ -124,12 +124,18 @@ export function writeStoreFile(name: string, contents: string): Promise<void> {
   return backend().write(name, contents);
 }
 
-/** The store area's one side directory: one file per kept answer. */
+/** The store area's side directories: one file per kept answer or per document chat. */
 export const BODIES_DIR = "finding-bodies";
+export const CHATS_DIR = "chats";
 
 /** The side file name a finding's body is kept in. */
 export function bodyFileName(id: string): string {
   return `${BODIES_DIR}/${id}.json`;
+}
+
+/** The side file name a document's chat history is kept in. */
+export function chatFileName(id: string): string {
+  return `${CHATS_DIR}/${id}.json`;
 }
 
 /** The store file names inside a side directory. */

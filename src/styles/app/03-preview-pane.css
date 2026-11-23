@@ -69,13 +69,11 @@
   display: block;
 }
 
-[data-theme="paper"] .preview-canvas,
-[data-theme="paper"] .preview-image {
+[data-theme="paper"] .preview-canvas {
   filter: sepia(0.11) brightness(0.985);
 }
 
-[data-theme="night"] .preview-canvas,
-[data-theme="night"] .preview-image {
+[data-theme="night"] .preview-canvas {
   filter: invert(0.89) hue-rotate(180deg) brightness(0.96) contrast(0.92);
 }
 

@@ -61,6 +61,8 @@ export interface SubPageScrollTarget {
   topFraction: number;
   heightFraction: number;
   nonce: number;
+  /** Restore exact viewport top offset (`topFraction`) instead of comfort-band framing. */
+  exact?: boolean;
 }
 
 interface PageScrollerProps {
@@ -496,6 +498,8 @@ export function PageScroller({
     });
   }, [layout, scale]);
 
+  const handledTargetNonceRef = useRef<number>(0);
+
   // Bring the view to a page the rest of the app navigated to (outline click,
   // a citation, the page box). Scrolling here must not echo back as a page
   // change, or the two would fight.
@@ -508,6 +512,14 @@ export function PageScroller({
       return;
     }
     if (!node || layout.tops.length === 0) return;
+    if (
+      scrollTarget &&
+      scrollTarget.page === page &&
+      handledTargetNonceRef.current !== scrollTarget.nonce
+    ) {
+      // Sub-page target effect below owns this navigation's exact scroll position.
+      return;
+    }
     const current = pageAtScroll(layout, node.scrollTop, node.clientHeight);
     if (current === page) return;
     selfScrollRef.current = true;
@@ -517,23 +529,33 @@ export function PageScroller({
     requestAnimationFrame(() => {
       selfScrollRef.current = false;
     });
-  }, [page, layout]);
+  }, [page, layout, scrollTarget]);
 
-  const handledTargetNonceRef = useRef<number>(0);
   useLayoutEffect(() => {
     const node = nodeRef.current;
     if (!node || !scrollTarget || layout.tops.length === 0) return;
     if (handledTargetNonceRef.current === scrollTarget.nonce) return;
     if (scrollTarget.page < 1 || scrollTarget.page > layout.tops.length) return;
     handledTargetNonceRef.current = scrollTarget.nonce;
-    const desired = offsetForPageRect(
-      layout,
-      scrollTarget.page,
-      scrollTarget.topFraction,
-      scrollTarget.heightFraction,
-      node.clientHeight,
-      node.scrollTop,
-    );
+    let desired: number | null;
+    if (scrollTarget.exact) {
+      const idx = scrollTarget.page - 1;
+      const maxScroll = Math.max(0, layout.total - node.clientHeight);
+      const clampedTop = Math.min(1, Math.max(0, scrollTarget.topFraction));
+      desired = Math.min(
+        maxScroll,
+        Math.max(0, Math.round((layout.tops[idx] ?? 0) + clampedTop * (layout.heights[idx] ?? 0))),
+      );
+    } else {
+      desired = offsetForPageRect(
+        layout,
+        scrollTarget.page,
+        scrollTarget.topFraction,
+        scrollTarget.heightFraction,
+        node.clientHeight,
+        node.scrollTop,
+      );
+    }
     if (desired === null) return;
     selfScrollRef.current = true;
     node.scrollTop = desired;

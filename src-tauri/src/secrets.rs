@@ -75,12 +75,54 @@ fn vault_entry() -> Result<Entry, String> {
 }
 
 #[cfg(any(target_os = "macos", test))]
+fn vault_backup_path(path: &Path) -> std::path::PathBuf {
+    let mut os = path.as_os_str().to_os_string();
+    os.push(".bak");
+    std::path::PathBuf::from(os)
+}
+
+#[cfg(any(target_os = "macos", test))]
 fn read_vault_file(path: &Path) -> Result<VaultPayload, String> {
     match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Corrupt credential vault {}: {e}", path.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(VaultPayload::default()),
+        Ok(bytes) => match serde_json::from_slice::<VaultPayload>(&bytes) {
+            Ok(v) => Ok(v),
+            Err(primary_err) => {
+                // Fall back to rolling `.bak` when the primary vault was corrupted externally (30.0).
+                let bak = vault_backup_path(path);
+                if let Ok(bak_bytes) = std::fs::read(&bak) {
+                    if let Ok(recovered) = serde_json::from_slice::<VaultPayload>(&bak_bytes) {
+                        let _ = write_vault_file(path, &recovered);
+                        return Ok(recovered);
+                    }
+                }
+                Err(format!(
+                    "Corrupt credential vault {}: {primary_err}",
+                    path.display()
+                ))
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let bak = vault_backup_path(path);
+            if let Ok(bak_bytes) = std::fs::read(&bak) {
+                if let Ok(recovered) = serde_json::from_slice::<VaultPayload>(&bak_bytes) {
+                    let _ = write_vault_file(path, &recovered);
+                    return Ok(recovered);
+                }
+            }
+            Ok(VaultPayload::default())
+        }
         Err(e) => Err(format!("Failed to read credential vault {}: {e}", path.display())),
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn read_vault_file_for_mutation(path: &Path) -> Result<VaultPayload, String> {
+    match read_vault_file(path) {
+        Ok(v) => Ok(v),
+        // Never permanently lock the user out of Settings when overwriting or deleting
+        // a key on a corrupted vault that has no valid `.bak` (30.0).
+        Err(e) if e.starts_with("Corrupt credential vault") => Ok(VaultPayload::default()),
+        Err(e) => Err(e),
     }
 }
 
@@ -93,6 +135,22 @@ fn write_vault_file(path: &Path, payload: &VaultPayload) -> Result<(), String> {
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+    }
+    // Preserve last known-good vault in `.bak` (`0600`) before replacing `path`.
+    if let Ok(existing) = std::fs::read(path) {
+        if serde_json::from_slice::<VaultPayload>(&existing).is_ok() {
+            let bak = vault_backup_path(path);
+            let mut bak_opts = std::fs::OpenOptions::new();
+            bak_opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                bak_opts.mode(0o600);
+            }
+            if let Ok(mut bf) = bak_opts.open(&bak) {
+                let _ = bf.write_all(&existing).and_then(|()| bf.sync_all());
+            }
+        }
     }
     let bytes =
         serde_json::to_vec(payload).map_err(|e| format!("Vault serialize failed: {e}"))?;
@@ -126,7 +184,22 @@ fn write_vault_file(path: &Path, payload: &VaultPayload) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
     }
-    if let Err(e) = std::fs::rename(&tmp, path) {
+    let mut attempt = 0u32;
+    let renamed = loop {
+        match std::fs::rename(&tmp, path) {
+            Ok(()) => break Ok(()),
+            Err(e)
+                if cfg!(windows)
+                    && e.kind() == std::io::ErrorKind::PermissionDenied
+                    && attempt < 4 =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(5 << attempt));
+                attempt += 1;
+            }
+            Err(e) => break Err(e),
+        }
+    };
+    if let Err(e) = renamed {
         let _ = std::fs::remove_file(&tmp);
         return Err(format!("Failed to commit credential vault: {e}"));
     }
@@ -144,7 +217,7 @@ fn set_file_vault_key(dir: &Path, provider: &str, key: &str) -> Result<(), Strin
     }
     let _guard = lock_vault();
     let path = dir.join(VAULT_FILE_NAME);
-    let mut vault = read_vault_file(&path)?;
+    let mut vault = read_vault_file_for_mutation(&path)?;
     vault.keys.insert(provider.to_string(), key.to_string());
     vault.migrated.insert(provider.to_string());
     write_vault_file(&path, &vault)
@@ -200,7 +273,7 @@ where
     validate_provider(provider)?;
     let _guard = lock_vault();
     let path = dir.join(VAULT_FILE_NAME);
-    let mut vault = read_vault_file(&path)?;
+    let mut vault = read_vault_file_for_mutation(&path)?;
     let already_migrated = vault.migrated.contains(provider);
     vault.keys.remove(provider);
     vault.migrated.insert(provider.to_string());
@@ -246,13 +319,22 @@ fn write_keychain_vault(vault: &VaultPayload) -> Result<(), String> {
 }
 
 #[cfg(any(not(target_os = "macos"), test))]
+fn read_keychain_vault_for_mutation() -> Result<VaultPayload, String> {
+    match read_keychain_vault() {
+        Ok(v) => Ok(v),
+        Err(e) if e.starts_with("Corrupt credential vault") => Ok(VaultPayload::default()),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
 fn set_keychain_key_impl(provider: &str, key: &str) -> Result<(), String> {
     validate_provider(provider)?;
     if key.len() > MAX_API_KEY_BYTES {
         return Err("API key exceeds maximum length".to_string());
     }
     let _guard = lock_vault();
-    let mut vault = read_keychain_vault()?;
+    let mut vault = read_keychain_vault_for_mutation()?;
     vault.keys.insert(provider.to_string(), key.to_string());
     vault.migrated.insert(provider.to_string());
     write_keychain_vault(&vault)
@@ -293,7 +375,7 @@ fn get_keychain_key_impl(provider: &str) -> Result<String, String> {
 fn delete_keychain_key_impl(provider: &str) -> Result<(), String> {
     validate_provider(provider)?;
     let _guard = lock_vault();
-    let mut vault = read_keychain_vault()?;
+    let mut vault = read_keychain_vault_for_mutation()?;
     let already_migrated = vault.migrated.contains(provider);
     vault.keys.remove(provider);
     vault.migrated.insert(provider.to_string());
@@ -536,5 +618,35 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pagewise-vault-bad-{}", std::process::id()));
         assert!(set_file_vault_key(&dir, "bogus", "k").is_err());
         assert!(set_file_vault_key(&dir, "", "k").is_err());
+    }
+
+    #[test]
+    fn recovers_corrupt_vault_from_backup_and_never_locks_out_mutations() {
+        let dir = std::env::temp_dir().join(format!("pagewise-vault-heal-{}", std::process::id()));
+        let vault_path = dir.join(VAULT_FILE_NAME);
+        let bak_path = vault_backup_path(&vault_path);
+
+        set_file_vault_key(&dir, "openai", "sk-first").expect("set first");
+        set_file_vault_key(&dir, "deepseek", "sk-second").expect("set second (writes .bak)");
+        assert!(bak_path.exists(), "expected rolling .bak file");
+
+        // Corrupt the primary vault file: read_vault_file recovers from `.bak` (`sk-first`).
+        std::fs::write(&vault_path, b"{truncated").unwrap();
+        let recovered =
+            get_file_vault_key(&dir, "openai", |_| unreachable!(), |_| unreachable!()).unwrap();
+        assert_eq!(recovered, "sk-first");
+
+        // Corrupt BOTH primary and `.bak`: set_file_vault_key and delete_file_vault_key
+        // self-heal instead of permanently locking the user out of Settings.
+        std::fs::write(&vault_path, b"{broken-1").unwrap();
+        std::fs::write(&bak_path, b"{broken-2").unwrap();
+        set_file_vault_key(&dir, "openrouter", "sk-fresh").expect("self-heal set");
+        assert_eq!(
+            get_file_vault_key(&dir, "openrouter", |_| unreachable!(), |_| unreachable!()).unwrap(),
+            "sk-fresh"
+        );
+        delete_file_vault_key(&dir, "openrouter", |_| {}).expect("self-heal delete");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

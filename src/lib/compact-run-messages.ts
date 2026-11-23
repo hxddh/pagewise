@@ -69,8 +69,18 @@ function pagesFromRangeText(raw: string): number[] {
 export function pagesInResult(value: unknown): number[] {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     if ((value as { alreadyRead?: unknown }).alreadyRead === true) return [];
-    const page = (value as { page?: unknown }).page;
     const text = (value as { text?: unknown }).text;
+    const pages = (value as { pages?: unknown }).pages;
+    if (Array.isArray(pages)) {
+      // Multi-page `read_pdf_page({ pages })`: prefer actual non-stub `--- Page N ---`
+      // headers from `text` so already-delivered stub blocks are not evicted while
+      // every newly delivered page `distinctPages[1..7]` IS freed for verbatim re-read (30.0).
+      if (typeof text === "string" && text.includes("--- Page ")) {
+        return pagesFromRangeText(text);
+      }
+      return pages.filter((p): p is number => typeof p === "number");
+    }
+    const page = (value as { page?: unknown }).page;
     if (typeof page === "number" && typeof text === "string") {
       if (text.length === 0 || text.startsWith("[already returned")) return [];
       return [page];

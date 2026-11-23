@@ -19,9 +19,7 @@ export function createDocumentOutlineTool(
         "Document overview: the bookmark/section tree (title → page) when there is " +
         "one, the total length, and which pages are densest, unreadable, or carry " +
         "figures, tables, links or the reader's marks. Jump to a section with it, " +
-        "or plan reads of a large document. pageStats adds per-page character " +
-        "counts, previews text per page — both are large; the summary is usually " +
-        "enough.",
+        "or plan reads of a large document.",
       inputSchema: z.object({
         previews: z
           .boolean()
